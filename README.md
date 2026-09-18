@@ -13,7 +13,10 @@ The `feature/onprem-mvp` branch now includes:
 - hotel-specific configuration
 - zero-LLM fast paths for common questions
 - local AI through Ollama
-- Qwen3 4B default model configuration
+- Qwen3 8B default local model configuration
+- multi-provider AI routing: Local / Gemini / OpenAI / compatible / Hybrid / Auto
+- Fast / Auto / Advanced guest AI mode switcher
+- live nearby-place recommendation adapter
 - ANTlabs integration adapter
 - mock gateway authentication
 - browser-based ANTlabs authentication handoff scaffold
@@ -65,7 +68,7 @@ See [ANTlabs integration plan](docs/ANTLABS_INTEGRATION.md).
 ### 1. Install and start Ollama
 
 ```bash
-ollama pull qwen3:4b
+ollama pull qwen3:8b
 ollama serve
 ```
 
@@ -120,8 +123,9 @@ A real hotel pilot should add a proper hostname, internal DNS, trusted HTTPS, ne
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [ANTlabs integration](docs/ANTLABS_INTEGRATION.md)
+- [AI providers and routing](docs/AI_PROVIDERS.md)
 - [On-prem deployment](docs/DEPLOYMENT.md)
-- [Roadmap](docs/ROADMAP.md)
+- [Product roadmap](docs/ROADMAP.md)
 - [Security boundaries](SECURITY.md)
 
 ## Prototype priorities
@@ -130,7 +134,7 @@ The next technical milestone is deliberately narrow:
 
 > **Unauthenticated guest -> local Concierge.Ai -> valid hotel credentials -> ANTlabs authenticates the same device -> Internet opens -> Concierge remains available.**
 
-Do not add voice, mobile apps, large models, or complex hotel integrations until this flow is proven reliably on a lab SG5.
+The commercial roadmap is **on-prem first, cloud/hybrid later**. The immediate order is ANTlabs authentication proof, production HTTPS/re-entry, the self-service property/landing-page platform, hotel knowledge/RAG, and one real hotel pilot. Voice and advanced indoor positioning come after the core flow is proven.
 
 ## License
 
