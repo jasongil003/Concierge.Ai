@@ -28,6 +28,13 @@ function gatewayContext() {
   return Object.fromEntries(params.entries());
 }
 
+function createClientId() {
+  if (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+  return "client-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
+}
+
 async function start() {
   state.hotel = await jsonFetch("/api/hotel");
   $("hotel-name").textContent = state.hotel.name;
@@ -42,7 +49,7 @@ async function start() {
   }
 
   const existingClient = localStorage.getItem("concierge-client-id");
-  const clientId = existingClient || crypto.randomUUID();
+  const clientId = existingClient || createClientId();
   localStorage.setItem("concierge-client-id", clientId);
 
   const session = await jsonFetch("/api/session/start", {
