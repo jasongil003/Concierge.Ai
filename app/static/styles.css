@@ -189,3 +189,59 @@ footer {
   .auth-grid { grid-template-columns: 1fr; }
   .messages { min-height: 340px; max-height: 52vh; }
 }
+
+
+.chat-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px 0;
+}
+
+.toolbar-label {
+  color: #77736b;
+  font-size: 12px;
+}
+
+.mode-switcher {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid #ddd9d0;
+  border-radius: 999px;
+  background: #f4f2ed;
+}
+
+.mode-button {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: transparent;
+  color: #615e58;
+  font-size: 12px;
+}
+
+.mode-button.active {
+  background: #171717;
+  color: white;
+}
+
+.message-wrap {
+  margin: 7px 0;
+}
+
+.message-wrap.user {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.message-wrap .message {
+  margin: 0;
+}
+
+.message-meta {
+  margin-top: 4px;
+  color: #8a867f;
+  font-size: 10px;
+}
