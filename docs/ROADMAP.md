@@ -8,6 +8,12 @@
 - [x] Local hotel configuration
 - [x] Fast-path answers
 - [x] Local Ollama integration
+- [x] Multi-provider AI router
+- [x] Fast / Auto / Advanced guest switcher
+- [x] Gemini provider
+- [x] OpenAI provider
+- [x] OpenAI-compatible/private provider
+- [x] Live Google Places recommendation adapter
 - [x] ANTlabs adapter abstraction
 - [x] Mock authentication
 - [x] Browser-based gateway handoff scaffold
@@ -67,9 +73,9 @@
 - [ ] analytics and usage metering
 - [ ] subscription/billing
 - [ ] MSP/reseller roles
-- [ ] optional cloud model provider
+- [x] optional cloud model provider
 - [ ] optional voice concierge
-- [ ] optional places/maps provider
+- [x] optional places/maps provider
 - [ ] HA local deployment
 
 ## Pilot success metrics
