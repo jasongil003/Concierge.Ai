@@ -36,16 +36,20 @@
     </section>
 
     <section class="chat-card">
+      <div class="chat-toolbar">
+        <span class="toolbar-label">AI mode</span>
+        <div class="mode-switcher" id="mode-switcher"></div>
+      </div>
       <div class="quick-actions" id="quick-actions"></div>
       <div class="messages" id="messages" aria-live="polite"></div>
       <form id="chat-form" class="composer">
-        <input id="chat-input" autocomplete="off" placeholder="Ask about the hotel..." maxlength="2000">
+        <input id="chat-input" autocomplete="off" placeholder="Ask about the hotel or nearby places..." maxlength="2000">
         <button class="send" aria-label="Send">↑</button>
       </form>
     </section>
 
     <footer>
-      Local AI prototype · Guest session expires automatically
+      Concierge.Ai · Hotel information, local assistance, and live recommendations
     </footer>
   </main>
   <script src="/static/app.js"></script>
