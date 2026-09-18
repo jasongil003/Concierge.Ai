@@ -54,11 +54,7 @@ class GeminiProvider:
             response.raise_for_status()
             body = response.json()
 
-        parts = (
-            body.get("candidates", [{}])[0]
-            .get("content", {})
-            .get("parts", [])
-        )
+        parts = body.get("candidates", [{}])[0].get("content", {}).get("parts", [])
         answer = "".join(part.get("text", "") for part in parts).strip()
         if not answer:
             raise RuntimeError("Gemini returned an empty response.")
@@ -79,21 +75,78 @@ class OpenAIProvider:
 
         model = settings.openai_advanced_model if advanced else settings.openai_fast_model
         system, prompt = build_prompt(user_message, hotel_name, context, live_context)
+        payload: dict[str, Any] = {
+            "model": model,
+            "instructions": system,
+            "input": prompt,
+            "max_output_tokens": settings.max_output_tokens if not advanced else settings.max_output_tokens * 2,
+            "reasoning": {"effort": "medium" if advanced else "none"},
+        }
+        headers = {
+            "Authorization": f"Bearer {settings.openai_api_key}",
+            "Content-Type": "application/json",
+        }
+
+        async with httpx.AsyncClient(timeout=45) as client:
+            response = await client.post(
+                "https://api.openai.com/v1/responses",
+                headers=headers,
+                json=payload,
+            )
+            response.raise_for_status()
+            body = response.json()
+
+        answer = str(body.get("output_text", "")).strip()
+        if not answer:
+            chunks: list[str] = []
+            for item in body.get("output", []):
+                for content_item in item.get("content", []):
+                    text = content_item.get("text")
+                    if text:
+                        chunks.append(str(text))
+            answer = "".join(chunks).strip()
+
+        if not answer:
+            raise RuntimeError("OpenAI returned an empty response.")
+
+        return AIResult(answer, "openai", model, "advanced" if advanced else "fast", advanced)
+
+
+class CompatibleProvider:
+    async def chat(
+        self,
+        user_message: str,
+        hotel_name: str,
+        context: list[dict[str, Any]],
+        live_context: str,
+        advanced: bool,
+    ) -> AIResult:
+        if not settings.compatible_api_base_url:
+            raise RuntimeError("Compatible AI endpoint is not configured.")
+
+        model = (
+            settings.compatible_advanced_model if advanced else settings.compatible_fast_model
+        ) or settings.compatible_fast_model or settings.compatible_advanced_model
+        if not model:
+            raise RuntimeError("Compatible AI model is not configured.")
+
+        system, prompt = build_prompt(user_message, hotel_name, context, live_context)
         payload = {
             "model": model,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
             ],
-            "max_completion_tokens": settings.max_output_tokens if not advanced else settings.max_output_tokens * 2,
+            "temperature": 0.2,
+            "max_tokens": settings.max_output_tokens if not advanced else settings.max_output_tokens * 2,
         }
-        headers = {
-            "Authorization": f"Bearer {settings.openai_api_key}",
-            "Content-Type": "application/json",
-        }
+        headers = {"Content-Type": "application/json"}
+        if settings.compatible_api_key:
+            headers["Authorization"] = f"Bearer {settings.compatible_api_key}"
+
         async with httpx.AsyncClient(timeout=45) as client:
             response = await client.post(
-                "https://api.openai.com/v1/chat/completions",
+                f"{settings.compatible_api_base_url}/v1/chat/completions",
                 headers=headers,
                 json=payload,
             )
@@ -106,11 +159,16 @@ class OpenAIProvider:
             .get("content", "")
         )
         if isinstance(answer, list):
-            answer = "".join(item.get("text", "") for item in answer if isinstance(item, dict))
+            answer = "".join(
+                item.get("text", "")
+                for item in answer
+                if isinstance(item, dict)
+            )
         answer = str(answer).strip()
         if not answer:
-            raise RuntimeError("OpenAI returned an empty response.")
-        return AIResult(answer, "openai", model, "advanced" if advanced else "fast", advanced)
+            raise RuntimeError("Compatible AI endpoint returned an empty response.")
+
+        return AIResult(answer, "compatible", model, "advanced" if advanced else "fast", advanced)
 
 
 class AIOrchestrator:
@@ -118,6 +176,7 @@ class AIOrchestrator:
         self.local = LocalLLM()
         self.gemini = GeminiProvider()
         self.openai = OpenAIProvider()
+        self.compatible = CompatibleProvider()
 
     @staticmethod
     def is_complex(message: str) -> bool:
@@ -170,26 +229,33 @@ class AIOrchestrator:
         if policy == "openai":
             return await self.openai.chat(user_message, hotel_name, context, live_context, advanced)
 
+        if policy == "compatible":
+            return await self.compatible.chat(user_message, hotel_name, context, live_context, advanced)
+
         if policy == "hybrid":
-            if not advanced:
+            if not advanced and not live_context:
                 try:
                     return await self._local(user_message, hotel_name, context, live_context, False)
                 except Exception:
                     pass
-            for provider in (self.gemini, self.openai):
+
+            for provider in (self.gemini, self.openai, self.compatible):
                 try:
                     return await provider.chat(user_message, hotel_name, context, live_context, True)
                 except Exception:
                     continue
+
             return await self._local(user_message, hotel_name, context, live_context, advanced)
 
-        # auto: prefer local for simple questions, cloud for complex/live recommendations,
-        # and gracefully fall back across configured providers.
-        candidates = []
+        # auto:
+        # - simple request: prefer local, then public/private fallbacks.
+        # - complex or live-place request: prefer stronger cloud/private providers,
+        #   but always keep local AI as the last fallback.
+        candidates: list[Any]
         if advanced or live_context:
-            candidates = [self.gemini, self.openai]
+            candidates = [self.gemini, self.openai, self.compatible, self.local]
         else:
-            candidates = [self.local, self.gemini, self.openai]
+            candidates = [self.local, self.gemini, self.openai, self.compatible]
 
         for provider in candidates:
             try:
