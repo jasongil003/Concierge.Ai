@@ -81,11 +81,12 @@ ANTLABS_AUTH_URL=http://<gateway-auth-endpoint>
 ANTLABS_AUTH_METHOD=POST
 ANTLABS_ROOM_FIELD=<validated-room-field>
 ANTLABS_LAST_NAME_FIELD=<validated-last-name-field>
-ANTLABS_SESSION_FIELD=<validated-session-field>
+ANTLABS_SESSION_FIELD=<validated-session-field-if-required>
+ANTLABS_SESSION_CONTEXT_KEY=<validated-query/context-key-if-required>
 ANTLABS_PASSTHROUGH_FIELDS=<validated-field-1>,<validated-field-2>
 ```
 
-Do not deploy `browser_handoff` using placeholder field names.
+Do not deploy `browser_handoff` using placeholder field names. No ANTlabs session field is sent by default; it must be mapped from validated gateway-provided context.
 
 ## Real SG5 validation checklist
 
