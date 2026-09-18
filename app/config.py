@@ -33,7 +33,8 @@ class Settings:
     antlabs_auth_method: str = os.getenv("ANTLABS_AUTH_METHOD", "POST").strip().upper()
     antlabs_room_field: str = os.getenv("ANTLABS_ROOM_FIELD", "room").strip()
     antlabs_last_name_field: str = os.getenv("ANTLABS_LAST_NAME_FIELD", "last_name").strip()
-    antlabs_session_field: str = os.getenv("ANTLABS_SESSION_FIELD", "session").strip()
+    antlabs_session_field: str = os.getenv("ANTLABS_SESSION_FIELD", "").strip()
+    antlabs_session_context_key: str = os.getenv("ANTLABS_SESSION_CONTEXT_KEY", "").strip()
     antlabs_passthrough_fields: tuple[str, ...] = tuple(
         value.strip()
         for value in os.getenv("ANTLABS_PASSTHROUGH_FIELDS", "").split(",")
