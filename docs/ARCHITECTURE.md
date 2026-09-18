@@ -53,22 +53,30 @@ Fast path / cache?
   v            v
 Answer       Retrieve hotel facts
                |
-               v
-             Local AI
+               +--> Live place lookup when relevant
                |
                v
-             Response
+          AI Orchestrator
+          /      |       \
+      Local    Gemini    OpenAI/Compatible
+          \      |       /
+           Fast / Auto / Advanced
+                  |
+                  v
+               Response
 ```
+
+The guest sees a simple Fast / Auto / Advanced mode switch. Provider names remain an administrator concern.
+
+See [AI providers and routing](AI_PROVIDERS.md).
 
 Future routing will add:
 
 - service requests
 - PMS-aware tools
-- maps/places adapters
 - human escalation
 - semantic cache
 - small intent router
-- multiple local models
 
 ## Session lifecycle
 
@@ -127,7 +135,7 @@ Recommended policy:
 Prototype default:
 
 - Ollama runtime
-- Qwen3 4B configured by default
+- Qwen3 8B configured by default
 - low temperature
 - short output limit
 - no extended reasoning
