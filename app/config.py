@@ -40,6 +40,11 @@ class Settings:
     openai_fast_model: str = os.getenv("OPENAI_FAST_MODEL", "gpt-5.6-luna").strip()
     openai_advanced_model: str = os.getenv("OPENAI_ADVANCED_MODEL", "gpt-5.6-terra").strip()
 
+    compatible_api_base_url: str = os.getenv("COMPATIBLE_API_BASE_URL", "").strip().rstrip("/")
+    compatible_api_key: str = os.getenv("COMPATIBLE_API_KEY", "").strip()
+    compatible_fast_model: str = os.getenv("COMPATIBLE_FAST_MODEL", "").strip()
+    compatible_advanced_model: str = os.getenv("COMPATIBLE_ADVANCED_MODEL", "").strip()
+
     google_places_api_key: str = os.getenv("GOOGLE_PLACES_API_KEY", "").strip()
     places_radius_meters: int = int(os.getenv("PLACES_RADIUS_METERS", "5000"))
     places_max_results: int = int(os.getenv("PLACES_MAX_RESULTS", "6"))
