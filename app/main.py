@@ -6,21 +6,23 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from .ai import AIOrchestrator
 from .antlabs import AntlabsAdapter
 from .config import settings
 from .hotel import HotelKnowledge
-from .llm import LocalLLM
+from .places import GooglePlaces, format_places_for_ai
 from .session_store import SessionStore
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 
-app = FastAPI(title=settings.app_name, version="0.1.0")
+app = FastAPI(title=settings.app_name, version="0.2.0")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 knowledge = HotelKnowledge(settings.hotel_config_path)
 store = SessionStore(settings.db_path, settings.session_ttl_minutes)
-llm = LocalLLM()
+ai = AIOrchestrator()
+places = GooglePlaces()
 antlabs = AntlabsAdapter()
 
 
@@ -39,6 +41,7 @@ class AuthRequest(BaseModel):
 class ChatRequest(BaseModel):
     session_id: str
     message: str = Field(min_length=1, max_length=2000)
+    mode: str = "auto"
 
 
 @app.get("/")
@@ -52,14 +55,24 @@ async def health() -> dict[str, Any]:
         "status": "ok",
         "app": settings.app_name,
         "property_id": settings.property_id,
-        "model": settings.ollama_model,
+        "ai_provider_mode": settings.ai_provider_mode,
+        "local_model": settings.ollama_model,
         "antlabs_mode": settings.antlabs_mode,
     }
 
 
 @app.get("/api/hotel")
 async def hotel() -> dict[str, Any]:
-    return knowledge.public_profile
+    profile = knowledge.public_profile
+    profile["ai"] = knowledge.data.get(
+        "ai",
+        {
+            "guest_mode_switch": settings.ai_guest_mode_switch,
+            "default_mode": settings.ai_default_mode,
+            "modes": [],
+        },
+    )
+    return profile
 
 
 @app.post("/api/session/start")
@@ -104,21 +117,56 @@ async def chat(request: ChatRequest) -> dict[str, Any]:
     if session is None:
         raise HTTPException(status_code=401, detail="Concierge session expired.")
 
+    requested_mode = request.mode if settings.ai_guest_mode_switch else settings.ai_default_mode
+
     fast_answer = knowledge.exact_fast_answer(request.message)
-    if fast_answer:
+    if fast_answer and requested_mode != "advanced":
         return {
             "answer": fast_answer,
             "source": "fast_path",
+            "provider": "none",
+            "model": "none",
+            "mode": "fast",
+            "escalated": False,
         }
 
     context = knowledge.retrieve(request.message)
-    answer = await llm.chat(
-        user_message=request.message,
-        hotel_name=knowledge.data["name"],
-        context=context,
+    location = knowledge.data.get("location", {})
+    place_results = await places.search(
+        request.message,
+        location.get("latitude"),
+        location.get("longitude"),
     )
+    live_context = format_places_for_ai(place_results)
+
+    try:
+        result = await ai.chat(
+            user_message=request.message,
+            hotel_name=knowledge.data["name"],
+            context=context,
+            live_context=live_context,
+            requested_mode=requested_mode,
+        )
+    except RuntimeError as exc:
+        if context:
+            return {
+                "answer": context[0].get("answer"),
+                "source": "verified_fallback",
+                "provider": "none",
+                "model": "none",
+                "mode": requested_mode,
+                "escalated": False,
+            }
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
     return {
-        "answer": answer,
-        "source": "local_ai",
+        "answer": result.answer,
+        "source": "ai",
+        "provider": result.provider,
+        "model": result.model,
+        "mode": result.mode,
+        "escalated": result.escalated,
+        "live_places_used": bool(place_results),
+        "places": place_results,
         "context_titles": [item.get("title") for item in context],
     }
