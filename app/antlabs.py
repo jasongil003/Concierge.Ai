@@ -56,8 +56,16 @@ class AntlabsAdapter:
         fields: dict[str, str] = {
             settings.antlabs_room_field: room,
             settings.antlabs_last_name_field: last_name,
-            settings.antlabs_session_field: concierge_session_id,
         }
+
+        if settings.antlabs_session_field and settings.antlabs_session_context_key:
+            gateway_session_value = gateway_context.get(settings.antlabs_session_context_key)
+            if gateway_session_value is None:
+                return AuthResult(
+                    "failed",
+                    "Required ANTlabs gateway session context is missing.",
+                )
+            fields[settings.antlabs_session_field] = str(gateway_session_value)
         for key in settings.antlabs_passthrough_fields:
             value = gateway_context.get(key)
             if value is not None:
