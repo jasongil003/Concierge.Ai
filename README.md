@@ -93,6 +93,18 @@ Open:
 http://localhost:8080
 ```
 
+### 3. Run browser tests
+
+The repository includes Playwright end-to-end tests for the guest chat and admin platform.
+
+```bash
+npm install
+npx playwright install chromium
+npm run test:e2e
+```
+
+Playwright starts its own FastAPI server on `http://127.0.0.1:8092` during the test run, so it can run alongside a local dev server on another port.
+
 For a phone on the hotel/lab network:
 
 ```text
