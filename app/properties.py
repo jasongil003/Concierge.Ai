@@ -519,9 +519,10 @@ class PropertyStore:
         now = int(time.time())
         record.design_published = published
         versions = list(record.design_versions)
+        next_version = max((v["version"] for v in versions), default=0) + 1
         versions.append(
             {
-                "version": len(versions) + 1,
+                "version": next_version,
                 "published_at": now,
                 "published_by": published_by,
                 "config": published,

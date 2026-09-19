@@ -306,6 +306,8 @@ async function savePropertyBasics() {
 }
 
 async function saveDraft({ quiet = false } = {}) {
+  $("hotel-name-input").value = $("design-hotel-name").value || $("hotel-name-input").value;
+  $("concierge-name-input").value = $("design-concierge-name").value || $("concierge-name-input").value;
   await savePropertyBasics();
   const result = await jsonFetch("/api/admin/properties/" + encodeURIComponent(currentPropertyId()) + "/design/draft", {
     method: "PUT",
