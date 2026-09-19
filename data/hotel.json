@@ -1,0 +1,115 @@
+{
+  "name": "Demo Hotel",
+  "concierge_name": "Ava",
+  "welcome": "Welcome. I can help with hotel facilities, Wi-Fi, dining, checkout, and guest services.",
+  "quick_actions": [
+    {
+      "label": "Breakfast",
+      "prompt": "What time is breakfast?"
+    },
+    {
+      "label": "Wi-Fi help",
+      "prompt": "Can you help me with the hotel Wi-Fi?"
+    },
+    {
+      "label": "Pool & gym",
+      "prompt": "What are the pool and gym hours?"
+    },
+    {
+      "label": "Checkout",
+      "prompt": "What time is checkout?"
+    },
+    {
+      "label": "Nearby dining",
+      "prompt": "Recommend good restaurants nearby that are open now."
+    }
+  ],
+  "knowledge": [
+    {
+      "title": "Breakfast",
+      "keywords": [
+        "breakfast",
+        "morning buffet"
+      ],
+      "answer": "Breakfast is served from 6:30 AM to 10:00 AM at the ground-floor restaurant.",
+      "fast_path": true
+    },
+    {
+      "title": "Checkout",
+      "keywords": [
+        "checkout",
+        "check out",
+        "departure"
+      ],
+      "answer": "Standard checkout is 12:00 PM. Late checkout is subject to availability and should be confirmed with the front desk.",
+      "fast_path": true
+    },
+    {
+      "title": "Pool",
+      "keywords": [
+        "pool",
+        "swimming"
+      ],
+      "answer": "The swimming pool is open from 6:00 AM to 10:00 PM.",
+      "fast_path": true
+    },
+    {
+      "title": "Gym",
+      "keywords": [
+        "gym",
+        "fitness"
+      ],
+      "answer": "The fitness center is open 24 hours for registered hotel guests.",
+      "fast_path": true
+    },
+    {
+      "title": "Guest Wi-Fi",
+      "keywords": [
+        "wifi",
+        "wi-fi",
+        "internet",
+        "connect",
+        "connection"
+      ],
+      "answer": "Connect to the hotel guest Wi-Fi and complete the guest authentication flow. If authentication fails, contact the front desk or hotel IT support.",
+      "fast_path": false
+    },
+    {
+      "title": "Housekeeping",
+      "keywords": [
+        "towel",
+        "water",
+        "housekeeping",
+        "cleaning"
+      ],
+      "answer": "Housekeeping requests can be sent to hotel staff. The prototype does not yet submit live service tickets, so please contact the front desk for urgent requests.",
+      "fast_path": false
+    }
+  ],
+  "location": {
+    "latitude": 14.5995,
+    "longitude": 120.9842,
+    "label": "Demo Hotel, Manila"
+  },
+  "ai": {
+    "guest_mode_switch": true,
+    "default_mode": "auto",
+    "modes": [
+      {
+        "id": "fast",
+        "label": "Fast",
+        "description": "Quick answers with minimum reasoning."
+      },
+      {
+        "id": "auto",
+        "label": "Auto",
+        "description": "Escalates automatically for planning and live recommendations."
+      },
+      {
+        "id": "advanced",
+        "label": "Advanced",
+        "description": "Use a stronger model for complex requests."
+      }
+    ]
+  }
+}
