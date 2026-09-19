@@ -11,6 +11,7 @@ from .antlabs import AntlabsAdapter
 from .config import settings
 from .hotel import HotelKnowledge
 from .places import GooglePlaces, format_places_for_ai
+from .properties import PropertyRecord, PropertyStore, validate_design_config
 from .session_store import SessionStore
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -21,6 +22,8 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 knowledge = HotelKnowledge(settings.hotel_config_path)
 store = SessionStore(settings.db_path, settings.session_ttl_minutes)
+properties = PropertyStore(settings.db_path)
+properties.seed_from_hotel_json(settings.property_id, settings.hotel_config_path)
 ai = AIOrchestrator()
 places = GooglePlaces()
 antlabs = AntlabsAdapter()
@@ -44,9 +47,58 @@ class ChatRequest(BaseModel):
     mode: str = "auto"
 
 
+class PropertyPayload(BaseModel):
+    property_id: str = Field(min_length=1, max_length=80, pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$")
+    hotel_name: str = Field(min_length=1, max_length=200)
+    description: str = ""
+    domain: str = ""
+    deployment_mode: str = Field(default="on-prem", pattern=r"^(on-prem|cloud|hybrid|edge)$")
+    timezone: str = "UTC"
+    latitude: float | None = None
+    longitude: float | None = None
+    address: str = ""
+    contact_details: dict[str, Any] = Field(default_factory=dict)
+    logo_url: str = ""
+    brand_assets: dict[str, Any] = Field(default_factory=dict)
+    concierge_name: str = "Concierge"
+    concierge_avatar_url: str = ""
+    primary_color: str = "#171717"
+    secondary_color: str = "#f4f3ef"
+    background: str = ""
+    languages: list[str] = Field(default_factory=lambda: ["en"])
+    facilities: list[dict[str, Any]] = Field(default_factory=list)
+    dining: list[dict[str, Any]] = Field(default_factory=list)
+    spa: dict[str, Any] = Field(default_factory=dict)
+    pool: dict[str, Any] = Field(default_factory=dict)
+    gym: dict[str, Any] = Field(default_factory=dict)
+    policies: list[dict[str, Any]] = Field(default_factory=list)
+    support_contacts: list[dict[str, Any]] = Field(default_factory=list)
+    quick_actions: list[dict[str, Any]] = Field(default_factory=list)
+    ai_settings: dict[str, Any] = Field(default_factory=dict)
+    antlabs_config: dict[str, Any] = Field(default_factory=dict)
+    knowledge_sources: list[dict[str, Any]] = Field(default_factory=list)
+    welcome: str = "How can I help?"
+
+    def to_record(self) -> PropertyRecord:
+        return PropertyRecord(**self.model_dump())
+
+
+class DesignConfigPayload(BaseModel):
+    config: dict[str, Any]
+
+
+class RestoreDesignPayload(BaseModel):
+    version: int
+
+
 @app.get("/")
 async def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/admin")
+async def admin() -> FileResponse:
+    return FileResponse(STATIC_DIR / "admin.html")
 
 
 @app.get("/health")
@@ -63,22 +115,129 @@ async def health() -> dict[str, Any]:
 
 @app.get("/api/hotel")
 async def hotel() -> dict[str, Any]:
-    profile = knowledge.public_profile
-    profile["ai"] = knowledge.data.get(
-        "ai",
-        {
+    property_record = properties.get(settings.property_id)
+    profile = property_record.public_profile if property_record else knowledge.public_profile
+    if not profile.get("ai"):
+        profile["ai"] = {
             "guest_mode_switch": settings.ai_guest_mode_switch,
             "default_mode": settings.ai_default_mode,
             "modes": [],
-        },
-    )
+        }
     return profile
+
+
+@app.get("/api/admin/properties")
+async def list_properties() -> dict[str, Any]:
+    return {"properties": [record.to_dict() for record in properties.list()]}
+
+
+@app.get("/api/admin/properties/{property_id}")
+async def get_property(property_id: str) -> dict[str, Any]:
+    record = properties.get(property_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Property not found.")
+    return record.to_dict()
+
+
+@app.put("/api/admin/properties/{property_id}")
+async def upsert_property(property_id: str, payload: PropertyPayload) -> dict[str, Any]:
+    if property_id != payload.property_id:
+        raise HTTPException(status_code=400, detail="Property ID must match the request path.")
+    record = payload.to_record()
+    existing = properties.get(property_id)
+    if existing:
+        record.design_draft = existing.design_draft
+        record.design_published = existing.design_published
+        record.design_versions = existing.design_versions
+    return properties.upsert(record).to_dict()
+
+
+@app.get("/api/admin/properties/{property_id}/design")
+async def get_property_design(property_id: str) -> dict[str, Any]:
+    record = properties.get(property_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Property not found.")
+    return {
+        "property_id": property_id,
+        "draft": record.design_draft,
+        "published": record.design_published,
+        "versions": [
+            {
+                "version": item.get("version"),
+                "published_at": item.get("published_at"),
+                "published_by": item.get("published_by"),
+            }
+            for item in record.design_versions
+        ],
+    }
+
+
+@app.put("/api/admin/properties/{property_id}/design/draft")
+async def save_property_design_draft(property_id: str, payload: DesignConfigPayload) -> dict[str, Any]:
+    try:
+        record = properties.save_design_draft(property_id, payload.config)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Property not found.") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"status": "draft_saved", "draft": record.design_draft}
+
+
+@app.post("/api/admin/properties/{property_id}/design/publish")
+async def publish_property_design(property_id: str) -> dict[str, Any]:
+    try:
+        record = properties.publish_design(property_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Property not found.") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    latest = record.design_versions[-1] if record.design_versions else {}
+    return {
+        "status": "published",
+        "published": record.design_published,
+        "version": latest.get("version"),
+        "published_at": latest.get("published_at"),
+    }
+
+
+@app.post("/api/admin/properties/{property_id}/design/discard")
+async def discard_property_design(property_id: str) -> dict[str, Any]:
+    record = properties.get(property_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Property not found.")
+    record.design_draft = validate_design_config(record.design_published)
+    properties.upsert(record)
+    return {"status": "discarded", "draft": record.design_draft}
+
+
+@app.post("/api/admin/properties/{property_id}/design/restore")
+async def restore_property_design(property_id: str, payload: RestoreDesignPayload) -> dict[str, Any]:
+    try:
+        record = properties.restore_design_version(property_id, payload.version)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Property not found.") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"status": "restored_to_draft", "draft": record.design_draft}
+
+
+@app.delete("/api/admin/properties/{property_id}")
+async def delete_property(property_id: str) -> dict[str, Any]:
+    if property_id == settings.property_id:
+        raise HTTPException(status_code=400, detail="The active default property cannot be deleted.")
+    deleted = properties.delete(property_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Property not found.")
+    return {"status": "deleted", "property_id": property_id}
 
 
 @app.post("/api/session/start")
 async def start_session(request: StartSessionRequest) -> dict[str, Any]:
+    requested_property_id = request.property_id or settings.property_id
+    if properties.get(requested_property_id) is None:
+        raise HTTPException(status_code=404, detail="Property not found.")
     session = store.create(
-        property_id=request.property_id or settings.property_id,
+        property_id=requested_property_id,
         client_id=request.client_id,
         gateway_context=request.gateway_context,
     )
