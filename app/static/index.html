@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Concierge.Ai</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div class="brand-mark">C</div>
+      <div>
+        <p class="eyebrow" id="hotel-name">Hotel Concierge</p>
+        <h1 id="concierge-name">Concierge.Ai</h1>
+      </div>
+      <span class="status" id="wifi-status">Pre-auth</span>
+    </header>
+
+    <section class="connect-card" id="connect-card">
+      <div>
+        <p class="eyebrow">Guest Wi-Fi</p>
+        <h2>Connect to the hotel network</h2>
+        <p class="muted">For the prototype, authentication is simulated until the exact ANTlabs SG5 handoff fields are validated.</p>
+      </div>
+      <div class="auth-grid">
+        <label>Room
+          <input id="room" autocomplete="off" placeholder="1503">
+        </label>
+        <label>Last name
+          <input id="last-name" autocomplete="off" placeholder="Gil">
+        </label>
+      </div>
+      <button class="primary" id="connect-button">Connect Wi-Fi</button>
+      <p class="small" id="auth-message"></p>
+    </section>
+
+    <section class="chat-card">
+      <div class="chat-toolbar">
+        <span class="toolbar-label">AI mode</span>
+        <div class="mode-switcher" id="mode-switcher"></div>
+      </div>
+      <div class="quick-actions" id="quick-actions"></div>
+      <div class="messages" id="messages" aria-live="polite"></div>
+      <form id="chat-form" class="composer">
+        <input id="chat-input" autocomplete="off" placeholder="Ask about the hotel or nearby places..." maxlength="2000">
+        <button class="send" aria-label="Send">↑</button>
+      </form>
+    </section>
+
+    <footer>
+      Concierge.Ai · Hotel information, local assistance, and live recommendations
+    </footer>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
