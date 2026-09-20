@@ -1,6 +1,37 @@
 import { expect, test } from "@playwright/test";
 
 // --- Helpers ---
+const csrfByRequest = new WeakMap();
+
+async function loginAdmin(api) {
+  const response = await api.post("/api/admin/auth/login", {
+    data: { username: "admin", password: "ChangeMe123!", remember_me: false },
+  });
+  expect(response.ok()).toBeTruthy();
+  const csrf = (await response.json()).user.csrf_token;
+  csrfByRequest.set(api, csrf);
+  return csrf;
+}
+
+function csrfHeaders(api) {
+  return { "X-CSRF-Token": csrfByRequest.get(api) };
+}
+
+async function openPanel(page, label) {
+  await page.locator('body[data-admin-ready="true"]').waitFor();
+  const button = page.locator(".nav-item").filter({ hasText: label }).first();
+  await button.evaluate((element) => {
+    const group = element.closest("details");
+    if (group) group.open = true;
+  });
+  await button.click();
+}
+
+test.beforeEach(async ({ page, request }) => {
+  await loginAdmin(request);
+  await loginAdmin(page.request);
+});
+
 async function getFirstPropertyId(request) {
   const res = await request.get("/api/admin/properties");
   expect(res.ok()).toBeTruthy();
@@ -17,28 +48,34 @@ async function getOriginalDesign(request, propertyId) {
 
 test("topbar: publish state, Save Draft, Publish, Discard, Open guest app", async ({ page }) => {
   await page.goto("/admin");
+  await page.locator('body[data-admin-ready="true"]').waitFor();
   const viewportWidth = page.viewportSize()?.width || 1440;
   if (viewportWidth > 640) {
     await expect(page.locator("#publish-state")).toBeVisible();
   }
-  await expect(page.getByRole("button", { name: "Save Draft" })).toBeEnabled();
-  await expect(page.getByRole("button", { name: "Publish" })).toBeEnabled();
-  await expect(page.getByRole("button", { name: "Discard" })).toBeEnabled();
-  await expect(page.getByRole("link", { name: "Open guest app" })).toHaveAttribute("href", "/");
+  if (viewportWidth > 900) {
+    await expect(page.getByRole("button", { name: "Save Draft" })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Publish" })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Discard" })).toBeEnabled();
+  } else {
+    await expect(page.locator("#property-switcher")).toBeVisible();
+    await expect(page.locator("#profile-button")).toBeVisible();
+  }
+  await expect(page.locator('.topbar-status a[href="/"]')).toHaveAttribute("href", "/");
 });
 
 test("sidebar: all navigation items are visible and clickable", async ({ page }) => {
   await page.goto("/admin");
   const panels = [
     "overview", "appearance", "guest", "ai", "knowledge",
-    "wifi", "auth-types", "requests", "deployment", "license",
+    "wifi", "requests", "deployment", "users", "audit",
   ];
   const navLabels = [
-    "Overview", "AI Chat Design", "Guest Experience", "AI Models",
-    "Knowledge", "Wi-Fi / ANTlabs", "Authentication Type", "Service Requests", "Deployment", "License",
+    "Dashboard", "Concierge Design", "Concierge Preview", "AI Providers",
+    "Knowledge Base", "Wi-Fi Gateway", "Guest Requests", "Domain", "Users", "Audit Logs",
   ];
   for (let i = 0; i < navLabels.length; i++) {
-    await page.getByRole("button", { name: navLabels[i] }).click();
+    await openPanel(page, navLabels[i]);
     await expect(page.locator(`#${panels[i]}`)).toBeVisible();
   }
 });
@@ -55,7 +92,7 @@ test("overview panel: property basics are editable", async ({ page }) => {
 
 test("appearance panel: all design controls are wired and update preview", async ({ page }) => {
   await page.goto("/admin");
-  await page.getByRole("button", { name: "AI Chat Design" }).click();
+  await openPanel(page, "Concierge Design");
 
   await expect(page.locator("#design-hotel-name")).not.toHaveValue("");
   await expect(page.locator("#welcome-input")).toBeEnabled();
@@ -83,7 +120,7 @@ test("appearance panel: all design controls are wired and update preview", async
 
 test("appearance panel: preview size buttons work", async ({ page }) => {
   await page.goto("/admin");
-  await page.getByRole("button", { name: "AI Chat Design" }).click();
+  await openPanel(page, "Concierge Design");
 
   await expect(page.locator(".phone-preview")).toHaveClass(/mobile/);
   await page.getByRole("button", { name: "Tablet" }).click();
@@ -96,7 +133,7 @@ test("appearance panel: preview size buttons work", async ({ page }) => {
 
 test("guest experience panel: module table has locked buttons", async ({ page }) => {
   await page.goto("/admin");
-  await page.getByRole("button", { name: "Guest Experience" }).click();
+  await openPanel(page, "Concierge Preview");
   const lockedButtons = page.locator('button:has-text("Locked")');
   await expect(lockedButtons).toHaveCount(4);
   for (const btn of await lockedButtons.all()) {
@@ -104,29 +141,45 @@ test("guest experience panel: module table has locked buttons", async ({ page })
   }
 });
 
-test("AI models panel: provider management controls are available", async ({ page }) => {
+test("AI providers panel: provider management controls are available", async ({ page }) => {
   await page.goto("/admin");
-  await page.getByRole("button", { name: "AI Models" }).click();
+  await openPanel(page, "AI Providers");
   await expect(page.locator("#ai-default-provider")).toBeEnabled();
   await expect(page.locator("#ai-routing-mode")).toBeEnabled();
   await expect(page.locator("#ai-local-only")).toBeEnabled();
   await expect(page.getByRole("button", { name: "Save AI Settings" })).toBeEnabled();
-  await expect(page.locator(".provider-row")).toHaveCount(7);
+  await expect(page.locator("article.provider-row")).toHaveCount(7);
   await expect(page.getByRole("heading", { name: "Google Gemini" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "OpenRouter" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Local AI" })).toBeVisible();
 });
 
+test("improvement loop panel: operator controls and model selection are available", async ({ page }) => {
+  await page.goto("/admin");
+  await openPanel(page, "Improvement Loop");
+
+  await expect(page.getByRole("heading", { name: "Continuous improvement loop" })).toBeVisible();
+  await expect(page.locator("#loop-provider")).toBeEnabled();
+  await expect(page.locator("#loop-model")).toBeEnabled();
+  await expect(page.locator("#loop-approval-mode")).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Run once" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start loop" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Stop" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Mark satisfied" })).toBeVisible();
+  await expect(page.locator("#loop-provider option", { hasText: "Google Gemini" })).toHaveCount(1);
+});
+
 test("knowledge panel: upload zone disabled with POC note", async ({ page }) => {
   await page.goto("/admin");
-  await page.getByRole("button", { name: "Knowledge" }).click();
+  await openPanel(page, "Knowledge Base");
   await expect(page.locator("#knowledge .poc-note")).toBeVisible();
   await expect(page.locator(".upload-zone")).toHaveAttribute("aria-disabled", "true");
 });
 
 test("wifi panel: all controls disabled with POC note", async ({ page }) => {
   await page.goto("/admin");
-  await page.getByRole("button", { name: "Wi-Fi / ANTlabs" }).click();
+  await openPanel(page, "Wi-Fi Gateway");
   await expect(page.locator("#wifi .poc-note")).toBeVisible();
   for (const sel of await page.locator("#wifi select").all()) {
     await expect(sel).toBeDisabled();
@@ -138,7 +191,7 @@ test("wifi panel: all controls disabled with POC note", async ({ page }) => {
 
 test("authentication type panel: toggles are available", async ({ page }) => {
   await page.goto("/admin");
-  await page.getByRole("button", { name: "Authentication Type" }).click();
+  await page.evaluate(() => window.activatePanel?.("auth-types"));
   await expect(page.locator("#auth-types .poc-note")).toBeVisible();
   await expect(page.locator(".auth-type-row")).toHaveCount(10);
   await expect(page.getByText("PMS / Room Login")).toBeVisible();
@@ -147,7 +200,7 @@ test("authentication type panel: toggles are available", async ({ page }) => {
 
 test("requests panel: service request controls are available", async ({ page }) => {
   await page.goto("/admin");
-  await page.getByRole("button", { name: "Service Requests" }).click();
+  await openPanel(page, "Guest Requests");
   await expect(page.locator("#service-room")).toBeVisible();
   await expect(page.locator("#service-type")).toBeVisible();
   await expect(page.getByRole("button", { name: "Create Request" })).toBeVisible();
@@ -156,14 +209,35 @@ test("requests panel: service request controls are available", async ({ page }) 
 
 test("deployment panel: status info displayed", async ({ page }) => {
   await page.goto("/admin");
-  await page.getByRole("button", { name: "Deployment" }).click();
+  await openPanel(page, "Domain");
   await expect(page.locator("#deployment .status-list")).toBeVisible();
 });
 
 test("license panel: license grid displayed", async ({ page }) => {
   await page.goto("/admin");
-  await page.getByRole("button", { name: "License" }).click();
+  await openPanel(page, "License");
   await expect(page.locator(".license-grid")).toBeVisible();
+});
+
+test("users and access panels expose username-first management", async ({ page }) => {
+  await page.goto("/admin");
+  await openPanel(page, "Users");
+  await expect(page.getByRole("heading", { name: "User management" })).toBeVisible();
+  await expect(page.locator("#users-table")).toBeVisible();
+  await expect(page.locator("#users-table-body").getByText("@admin")).toBeVisible();
+  await page.getByRole("button", { name: "Create User" }).click();
+  await expect(page.locator("#admin-username")).toBeVisible();
+  await expect(page.locator("#admin-email")).toHaveAttribute("placeholder", "name@hotel.com");
+  await page.locator('#user-dialog .dialog-heading [data-close-dialog="user-dialog"]').click({ force: true });
+
+  await openPanel(page, "Roles");
+  await expect(page.getByRole("heading", { name: "Roles", exact: true })).toBeVisible();
+  await expect(page.locator("#role-list").getByRole("heading", { name: "Super Admin" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Create Role" })).toBeVisible();
+
+  await openPanel(page, "Audit Logs");
+  await expect(page.getByRole("heading", { name: "Audit logs" })).toBeVisible();
+  await expect(page.locator("#audit .data-table-shell")).toBeVisible();
 });
 
 // --- 2. Core Configuration Workflow (serial - mutates shared DB) ---
@@ -185,7 +259,7 @@ test.describe("config workflow (serial)", () => {
 
     try {
       await page.goto("/admin");
-      await page.getByRole("button", { name: "AI Chat Design" }).click();
+      await openPanel(page, "Concierge Design");
 
       await page.locator("#design-hotel-name").fill(qaHotelName);
       await page.locator("#welcome-input").fill(qaHeadline);
@@ -220,9 +294,10 @@ test.describe("config workflow (serial)", () => {
       await expect(page.locator("#welcome-headline")).toHaveText(qaHeadline);
     } finally {
       await request.put(`/api/admin/properties/${propertyId}/design/draft`, {
+        headers: csrfHeaders(request),
         data: { config: originalPublished },
       });
-      await request.post(`/api/admin/properties/${propertyId}/design/publish`);
+      await request.post(`/api/admin/properties/${propertyId}/design/publish`, { headers: csrfHeaders(request) });
     }
   });
 
@@ -235,7 +310,7 @@ test.describe("config workflow (serial)", () => {
 
     try {
       await page.goto("/admin");
-      await page.getByRole("button", { name: "AI Chat Design" }).click();
+      await openPanel(page, "Concierge Design");
 
       await page.locator("#welcome-input").fill(discardHeadline);
       await page.getByRole("button", { name: "Save Draft" }).click();
@@ -249,9 +324,10 @@ test.describe("config workflow (serial)", () => {
       expect(draft.welcome.headline).toBe(originalPublished.welcome.headline);
     } finally {
       await request.put(`/api/admin/properties/${propertyId}/design/draft`, {
+        headers: csrfHeaders(request),
         data: { config: originalPublished },
       });
-      await request.post(`/api/admin/properties/${propertyId}/design/publish`);
+      await request.post(`/api/admin/properties/${propertyId}/design/publish`, { headers: csrfHeaders(request) });
     }
   });
 
@@ -267,7 +343,7 @@ test.describe("config workflow (serial)", () => {
     try {
       // Publish version A
       await page.goto("/admin");
-      await page.getByRole("button", { name: "AI Chat Design" }).click();
+      await openPanel(page, "Concierge Design");
       await page.locator("#welcome-input").fill("Version A headline");
       await page.getByRole("button", { name: "Save Draft" }).click();
       await expect(page.getByText("Draft saved.")).toBeVisible();
@@ -299,9 +375,10 @@ test.describe("config workflow (serial)", () => {
       expect(draft.welcome.headline).toBeTruthy();
     } finally {
       await request.put(`/api/admin/properties/${propertyId}/design/draft`, {
+        headers: csrfHeaders(request),
         data: { config: originalPublished },
       });
-      await request.post(`/api/admin/properties/${propertyId}/design/publish`);
+      await request.post(`/api/admin/properties/${propertyId}/design/publish`, { headers: csrfHeaders(request) });
     }
   });
 
@@ -315,6 +392,7 @@ test.describe("config workflow (serial)", () => {
 
     try {
       await page.goto("/admin");
+      await page.locator('body[data-admin-ready="true"]').waitFor();
       await page.locator("#hotel-name-input").fill(newName);
       await page.locator("#hotel-name-input").press("Tab");
       await page.getByRole("button", { name: "Save Draft" }).click();
@@ -324,13 +402,14 @@ test.describe("config workflow (serial)", () => {
       expect((await res.json()).hotel_name).toBe(newName);
     } finally {
       await request.put(`/api/admin/properties/${propertyId}/design/draft`, {
+        headers: csrfHeaders(request),
         data: { config: originalPublished },
       });
-      await request.post(`/api/admin/properties/${propertyId}/design/publish`);
+      await request.post(`/api/admin/properties/${propertyId}/design/publish`, { headers: csrfHeaders(request) });
       const propRes = await request.get(`/api/admin/properties/${propertyId}`);
       const prop = await propRes.json();
       prop.hotel_name = originalName;
-      await request.put(`/api/admin/properties/${propertyId}`, { data: prop });
+      await request.put(`/api/admin/properties/${propertyId}`, { headers: csrfHeaders(request), data: prop });
     }
   });
 });
@@ -368,6 +447,10 @@ test("admin: no horizontal overflow at mobile (375px)", async ({ page }) => {
 test("admin: all nav items reachable at mobile", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 667 });
   await page.goto("/admin");
+  await page.locator('body[data-admin-ready="true"]').waitFor();
+  await page.locator(".nav-group").evaluateAll((groups) => {
+    for (const group of groups) group.open = true;
+  });
   const navItems = page.locator(".nav-item");
   const count = await navItems.count();
   expect(count).toBeGreaterThanOrEqual(14);

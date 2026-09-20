@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Concierge.Ai Platform</title>
-  <link rel="stylesheet" href="/static/admin.css">
+  <link rel="stylesheet" href="/static/admin.css?v=13">
 </head>
 <body>
   <div class="platform-shell">
@@ -13,50 +13,125 @@
         <div class="brand-mark">C</div>
         <div>
           <strong>Concierge.Ai</strong>
-          <span>Property platform</span>
+          <span>Admin Platform</span>
         </div>
       </div>
+      <button class="icon-button sidebar-toggle" id="sidebar-toggle" type="button" aria-label="Collapse sidebar" title="Collapse sidebar">☰</button>
+      <div class="topbar-context">
+        <label for="property-switcher">Property</label>
+        <select id="property-switcher" aria-label="Current property"></select>
+      </div>
       <div class="topbar-status">
-        <span class="publish-state" id="publish-state">Loading...</span>
+        <span class="publish-state"><i aria-hidden="true"></i><span id="publish-state">Loading...</span></span>
         <a href="/" target="_blank" rel="noopener">Open guest app</a>
-        <button class="secondary" id="discard-design" type="button">Discard</button>
-        <button class="secondary" id="save-draft" type="button">Save Draft</button>
-        <button id="publish-design" type="button">Publish</button>
+        <button class="secondary" id="discard-design" type="button" data-permission="concierge.edit">Discard</button>
+        <button class="secondary" id="save-draft" type="button" data-permission="concierge.edit">Save Draft</button>
+        <button id="publish-design" type="button" data-permission="concierge.edit">Publish</button>
+        <div class="profile-shell">
+          <button class="profile-button" id="profile-button" type="button" aria-expanded="false">
+            <span class="profile-avatar" id="profile-avatar">A</span>
+            <span class="profile-summary"><strong id="profile-name">Administrator</strong><small id="profile-role">Loading...</small></span>
+            <span aria-hidden="true">⌄</span>
+          </button>
+          <div class="profile-menu" id="profile-menu" hidden>
+            <div class="profile-identity"><strong id="profile-menu-name">Administrator</strong><span id="profile-username">@admin</span><small id="profile-menu-role">Super Admin</small></div>
+            <button type="button" data-profile-panel="profile">Profile</button>
+            <button type="button" data-profile-panel="profile">Account Settings</button>
+            <button type="button" data-profile-panel="security">Security</button>
+            <button type="button" data-profile-panel="security">Change Password</button>
+            <button type="button" id="profile-switch-property">Switch Property</button>
+            <hr>
+            <button type="button" id="logout-button">Logout</button>
+          </div>
+        </div>
       </div>
     </header>
 
     <aside class="platform-sidebar">
-      <button class="nav-item active" data-panel="overview">Overview</button>
-      <button class="nav-item" data-panel="appearance">AI Chat Design</button>
-      <button class="nav-item" data-panel="guest">Guest Experience</button>
-      <button class="nav-item" data-panel="zones">Zones</button>
-      <button class="nav-item" data-panel="sessions">Sessions</button>
-      <button class="nav-item" data-panel="location">Location Analytics</button>
-      <button class="nav-item" data-panel="intro">Branding · Intro</button>
-      <button class="nav-item" data-panel="ai">AI Models</button>
-      <button class="nav-item" data-panel="knowledge">Knowledge</button>
-      <button class="nav-item" data-panel="wifi">Wi-Fi / ANTlabs</button>
-      <button class="nav-item" data-panel="auth-types">Authentication Type</button>
-      <button class="nav-item" data-panel="requests">Service Requests</button>
-      <button class="nav-item" data-panel="deployment">Deployment</button>
-      <button class="nav-item" data-panel="license">License</button>
+      <nav class="sidebar-nav" aria-label="Administration">
+        <button class="nav-item active" data-panel="overview" data-permission="dashboard.view"><span class="nav-icon">⌂</span><span class="nav-label">Dashboard</span></button>
+        <details class="nav-group" open><summary><span class="nav-label">Guest Experience</span></summary>
+          <button class="nav-item" data-panel="sessions" data-permission="conversations.view"><span class="nav-icon">◫</span><span class="nav-label">Conversations</span></button>
+          <button class="nav-item" data-panel="requests" data-permission="requests.view"><span class="nav-icon">☷</span><span class="nav-label">Guest Requests</span></button>
+          <button class="nav-item" data-panel="guest" data-permission="concierge.view"><span class="nav-icon">◉</span><span class="nav-label">Concierge Preview</span></button>
+        </details>
+        <details class="nav-group" open><summary><span class="nav-label">Property</span></summary>
+          <button class="nav-item" data-panel="overview" data-permission="properties.view"><span class="nav-icon">□</span><span class="nav-label">Hotel Information</span></button>
+          <button class="nav-item" data-panel="rooms" data-permission="properties.view"><span class="nav-icon">▤</span><span class="nav-label">Rooms</span></button>
+          <button class="nav-item" data-panel="zones" data-permission="properties.view"><span class="nav-icon">◇</span><span class="nav-label">Facilities</span></button>
+          <button class="nav-item" data-panel="restaurants" data-permission="properties.view"><span class="nav-icon">○</span><span class="nav-label">Restaurants</span></button>
+          <button class="nav-item" data-panel="requests" data-permission="requests.view"><span class="nav-icon">＋</span><span class="nav-label">Services</span></button>
+          <button class="nav-item" data-panel="recommendations" data-permission="properties.view"><span class="nav-icon">⌖</span><span class="nav-label">Local Recommendations</span></button>
+        </details>
+        <details class="nav-group"><summary><span class="nav-label">Knowledge</span></summary>
+          <button class="nav-item" data-panel="knowledge" data-permission="knowledge.view"><span class="nav-icon">▣</span><span class="nav-label">Knowledge Base</span></button>
+          <button class="nav-item" data-panel="documents" data-permission="knowledge.view"><span class="nav-icon">▧</span><span class="nav-label">Documents</span></button>
+          <button class="nav-item" data-panel="faqs" data-permission="knowledge.view"><span class="nav-icon">?</span><span class="nav-label">FAQs</span></button>
+        </details>
+        <details class="nav-group" open><summary><span class="nav-label">AI</span></summary>
+          <button class="nav-item" data-panel="ai" data-permission="ai.view"><span class="nav-icon">◈</span><span class="nav-label">AI Providers</span></button>
+          <button class="nav-item" data-panel="ai" data-permission="ai.view"><span class="nav-icon">≡</span><span class="nav-label">Models</span></button>
+          <button class="nav-item" data-panel="ai" data-permission="ai.view"><span class="nav-icon">▥</span><span class="nav-label">Local AI</span></button>
+          <button class="nav-item" data-panel="ai-personality" data-permission="ai.view"><span class="nav-icon">✦</span><span class="nav-label">AI Personality</span></button>
+          <button class="nav-item" data-panel="system-prompt" data-permission="ai.view"><span class="nav-icon">⌘</span><span class="nav-label">System Prompt</span></button>
+          <button class="nav-item" data-panel="guardrails" data-permission="ai.view"><span class="nav-icon">⊡</span><span class="nav-label">Guardrails</span></button>
+          <button class="nav-item" data-panel="improvement-loop" data-permission="ai.configure"><span class="nav-icon">↻</span><span class="nav-label">Improvement Loop</span></button>
+        </details>
+        <details class="nav-group"><summary><span class="nav-label">Integrations</span></summary>
+          <button class="nav-item" data-panel="pms" data-permission="integrations.view"><span class="nav-icon">▦</span><span class="nav-label">PMS</span></button>
+          <button class="nav-item" data-panel="wifi" data-permission="integrations.view"><span class="nav-icon">⌁</span><span class="nav-label">Wi-Fi Gateway</span></button>
+          <button class="nav-item" data-panel="api" data-permission="integrations.view"><span class="nav-icon">{ }</span><span class="nav-label">API</span></button>
+          <button class="nav-item" data-panel="webhooks" data-permission="integrations.view"><span class="nav-icon">↗</span><span class="nav-label">Webhooks</span></button>
+          <button class="nav-item" data-panel="third-party" data-permission="integrations.view"><span class="nav-icon">＋</span><span class="nav-label">Third-Party Services</span></button>
+        </details>
+        <details class="nav-group"><summary><span class="nav-label">Appearance</span></summary>
+          <button class="nav-item" data-panel="appearance" data-permission="concierge.view"><span class="nav-icon">◐</span><span class="nav-label">Concierge Design</span></button>
+          <button class="nav-item" data-panel="intro" data-permission="concierge.view"><span class="nav-icon">A</span><span class="nav-label">Branding</span></button>
+          <button class="nav-item" data-panel="appearance" data-permission="concierge.view"><span class="nav-icon">C</span><span class="nav-label">Logo</span></button>
+          <button class="nav-item" data-panel="appearance" data-permission="concierge.view"><span class="nav-icon">T</span><span class="nav-label">Fonts</span></button>
+          <button class="nav-item" data-panel="appearance" data-permission="concierge.view"><span class="nav-icon">“</span><span class="nav-label">Welcome Message</span></button>
+        </details>
+        <details class="nav-group"><summary><span class="nav-label">Analytics</span></summary>
+          <button class="nav-item" data-panel="location" data-permission="analytics.view"><span class="nav-icon">⌗</span><span class="nav-label">Guest Usage</span></button>
+          <button class="nav-item" data-panel="questions" data-permission="analytics.view"><span class="nav-icon">?</span><span class="nav-label">Questions</span></button>
+          <button class="nav-item" data-panel="request-analytics" data-permission="analytics.view"><span class="nav-icon">▥</span><span class="nav-label">Requests</span></button>
+          <button class="nav-item" data-panel="ai-usage" data-permission="analytics.view"><span class="nav-icon">◫</span><span class="nav-label">AI Usage</span></button>
+        </details>
+        <details class="nav-group" open data-permission="users.view"><summary><span class="nav-label">Users &amp; Access</span></summary>
+          <button class="nav-item" data-panel="users" data-permission="users.view"><span class="nav-icon">◎</span><span class="nav-label">Users</span></button>
+          <button class="nav-item" data-panel="roles" data-permission="roles.view"><span class="nav-icon">◇</span><span class="nav-label">Roles</span></button>
+          <button class="nav-item" data-panel="permissions" data-permission="roles.view"><span class="nav-icon">✓</span><span class="nav-label">Permissions</span></button>
+        </details>
+        <details class="nav-group"><summary><span class="nav-label">Deployment</span></summary>
+          <button class="nav-item" data-panel="deployment" data-permission="domains.view"><span class="nav-icon">◌</span><span class="nav-label">Domain</span></button>
+          <button class="nav-item" data-panel="deployment" data-permission="domains.view"><span class="nav-icon">⌑</span><span class="nav-label">SSL</span></button>
+          <button class="nav-item" data-panel="deployment" data-permission="domains.view"><span class="nav-icon">⌁</span><span class="nav-label">Network</span></button>
+        </details>
+        <details class="nav-group"><summary><span class="nav-label">System</span></summary>
+          <button class="nav-item" data-panel="audit" data-permission="audit.view"><span class="nav-icon">☷</span><span class="nav-label">Audit Logs</span></button>
+          <button class="nav-item" data-panel="security" data-permission="security.view"><span class="nav-icon">⊡</span><span class="nav-label">Security</span></button>
+          <button class="nav-item" data-panel="system-settings" data-permission="system.configure"><span class="nav-icon">⌘</span><span class="nav-label">Settings</span></button>
+          <button class="nav-item" data-panel="license" data-permission="system.configure"><span class="nav-icon">▱</span><span class="nav-label">License</span></button>
+        </details>
+      </nav>
+      <div class="sidebar-health"><i aria-hidden="true"></i><div><strong>System operational</strong><span>On-prem runtime</span></div></div>
     </aside>
 
     <main class="platform-main">
       <section class="panel active" id="overview">
         <div class="page-title">
-          <p>Property</p>
-          <h1 id="overview-title">Demo Hotel</h1>
+          <div><p>Property overview</p><h1 id="overview-title">Demo Hotel</h1></div>
+          <span class="live-badge"><i aria-hidden="true"></i> Live operations</span>
         </div>
         <div class="metrics">
-          <article><span>Active guests</span><strong>128</strong></article>
-          <article><span>AI requests today</span><strong>1,842</strong></article>
-          <article><span>Open requests</span><strong>8</strong></article>
-          <article><span>Auth success</span><strong>97.4%</strong></article>
+          <article><div class="metric-top"><span>Active guests</span><span class="metric-icon"><svg viewBox="0 0 24 24"><path d="M16 20v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M9.5 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM16 6h5M18.5 3.5v5"/></svg></span></div><strong>128</strong><small><b>+12%</b> vs yesterday</small></article>
+          <article><div class="metric-top"><span>AI requests today</span><span class="metric-icon"><svg viewBox="0 0 24 24"><path d="M12 3 10 8.5 4.5 10.5 10 13l2 5.5 2-5.5 5.5-2.5L14 8.5 12 3Z"/></svg></span></div><strong>1,842</strong><small><b>96%</b> resolved instantly</small></article>
+          <article><div class="metric-top"><span>Open requests</span><span class="metric-icon"><svg viewBox="0 0 24 24"><path d="M5 20h14M7 20a5 5 0 0 1 10 0M12 10V7M10 7h4"/></svg></span></div><strong>8</strong><small><em>3</em> need attention</small></article>
+          <article><div class="metric-top"><span>Auth success</span><span class="metric-icon"><svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.3 2.8 7.9 7 10 4.2-2.1 7-5.7 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-5"/></svg></span></div><strong>97.4%</strong><small><b>Healthy</b> guest access</small></article>
         </div>
         <div class="two-col">
           <section class="card">
-            <h2>Property basics</h2>
+            <div class="card-heading"><div><span>Configuration</span><h2>Property basics</h2></div><span class="card-chip">Primary</span></div>
             <label>Property ID<input id="property-id" disabled></label>
             <label>Hotel name<input id="hotel-name-input"></label>
             <label>Concierge name<input id="concierge-name-input"></label>
@@ -64,11 +139,11 @@
             <label>Deployment mode<select id="deployment-mode"><option>on-prem</option><option>cloud</option><option>hybrid</option><option>edge</option></select></label>
           </section>
           <section class="card">
-            <h2>Operational status</h2>
+            <div class="card-heading"><div><span>Infrastructure</span><h2>Operational status</h2></div><span class="card-chip healthy">Healthy</span></div>
             <dl class="status-list">
-              <div><dt>Runtime</dt><dd>Local on-prem</dd></div>
-              <div><dt>Database</dt><dd>SQLite POC</dd></div>
-              <div><dt>ANTlabs</dt><dd>Mock / lab adapter</dd></div>
+              <div><dt><i class="status-indicator good"></i>Runtime</dt><dd>Local on-prem</dd></div>
+              <div><dt><i class="status-indicator good"></i>Database</dt><dd>SQLite POC</dd></div>
+              <div><dt><i class="status-indicator warn"></i>ANTlabs</dt><dd>Mock / lab adapter</dd></div>
               <div><dt>Guest URL</dt><dd><a href="/" target="_blank" rel="noopener">/</a></dd></div>
             </dl>
           </section>
@@ -291,6 +366,52 @@
         </section>
       </section>
 
+      <section class="panel" id="improvement-loop">
+        <div class="page-title loop-page-title">
+          <div><p>Controlled intelligence</p><h1>Continuous improvement loop</h1></div>
+          <span class="loop-status-badge draft" id="loop-status-badge"><i aria-hidden="true"></i><span>Draft</span></span>
+        </div>
+        <section class="loop-command-bar" aria-label="Loop controls">
+          <div><strong id="loop-command-title">Ready to configure</strong><span id="loop-command-detail">The operator remains the only authority who can end the loop as satisfied.</span></div>
+          <div class="loop-actions">
+            <button class="secondary" id="loop-run-once" type="button">Run once</button>
+            <button id="loop-start" type="button">Start loop</button>
+            <button class="secondary" id="loop-pause" type="button">Pause</button>
+            <button class="secondary" id="loop-resume" type="button">Resume</button>
+            <button class="secondary danger" id="loop-stop" type="button">Stop</button>
+            <button class="loop-satisfied" id="loop-satisfied" type="button">Mark satisfied</button>
+          </div>
+        </section>
+        <div class="loop-layout">
+          <section class="card loop-config">
+            <div class="card-heading"><div><span>Definition</span><h2>Objective and authority</h2></div><span class="card-chip" id="loop-iteration-count">0 iterations</span></div>
+            <label>Objective<textarea id="loop-objective" rows="3" placeholder="What should improve?"></textarea></label>
+            <label>Satisfaction criteria<textarea id="loop-criteria" rows="4" placeholder="Define the concrete conditions you will accept."></textarea></label>
+            <label>Current evidence<textarea id="loop-evidence" rows="4" placeholder="Paste test results, observations, metrics, or current product state."></textarea></label>
+            <div class="loop-field-grid">
+              <label>AI provider<select id="loop-provider"></select></label>
+              <label>Model<select id="loop-model"></select></label>
+              <label>Authority mode<select id="loop-approval-mode"><option value="manual">Approval every iteration</option><option value="continuous">Continuous advisory</option></select></label>
+              <label>Interval (seconds)<input id="loop-interval" type="number" min="5" max="86400" value="60"></label>
+              <label>Maximum iterations<input id="loop-max-iterations" type="number" min="0" max="100000" value="0"></label>
+              <label>Failure limit<input id="loop-failure-limit" type="number" min="1" max="20" value="3"></label>
+            </div>
+            <p class="field-note">Set maximum iterations to 0 for unlimited. Pause, Stop, and Mark satisfied remain available.</p>
+            <button id="loop-save" type="button">Save loop configuration</button>
+          </section>
+          <section class="card loop-review">
+            <div class="card-heading"><div><span>Human gate</span><h2>Review the latest iteration</h2></div><span class="card-chip" id="loop-review-state">No review</span></div>
+            <div class="loop-latest" id="loop-latest"><p>No iteration has run yet.</p></div>
+            <label>Operator feedback<textarea id="loop-feedback" rows="4" placeholder="Tell the selected model what must change next."></textarea></label>
+            <div class="loop-review-actions"><button id="loop-approve" type="button">Approve and continue</button><button class="secondary" id="loop-revise" type="button">Request revision</button></div>
+          </section>
+        </div>
+        <section class="card loop-history-card">
+          <div class="card-heading"><div><span>Audit trail</span><h2>Iteration history</h2></div><span class="card-chip">Persistent</span></div>
+          <div class="loop-history" id="loop-history"></div>
+        </section>
+      </section>
+
       <section class="panel" id="knowledge">
         <div class="page-title"><p>Knowledge</p><h1>Hotel source library</h1></div>
         <p class="poc-note">Not available in this POC. Knowledge is seeded from data/hotel.json.</p>
@@ -341,6 +462,80 @@
         </div>
       </section>
 
+      <section class="panel" id="users">
+        <div class="page-title"><div><p>Users &amp; Access</p><h1>User management</h1><span>Manage username-based administrator accounts and active sessions.</span></div><button id="create-user-button" type="button" data-permission="users.create">Create User</button></div>
+        <div class="table-toolbar">
+          <input id="user-search" type="search" placeholder="Search username or display name" aria-label="Search users">
+          <select id="user-status-filter" aria-label="Filter by status"><option value="">All statuses</option><option value="active">Active</option><option value="disabled">Disabled</option><option value="locked">Locked</option></select>
+          <span id="user-count">0 users</span>
+        </div>
+        <div class="data-table-shell">
+          <table class="data-table" id="users-table">
+            <thead><tr><th>Username</th><th>Display Name</th><th>Property</th><th>Role</th><th>Status</th><th>Last Login</th><th>Created</th><th><span class="sr-only">Actions</span></th></tr></thead>
+            <tbody id="users-table-body"></tbody>
+          </table>
+          <div class="table-empty" id="users-empty" hidden>No users match this view.</div>
+        </div>
+      </section>
+
+      <section class="panel" id="roles">
+        <div class="page-title"><div><p>Users &amp; Access</p><h1>Roles</h1><span>System roles provide secure defaults. Custom roles can be tailored by permission.</span></div><button id="create-role-button" type="button" data-permission="roles.manage">Create Role</button></div>
+        <div class="role-list" id="role-list"></div>
+      </section>
+
+      <section class="panel" id="permissions">
+        <div class="page-title"><div><p>Users &amp; Access</p><h1>Permission catalog</h1><span>Every administrative capability is checked by the API before data is read or changed.</span></div></div>
+        <div class="permission-catalog" id="permission-catalog"></div>
+      </section>
+
+      <section class="panel" id="audit">
+        <div class="page-title"><div><p>System</p><h1>Audit logs</h1><span>Administrative activity across users, properties, configuration, and security.</span></div><button class="secondary" id="refresh-audit" type="button">Refresh</button></div>
+        <div class="filter-bar">
+          <input id="audit-username" placeholder="Username">
+          <select id="audit-property"><option value="">All properties</option></select>
+          <input id="audit-action" placeholder="Action">
+          <input id="audit-resource" placeholder="Resource">
+          <input id="audit-date" type="date" aria-label="Audit date">
+          <button id="apply-audit-filters" type="button">Apply</button>
+        </div>
+        <div class="data-table-shell">
+          <table class="data-table"><thead><tr><th>Timestamp</th><th>User</th><th>Role</th><th>Property</th><th>Action</th><th>Resource</th><th>IP Address</th></tr></thead><tbody id="audit-table-body"></tbody></table>
+          <div class="table-empty" id="audit-empty" hidden>No audit events match these filters.</div>
+        </div>
+      </section>
+
+      <section class="panel" id="profile">
+        <div class="page-title"><div><p>Account</p><h1>Profile</h1><span>Your administrator identity and assigned access scope.</span></div></div>
+        <div class="settings-layout">
+          <section class="settings-section"><h2>Identity</h2><dl class="detail-list"><div><dt>Display name</dt><dd id="profile-detail-name">—</dd></div><div><dt>Username</dt><dd id="profile-detail-username">—</dd></div><div><dt>Role</dt><dd id="profile-detail-role">—</dd></div><div><dt>Property</dt><dd id="profile-detail-property">—</dd></div><div><dt>Recovery email</dt><dd id="profile-detail-email">Not configured</dd></div></dl></section>
+        </div>
+      </section>
+
+      <section class="panel" id="security">
+        <div class="page-title"><div><p>Account</p><h1>Security</h1><span>Change your password and review session protections.</span></div></div>
+        <div class="settings-layout">
+          <section class="settings-section"><h2>Change password</h2><form id="change-password-form"><label>Current password<input id="current-password" type="password" autocomplete="current-password" required></label><label>New password<input id="new-password" type="password" autocomplete="new-password" required></label><label>Confirm new password<input id="confirm-new-password" type="password" autocomplete="new-password" required></label><p class="field-note">Use at least 12 characters with upper- and lowercase letters, a number, and a symbol.</p><button type="submit">Change Password</button></form></section>
+          <section class="settings-section"><h2>Session policy</h2><dl class="detail-list"><div><dt>Authentication</dt><dd>Username + password</dd></div><div><dt>Session cookie</dt><dd>HTTP-only, SameSite Strict</dd></div><div><dt>Session expires</dt><dd id="session-expiry">—</dd></div><div><dt>CSRF protection</dt><dd>Enabled</dd></div></dl></section>
+        </div>
+      </section>
+
+      <section class="panel placeholder-panel" id="rooms"><div class="page-title"><div><p>Property</p><h1>Rooms</h1><span>Room inventory and guest-facing room information.</span></div></div><div class="empty-state"><strong>No room inventory connected</strong><p>Connect a PMS integration to synchronize room types and operational status.</p></div></section>
+      <section class="panel placeholder-panel" id="restaurants"><div class="page-title"><div><p>Property</p><h1>Restaurants</h1><span>Dining venues, hours, menus, and guest guidance.</span></div></div><div class="empty-state"><strong>Restaurant management is ready for configuration</strong><p>Add dining records through the property hospitality API.</p></div></section>
+      <section class="panel placeholder-panel" id="recommendations"><div class="page-title"><div><p>Property</p><h1>Local recommendations</h1><span>Curated nearby places and trusted guest suggestions.</span></div></div><div class="empty-state"><strong>No curated recommendations yet</strong><p>Live nearby search remains available through the configured Places provider.</p></div></section>
+      <section class="panel placeholder-panel" id="documents"><div class="page-title"><div><p>Knowledge</p><h1>Documents</h1><span>Source documents used by the concierge knowledge layer.</span></div></div><div class="empty-state"><strong>No managed documents</strong><p>Document ingestion will appear here when the knowledge pipeline is enabled.</p></div></section>
+      <section class="panel placeholder-panel" id="faqs"><div class="page-title"><div><p>Knowledge</p><h1>FAQs</h1><span>Structured hotel questions and approved answers.</span></div></div><div class="empty-state"><strong>FAQs are currently seeded from hotel configuration</strong><p>Managed FAQ editing can be enabled without changing the guest experience.</p></div></section>
+      <section class="panel placeholder-panel" id="ai-personality"><div class="page-title"><div><p>AI</p><h1>AI personality</h1><span>Tone, service posture, and property-specific conversational behavior.</span></div></div><div class="empty-state"><strong>Uses the current property concierge profile</strong><p>Advanced personality controls are reserved for a governed configuration release.</p></div></section>
+      <section class="panel placeholder-panel" id="system-prompt"><div class="page-title"><div><p>AI</p><h1>System prompt</h1><span>Controlled prompt policy and approved hotel context.</span></div></div><div class="empty-state"><strong>System prompts are server-managed</strong><p>This prevents accidental exposure or unsafe browser-side prompt editing.</p></div></section>
+      <section class="panel placeholder-panel" id="guardrails"><div class="page-title"><div><p>AI</p><h1>Guardrails</h1><span>Safety, privacy, escalation, and response boundaries.</span></div></div><div class="empty-state"><strong>Core guardrails are active</strong><p>Provider secrets and operational identifiers are never returned to guests.</p></div></section>
+      <section class="panel placeholder-panel" id="pms"><div class="page-title"><div><p>Integrations</p><h1>PMS</h1><span>Property management system connectivity.</span></div></div><div class="empty-state"><strong>No PMS connected</strong><p>Configure an approved PMS adapter for reservations, rooms, and stay context.</p></div></section>
+      <section class="panel placeholder-panel" id="api"><div class="page-title"><div><p>Integrations</p><h1>API</h1><span>Secure integration endpoints and access policies.</span></div></div><div class="empty-state"><strong>API administration is restricted</strong><p>Credentials remain server-side and are managed through environment-backed secrets.</p></div></section>
+      <section class="panel placeholder-panel" id="webhooks"><div class="page-title"><div><p>Integrations</p><h1>Webhooks</h1><span>Outbound operational event delivery.</span></div></div><div class="empty-state"><strong>No webhooks configured</strong><p>Signed webhook destinations will appear here when enabled.</p></div></section>
+      <section class="panel placeholder-panel" id="third-party"><div class="page-title"><div><p>Integrations</p><h1>Third-party services</h1><span>Approved hospitality and operations connections.</span></div></div><div class="empty-state"><strong>No third-party services connected</strong><p>Integrations remain isolated by property.</p></div></section>
+      <section class="panel placeholder-panel" id="questions"><div class="page-title"><div><p>Analytics</p><h1>Questions</h1><span>Guest question patterns and knowledge coverage.</span></div></div><div class="empty-state"><strong>Question analytics are collecting</strong><p>Aggregated trends will appear without exposing guest credentials.</p></div></section>
+      <section class="panel placeholder-panel" id="request-analytics"><div class="page-title"><div><p>Analytics</p><h1>Request analytics</h1><span>Volume, SLA, completion, and department trends.</span></div></div><div class="empty-state"><strong>Use Guest Requests for live operations</strong><p>Historical operational reporting will appear here.</p></div></section>
+      <section class="panel placeholder-panel" id="ai-usage"><div class="page-title"><div><p>Analytics</p><h1>AI usage</h1><span>Provider activity, latency, and token consumption.</span></div></div><div class="empty-state"><strong>AI usage is recorded server-side</strong><p>Provider-level reporting will be added without exposing credentials.</p></div></section>
+      <section class="panel placeholder-panel" id="system-settings"><div class="page-title"><div><p>System</p><h1>Settings</h1><span>Global platform behavior and environment-backed configuration.</span></div></div><div class="empty-state"><strong>Critical settings remain environment-controlled</strong><p>This protects infrastructure secrets from browser access.</p></div></section>
+
       <section class="panel" id="deployment">
         <div class="page-title"><p>Deployment</p><h1>On-prem runtime</h1></div>
         <section class="card status-list">
@@ -361,6 +556,52 @@
       </section>
     </main>
   </div>
+  <dialog class="admin-dialog" id="user-dialog">
+    <form id="user-form">
+      <div class="dialog-heading"><div><span>Users &amp; Access</span><h2 id="user-dialog-title">Create User</h2></div><button class="icon-button" type="button" data-close-dialog="user-dialog" aria-label="Close">×</button></div>
+      <input id="user-id" type="hidden">
+      <div class="dialog-form-grid">
+        <label>Username<input id="admin-username" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="frontdesk01" required></label>
+        <label>Display Name<input id="admin-display-name" placeholder="Front Desk" required></label>
+        <label>Property<select id="admin-property" required></select></label>
+        <label>Role<select id="admin-role" required></select></label>
+        <label>Optional Email<input id="admin-email" type="email" placeholder="name@hotel.com"></label>
+        <label>Status<select id="admin-status"><option value="active">Active</option><option value="disabled">Disabled</option><option value="locked">Locked</option></select></label>
+        <label class="create-password-field">Temporary Password<input id="admin-password" type="password" autocomplete="new-password" placeholder="At least 12 characters"></label>
+        <label class="create-password-field">Confirm Password<input id="admin-password-confirm" type="password" autocomplete="new-password"></label>
+      </div>
+      <label class="check-row create-password-field"><input id="admin-force-password" type="checkbox" checked> Require password change on first login</label>
+      <p class="dialog-message" id="user-dialog-message" role="alert"></p>
+      <div class="dialog-actions"><button class="secondary" type="button" data-close-dialog="user-dialog">Cancel</button><button id="save-user-button" type="submit">Create User</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="admin-dialog" id="role-dialog">
+    <form id="role-form">
+      <div class="dialog-heading"><div><span>Users &amp; Access</span><h2 id="role-dialog-title">Create Role</h2></div><button class="icon-button" type="button" data-close-dialog="role-dialog" aria-label="Close">×</button></div>
+      <input id="role-id" type="hidden">
+      <div class="dialog-form-grid"><label>Role Name<input id="role-name" placeholder="Marketing" required></label><label>Property<select id="role-property"></select></label></div>
+      <label>Description<textarea id="role-description" rows="2"></textarea></label>
+      <fieldset class="permission-selector"><legend>Permissions</legend><div id="role-permissions"></div></fieldset>
+      <p class="dialog-message" id="role-dialog-message" role="alert"></p>
+      <div class="dialog-actions"><button class="secondary" type="button" data-close-dialog="role-dialog">Cancel</button><button id="save-role-button" type="submit">Create Role</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="admin-dialog compact-dialog" id="password-reset-dialog">
+    <form id="password-reset-form">
+      <div class="dialog-heading"><div><span>Credential</span><h2>Reset Password</h2></div><button class="icon-button" type="button" data-close-dialog="password-reset-dialog" aria-label="Close">×</button></div>
+      <input id="password-reset-user-id" type="hidden">
+      <p id="password-reset-user"></p>
+      <label>Temporary Password<input id="password-reset-value" type="password" autocomplete="new-password" required></label>
+      <label>Confirm Password<input id="password-reset-confirm" type="password" autocomplete="new-password" required></label>
+      <label class="check-row"><input id="password-reset-force" type="checkbox" checked> Require password change on next login</label>
+      <p class="dialog-message" id="password-reset-message" role="alert"></p>
+      <div class="dialog-actions"><button class="secondary" type="button" data-close-dialog="password-reset-dialog">Cancel</button><button type="submit">Reset Password</button></div>
+    </form>
+  </dialog>
+  <div class="context-menu" id="user-action-menu" hidden></div>
+
   <div class="drawer-backdrop" id="provider-drawer-backdrop" hidden></div>
   <aside class="provider-drawer" id="provider-drawer" hidden>
     <header>
@@ -402,6 +643,6 @@
     </footer>
   </aside>
   <div class="toast" id="toast"></div>
-  <script src="/static/admin.js"></script>
+  <script src="/static/admin.js?v=8"></script>
 </body>
 </html>

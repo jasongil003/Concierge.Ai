@@ -17,10 +17,17 @@ def _bool(name: str, default: bool = False) -> bool:
 @dataclass(frozen=True)
 class Settings:
     app_name: str = os.getenv("APP_NAME", "Concierge.Ai")
+    app_environment: str = os.getenv("APP_ENVIRONMENT", "development").strip().lower()
     property_id: str = os.getenv("PROPERTY_ID", "demo-hotel")
     hotel_config_path: Path = Path(os.getenv("HOTEL_CONFIG_PATH", "data/hotel.json"))
     db_path: Path = Path(os.getenv("DB_PATH", "state/concierge.db"))
     session_ttl_minutes: int = int(os.getenv("SESSION_TTL_MINUTES", "30"))
+    admin_session_ttl_minutes: int = int(os.getenv("ADMIN_SESSION_TTL_MINUTES", "480"))
+    admin_lockout_attempts: int = int(os.getenv("ADMIN_LOCKOUT_ATTEMPTS", "5"))
+    admin_lockout_minutes: int = int(os.getenv("ADMIN_LOCKOUT_MINUTES", "15"))
+    admin_bootstrap_username: str = os.getenv("ADMIN_BOOTSTRAP_USERNAME", "admin").strip()
+    admin_bootstrap_password: str = os.getenv("ADMIN_BOOTSTRAP_PASSWORD", "ChangeMe123!")
+    admin_cookie_secure: bool = _bool("ADMIN_COOKIE_SECURE", False)
 
     ai_provider_mode: str = os.getenv("AI_PROVIDER_MODE", "auto").strip().lower()
     ai_guest_mode_switch: bool = _bool("AI_GUEST_MODE_SWITCH", True)

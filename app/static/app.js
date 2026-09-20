@@ -91,13 +91,48 @@ function createClientId() {
 function renderWelcomeState() {
   const list = $("suggestion-list");
   list.innerHTML = "";
-  for (const item of activeSuggestions()) {
+  for (const [index, item] of activeSuggestions().entries()) {
     const button = document.createElement("button");
     button.type = "button";
-    button.textContent = item.label;
+    button.dataset.kind = suggestionKind(item.prompt || item.label, index);
+
+    const icon = document.createElement("span");
+    icon.className = "suggestion-icon";
+    icon.innerHTML = suggestionIcon(button.dataset.kind);
+
+    const label = document.createElement("span");
+    label.className = "suggestion-label";
+    label.textContent = item.label;
+
+    const arrow = document.createElement("span");
+    arrow.className = "suggestion-arrow";
+    arrow.setAttribute("aria-hidden", "true");
+    arrow.innerHTML = '<svg viewBox="0 0 20 20"><path d="m7.5 4.5 5 5.5-5 5.5"/></svg>';
+
+    button.append(icon, label, arrow);
     button.addEventListener("click", () => handleGuestInput(item.prompt));
     list.appendChild(button);
   }
+}
+
+function suggestionKind(value, index) {
+  const prompt = String(value || "").toLowerCase();
+  if (prompt.includes("breakfast") || prompt.includes("eat") || prompt.includes("restaurant") || prompt.includes("dining")) return "dining";
+  if (prompt.includes("wi-fi") || prompt.includes("wifi") || prompt.includes("internet")) return "wifi";
+  if (prompt.includes("pool") || prompt.includes("spa") || prompt.includes("gym")) return "wellness";
+  if (prompt.includes("checkout") || prompt.includes("check-out") || prompt.includes("room")) return "stay";
+  return ["concierge", "dining", "wellness", "stay"][index % 4];
+}
+
+function suggestionIcon(kind) {
+  const icons = {
+    dining: '<svg viewBox="0 0 24 24"><path d="M7 3v8M4.5 3v5.5A2.5 2.5 0 0 0 7 11v10M9.5 3v5.5A2.5 2.5 0 0 1 7 11M17 3c-2 2.2-2.5 5.8-1.1 8.3.4.7 1.1 1.1 1.9 1.1H19V21"/></svg>',
+    wifi: '<svg viewBox="0 0 24 24"><path d="M3.5 8.8a13 13 0 0 1 17 0M6.5 12.2a8.5 8.5 0 0 1 11 0M9.6 15.6a3.8 3.8 0 0 1 4.8 0"/><circle cx="12" cy="19" r="1"/></svg>',
+    wellness: '<svg viewBox="0 0 24 24"><path d="M3 15.5c1.5-1.3 3-1.3 4.5 0s3 1.3 4.5 0 3-1.3 4.5 0 3 1.3 4.5 0M3 19c1.5-1.3 3-1.3 4.5 0s3 1.3 4.5 0 3-1.3 4.5 0 3 1.3 4.5 0"/><path d="M5 12h14l-1.2-5H6.2L5 12Z"/></svg>',
+    stay: '<svg viewBox="0 0 24 24"><path d="M4 20V7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v13M8 9h3v3H8zM15.5 10.5h.01M8 16h8"/></svg>',
+    concierge: '<svg viewBox="0 0 24 24"><path d="M4 18h16M6 18a6 6 0 0 1 12 0M12 8V5M10 5h4"/><path d="M8.5 13.5c1.8-1.4 5.2-1.4 7 0"/></svg>',
+  };
+  return icons[kind] || icons.concierge;
 }
 
 function activeSuggestions() {

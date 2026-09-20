@@ -1,6 +1,20 @@
 import { expect, test } from "@playwright/test";
 
+const csrfByRequest = new WeakMap();
+
+async function loginAdmin(request) {
+  if (csrfByRequest.has(request)) return csrfByRequest.get(request);
+  const response = await request.post("/api/admin/auth/login", {
+    data: { username: "admin", password: "ChangeMe123!", remember_me: false },
+  });
+  expect(response.ok()).toBeTruthy();
+  const csrf = (await response.json()).user.csrf_token;
+  csrfByRequest.set(request, csrf);
+  return csrf;
+}
+
 async function setAuthTypes(request, enabledIds) {
+  const csrf = await loginAdmin(request);
   const propertyId = (await (await request.get("/api/admin/properties")).json()).properties[0].property_id;
   const prop = await (await request.get(`/api/admin/properties/${propertyId}`)).json();
   const labels = {
@@ -13,7 +27,11 @@ async function setAuthTypes(request, enabledIds) {
       ["pms", "access_code"].map((id) => [id, { label: labels[id], enabled: enabledIds.includes(id) }])
     ),
   };
-  await request.put(`/api/admin/properties/${propertyId}`, { data: prop });
+  const response = await request.put(`/api/admin/properties/${propertyId}`, {
+    headers: { "X-CSRF-Token": csrf },
+    data: prop,
+  });
+  expect(response.ok()).toBeTruthy();
 }
 
 // --- 1. Guest initial load ---
@@ -296,6 +314,10 @@ test("admin: no console errors on load", async ({ page }) => {
   });
   page.on("pageerror", (err) => errors.push(err.message));
 
+  const login = await page.request.post("/api/admin/auth/login", {
+    data: { username: "admin", password: "ChangeMe123!", remember_me: false },
+  });
+  expect(login.ok()).toBeTruthy();
   await page.goto("/admin");
   await page.waitForLoadState("networkidle");
 
