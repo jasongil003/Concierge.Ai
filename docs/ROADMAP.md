@@ -537,11 +537,19 @@ The pilot should happen before major investment in voice, precise indoor positio
 - [x] AI interaction and facility conversion event tables for future privacy-safe correlation
 - [x] Admin `Branding -> Intro Experience` section with presets, duration, colors, first-visit, skip, and upload validation
 - [x] Guest intro fallback that respects reduced motion and never blocks chat startup
+- [x] Vendor-neutral `WiFiLocationProvider` abstraction and mock provider
+- [x] Structured facility profiles with opening hours, capacity, booking support, and live status
+- [x] Restaurants, menus, menu items, dietary/allergen tags, and availability
+- [x] Hotel events with facility/zone, audience, capacity, CTA, and notification timing
+- [x] Service request lifecycle with SLA state and explicit guest feedback
+- [x] Notification rules, verified payload evaluation, suppression guardrails, and delivery history
+- [x] Guest journey event tracking for adoption and observed-conversion reporting
 
 Remaining validation:
 
 - Real ANTlabs/WLAN AP association feed
 - PMS checkout events and authoritative stay boundaries
+- Real restaurant/POS, booking, PMS, and notification delivery integrations
 - Production admin authentication/RBAC enforcement
 - Production map editor precision, PDF rendering previews, and advanced polygon point editing
 - Hardware-backed location accuracy testing

@@ -12,6 +12,7 @@ from .antlabs import AntlabsAdapter
 from .config import settings
 from .hotel import HotelKnowledge
 from .guest_identity import GuestIdentityStore
+from .hospitality import HospitalityStore
 from .intro import IntroExperienceStore
 from .location_analytics import LocationAnalyticsStore
 from .places import GooglePlaces, format_places_for_ai
@@ -33,6 +34,7 @@ zones = ZoneStore(settings.db_path)
 guest_identities = GuestIdentityStore(settings.db_path)
 location_analytics = LocationAnalyticsStore(settings.db_path)
 intro_experiences = IntroExperienceStore(settings.db_path)
+hospitality = HospitalityStore(settings.db_path)
 ai = AIOrchestrator()
 ai_provider_store = AIProviderStore(settings.db_path)
 ai_models = AIModelService(ai_provider_store)
@@ -167,6 +169,17 @@ class AnalyticsQuery(BaseModel):
     filters: dict[str, Any] = Field(default_factory=dict)
 
 
+class ServiceStatusPayload(BaseModel):
+    status: str
+
+
+class NotificationEvaluatePayload(BaseModel):
+    stay_id: str | None = None
+    verified_payload: dict[str, Any] = Field(default_factory=dict)
+    guest_preferences: dict[str, Any] = Field(default_factory=dict)
+    current_zone_id: str | None = None
+
+
 @app.get("/")
 async def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
@@ -227,6 +240,14 @@ async def guest_route(from_node_id: str, to_node_id: str, property_id: str | Non
         return zones.route(requested_property_id, from_node_id, to_node_id, guest=True)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/guest/facilities")
+async def guest_facilities(property_id: str | None = None) -> dict[str, Any]:
+    requested_property_id = property_id or settings.property_id
+    if properties.get(requested_property_id) is None:
+        raise HTTPException(status_code=404, detail="Property not found.")
+    return hospitality.guest_facilities(requested_property_id)
 
 
 @app.get("/api/admin/properties")
@@ -623,6 +644,124 @@ async def intro_asset(property_id: str, filename: str) -> FileResponse:
         return FileResponse(intro_experiences.asset_path(property_id, filename))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/admin/properties/{property_id}/hospitality")
+async def hospitality_overview(property_id: str) -> dict[str, Any]:
+    _require_property(property_id)
+    return hospitality.overview(property_id)
+
+
+@app.put("/api/admin/properties/{property_id}/hospitality/facilities")
+async def upsert_facility_profile(property_id: str, payload: GenericPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return hospitality.upsert_facility_profile(property_id, payload.data)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/restaurants")
+async def create_restaurant(property_id: str, payload: GenericPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return hospitality.create_restaurant(property_id, payload.data)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/restaurants/{restaurant_id}/menus")
+async def create_menu(property_id: str, restaurant_id: str, payload: GenericPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return hospitality.create_menu(property_id, restaurant_id, payload.data)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/menus/{menu_id}/items")
+async def create_menu_item(property_id: str, menu_id: str, payload: GenericPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return hospitality.create_menu_item(property_id, menu_id, payload.data)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/events")
+async def create_hotel_event(property_id: str, payload: GenericPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return hospitality.create_event(property_id, payload.data)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/service-requests")
+async def create_service_request(property_id: str, payload: GenericPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return hospitality.create_service_request(property_id, payload.data)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.put("/api/admin/properties/{property_id}/service-requests/{request_id}/status")
+async def update_service_request_status(property_id: str, request_id: str, payload: ServiceStatusPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return hospitality.update_service_status(property_id, request_id, payload.status)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/feedback")
+async def add_guest_feedback(property_id: str, payload: GenericPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return hospitality.add_feedback(property_id, payload.data)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/notifications/rules")
+async def create_notification_rule(property_id: str, payload: GenericPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return hospitality.create_notification_rule(property_id, payload.data)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/notifications/rules/{rule_id}/evaluate")
+async def evaluate_notification(property_id: str, rule_id: str, payload: NotificationEvaluatePayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return hospitality.evaluate_notification(
+            property_id,
+            rule_id,
+            payload.stay_id,
+            payload.verified_payload,
+            payload.guest_preferences,
+            payload.current_zone_id,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/journey-events")
+async def record_journey_event(property_id: str, payload: GenericPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return hospitality.record_journey_event(property_id, payload.data)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

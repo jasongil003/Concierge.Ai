@@ -324,11 +324,21 @@
 
       <section class="panel" id="requests">
         <div class="page-title"><p>Operations</p><h1>Service request workflow</h1></div>
-        <p class="poc-note">Not available in this POC. Service requests are simulated in the guest chat.</p>
-        <section class="card"><table><thead><tr><th>Request</th><th>Room</th><th>Status</th><th>Assigned</th></tr></thead><tbody>
-          <tr><td>Two towels</td><td>1503</td><td>Open</td><td>Housekeeping</td></tr>
-          <tr><td>Late checkout</td><td>0818</td><td>Review</td><td>Front desk</td></tr>
-        </tbody></table></section>
+        <div class="two-col">
+          <section class="card">
+            <h2>Create request</h2>
+            <label>Room<input id="service-room" placeholder="1503"></label>
+            <label>Type<select id="service-type"><option value="towels">Towels</option><option value="housekeeping">Housekeeping</option><option value="maintenance">Maintenance</option><option value="transport">Transport</option><option value="amenities">Room amenities</option><option value="complaint">Complaint</option><option value="dining">Dining</option></select></label>
+            <label>Department<input id="service-department" value="housekeeping"></label>
+            <label>Description<textarea id="service-description" rows="3" placeholder="Please send two towels."></textarea></label>
+            <label>SLA minutes<input id="service-sla" type="number" min="1" max="240" value="15"></label>
+            <button id="create-service-request" type="button">Create Request</button>
+          </section>
+          <section class="card">
+            <h2>Open operations</h2>
+            <div id="service-request-list" class="compact-list"></div>
+          </section>
+        </div>
       </section>
 
       <section class="panel" id="deployment">

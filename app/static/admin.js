@@ -64,6 +64,7 @@ function activatePanel(panelId) {
   if (panelId === "sessions" && currentPropertyId()) loadSessions().catch((error) => showToast(error.message, "error"));
   if (panelId === "location" && currentPropertyId()) loadLocationLive().catch((error) => showToast(error.message, "error"));
   if (panelId === "intro" && currentPropertyId()) loadIntro().catch((error) => showToast(error.message, "error"));
+  if (panelId === "requests" && currentPropertyId()) loadServiceRequests().catch((error) => showToast(error.message, "error"));
 }
 
 function currentPropertyId() {
@@ -1087,6 +1088,62 @@ async function uploadIntroAsset(file) {
   showToast("Intro animation uploaded.");
 }
 
+async function loadServiceRequests() {
+  const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/hospitality`);
+  const list = $("service-request-list");
+  list.innerHTML = "";
+  for (const request of data.service_requests || []) {
+    const row = document.createElement("div");
+    row.className = "compact-row";
+    const next = nextServiceStatus(request.status);
+    row.innerHTML = `
+      <strong>${request.request_type} · ${request.room || "no room"}</strong>
+      <span>${request.status} · ${request.sla_state} · ${request.department}</span>
+      <span>${request.description}</span>
+    `;
+    if (next) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = `Mark ${next.replaceAll("_", " ")}`;
+      button.addEventListener("click", () => updateServiceStatus(request.request_id, next));
+      row.appendChild(button);
+    }
+    list.appendChild(row);
+  }
+  if (!list.children.length) list.textContent = "No service requests yet.";
+}
+
+function nextServiceStatus(status) {
+  const order = ["new", "assigned", "accepted", "in_progress", "delivered", "completed"];
+  const index = order.indexOf(status);
+  return index >= 0 && index < order.length - 1 ? order[index + 1] : null;
+}
+
+async function createServiceRequest() {
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/service-requests`, {
+    method: "POST",
+    body: JSON.stringify({ data: {
+      room: $("service-room").value.trim() || null,
+      request_type: $("service-type").value,
+      department: $("service-department").value.trim() || "front_desk",
+      description: $("service-description").value.trim(),
+      sla_target_seconds: Number($("service-sla").value || 15) * 60,
+    } }),
+  });
+  $("service-description").value = "";
+  await loadServiceRequests();
+  showToast("Service request created.");
+}
+
+async function updateServiceStatus(requestId, status) {
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/service-requests/${requestId}/status`, {
+    method: "PUT",
+    body: JSON.stringify({ status }),
+  });
+  await loadServiceRequests();
+  showToast("Service request updated.");
+}
+
 function normalizeColor(value) {
   return /^#[0-9a-f]{6}$/i.test(value) ? value : "#18181b";
 }
@@ -1218,6 +1275,7 @@ function setup() {
   $("save-stay-memory").addEventListener("click", () => saveStayMemory().catch((error) => showToast(error.message, "error")));
   $("record-observation").addEventListener("click", () => recordObservation().catch((error) => showToast(error.message, "error")));
   $("load-location-report").addEventListener("click", () => loadLocationReport().catch((error) => showToast(error.message, "error")));
+  $("create-service-request").addEventListener("click", () => createServiceRequest().catch((error) => showToast(error.message, "error")));
   for (const id of ["intro-mode", "intro-preset", "intro-duration", "intro-message", "intro-background", "intro-brand-color", "intro-first-visit", "intro-skip"]) {
     $(id).addEventListener("input", updateIntroPreview);
     $(id).addEventListener("change", updateIntroPreview);
