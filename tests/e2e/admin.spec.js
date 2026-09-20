@@ -145,11 +145,13 @@ test("authentication type panel: toggles are available", async ({ page }) => {
   await expect(page.locator('[data-auth-type="pms"]')).toBeEnabled();
 });
 
-test("requests panel: static table with POC note", async ({ page }) => {
+test("requests panel: service request controls are available", async ({ page }) => {
   await page.goto("/admin");
   await page.getByRole("button", { name: "Service Requests" }).click();
-  await expect(page.locator("#requests .poc-note")).toBeVisible();
-  await expect(page.locator('#requests table')).toBeVisible();
+  await expect(page.locator("#service-room")).toBeVisible();
+  await expect(page.locator("#service-type")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Create Request" })).toBeVisible();
+  await expect(page.locator("#service-request-list")).toBeVisible();
 });
 
 test("deployment panel: status info displayed", async ({ page }) => {

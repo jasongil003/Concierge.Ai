@@ -129,6 +129,8 @@ This supports aggregate occupancy and movement reporting. It must not be present
 
 Future precision-location work can add BLE/UWB/RTT/multi-AP trilateration providers behind a separate adapter without changing the AP-to-zone aggregate analytics contract.
 
+The WLAN integration boundary is `WiFiLocationProvider`. Vendor adapters should emit current client/AP observations with optional RSSI, controller, source, and timestamp metadata. The analytics layer consumes those observations only after the AP is mapped to a Concierge zone.
+
 ## Stay Memory
 
 Raw WLAN MAC addresses are not Concierge identities. When WLAN or ANTlabs provides a MAC server-side, Concierge.Ai normalizes it and derives:
@@ -140,6 +142,26 @@ device_<HMAC(property_secret, normalized_mac)>
 The AI memory anchor is `ConciergeStay`, not the device alone. Reconnect creates or restores an active stay for the property/device and stores only compact memory fields: conversation summary, explicit stay preferences, recent requests, unresolved service requests, and important context. Checkout anonymizes room/PMS fields and clears memory by default.
 
 Randomized/private Wi-Fi MAC behavior is expected; integrations should treat device identity as best-effort session continuity, not permanent cross-stay tracking.
+
+## Verified Hospitality Data and Proactive Assistant
+
+Structured hospitality data now lives in normalized tables for facility profiles, restaurants, menus, menu items, hotel events, service requests, guest feedback, notification rules, notifications, notification deliveries, and guest journey events.
+
+The guardrail model is:
+
+```text
+Verified data -> Trigger -> Eligibility -> Policy -> AI wording -> Delivery
+```
+
+AI can control wording, language, tone, and length. It cannot control or invent the trigger, guest eligibility, price, availability, event time, facility status, service completion, opening hours, or weather facts. Those must come from stored hotel data or trusted integrations.
+
+Service requests move through confirmed backend states:
+
+```text
+New -> Assigned -> Accepted -> In Progress -> Delivered -> Completed
+```
+
+The guest-facing layer should only claim completion after the backend status is `completed`. Feedback is explicit (`yes`, `partially`, `no`) rather than inferred from sentiment.
 
 ## Network zones
 
