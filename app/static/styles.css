@@ -741,3 +741,252 @@ body[data-density="compact"] .welcome-state {
     animation-duration: .01ms !important;
   }
 }
+
+/* Commercial-grade guest experience refinement */
+:root {
+  --background: #f6f7f9;
+  --surface: #ffffff;
+  --surface-elevated: rgba(255, 255, 255, .94);
+  --text-primary: #111827;
+  --text-secondary: #667085;
+  --text-muted: #98a2b3;
+  --border: #dfe5ee;
+  --soft-border: rgba(16, 24, 40, .10);
+  --accent: #172033;
+  --accent-text: #ffffff;
+  --accent-soft: color-mix(in srgb, #0f766e 9%, white);
+}
+
+body {
+  background:
+    radial-gradient(circle at 14% 12%, rgba(15, 118, 110, .10), transparent 26rem),
+    linear-gradient(180deg, #fbfcfe 0%, #eef2f7 100%);
+  -webkit-font-smoothing: antialiased;
+}
+
+.concierge-shell {
+  background:
+    linear-gradient(rgba(246,247,249,var(--background-overlay)), rgba(246,247,249,var(--background-overlay))),
+    var(--background-image) center / cover no-repeat,
+    radial-gradient(circle at 84% 10%, rgba(23, 32, 51, .08), transparent 24rem),
+    radial-gradient(circle at 16% 82%, rgba(15, 118, 110, .08), transparent 26rem),
+    var(--background);
+}
+
+.concierge-header {
+  height: 64px;
+  border-bottom-color: rgba(203, 213, 225, .72);
+  background: rgba(255, 255, 255, .76);
+  backdrop-filter: blur(22px) saturate(1.2);
+}
+
+.icon-button {
+  border: 1px solid transparent;
+}
+
+.icon-button:hover {
+  border-color: rgba(203, 213, 225, .72);
+  background: rgba(255, 255, 255, .72);
+}
+
+.hotel-mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background:
+    linear-gradient(135deg, #172033 0%, #0f766e 100%);
+  box-shadow: 0 10px 24px rgba(15, 118, 110, .18);
+}
+
+.hotel-identity strong {
+  font-size: 15px;
+  font-weight: 720;
+}
+
+.hotel-identity span {
+  color: #667085;
+  font-weight: 560;
+}
+
+.conversation-column {
+  padding-top: clamp(24px, 5vh, 56px);
+}
+
+.welcome-state {
+  min-height: calc(100dvh - var(--header-height) - 168px);
+}
+
+.welcome-state p {
+  color: #0f766e;
+  font-size: 14px;
+  font-weight: 720;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.welcome-state h1 {
+  max-width: 720px;
+  color: #101828;
+  font-size: clamp(34px, 8vw, 58px);
+  font-weight: 760;
+  line-height: 1.01;
+}
+
+.suggestion-list {
+  gap: 10px;
+  max-width: 680px;
+}
+
+.suggestion-list button {
+  min-height: 54px;
+  padding: 0 16px;
+  border-color: rgba(203, 213, 225, .82);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .72);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
+  font-weight: 590;
+  backdrop-filter: blur(14px);
+}
+
+.suggestion-list button:hover {
+  border-color: rgba(15, 118, 110, .35);
+  background: #fff;
+  box-shadow: 0 14px 34px rgba(16, 24, 40, .08);
+}
+
+.message-list {
+  padding-top: 18px;
+}
+
+.message-label {
+  color: #667085;
+  font-weight: 650;
+}
+
+.message-text {
+  line-height: 1.66;
+}
+
+.message-row.user .message-text {
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #172033;
+  box-shadow: 0 8px 24px rgba(17, 24, 39, .12);
+}
+
+body[data-user-message-style="minimal"] .message-row.user .message-text {
+  color: var(--text-primary);
+  box-shadow: none;
+}
+
+body[data-assistant-message-style="bubble"] .message-row.assistant .message-text,
+.inline-card,
+.recommendation-card {
+  border-color: rgba(203, 213, 225, .82);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .82);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .05);
+  backdrop-filter: blur(14px);
+}
+
+.inline-card {
+  padding: 16px;
+}
+
+.auth-card input {
+  border-color: #cfd8e3;
+  border-radius: 8px;
+}
+
+.auth-card input:focus,
+.composer textarea:focus {
+  outline: 0;
+}
+
+.inline-card button,
+.recommendation-card button {
+  border-radius: 8px;
+  background: linear-gradient(180deg, #172033 0%, #101827 100%);
+}
+
+.recommendation-card {
+  padding: 15px;
+}
+
+.recommendation-card button {
+  color: #172033;
+  background: #eef2f7;
+}
+
+.composer-region {
+  padding-top: 18px;
+  background:
+    linear-gradient(to top, rgba(246,247,249,1) 72%, rgba(246,247,249,0));
+}
+
+.composer {
+  border-color: rgba(203, 213, 225, .9);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .92);
+  box-shadow: 0 22px 70px rgba(16, 24, 40, .14);
+  backdrop-filter: blur(18px);
+}
+
+.composer-tool,
+.send-button {
+  border-radius: 8px;
+}
+
+.send-button {
+  background: linear-gradient(180deg, #172033 0%, #101827 100%);
+}
+
+.composer-note {
+  color: #667085;
+  font-weight: 520;
+}
+
+.menu-panel {
+  background: rgba(255, 255, 255, .96);
+  backdrop-filter: blur(18px);
+}
+
+.menu-panel > button:not(.icon-button) {
+  border-radius: 8px;
+  font-weight: 590;
+}
+
+.toast {
+  border-color: rgba(203, 213, 225, .9);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .95);
+  box-shadow: 0 22px 70px rgba(16, 24, 40, .16);
+}
+
+@media (min-width: 900px) {
+  .conversation-column {
+    padding-inline: 34px;
+  }
+
+  .welcome-state {
+    padding-bottom: 10vh;
+  }
+}
+
+@media (max-width: 430px) {
+  .concierge-header {
+    height: 58px;
+  }
+
+  .welcome-state h1 {
+    font-size: clamp(34px, 10vw, 44px);
+  }
+
+  .suggestion-list button {
+    min-height: 50px;
+  }
+
+  .composer {
+    border-radius: 8px;
+  }
+}
