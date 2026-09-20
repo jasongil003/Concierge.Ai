@@ -2,6 +2,8 @@
 
 ## Product direction
 
+For the broader commercial product vision, proactive-stay design, hotel operations, analytics, notification guardrails, and long-term expansion, see [Master Product Expansion Plan](MASTER_PRODUCT_PLAN.md).
+
 Concierge.Ai will be built **on-premise first** and designed so the same property can later move to **cloud or hybrid deployment without changing the guest-facing URL**.
 
 ### Core commercial principles
@@ -374,7 +376,7 @@ Tracking: #10
 
 ### 6B - Sessions & Stay Memory
 
-Tracking: #undefined
+Tracking: #15
 
 - [ ] Sessions tab: Active / History / Devices / Guest Stay / AI Memory / Location History
 - [ ] Correlate ANTlabs and WLAN session data
@@ -391,7 +393,7 @@ Tracking: #undefined
 
 ### 6C - Location Analytics & Behavior Reporting
 
-Tracking: #undefined
+Tracking: #16
 
 Views:
 
@@ -618,6 +620,32 @@ A property should retain:
 - same hotel configuration
 
 Migration should primarily be a routing/DNS and deployment change.
+
+---
+
+## Phase 9A - proactive stay assistant and notification engine
+
+Tracking: #17
+
+Build a policy-controlled assistant that can proactively help during an active stay using verified property, weather, event, restaurant, reservation, facility, and service-request context.
+
+Core rules:
+
+- [ ] verified data determines facts
+- [ ] notification policy determines whether contact is allowed
+- [ ] AI generates wording only after approval
+- [ ] quiet hours, consent, frequency caps, and suppression rules
+- [ ] event notifications
+- [ ] weather-aware assistance
+- [ ] restaurant/menu notifications
+- [ ] reservation reminders
+- [ ] service-request status updates
+- [ ] stay-lifecycle assistance
+- [ ] notification delivery history
+- [ ] engagement/conversion analytics
+- [ ] privacy-safe context use
+
+Detailed design: [Master Product Expansion Plan](MASTER_PRODUCT_PLAN.md)
 
 ---
 
