@@ -217,6 +217,30 @@ The commercial product should not require Concierge.Ai engineering to redesign e
 - [ ] Knowledge uploads
 - [ ] ANTlabs integration settings
 
+### Intro experience / motion branding
+
+Give each property an optional short branded experience before the Concierge chat appears. The animation must never block guest access.
+
+- [ ] Intro mode: none / generated preset / custom upload
+- [ ] Generate intro from uploaded PNG/JPG/SVG logo
+- [ ] Built-in presets: minimal fade, fade + scale, luxury reveal, particle assemble, line draw, glass/blur, split reveal
+- [ ] Logo-to-chat-header transition
+- [ ] Duration, background/brand color, welcome message, and transition controls
+- [ ] First-visit-only playback
+- [ ] Optional Skip control
+- [ ] Respect `prefers-reduced-motion`
+- [ ] Mobile and desktop preview before publish
+- [ ] Custom `.lottie` and Lottie `.json` upload
+- [ ] Custom `.webm` upload
+- [ ] Optional `.mp4` fallback
+- [ ] Validate animation assets and file size
+- [ ] Graceful fallback directly to chat if animation fails
+- [ ] Initialize guest/chat session while intro is playing where possible
+- [ ] Keep After Effects `.aep` as a source-project format only; require export to a supported web format
+- [ ] Later: PNG/JPG vectorization and AI-generated custom motion from logo + prompt
+
+Implementation tracking: #undefined
+
 ### Template builder
 
 Provide hospitality-specific templates:
