@@ -6,6 +6,13 @@ const state = {
   ai: null,
   activeProvider: null,
   providerDirty: false,
+  zones: null,
+  mapTool: "select",
+  mapObjects: [],
+  selectedMapObject: null,
+  mapHistory: [],
+  mapRedo: [],
+  intro: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -53,6 +60,10 @@ function activatePanel(panelId) {
   if (panelId === "ai" && currentPropertyId()) {
     loadAI().catch((error) => showToast(error.message, "error"));
   }
+  if (panelId === "zones" && currentPropertyId()) loadZones().catch((error) => showToast(error.message, "error"));
+  if (panelId === "sessions" && currentPropertyId()) loadSessions().catch((error) => showToast(error.message, "error"));
+  if (panelId === "location" && currentPropertyId()) loadLocationLive().catch((error) => showToast(error.message, "error"));
+  if (panelId === "intro" && currentPropertyId()) loadIntro().catch((error) => showToast(error.message, "error"));
 }
 
 function currentPropertyId() {
@@ -758,6 +769,324 @@ async function loadProperty() {
   await loadAI();
 }
 
+async function loadZones() {
+  state.zones = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/zones`);
+  hydrateZoneSelectors();
+  renderZoneTree();
+  renderMapCanvas();
+}
+
+function hydrateZoneSelectors() {
+  const buildingSelect = $("zone-building-select");
+  const floorSelect = $("zone-floor-select");
+  buildingSelect.innerHTML = "";
+  floorSelect.innerHTML = "";
+  for (const building of state.zones.buildings) {
+    buildingSelect.appendChild(new Option(building.name, building.building_id));
+  }
+  if (!state.zones.buildings.length) {
+    buildingSelect.appendChild(new Option("No building yet", ""));
+  }
+  const floors = state.zones.floors.filter((floor) => !buildingSelect.value || floor.building_id === buildingSelect.value);
+  for (const floor of floors) floorSelect.appendChild(new Option(floor.name, floor.floor_id));
+  if (!floors.length) floorSelect.appendChild(new Option("No floor yet", ""));
+}
+
+function renderZoneTree() {
+  const list = $("zone-tree");
+  list.innerHTML = "";
+  if (!state.zones.buildings.length) {
+    const row = document.createElement("div");
+    row.className = "compact-row";
+    row.innerHTML = "<strong>No zones yet</strong><span>Use Save Object to create the first building, floor, and zone.</span>";
+    list.appendChild(row);
+    return;
+  }
+  for (const zone of state.zones.zones) {
+    const row = document.createElement("div");
+    row.className = "compact-row";
+    row.innerHTML = `<strong>${zone.name}</strong><span>${zone.category || "common"} · ${zone.guest_visible ? "guest visible" : "operations only"}</span>`;
+    row.addEventListener("click", () => {
+      state.selectedMapObject = { ...zone, objectType: "zone" };
+      $("map-object-name").value = zone.name;
+      $("map-object-type").value = "zone";
+      $("map-object-visible").value = String(zone.guest_visible);
+      renderMapCanvas();
+    });
+    list.appendChild(row);
+  }
+}
+
+function renderMapCanvas() {
+  const canvas = $("floor-map-canvas");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#fbfbfa";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = "#d4d4d8";
+  ctx.lineWidth = 1;
+  for (let x = 0; x < canvas.width; x += 40) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+  }
+  for (let y = 0; y < canvas.height; y += 40) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+  }
+  const layers = Object.fromEntries([...document.querySelectorAll(".layer-toggle")].map((input) => [input.dataset.layer, input.checked]));
+  if (layers.zones) {
+    for (const zone of state.zones?.zones || []) drawGeometry(ctx, zone.geometry, zone === state.selectedMapObject ? "#0f766e" : "#2563eb", zone.name);
+  }
+  if (layers.facilities) {
+    for (const facility of state.zones?.facilities || []) {
+      const zone = state.zones.zones.find((item) => item.zone_id === facility.zone_id);
+      if (zone) drawLabel(ctx, zone.geometry, facility.name, "#7c2d12");
+    }
+  }
+  if (layers.access_points) {
+    for (const ap of state.zones?.access_points || []) {
+      ctx.fillStyle = "#dc2626";
+      ctx.beginPath(); ctx.arc(ap.x || 40, ap.y || 40, 6, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#18181b"; ctx.fillText(ap.name, (ap.x || 40) + 9, (ap.y || 40) + 4);
+    }
+  }
+  for (const object of state.mapObjects) drawGeometry(ctx, object.geometry, "#16a34a", object.name || "Draft");
+}
+
+function drawGeometry(ctx, geometry, color, label) {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color + "22";
+  ctx.lineWidth = 2;
+  if (geometry.type === "rectangle") {
+    ctx.fillRect(geometry.x, geometry.y, geometry.width, geometry.height);
+    ctx.strokeRect(geometry.x, geometry.y, geometry.width, geometry.height);
+  } else if (geometry.type === "ellipse") {
+    ctx.beginPath(); ctx.ellipse(geometry.cx, geometry.cy, geometry.rx, geometry.ry, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  } else if (geometry.type === "polygon" && geometry.points?.length) {
+    ctx.beginPath();
+    ctx.moveTo(geometry.points[0][0], geometry.points[0][1]);
+    for (const point of geometry.points.slice(1)) ctx.lineTo(point[0], point[1]);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  drawLabel(ctx, geometry, label, color);
+  ctx.restore();
+}
+
+function drawLabel(ctx, geometry, label, color) {
+  const point = geometry.points?.[0] || [geometry.x || geometry.cx || 30, geometry.y || geometry.cy || 30];
+  ctx.fillStyle = color;
+  ctx.font = "13px system-ui";
+  ctx.fillText(label || "", point[0] + 8, point[1] + 18);
+}
+
+async function ensureDefaultBuildingAndFloor() {
+  if (!state.zones?.buildings.length) {
+    await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/buildings`, {
+      method: "POST",
+      body: JSON.stringify({ data: { name: "Main Building" } }),
+    });
+    await loadZones();
+  }
+  if (!state.zones?.floors.length) {
+    await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/floors`, {
+      method: "POST",
+      body: JSON.stringify({ data: { building_id: state.zones.buildings[0].building_id, name: "Ground Floor", level: 0 } }),
+    });
+    await loadZones();
+  }
+}
+
+async function saveMapObject() {
+  await ensureDefaultBuildingAndFloor();
+  const floorId = $("zone-floor-select").value || state.zones.floors[0].floor_id;
+  const type = $("map-object-type").value;
+  const name = $("map-object-name").value.trim() || type.replaceAll("_", " ");
+  const visible = $("map-object-visible").value === "true";
+  const draft = state.mapObjects.at(-1) || { geometry: { type: "rectangle", x: 120, y: 120, width: 180, height: 100 } };
+  if (type === "facility") {
+    const zone = state.zones.zones[0] || await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/zones`, {
+      method: "PUT",
+      body: JSON.stringify({ data: { floor_id: floorId, name: "Common Area", geometry: draft.geometry, guest_visible: true } }),
+    });
+    await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/facilities`, {
+      method: "POST",
+      body: JSON.stringify({ data: { zone_id: zone.zone_id, name, facility_type: type, guest_visible: visible } }),
+    });
+  } else if (type === "access_point") {
+    const zone = state.zones.zones[0];
+    if (!zone) throw new Error("Create a zone before adding an access point.");
+    await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/access-points`, {
+      method: "POST",
+      body: JSON.stringify({ data: { zone_id: zone.zone_id, name, identifier: $("map-ap-identifier").value.trim(), x: draft.geometry.x || draft.geometry.cx || 80, y: draft.geometry.y || draft.geometry.cy || 80 } }),
+    });
+  } else {
+    await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/zones`, {
+      method: "PUT",
+      body: JSON.stringify({ data: { floor_id: floorId, name, category: type, geometry: draft.geometry, guest_visible: visible } }),
+    });
+  }
+  state.mapObjects = [];
+  await loadZones();
+  showToast("Map object saved.");
+}
+
+function handleCanvasPointer(event) {
+  const canvas = $("floor-map-canvas");
+  const rect = canvas.getBoundingClientRect();
+  const x = Math.round((event.clientX - rect.left) * (canvas.width / rect.width));
+  const y = Math.round((event.clientY - rect.top) * (canvas.height / rect.height));
+  if (!["rectangle", "ellipse", "polygon"].includes(state.mapTool)) return;
+  state.mapHistory.push(structuredClone(state.mapObjects));
+  const snap = (value) => Math.round(value / 10) * 10;
+  const geometry = state.mapTool === "ellipse"
+    ? { type: "ellipse", cx: snap(x), cy: snap(y), rx: 80, ry: 50 }
+    : state.mapTool === "polygon"
+      ? { type: "polygon", points: [[snap(x), snap(y)], [snap(x + 140), snap(y + 20)], [snap(x + 80), snap(y + 100)]] }
+      : { type: "rectangle", x: snap(x), y: snap(y), width: 180, height: 110 };
+  state.mapObjects.push({ name: $("map-object-name").value || "Draft", geometry });
+  state.mapRedo = [];
+  renderMapCanvas();
+}
+
+async function uploadFloorMap(file) {
+  if (!file) return;
+  const content = await file.arrayBuffer();
+  const bytes = new Uint8Array(content);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  await ensureDefaultBuildingAndFloor();
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/floors/${$("zone-floor-select").value}/maps`, {
+    method: "POST",
+    body: JSON.stringify({ filename: file.name, content_type: file.type || "application/octet-stream", content_base64: btoa(binary) }),
+  });
+  await loadZones();
+  showToast("Floor plan uploaded as locked background.");
+}
+
+async function loadSessions() {
+  const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/sessions`);
+  const list = $("session-list");
+  list.innerHTML = "";
+  for (const stay of data.stays) {
+    const row = document.createElement("div");
+    row.className = "compact-row";
+    row.innerHTML = `<strong>${stay.stay_id}</strong><span>${stay.status} · ${stay.device_id} · room ${stay.room || "none"}</span>`;
+    row.addEventListener("click", () => {
+      $("memory-stay-id").value = stay.stay_id;
+      $("memory-summary").value = stay.memory_summary?.conversation_summary || "";
+    });
+    list.appendChild(row);
+  }
+  if (!data.stays.length) list.textContent = "No stay sessions yet.";
+}
+
+async function createStaySession() {
+  const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/sessions/reconnect`, {
+    method: "POST",
+    body: JSON.stringify({ raw_mac: $("session-raw-mac").value.trim(), room: $("session-room").value.trim() || null }),
+  });
+  $("memory-stay-id").value = result.stay.stay_id;
+  await loadSessions();
+  showToast("Stay restored with pseudonymous device identity.");
+}
+
+async function saveStayMemory() {
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/stays/${encodeURIComponent($("memory-stay-id").value)}/memory`, {
+    method: "PUT",
+    body: JSON.stringify({ memory: { conversation_summary: $("memory-summary").value } }),
+  });
+  await loadSessions();
+  showToast("Compact stay memory saved.");
+}
+
+async function loadLocationLive() {
+  const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/location/live`);
+  $("location-live-metrics").innerHTML = `
+    <article><span>Detected devices</span><strong>${data.currently_detected}</strong></article>
+    <article><span>Active stays</span><strong>${data.active_sessions}</strong></article>
+    <article><span>Busiest zone</span><strong>${data.busiest_zone_id || "-"}</strong></article>
+    <article><span>Zones occupied</span><strong>${Object.keys(data.occupancy_by_zone || {}).length}</strong></article>
+  `;
+}
+
+async function recordObservation() {
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/location/observations`, {
+    method: "POST",
+    body: JSON.stringify({ raw_mac: $("obs-raw-mac").value.trim(), access_point_identifier: $("obs-ap-id").value.trim() }),
+  });
+  await loadLocationLive();
+  showToast("Observation recorded.");
+}
+
+async function loadLocationReport() {
+  const now = Math.floor(Date.now() / 1000);
+  const period = $("analytics-period").value;
+  const days = period === "30" ? 30 : period === "7" ? 7 : 1;
+  const start = period === "yesterday" ? now - 2 * 86400 : now - days * 86400;
+  const end = period === "yesterday" ? now - 86400 : now;
+  const report = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/location/report`, {
+    method: "POST",
+    body: JSON.stringify({ start_at: start, end_at: end, filters: {} }),
+  });
+  $("location-report").innerHTML = `
+    <div class="compact-row"><strong>${report.total_visits} visits · ${report.unique_visits} unique devices</strong><span>Zone occupancy heatmap uses aggregate AP-associated zones.</span></div>
+    ${Object.entries(report.area_metrics).map(([zone, metric]) => `<div class="compact-row"><strong>${zone}</strong><span>${metric.total_visits} visits · ${metric.average_dwell_seconds}s avg dwell · ${metric.repeat_visits} repeat visits</span></div>`).join("")}
+    ${report.movement_patterns.map((item) => `<div class="compact-row"><strong>${item.source_zone_id} -> ${item.destination_zone_id}</strong><span>${item.count} transitions · ${item.percentage}%</span></div>`).join("")}
+  `;
+}
+
+async function loadIntro() {
+  state.intro = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/intro`);
+  $("intro-mode").value = state.intro.mode;
+  $("intro-preset").value = state.intro.preset;
+  $("intro-duration").value = state.intro.duration_ms;
+  $("intro-message").value = state.intro.welcome_message;
+  $("intro-background").value = normalizeColor(state.intro.background);
+  $("intro-brand-color").value = normalizeColor(state.intro.brand_color);
+  $("intro-first-visit").checked = state.intro.first_visit_only;
+  $("intro-skip").checked = state.intro.allow_skip;
+  updateIntroPreview();
+}
+
+function updateIntroPreview() {
+  $("intro-preview-card").style.background = $("intro-background").value || "#fbfbfa";
+  $("intro-preview-card").querySelector("strong").style.background = $("intro-brand-color").value || "#18181b";
+  $("intro-preview-message").textContent = $("intro-message").value || "Welcome";
+  $("intro-preview-card").querySelector("button").hidden = !$("intro-skip").checked;
+}
+
+async function saveIntro() {
+  const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/intro`, {
+    method: "PUT",
+    body: JSON.stringify({ data: {
+      mode: $("intro-mode").value,
+      preset: $("intro-preset").value,
+      duration_ms: Number($("intro-duration").value || 1400),
+      background: $("intro-background").value,
+      brand_color: $("intro-brand-color").value,
+      welcome_message: $("intro-message").value,
+      first_visit_only: $("intro-first-visit").checked,
+      allow_skip: $("intro-skip").checked,
+    } }),
+  });
+  state.intro = result;
+  showToast("Intro experience saved.");
+}
+
+async function uploadIntroAsset(file) {
+  if (!file) return;
+  const content = await file.arrayBuffer();
+  const bytes = new Uint8Array(content);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/intro/upload`, {
+    method: "POST",
+    body: JSON.stringify({ filename: file.name, content_type: file.type || (file.name.endsWith(".lottie") ? "application/octet-stream" : "application/json"), content_base64: btoa(binary) }),
+  });
+  await loadIntro();
+  showToast("Intro animation uploaded.");
+}
+
 function normalizeColor(value) {
   return /^#[0-9a-f]{6}$/i.test(value) ? value : "#18181b";
 }
@@ -846,6 +1175,55 @@ function setup() {
   $("remove-provider-secret").addEventListener("click", () => removeProviderSecret().catch((error) => showToast(error.message, "error")));
   $("refresh-provider-models").addEventListener("click", () => refreshProviderModels().catch((error) => showToast(error.message, "error")));
   $("test-provider").addEventListener("click", () => testProvider().catch((error) => showToast(error.message, "error")));
+
+  for (const button of document.querySelectorAll("[data-map-tool]")) {
+    button.addEventListener("click", () => {
+      state.mapTool = button.dataset.mapTool;
+      for (const candidate of document.querySelectorAll("[data-map-tool]")) candidate.classList.toggle("active", candidate === button);
+    });
+  }
+  $("floor-map-canvas").addEventListener("pointerdown", handleCanvasPointer);
+  $("save-map-object").addEventListener("click", () => saveMapObject().catch((error) => showToast(error.message, "error")));
+  $("delete-map-object").addEventListener("click", () => {
+    state.mapHistory.push(structuredClone(state.mapObjects));
+    state.mapObjects.pop();
+    renderMapCanvas();
+  });
+  $("duplicate-map-object").addEventListener("click", () => {
+    const last = state.mapObjects.at(-1);
+    if (last) state.mapObjects.push(structuredClone(last));
+    renderMapCanvas();
+  });
+  $("undo-map").addEventListener("click", () => {
+    const previous = state.mapHistory.pop();
+    if (previous) {
+      state.mapRedo.push(structuredClone(state.mapObjects));
+      state.mapObjects = previous;
+      renderMapCanvas();
+    }
+  });
+  $("redo-map").addEventListener("click", () => {
+    const next = state.mapRedo.pop();
+    if (next) {
+      state.mapHistory.push(structuredClone(state.mapObjects));
+      state.mapObjects = next;
+      renderMapCanvas();
+    }
+  });
+  for (const input of document.querySelectorAll(".layer-toggle")) input.addEventListener("change", renderMapCanvas);
+  $("zone-building-select").addEventListener("change", hydrateZoneSelectors);
+  $("zone-floor-select").addEventListener("change", renderMapCanvas);
+  $("floor-map-upload").addEventListener("change", (event) => uploadFloorMap(event.target.files?.[0]).catch((error) => showToast(error.message, "error")));
+  $("create-stay-session").addEventListener("click", () => createStaySession().catch((error) => showToast(error.message, "error")));
+  $("save-stay-memory").addEventListener("click", () => saveStayMemory().catch((error) => showToast(error.message, "error")));
+  $("record-observation").addEventListener("click", () => recordObservation().catch((error) => showToast(error.message, "error")));
+  $("load-location-report").addEventListener("click", () => loadLocationReport().catch((error) => showToast(error.message, "error")));
+  for (const id of ["intro-mode", "intro-preset", "intro-duration", "intro-message", "intro-background", "intro-brand-color", "intro-first-visit", "intro-skip"]) {
+    $(id).addEventListener("input", updateIntroPreview);
+    $(id).addEventListener("change", updateIntroPreview);
+  }
+  $("save-intro").addEventListener("click", () => saveIntro().catch((error) => showToast(error.message, "error")));
+  $("intro-upload").addEventListener("change", (event) => uploadIntroAsset(event.target.files?.[0]).catch((error) => showToast(error.message, "error")));
 
   for (const button of document.querySelectorAll(".preview-size")) {
     button.addEventListener("click", () => {

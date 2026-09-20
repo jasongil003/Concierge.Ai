@@ -11,9 +11,13 @@ from .ai_providers import AIModelService, AIProviderStore
 from .antlabs import AntlabsAdapter
 from .config import settings
 from .hotel import HotelKnowledge
+from .guest_identity import GuestIdentityStore
+from .intro import IntroExperienceStore
+from .location_analytics import LocationAnalyticsStore
 from .places import GooglePlaces, format_places_for_ai
 from .properties import PropertyRecord, PropertyStore, validate_design_config
 from .session_store import SessionStore
+from .zones import ZoneStore
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
@@ -25,6 +29,10 @@ knowledge = HotelKnowledge(settings.hotel_config_path)
 store = SessionStore(settings.db_path, settings.session_ttl_minutes)
 properties = PropertyStore(settings.db_path)
 properties.seed_from_hotel_json(settings.property_id, settings.hotel_config_path)
+zones = ZoneStore(settings.db_path)
+guest_identities = GuestIdentityStore(settings.db_path)
+location_analytics = LocationAnalyticsStore(settings.db_path)
+intro_experiences = IntroExperienceStore(settings.db_path)
 ai = AIOrchestrator()
 ai_provider_store = AIProviderStore(settings.db_path)
 ai_models = AIModelService(ai_provider_store)
@@ -119,6 +127,46 @@ class CredentialPayload(BaseModel):
     value: str = Field(min_length=1, max_length=8000)
 
 
+class GenericPayload(BaseModel):
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+class UploadPayload(BaseModel):
+    filename: str = Field(min_length=1, max_length=220)
+    content_type: str = Field(min_length=1, max_length=120)
+    content_base64: str = Field(min_length=1)
+    width: float | None = None
+    height: float | None = None
+
+
+class DeviceSessionPayload(BaseModel):
+    raw_mac: str = Field(min_length=12, max_length=32)
+    concierge_session_id: str | None = None
+    antlabs_session_id: str | None = None
+    browser_session_id: str | None = None
+    room: str | None = None
+    pms_guest_id: str | None = None
+    retention_days: int = Field(default=2, ge=0, le=60)
+
+
+class MemoryPayload(BaseModel):
+    memory: dict[str, Any] = Field(default_factory=dict)
+
+
+class ObservationPayload(BaseModel):
+    raw_mac: str | None = None
+    device_id: str | None = None
+    stay_id: str | None = None
+    access_point_identifier: str = Field(min_length=1, max_length=160)
+    observed_at: int | None = None
+
+
+class AnalyticsQuery(BaseModel):
+    start_at: int
+    end_at: int
+    filters: dict[str, Any] = Field(default_factory=dict)
+
+
 @app.get("/")
 async def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
@@ -152,6 +200,33 @@ async def hotel() -> dict[str, Any]:
             "modes": [],
         }
     return profile
+
+
+@app.get("/api/guest/zones")
+async def guest_zones(property_id: str | None = None) -> dict[str, Any]:
+    requested_property_id = property_id or settings.property_id
+    if properties.get(requested_property_id) is None:
+        raise HTTPException(status_code=404, detail="Property not found.")
+    return zones.overview(requested_property_id, guest=True)
+
+
+@app.get("/api/guest/intro")
+async def guest_intro(property_id: str | None = None) -> dict[str, Any]:
+    requested_property_id = property_id or settings.property_id
+    if properties.get(requested_property_id) is None:
+        raise HTTPException(status_code=404, detail="Property not found.")
+    return intro_experiences.get(requested_property_id)
+
+
+@app.get("/api/guest/navigation/route")
+async def guest_route(from_node_id: str, to_node_id: str, property_id: str | None = None) -> dict[str, Any]:
+    requested_property_id = property_id or settings.property_id
+    if properties.get(requested_property_id) is None:
+        raise HTTPException(status_code=404, detail="Property not found.")
+    try:
+        return zones.route(requested_property_id, from_node_id, to_node_id, guest=True)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.get("/api/admin/properties")
@@ -325,6 +400,233 @@ async def delete_property(property_id: str) -> dict[str, Any]:
     return {"status": "deleted", "property_id": property_id}
 
 
+@app.get("/api/admin/properties/{property_id}/zones")
+async def admin_zones(property_id: str) -> dict[str, Any]:
+    _require_property(property_id)
+    return zones.overview(property_id)
+
+
+@app.post("/api/admin/properties/{property_id}/buildings")
+async def create_building(property_id: str, payload: GenericPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return zones.create_building(property_id, payload.data)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/floors")
+async def create_floor(property_id: str, payload: GenericPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return zones.create_floor(property_id, payload.data)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/floors/{floor_id}/maps")
+async def upload_floor_map(property_id: str, floor_id: str, payload: UploadPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return zones.save_floor_map(property_id, floor_id, payload.model_dump())
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/admin/properties/{property_id}/floor-maps/{map_id}/asset")
+async def floor_map_asset(property_id: str, map_id: str) -> FileResponse:
+    _require_property(property_id)
+    try:
+        return FileResponse(zones.floor_map_path(property_id, map_id))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.put("/api/admin/properties/{property_id}/zones")
+async def save_zone(property_id: str, payload: GenericPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return zones.upsert_zone(property_id, payload.data)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.delete("/api/admin/properties/{property_id}/zones/{zone_id}")
+async def delete_zone(property_id: str, zone_id: str) -> dict[str, Any]:
+    _require_property(property_id)
+    deleted = zones.delete_zone(property_id, zone_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Zone not found.")
+    return {"status": "deleted", "zone_id": zone_id}
+
+
+@app.post("/api/admin/properties/{property_id}/facilities")
+async def create_facility(property_id: str, payload: GenericPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return zones.create_facility(property_id, payload.data)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/access-points")
+async def create_access_point(property_id: str, payload: GenericPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return zones.create_access_point(property_id, payload.data)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/navigation/nodes")
+async def create_navigation_node(property_id: str, payload: GenericPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return zones.create_node(property_id, payload.data)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/navigation/edges")
+async def create_navigation_edge(property_id: str, payload: GenericPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return zones.create_edge(property_id, payload.data)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/admin/properties/{property_id}/navigation/route")
+async def admin_route(property_id: str, from_node_id: str, to_node_id: str) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return zones.route(property_id, from_node_id, to_node_id, guest=False)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/admin/properties/{property_id}/sessions")
+async def admin_sessions(property_id: str) -> dict[str, Any]:
+    _require_property(property_id)
+    return {"stays": guest_identities.list_stays(property_id), "devices": guest_identities.list_devices(property_id)}
+
+
+@app.post("/api/admin/properties/{property_id}/sessions/reconnect")
+async def reconnect_session(property_id: str, payload: DeviceSessionPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        device_id = guest_identities.observe_device(property_id, payload.raw_mac)
+        stay = guest_identities.reconnect_or_create_stay(
+            property_id,
+            device_id,
+            concierge_session_id=payload.concierge_session_id,
+            antlabs_session_id=payload.antlabs_session_id,
+            browser_session_id=payload.browser_session_id,
+            room=payload.room,
+            pms_guest_id=payload.pms_guest_id,
+            retention_days=payload.retention_days,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"device_id": device_id, "stay": stay}
+
+
+@app.put("/api/admin/properties/{property_id}/stays/{stay_id}/memory")
+async def update_stay_memory(property_id: str, stay_id: str, payload: MemoryPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return guest_identities.update_memory(property_id, stay_id, payload.memory)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/stays/{stay_id}/checkout")
+async def checkout_stay(property_id: str, stay_id: str) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return guest_identities.checkout(property_id, stay_id, anonymize=True)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/location/observations")
+async def record_location_observation(property_id: str, payload: ObservationPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    zone = zones.zone_for_ap(property_id, payload.access_point_identifier)
+    if zone is None:
+        raise HTTPException(status_code=404, detail="Access point is not mapped to a zone.")
+    if payload.device_id:
+        device_id = payload.device_id
+    elif payload.raw_mac:
+        try:
+            device_id = guest_identities.observe_device(property_id, payload.raw_mac)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    else:
+        raise HTTPException(status_code=422, detail="raw_mac or device_id is required.")
+    return location_analytics.record_observation(
+        property_id,
+        device_id,
+        zone["zone_id"],
+        payload.access_point_identifier,
+        stay_id=payload.stay_id,
+        observed_at=payload.observed_at,
+    )
+
+
+@app.get("/api/admin/properties/{property_id}/location/live")
+async def live_location_analytics(property_id: str) -> dict[str, Any]:
+    _require_property(property_id)
+    return location_analytics.live(property_id)
+
+
+@app.post("/api/admin/properties/{property_id}/location/report")
+async def location_report(property_id: str, payload: AnalyticsQuery) -> dict[str, Any]:
+    _require_property(property_id)
+    return location_analytics.aggregate(property_id, payload.start_at, payload.end_at, payload.filters)
+
+
+@app.get("/api/admin/properties/{property_id}/intro")
+async def get_intro(property_id: str) -> dict[str, Any]:
+    _require_property(property_id)
+    return intro_experiences.get(property_id)
+
+
+@app.put("/api/admin/properties/{property_id}/intro")
+async def save_intro(property_id: str, payload: GenericPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return intro_experiences.save(property_id, payload.data)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/intro/upload")
+async def upload_intro(property_id: str, payload: UploadPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return intro_experiences.upload_asset(property_id, payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/admin/properties/{property_id}/intro/assets/{filename}")
+async def intro_asset(property_id: str, filename: str) -> FileResponse:
+    _require_property(property_id)
+    try:
+        return FileResponse(intro_experiences.asset_path(property_id, filename))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @app.post("/api/session/start")
 async def start_session(request: StartSessionRequest) -> dict[str, Any]:
     requested_property_id = request.property_id or settings.property_id
@@ -465,3 +767,8 @@ def _authentication_guidance(auth_types: list[dict[str, Any]]) -> str:
         f"{item['label']} requires {', '.join(item.get('fields') or ['hotel validation'])}. {item.get('guest_guidance', '')}".strip()
         for item in auth_types
     )
+
+
+def _require_property(property_id: str) -> None:
+    if properties.get(property_id) is None:
+        raise HTTPException(status_code=404, detail="Property not found.")

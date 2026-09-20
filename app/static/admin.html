@@ -29,6 +29,10 @@
       <button class="nav-item active" data-panel="overview">Overview</button>
       <button class="nav-item" data-panel="appearance">AI Chat Design</button>
       <button class="nav-item" data-panel="guest">Guest Experience</button>
+      <button class="nav-item" data-panel="zones">Zones</button>
+      <button class="nav-item" data-panel="sessions">Sessions</button>
+      <button class="nav-item" data-panel="location">Location Analytics</button>
+      <button class="nav-item" data-panel="intro">Branding · Intro</button>
       <button class="nav-item" data-panel="ai">AI Models</button>
       <button class="nav-item" data-panel="knowledge">Knowledge</button>
       <button class="nav-item" data-panel="wifi">Wi-Fi / ANTlabs</button>
@@ -166,6 +170,107 @@
             </tbody>
           </table>
         </section>
+      </section>
+
+      <section class="panel" id="zones">
+        <div class="page-title"><p>Zones</p><h1>Facility mapping and floor-plan editor</h1></div>
+        <div class="map-workspace">
+          <aside class="map-sidebar">
+            <h2>Tools</h2>
+            <div class="tool-grid">
+              <button data-map-tool="select">Select</button><button data-map-tool="rectangle">Rectangle</button>
+              <button data-map-tool="polygon">Polygon</button><button data-map-tool="ellipse">Ellipse</button>
+              <button id="duplicate-map-object" type="button">Duplicate</button><button id="delete-map-object" type="button">Delete</button>
+              <button id="undo-map" type="button">Undo</button><button id="redo-map" type="button">Redo</button>
+            </div>
+            <h2>Layers</h2>
+            <label><input class="layer-toggle" data-layer="access_points" type="checkbox" checked> Access Points</label>
+            <label><input class="layer-toggle" data-layer="facilities" type="checkbox" checked> Facilities</label>
+            <label><input class="layer-toggle" data-layer="zones" type="checkbox" checked> Zones</label>
+            <label><input class="layer-toggle" data-layer="navigation" type="checkbox" checked> Navigation Paths</label>
+            <label><input class="layer-toggle" data-layer="floor_plan" type="checkbox" checked> Uploaded Floor Plan</label>
+            <h2>Hierarchy</h2>
+            <div id="zone-tree" class="compact-list"></div>
+          </aside>
+          <section class="map-canvas-shell">
+            <div class="map-topbar">
+              <select id="zone-building-select"></select>
+              <select id="zone-floor-select"></select>
+              <input id="floor-map-upload" type="file" accept="image/png,image/jpeg,image/svg+xml,application/pdf">
+              <button id="save-map-object" type="button">Save Object</button>
+            </div>
+            <canvas id="floor-map-canvas" width="1200" height="720"></canvas>
+          </section>
+          <aside class="map-properties">
+            <h2>Selected Object</h2>
+            <label>Type<select id="map-object-type"><option value="zone">Zone</option><option value="facility">Facility</option><option value="access_point">Wi-Fi AP</option><option value="entrance">Entrance</option><option value="exit">Exit</option><option value="elevator">Elevator</option><option value="stairs">Stairs</option><option value="navigation">Navigation Path</option><option value="label">Label</option></select></label>
+            <label>Name<input id="map-object-name" placeholder="Lobby"></label>
+            <label>Guest visible<select id="map-object-visible"><option value="true">Visible to guests</option><option value="false">Operations only</option></select></label>
+            <label>AP identifier<input id="map-ap-identifier" placeholder="ap-lobby-01"></label>
+            <p class="field-note">Guest APIs never expose AP identifiers or WLAN infrastructure. APs map devices to aggregate zones only.</p>
+          </aside>
+        </div>
+      </section>
+
+      <section class="panel" id="sessions">
+        <div class="page-title"><p>Sessions</p><h1>Guest stay memory and device identity</h1></div>
+        <div class="two-col">
+          <section class="card">
+            <h2>Reconnect a WLAN device</h2>
+            <label>Raw MAC from ANTlabs/WLAN<input id="session-raw-mac" placeholder="AA:BB:CC:DD:EE:FF"></label>
+            <label>Room (optional)<input id="session-room" placeholder="1503"></label>
+            <button id="create-stay-session" type="button">Create / Restore Stay</button>
+            <p class="field-note">Raw MAC values are accepted only server-side and converted to property-scoped HMAC device IDs.</p>
+          </section>
+          <section class="card">
+            <h2>AI Memory</h2>
+            <label>Stay ID<input id="memory-stay-id"></label>
+            <label>Summary<textarea id="memory-summary" rows="4"></textarea></label>
+            <button id="save-stay-memory" type="button">Save Compact Memory</button>
+          </section>
+        </div>
+        <section class="card table-card"><h2>Active / History</h2><div id="session-list" class="compact-list"></div></section>
+      </section>
+
+      <section class="panel" id="location">
+        <div class="page-title"><p>Location Analytics</p><h1>Live occupancy, heatmap, behavior, and movement</h1></div>
+        <section class="metrics" id="location-live-metrics"></section>
+        <div class="two-col">
+          <section class="card">
+            <h2>Record AP Observation</h2>
+            <label>Device MAC<input id="obs-raw-mac" placeholder="AA:BB:CC:DD:EE:FF"></label>
+            <label>Access Point ID<input id="obs-ap-id" placeholder="ap-lobby-01"></label>
+            <button id="record-observation" type="button">Record Observation</button>
+            <p class="field-note">V1 analytics are zone occupancy from associated AP. This is not meter-level indoor positioning.</p>
+          </section>
+          <section class="card">
+            <h2>Report Filter</h2>
+            <label>Period<select id="analytics-period"><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option></select></label>
+            <button id="load-location-report" type="button">Load Report</button>
+          </section>
+        </div>
+        <section class="card table-card"><h2>Area and Movement Report</h2><div id="location-report" class="compact-list"></div></section>
+      </section>
+
+      <section class="panel" id="intro">
+        <div class="page-title"><p>Branding</p><h1>Intro experience</h1></div>
+        <div class="two-col">
+          <section class="card">
+            <label>Mode<select id="intro-mode"><option value="none">None</option><option value="generate_from_logo">Generate from logo</option><option value="custom_upload">Upload custom animation</option></select></label>
+            <label>Preset<select id="intro-preset"><option value="none">None</option><option value="minimal_fade">Minimal Fade</option><option value="fade_scale">Fade + Scale</option><option value="luxury_reveal">Luxury Reveal</option><option value="particle_assemble">Particle Assemble</option><option value="line_draw">Line Draw</option><option value="glass_blur">Glass / Blur</option><option value="split_reveal">Split Reveal</option><option value="logo_to_chat_header">Logo -> Chat Header</option></select></label>
+            <label>Duration ms<input id="intro-duration" type="number" min="300" max="8000" step="100"></label>
+            <label>Welcome message<input id="intro-message"></label>
+            <div class="inline-fields"><label>Background<input id="intro-background" type="color"></label><label>Brand color<input id="intro-brand-color" type="color"></label></div>
+            <label><input id="intro-first-visit" type="checkbox"> First visit only</label>
+            <label><input id="intro-skip" type="checkbox"> Allow Skip</label>
+            <label>Custom asset<input id="intro-upload" type="file" accept=".lottie,application/json,.json,video/webm,video/mp4"></label>
+            <button id="save-intro" type="button">Save Intro</button>
+          </section>
+          <section class="intro-preview">
+            <div id="intro-preview-card"><strong>C</strong><span id="intro-preview-message">Welcome</span><button>Skip</button></div>
+            <p class="field-note">If animation loading fails or reduced motion is preferred, the guest app shows the logo and continues directly to chat.</p>
+          </section>
+        </div>
       </section>
 
       <section class="panel" id="ai">
