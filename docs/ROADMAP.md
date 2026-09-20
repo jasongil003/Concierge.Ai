@@ -239,7 +239,7 @@ Give each property an optional short branded experience before the Concierge cha
 - [ ] Keep After Effects `.aep` as a source-project format only; require export to a supported web format
 - [ ] Later: PNG/JPG vectorization and AI-generated custom motion from logo + prompt
 
-Implementation tracking: #undefined
+Implementation tracking: #14
 
 ### Template builder
 
@@ -324,44 +324,155 @@ Use n8n for hotel-specific workflow integration and notifications. Do not place 
 
 ---
 
-## Phase 6 - indoor location and hotel navigation
+## Phase 6 - Property Intelligence & Guest Location Analytics
 
-Start with AP/zone location, not precise indoor positioning.
+Build this as three connected capabilities. **Zones** are the spatial source of truth, **Sessions** provide stay/device identity, and **Location Analytics** aggregates behavior from both.
 
-### Work
-
-- [ ] Define `WiFiLocationProvider` interface
-- [ ] Correlate Concierge/ANTlabs session with Wi-Fi client
-- [ ] Retrieve current associated AP from WLAN controller
-- [ ] Property AP -> hotel zone mapping
-- [ ] Current-zone API
-- [ ] Hotel route graph
-- [ ] Directions between zones/facilities
-- [ ] AI explanation of deterministic route
-- [ ] Aruba adapter
-- [ ] Ruckus adapter
-- [ ] Cisco/Meraki adapter as demand requires
-- [ ] UniFi adapter as demand requires
-- [ ] Optional RSSI/multi-AP enhancement later
-- [ ] Guest privacy notice/consent where required
-- [ ] Do not keep long-term movement history by default
-- [ ] Delete temporary location association at session expiry/checkout
-
-### Example
+### Architecture
 
 ```text
-Guest session
-   ->
-Current AP
-   ->
-Floor 3 East Wing
-   ->
-Destination: Pool
-   ->
-Route graph
-   ->
-Elevator -> Lobby -> Garden Corridor -> Pool
+ANTlabs / WLAN / PMS
+          |
+          +-- device/session identity
+          +-- associated AP
+          +-- guest/stay context
+                    |
+                    v
+               Concierge.AI
+                    |
+       +------------+------------+
+       |            |            |
+       v            v            v
+     Zones       Sessions      Location
+                              Analytics
+       |            |            |
+       +------------+------------+
+                    |
+                    v
+             Property Intelligence
 ```
+
+### 6A - Zones & Facility Mapping
+
+Tracking: #10
+
+- [ ] Add Buildings / Floors / Facilities / Access Points / Map Editor
+- [ ] Upload floor plan: PNG/JPG/SVG/PDF
+- [ ] Lock floor plan as the background layer
+- [ ] Trace meaningful areas with rectangle/polygon/circle tools
+- [ ] Map public facilities and aggregate guestroom wings/floors
+- [ ] Do not require individual guest-room mapping for location analytics
+- [ ] Place WLAN APs on the floor plan
+- [ ] AP -> zone/facility mapping
+- [ ] Navigation paths, entrances, elevators, and stairs
+- [ ] Operations View with technical/AP information
+- [ ] Guest View with public facilities/navigation only
+- [ ] Current-zone API
+- [ ] Deterministic hotel route graph
+- [ ] AI explanation of deterministic routes
+- [ ] Later: assisted area detection/OCR and multi-AP precision positioning
+
+### 6B - Sessions & Stay Memory
+
+Tracking: #undefined
+
+- [ ] Sessions tab: Active / History / Devices / Guest Stay / AI Memory / Location History
+- [ ] Correlate ANTlabs and WLAN session data
+- [ ] Convert raw MAC/network identity into a property-scoped pseudonymous device ID
+- [ ] Create Concierge Stay ID
+- [ ] Optional PMS Guest ID / room association
+- [ ] Current AP and current zone in active session
+- [ ] Resume the same active stay after reconnect
+- [ ] Summarized AI stay memory instead of unlimited conversation history
+- [ ] Stay-based guest preferences/context
+- [ ] Configurable retention
+- [ ] Delete/anonymize memory and location history at checkout/session expiry by default
+- [ ] Do not create permanent cross-stay identity by default
+
+### 6C - Location Analytics & Behavior Reporting
+
+Tracking: #undefined
+
+Views:
+
+- [ ] Live
+- [ ] Heatmap
+- [ ] Areas
+- [ ] Behavior
+- [ ] Movement
+- [ ] Dwell Time
+- [ ] Peak Hours
+- [ ] Reports
+
+Metrics:
+
+- [ ] live zone occupancy
+- [ ] unique visitors/devices by zone
+- [ ] average dwell time
+- [ ] peak occupancy and peak periods
+- [ ] visit frequency
+- [ ] repeat zone visits
+- [ ] previous/next zone
+- [ ] aggregated movement paths
+- [ ] entry/exit areas
+- [ ] historical trends
+- [ ] most/least visited public areas
+
+### AI intent -> physical behavior
+
+Where privacy policy and data quality allow, add aggregate reporting that connects Concierge interaction with observed facility visits:
+
+```text
+Guest asks where the spa is
+      ->
+Concierge provides directions
+      ->
+same active stay later appears in Spa zone
+      ->
+aggregate observed conversion
+```
+
+Potential metrics:
+
+- [ ] facility inquiry -> directions
+- [ ] directions -> observed zone visit
+- [ ] AI recommendation -> observed facility visit
+- [ ] facility inquiry -> booking/service request
+
+Treat these as observed correlations/conversions, not proof of causation.
+
+### Location accuracy policy
+
+V1 uses:
+
+```text
+Device -> associated AP -> mapped zone -> facility
+```
+
+This is **zone-level location**.
+
+Do not present V1 heatmaps as exact guest coordinates.
+
+Later precision phase may add:
+- multiple-AP RSSI
+- controller location APIs
+- calibration
+- approximate X/Y
+- high-resolution floor-plan heatmaps
+
+### Privacy / security
+
+- Prefer public/common-area analytics.
+- Pseudonymize network device identifiers.
+- Do not expose raw MAC addresses unnecessarily.
+- Aggregate movement analytics by default instead of exposing individual trails.
+- Apply configurable retention and audit controls.
+- Respect private/randomized MAC behavior.
+- Remove temporary stay/location context according to checkout/session-expiry policy.
+
+### Exit criteria
+
+A hotel can upload and trace its public/aggregate floor areas, map APs and facilities, resume an active guest stay safely, view current zone occupancy, and produce useful dwell/movement/behavior reports without representing AP-level location as precise indoor positioning.
 
 ---
 
