@@ -29,9 +29,10 @@
       <button class="nav-item active" data-panel="overview">Overview</button>
       <button class="nav-item" data-panel="appearance">AI Chat Design</button>
       <button class="nav-item" data-panel="guest">Guest Experience</button>
-      <button class="nav-item" data-panel="ai">AI Routing</button>
+      <button class="nav-item" data-panel="ai">AI Models</button>
       <button class="nav-item" data-panel="knowledge">Knowledge</button>
       <button class="nav-item" data-panel="wifi">Wi-Fi / ANTlabs</button>
+      <button class="nav-item" data-panel="auth-types">Authentication Type</button>
       <button class="nav-item" data-panel="requests">Service Requests</button>
       <button class="nav-item" data-panel="deployment">Deployment</button>
       <button class="nav-item" data-panel="license">License</button>
@@ -80,18 +81,28 @@
             <h2>Brand</h2>
             <label>Hotel name<input id="design-hotel-name"></label>
             <label>Concierge label<input id="design-concierge-name"></label>
+            <label>Header display<select id="logo-display-input"><option value="mark_name">Logo + hotel name</option><option value="logo_only">Logo only</option><option value="name_only">Hotel name only</option></select></label>
+            <label>Logo image<input id="logo-upload-input" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml"></label>
+            <p class="field-note">Recommended logo: PNG/SVG/WebP, transparent background, 512 x 512 px or 800 x 240 px, under 500 KB.</p>
+            <input id="logo-url-input" type="hidden">
             <label>Greeting<input id="greeting-input"></label>
             <label>Welcome headline<textarea id="welcome-input" rows="3"></textarea></label>
             <label>Composer placeholder<input id="composer-placeholder-input"></label>
             <div class="inline-fields">
               <label>Background<input id="background-input" type="color" value="#fbfbfa"></label>
               <label>Surface<input id="surface-input" type="color" value="#ffffff"></label>
+              <label>Text color<input id="text-color-input" type="color" value="#18181b"></label>
+              <label>Secondary text<input id="secondary-text-color-input" type="color" value="#71717a"></label>
               <label>Accent<input id="accent-input" type="color" value="#18181b"></label>
               <label>User bubble<input id="user-message-input" type="color" value="#eeeeee"></label>
             </div>
+            <label>Background picture<input id="background-image-input" type="file" accept="image/png,image/jpeg,image/webp"></label>
+            <p class="field-note">Recommended background: JPG/WebP, 1600 x 2400 px portrait for mobile, 2400 x 1600 px landscape fallback, under 1.5 MB.</p>
+            <input id="background-image-url-input" type="hidden">
+            <label>Background overlay<input id="background-overlay-input" type="range" min="0" max="70" step="5"></label>
             <h2>Layout</h2>
             <div class="inline-fields">
-              <label>Font<select id="font-input"><option>Geist</option><option>Inter</option><option>Manrope</option><option>DM Sans</option><option>system-ui</option></select></label>
+              <label>Font style<select id="font-input"><option>Geist</option><option>Inter</option><option>Manrope</option><option>DM Sans</option><option>Poppins</option><option>Montserrat</option><option>Lato</option><option>Merriweather</option><option>Playfair Display</option><option>system-ui</option></select></label>
               <label>Density<select id="density-input"><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></label>
               <label>Width<input id="content-width-input" type="number" min="320" max="1100" step="10"></label>
               <label>Message width<input id="message-width-input" type="number" min="280" max="900" step="10"></label>
@@ -122,7 +133,7 @@
             <div class="phone-preview mobile" id="chat-preview">
               <header>
                 <button>☰</button>
-                <div><strong id="preview-hotel">Demo Hotel</strong><span id="preview-concierge">Ava</span></div>
+                <div class="preview-brand"><span class="preview-logo" id="preview-logo">D</span><div><strong id="preview-hotel">Demo Hotel</strong><span id="preview-concierge">Ava</span></div></div>
                 <button>⋯</button>
               </header>
               <main>
@@ -158,15 +169,20 @@
       </section>
 
       <section class="panel" id="ai">
-        <div class="page-title"><p>AI routing</p><h1>Simple outside, sophisticated inside</h1></div>
-        <p class="poc-note">Not available in this POC. AI routing is configured via environment variables.</p>
-        <section class="card form-grid">
-          <label>Strategy<select disabled title="Not available in this POC"><option>Auto</option><option>Local only</option><option>Hybrid</option><option>Private endpoint</option></select></label>
-          <label>Fast model<input value="qwen3:8b" disabled title="Not available in this POC"></label>
-          <label>Advanced model<input value="Configured provider" disabled title="Not available in this POC"></label>
-          <label>Fallback provider<input value="Local Ollama" disabled title="Not available in this POC"></label>
-          <label>Monthly budget<input value="$250" disabled title="Not available in this POC"></label>
-          <label>Guest advanced controls<select disabled title="Not available in this POC"><option>Hidden</option><option>Admin only</option></select></label>
+        <div class="page-title"><p>AI models</p><h1>Provider management</h1></div>
+        <section class="card ai-settings">
+          <label>Default AI Provider<select id="ai-default-provider"></select></label>
+          <label>Routing<select id="ai-routing-mode"><option value="fixed">Fixed</option><option value="automatic">Automatic</option><option value="privacy_first">Privacy First</option><option value="cloud_first">Cloud First</option></select></label>
+          <label class="switch-row"><input id="ai-local-only" type="checkbox"> Local-Only Mode</label>
+          <button id="save-ai-settings" type="button">Save AI Settings</button>
+        </section>
+        <section class="ai-section-title">
+          <h2>Connected Providers</h2>
+          <span id="ai-health-summary">Loading...</span>
+        </section>
+        <section class="provider-grid" id="provider-grid"></section>
+        <section class="card audit-note">
+          Provider changes are recorded in the local AI audit log. Secrets stay on the server and are never returned after save.
         </section>
       </section>
 
@@ -193,6 +209,12 @@
           <label>Session context key<input placeholder="Gateway context key" disabled title="Not available in this POC"></label>
           <label>Success redirect<input placeholder="/resume" disabled title="Not available in this POC"></label>
         </section>
+      </section>
+
+      <section class="panel" id="auth-types">
+        <div class="page-title"><p>Authentication</p><h1>Enabled login methods</h1></div>
+        <p class="poc-note">Turn on the authentication methods available for this hotel. The concierge will use this summary when explaining how guests can connect.</p>
+        <section class="auth-type-list" id="auth-type-list" aria-label="Authentication type list"></section>
       </section>
 
       <section class="panel" id="requests">
@@ -224,6 +246,46 @@
       </section>
     </main>
   </div>
+  <div class="drawer-backdrop" id="provider-drawer-backdrop" hidden></div>
+  <aside class="provider-drawer" id="provider-drawer" hidden>
+    <header>
+      <div>
+        <p id="drawer-provider-status">Provider</p>
+        <h2 id="drawer-provider-name">AI Provider</h2>
+      </div>
+      <button class="secondary" id="close-provider-drawer" type="button">Close</button>
+    </header>
+    <div class="drawer-body">
+      <p class="provider-note" id="drawer-provider-note"></p>
+      <p class="unsaved-note" id="provider-unsaved-note" hidden>Changes not yet saved.</p>
+      <div class="form-grid">
+        <label>Authentication<select id="drawer-auth-method"></select></label>
+        <label>Status<input id="drawer-status" disabled></label>
+        <label>Model<input id="drawer-model" list="drawer-model-list"></label>
+        <datalist id="drawer-model-list"></datalist>
+        <label>Endpoint URL<input id="drawer-endpoint" placeholder="http://host.docker.internal:11434"></label>
+        <label>Temperature<input id="drawer-temperature" type="number" min="0" max="2" step="0.1"></label>
+        <label>Max output tokens<input id="drawer-max-tokens" type="number" min="1" max="32000"></label>
+        <label>Timeout seconds<input id="drawer-timeout" type="number" min="1" max="300"></label>
+        <label class="switch-row"><input id="drawer-enabled" type="checkbox"> Enabled</label>
+      </div>
+      <section class="secret-box">
+        <h3>Credential</h3>
+        <p id="drawer-credential-hint">No credential stored.</p>
+        <div class="secret-actions">
+          <input id="drawer-secret" type="password" placeholder="Paste API key or token">
+          <button class="secondary" id="save-provider-secret" type="button">Add / Replace</button>
+          <button class="secondary" id="remove-provider-secret" type="button">Remove</button>
+        </div>
+      </section>
+      <section class="test-result" id="drawer-test-result"></section>
+    </div>
+    <footer>
+      <button class="secondary" id="refresh-provider-models" type="button">Refresh Models</button>
+      <button class="secondary" id="test-provider" type="button">Test Connection</button>
+      <button id="save-provider" type="button">Save</button>
+    </footer>
+  </aside>
   <div class="toast" id="toast"></div>
   <script src="/static/admin.js"></script>
 </body>

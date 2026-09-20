@@ -14,7 +14,8 @@ The `feature/onprem-mvp` branch now includes:
 - zero-LLM fast paths for common questions
 - local AI through Ollama
 - Qwen3 8B default local model configuration
-- multi-provider AI routing: Local / Gemini / OpenAI / compatible / Hybrid / Auto
+- admin-managed AI provider selection: Gemini / Groq / OpenAI / Claude / Copilot placeholder / Local AI
+- property-level AI settings with Local-Only Mode and encrypted server-side credentials
 - Fast / Auto / Advanced guest AI mode switcher
 - live nearby-place recommendation adapter
 - ANTlabs integration adapter
@@ -92,6 +93,15 @@ Open:
 ```text
 http://localhost:8080
 ```
+
+Admin AI configuration is available at:
+
+```text
+http://localhost:8080/admin
+Settings -> AI Models
+```
+
+For Docker-based local AI, use an endpoint reachable from the container, commonly `http://host.docker.internal:11434`.
 
 ### 3. Run browser tests
 

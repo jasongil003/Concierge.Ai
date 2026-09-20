@@ -9,6 +9,8 @@ const state = {
   mode: "auto",
 };
 
+let startupPromise = null;
+
 const $ = (id) => document.getElementById(id);
 
 const defaultSuggestions = [
@@ -58,8 +60,19 @@ async function jsonFetch(url, options = {}) {
     ...options,
   });
   const data = await response.json();
-  if (!response.ok) throw new Error(data.detail || "Request failed");
+  if (!response.ok) throw new Error(errorMessage(data.detail));
   return data;
+}
+
+function errorMessage(detail) {
+  if (!detail) return "Request failed";
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => item.msg || item.message || JSON.stringify(item))
+      .join(" ");
+  }
+  return detail.msg || detail.message || JSON.stringify(detail);
 }
 
 function gatewayContext() {
@@ -247,6 +260,7 @@ function renderConfirmationCard(message) {
 
 async function authenticateGuest(room, lastName, card) {
   try {
+    await ensureStarted();
     const result = await jsonFetch("/api/authenticate", {
       method: "POST",
       body: JSON.stringify({
@@ -300,12 +314,19 @@ function submitGatewayHandoff(handoff) {
 async function handleGuestInput(rawMessage) {
   const message = rawMessage.trim();
   if (!message) return;
+  if (!state.sessionId) {
+    try {
+      await ensureStarted();
+    } catch (error) {
+      addMessage({ role: "assistant", type: "error", text: "Unable to start the concierge: " + error.message });
+      return;
+    }
+  }
   addMessage({ role: "user", type: "text", text: message });
   setDraft("");
 
   if (isWifiRequest(message)) {
-    addMessage({ role: "assistant", type: "text", text: "I can help with that. Please verify your stay." });
-    addMessage({ role: "assistant", type: "authentication" });
+    handleWifiRequest();
     return;
   }
 
@@ -357,6 +378,34 @@ async function sendChat(message) {
 function isWifiRequest(message) {
   const normalized = message.toLowerCase();
   return normalized.includes("wi-fi") || normalized.includes("wifi") || normalized.includes("internet") || normalized.includes("connect me");
+}
+
+function enabledAuthenticationTypes() {
+  return state.hotel?.authentication?.enabled_types || [];
+}
+
+function handleWifiRequest() {
+  const enabled = enabledAuthenticationTypes();
+  if (!enabled.length) {
+    addMessage({
+      role: "assistant",
+      type: "text",
+      text: "Wi-Fi authentication is not enabled for this hotel in the admin settings yet. Please contact the front desk for access.",
+    });
+    return;
+  }
+  const names = enabled.map((item) => item.label).join(", ");
+  addMessage({ role: "assistant", type: "text", text: `This hotel currently supports: ${names}.` });
+  if (enabled.some((item) => item.id === "pms")) {
+    addMessage({ role: "assistant", type: "text", text: "Please verify your stay with your room number and last name." });
+    addMessage({ role: "assistant", type: "authentication" });
+    return;
+  }
+  addMessage({
+    role: "assistant",
+    type: "text",
+    text: "Please use one of the enabled login methods shown on the hotel Wi-Fi portal. I can explain the available options, but this prototype only submits PMS room login from chat.",
+  });
 }
 
 function isRestaurantRequest(message) {
@@ -462,6 +511,8 @@ function applyHotelProfile(profile) {
   setText("hotel-name", branding.hotelName || hotelName);
   setText("concierge-name", branding.conciergeName || conciergeName);
   setText("hotel-mark", hotelName.slice(0, 1).toUpperCase());
+  $("hotel-mark").style.backgroundImage = branding.logoUrl ? `url("${branding.logoUrl}")` : "";
+  $("hotel-mark").classList.toggle("has-image", Boolean(branding.logoUrl));
   setText("welcome-greeting", welcome.greeting || "Good evening.");
   setText("welcome-headline", welcome.headline || "How can I help with your stay?");
   $("composer-input").placeholder = composer.placeholder || "Ask your concierge...";
@@ -479,6 +530,8 @@ function applyDesignTokens(design) {
 
   const root = document.documentElement;
   root.style.setProperty("--background", theme.background || "#fbfbfa");
+  root.style.setProperty("--background-image", theme.backgroundImageUrl ? `url("${theme.backgroundImageUrl}")` : "none");
+  root.style.setProperty("--background-overlay", (theme.backgroundOverlay || 0) / 100);
   root.style.setProperty("--surface", theme.surface || "#ffffff");
   root.style.setProperty("--surface-elevated", composer.background || theme.composerBackground || "#ffffff");
   root.style.setProperty("--text-primary", theme.textPrimary || "#18181b");
@@ -506,8 +559,9 @@ function applyDesignTokens(design) {
   document.body.dataset.density = theme.density || "comfortable";
   document.body.dataset.suggestionLayout = layout.suggestionLayout || "stack";
   document.body.classList.toggle("header-hidden", header.enabled === false);
-  document.body.classList.toggle("hotel-logo-hidden", header.showLogo === false);
-  document.body.classList.toggle("hotel-name-hidden", header.showHotelName === false);
+  const logoDisplay = design.branding?.logoDisplay || "mark_name";
+  document.body.classList.toggle("hotel-logo-hidden", header.showLogo === false || logoDisplay === "name_only");
+  document.body.classList.toggle("hotel-name-hidden", header.showHotelName === false || logoDisplay === "logo_only");
 }
 
 function fontStack(font) {
@@ -516,6 +570,11 @@ function fontStack(font) {
     Inter: 'Inter, system-ui, sans-serif',
     Manrope: 'Manrope, Inter, system-ui, sans-serif',
     "DM Sans": '"DM Sans", Inter, system-ui, sans-serif',
+    Poppins: 'Poppins, Inter, system-ui, sans-serif',
+    Montserrat: 'Montserrat, Inter, system-ui, sans-serif',
+    Lato: 'Lato, Inter, system-ui, sans-serif',
+    Merriweather: 'Merriweather, Georgia, serif',
+    "Playfair Display": '"Playfair Display", Georgia, serif',
     "system-ui": 'system-ui, sans-serif',
   };
   return stacks[font] || stacks.Geist;
@@ -540,6 +599,11 @@ async function start() {
   state.sessionId = session.session_id;
 }
 
-start().catch((error) => {
+function ensureStarted() {
+  if (!startupPromise) startupPromise = start();
+  return startupPromise;
+}
+
+ensureStarted().catch((error) => {
   addMessage({ role: "assistant", type: "error", text: "Unable to start the concierge: " + error.message });
 });

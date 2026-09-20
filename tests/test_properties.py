@@ -52,6 +52,29 @@ def test_property_round_trip_rich_configuration(tmp_path: Path):
     assert loaded.public_profile["quick_actions"][0]["label"] == "Checkout"
 
 
+def test_public_profile_exposes_enabled_authentication_rules(tmp_path: Path):
+    store = PropertyStore(tmp_path / "concierge.db")
+    record = PropertyRecord(
+        property_id="auth-hotel",
+        hotel_name="Auth Hotel",
+        antlabs_config={
+            "authentication_types": {
+                "pms": {"label": "PMS / Room Login", "enabled": True},
+                "access_code": {"label": "Access Code", "enabled": True},
+                "radius": {"label": "RADIUS", "enabled": False},
+            }
+        },
+    )
+
+    store.upsert(record)
+    profile = store.get("auth-hotel").public_profile
+
+    enabled = profile["authentication"]["enabled_types"]
+    assert [item["id"] for item in enabled] == ["pms", "access_code"]
+    assert enabled[0]["fields"] == ["room", "last_name"]
+    assert enabled[1]["fields"] == ["access_code"]
+
+
 def test_start_session_rejects_unknown_property():
     client = TestClient(app)
 
