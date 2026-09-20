@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Concierge.Ai Platform</title>
+  <link rel="stylesheet" href="/static/admin.css">
+</head>
+<body>
+  <div class="platform-shell">
+    <header class="platform-topbar">
+      <div class="brand">
+        <div class="brand-mark">C</div>
+        <div>
+          <strong>Concierge.Ai</strong>
+          <span>Property platform</span>
+        </div>
+      </div>
+      <div class="topbar-status">
+        <span class="publish-state" id="publish-state">Loading...</span>
+        <a href="/" target="_blank" rel="noopener">Open guest app</a>
+        <button class="secondary" id="discard-design" type="button">Discard</button>
+        <button class="secondary" id="save-draft" type="button">Save Draft</button>
+        <button id="publish-design" type="button">Publish</button>
+      </div>
+    </header>
+
+    <aside class="platform-sidebar">
+      <button class="nav-item active" data-panel="overview">Overview</button>
+      <button class="nav-item" data-panel="appearance">AI Chat Design</button>
+      <button class="nav-item" data-panel="guest">Guest Experience</button>
+      <button class="nav-item" data-panel="ai">AI Models</button>
+      <button class="nav-item" data-panel="knowledge">Knowledge</button>
+      <button class="nav-item" data-panel="wifi">Wi-Fi / ANTlabs</button>
+      <button class="nav-item" data-panel="auth-types">Authentication Type</button>
+      <button class="nav-item" data-panel="requests">Service Requests</button>
+      <button class="nav-item" data-panel="deployment">Deployment</button>
+      <button class="nav-item" data-panel="license">License</button>
+    </aside>
+
+    <main class="platform-main">
+      <section class="panel active" id="overview">
+        <div class="page-title">
+          <p>Property</p>
+          <h1 id="overview-title">Demo Hotel</h1>
+        </div>
+        <div class="metrics">
+          <article><span>Active guests</span><strong>128</strong></article>
+          <article><span>AI requests today</span><strong>1,842</strong></article>
+          <article><span>Open requests</span><strong>8</strong></article>
+          <article><span>Auth success</span><strong>97.4%</strong></article>
+        </div>
+        <div class="two-col">
+          <section class="card">
+            <h2>Property basics</h2>
+            <label>Property ID<input id="property-id" disabled></label>
+            <label>Hotel name<input id="hotel-name-input"></label>
+            <label>Concierge name<input id="concierge-name-input"></label>
+            <label>Domain / subdomain<input id="domain-input" placeholder="concierge.hotel.com"></label>
+            <label>Deployment mode<select id="deployment-mode"><option>on-prem</option><option>cloud</option><option>hybrid</option><option>edge</option></select></label>
+          </section>
+          <section class="card">
+            <h2>Operational status</h2>
+            <dl class="status-list">
+              <div><dt>Runtime</dt><dd>Local on-prem</dd></div>
+              <div><dt>Database</dt><dd>SQLite POC</dd></div>
+              <div><dt>ANTlabs</dt><dd>Mock / lab adapter</dd></div>
+              <div><dt>Guest URL</dt><dd><a href="/" target="_blank" rel="noopener">/</a></dd></div>
+            </dl>
+          </section>
+        </div>
+      </section>
+
+      <section class="panel" id="appearance">
+        <div class="page-title">
+          <p>AI chat design</p>
+          <h1>Configure the guest concierge</h1>
+        </div>
+        <div class="builder">
+          <section class="card controls">
+            <h2>Brand</h2>
+            <label>Hotel name<input id="design-hotel-name"></label>
+            <label>Concierge label<input id="design-concierge-name"></label>
+            <label>Header display<select id="logo-display-input"><option value="mark_name">Logo + hotel name</option><option value="logo_only">Logo only</option><option value="name_only">Hotel name only</option></select></label>
+            <label>Logo image<input id="logo-upload-input" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml"></label>
+            <p class="field-note">Recommended logo: PNG/SVG/WebP, transparent background, 512 x 512 px or 800 x 240 px, under 500 KB.</p>
+            <input id="logo-url-input" type="hidden">
+            <label>Greeting<input id="greeting-input"></label>
+            <label>Welcome headline<textarea id="welcome-input" rows="3"></textarea></label>
+            <label>Composer placeholder<input id="composer-placeholder-input"></label>
+            <div class="inline-fields">
+              <label>Background<input id="background-input" type="color" value="#fbfbfa"></label>
+              <label>Surface<input id="surface-input" type="color" value="#ffffff"></label>
+              <label>Text color<input id="text-color-input" type="color" value="#18181b"></label>
+              <label>Secondary text<input id="secondary-text-color-input" type="color" value="#71717a"></label>
+              <label>Accent<input id="accent-input" type="color" value="#18181b"></label>
+              <label>User bubble<input id="user-message-input" type="color" value="#eeeeee"></label>
+            </div>
+            <label>Background picture<input id="background-image-input" type="file" accept="image/png,image/jpeg,image/webp"></label>
+            <p class="field-note">Recommended background: JPG/WebP, 1600 x 2400 px portrait for mobile, 2400 x 1600 px landscape fallback, under 1.5 MB.</p>
+            <input id="background-image-url-input" type="hidden">
+            <label>Background overlay<input id="background-overlay-input" type="range" min="0" max="70" step="5"></label>
+            <h2>Layout</h2>
+            <div class="inline-fields">
+              <label>Font style<select id="font-input"><option>Geist</option><option>Inter</option><option>Manrope</option><option>DM Sans</option><option>Poppins</option><option>Montserrat</option><option>Lato</option><option>Merriweather</option><option>Playfair Display</option><option>system-ui</option></select></label>
+              <label>Density<select id="density-input"><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></label>
+              <label>Width<input id="content-width-input" type="number" min="320" max="1100" step="10"></label>
+              <label>Message width<input id="message-width-input" type="number" min="280" max="900" step="10"></label>
+              <label>Message style<select id="user-style-input"><option value="bubble">Bubble</option><option value="minimal">Minimal</option></select></label>
+              <label>Assistant style<select id="assistant-style-input"><option value="minimal">Minimal</option><option value="bubble">Bubble</option></select></label>
+            </div>
+            <div class="toggle-list">
+              <label><input id="header-enabled-input" type="checkbox"> Show header</label>
+              <label><input id="show-logo-input" type="checkbox"> Show logo mark</label>
+              <label><input id="show-name-input" type="checkbox"> Show hotel name</label>
+            </div>
+            <h2>Suggested prompts</h2>
+            <div class="prompt-list" id="prompt-list"></div>
+            <button class="secondary" id="add-prompt">Add prompt</button>
+            <h2>Versions</h2>
+            <div class="version-list" id="version-list"></div>
+          </section>
+
+          <section class="preview-frame">
+            <div class="preview-toolbar">
+              <span>Live guest chat preview</span>
+              <div>
+                <button class="preview-size active" data-size="mobile">Mobile</button>
+                <button class="preview-size" data-size="tablet">Tablet</button>
+                <button class="preview-size" data-size="desktop">Desktop</button>
+              </div>
+            </div>
+            <div class="phone-preview mobile" id="chat-preview">
+              <header>
+                <button>☰</button>
+                <div class="preview-brand"><span class="preview-logo" id="preview-logo">D</span><div><strong id="preview-hotel">Demo Hotel</strong><span id="preview-concierge">Ava</span></div></div>
+                <button>⋯</button>
+              </header>
+              <main>
+                <section class="preview-welcome">
+                  <p id="preview-greeting">Good evening.</p>
+                  <h2 id="preview-welcome">How can I help with your stay?</h2>
+                  <div id="preview-prompts"></div>
+                </section>
+                <section class="preview-chat">
+                  <div class="guest-bubble">Recommend restaurants nearby</div>
+                  <div class="assistant-copy">Here are a few nearby options that should work well. I can narrow these by cuisine, budget, or walking distance.</div>
+                </section>
+              </main>
+              <footer><span id="preview-placeholder">Ask your concierge...</span><button>↑</button></footer>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="panel" id="guest">
+        <div class="page-title"><p>Guest experience</p><h1>Conversation modules</h1></div>
+        <section class="card">
+          <table>
+            <thead><tr><th>Module</th><th>Trigger</th><th>Status</th><th>Action</th></tr></thead>
+            <tbody>
+              <tr><td>Wi-Fi authentication</td><td>Wi-Fi / internet intent</td><td>Enabled</td><td><button disabled title="Configuration API is not implemented yet.">Locked</button></td></tr>
+              <tr><td>Restaurant recommendations</td><td>Dining / nearby intent</td><td>Enabled</td><td><button disabled title="Recommendation source management is not implemented yet.">Locked</button></td></tr>
+              <tr><td>Housekeeping request</td><td>Service intent</td><td>POC</td><td><button disabled title="Service workflow configuration is not implemented yet.">Locked</button></td></tr>
+              <tr><td>Late checkout</td><td>Checkout intent</td><td>POC</td><td><button disabled title="Service workflow configuration is not implemented yet.">Locked</button></td></tr>
+            </tbody>
+          </table>
+        </section>
+      </section>
+
+      <section class="panel" id="ai">
+        <div class="page-title"><p>AI models</p><h1>Provider management</h1></div>
+        <section class="card ai-settings">
+          <label>Default AI Provider<select id="ai-default-provider"></select></label>
+          <label>Routing<select id="ai-routing-mode"><option value="fixed">Fixed</option><option value="automatic">Automatic</option><option value="privacy_first">Privacy First</option><option value="cloud_first">Cloud First</option></select></label>
+          <label class="switch-row"><input id="ai-local-only" type="checkbox"> Local-Only Mode</label>
+          <button id="save-ai-settings" type="button">Save AI Settings</button>
+        </section>
+        <section class="ai-section-title">
+          <h2>Connected Providers</h2>
+          <span id="ai-health-summary">Loading...</span>
+        </section>
+        <section class="provider-grid" id="provider-grid"></section>
+        <section class="card audit-note">
+          Provider changes are recorded in the local AI audit log. Secrets stay on the server and are never returned after save.
+        </section>
+      </section>
+
+      <section class="panel" id="knowledge">
+        <div class="page-title"><p>Knowledge</p><h1>Hotel source library</h1></div>
+        <p class="poc-note">Not available in this POC. Knowledge is seeded from data/hotel.json.</p>
+        <section class="upload-zone" aria-disabled="true">Drop PDFs, menus, policies, and FAQs here</section>
+        <section class="card">
+          <table><thead><tr><th>Name</th><th>Type</th><th>Status</th><th>Chunks</th><th>Updated</th></tr></thead><tbody>
+            <tr><td>Guest directory</td><td>PDF</td><td>Ready</td><td>126</td><td>Today</td></tr>
+            <tr><td>Wi-Fi FAQ</td><td>Seed</td><td>Ready</td><td>6</td><td>Initial</td></tr>
+          </tbody></table>
+        </section>
+      </section>
+
+      <section class="panel" id="wifi">
+        <div class="page-title"><p>Wi-Fi / ANTlabs</p><h1>Gateway handoff settings</h1></div>
+        <p class="poc-note">Not available in this POC. ANTlabs mode is configured via ANTLABS_MODE environment variable.</p>
+        <section class="card form-grid">
+          <label>Mode<select disabled title="Not available in this POC"><option>mock</option><option>browser_handoff</option></select></label>
+          <label>Login URL<input placeholder="Validated SG5 URL" disabled title="Not available in this POC"></label>
+          <label>Room field<input placeholder="Validated field" disabled title="Not available in this POC"></label>
+          <label>Last-name field<input placeholder="Validated field" disabled title="Not available in this POC"></label>
+          <label>Session context key<input placeholder="Gateway context key" disabled title="Not available in this POC"></label>
+          <label>Success redirect<input placeholder="/resume" disabled title="Not available in this POC"></label>
+        </section>
+      </section>
+
+      <section class="panel" id="auth-types">
+        <div class="page-title"><p>Authentication</p><h1>Enabled login methods</h1></div>
+        <p class="poc-note">Turn on the authentication methods available for this hotel. The concierge will use this summary when explaining how guests can connect.</p>
+        <section class="auth-type-list" id="auth-type-list" aria-label="Authentication type list"></section>
+      </section>
+
+      <section class="panel" id="requests">
+        <div class="page-title"><p>Operations</p><h1>Service request workflow</h1></div>
+        <p class="poc-note">Not available in this POC. Service requests are simulated in the guest chat.</p>
+        <section class="card"><table><thead><tr><th>Request</th><th>Room</th><th>Status</th><th>Assigned</th></tr></thead><tbody>
+          <tr><td>Two towels</td><td>1503</td><td>Open</td><td>Housekeeping</td></tr>
+          <tr><td>Late checkout</td><td>0818</td><td>Review</td><td>Front desk</td></tr>
+        </tbody></table></section>
+      </section>
+
+      <section class="panel" id="deployment">
+        <div class="page-title"><p>Deployment</p><h1>On-prem runtime</h1></div>
+        <section class="card status-list">
+          <div><dt>Canonical guest URL</dt><dd>https://concierge.hotel.com</dd></div>
+          <div><dt>HTTPS</dt><dd>Required for pilot</dd></div>
+          <div><dt>Guest VLAN policy</dt><dd>Allow Concierge HTTPS only</dd></div>
+        </section>
+      </section>
+
+      <section class="panel" id="license">
+        <div class="page-title"><p>License</p><h1>Concierge.Ai Pro</h1></div>
+        <section class="license-grid">
+          <article><span>Type</span><strong>Perpetual</strong></article>
+          <article><span>Rooms</span><strong>248 / 300</strong></article>
+          <article><span>Nodes</span><strong>1 / 2</strong></article>
+          <article><span>Maintenance</span><strong>Until Sep 19, 2027</strong></article>
+        </section>
+      </section>
+    </main>
+  </div>
+  <div class="drawer-backdrop" id="provider-drawer-backdrop" hidden></div>
+  <aside class="provider-drawer" id="provider-drawer" hidden>
+    <header>
+      <div>
+        <p id="drawer-provider-status">Provider</p>
+        <h2 id="drawer-provider-name">AI Provider</h2>
+      </div>
+      <button class="secondary" id="close-provider-drawer" type="button">Close</button>
+    </header>
+    <div class="drawer-body">
+      <p class="provider-note" id="drawer-provider-note"></p>
+      <p class="unsaved-note" id="provider-unsaved-note" hidden>Changes not yet saved.</p>
+      <div class="form-grid">
+        <label>Authentication<select id="drawer-auth-method"></select></label>
+        <label>Status<input id="drawer-status" disabled></label>
+        <label>Model<input id="drawer-model" list="drawer-model-list"></label>
+        <datalist id="drawer-model-list"></datalist>
+        <label>Endpoint URL<input id="drawer-endpoint" placeholder="http://host.docker.internal:11434"></label>
+        <label>Temperature<input id="drawer-temperature" type="number" min="0" max="2" step="0.1"></label>
+        <label>Max output tokens<input id="drawer-max-tokens" type="number" min="1" max="32000"></label>
+        <label>Timeout seconds<input id="drawer-timeout" type="number" min="1" max="300"></label>
+        <label class="switch-row"><input id="drawer-enabled" type="checkbox"> Enabled</label>
+      </div>
+      <section class="secret-box">
+        <h3>Credential</h3>
+        <p id="drawer-credential-hint">No credential stored.</p>
+        <div class="secret-actions">
+          <input id="drawer-secret" type="password" placeholder="Paste API key or token">
+          <button class="secondary" id="save-provider-secret" type="button">Add / Replace</button>
+          <button class="secondary" id="remove-provider-secret" type="button">Remove</button>
+        </div>
+      </section>
+      <section class="test-result" id="drawer-test-result"></section>
+    </div>
+    <footer>
+      <button class="secondary" id="refresh-provider-models" type="button">Refresh Models</button>
+      <button class="secondary" id="test-provider" type="button">Test Connection</button>
+      <button id="save-provider" type="button">Save</button>
+    </footer>
+  </aside>
+  <div class="toast" id="toast"></div>
+  <script src="/static/admin.js"></script>
+</body>
+</html>
