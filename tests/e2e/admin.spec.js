@@ -367,8 +367,9 @@ test("admin: all nav items reachable at mobile", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 667 });
   await page.goto("/admin");
   const navItems = page.locator(".nav-item");
-  expect(await navItems.count()).toBe(9);
-  for (let i = 0; i < 9; i++) {
+  const count = await navItems.count();
+  expect(count).toBeGreaterThanOrEqual(14);
+  for (let i = 0; i < count; i++) {
     const nav = navItems.nth(i);
     await nav.scrollIntoViewIfNeeded();
     await expect(nav).toBeVisible();

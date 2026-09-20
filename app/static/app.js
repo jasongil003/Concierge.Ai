@@ -7,6 +7,7 @@ const state = {
   room: null,
   draftKey: "concierge-draft",
   mode: "auto",
+  intro: null,
 };
 
 let startupPromise = null;
@@ -520,6 +521,35 @@ function applyHotelProfile(profile) {
   renderWelcomeState();
 }
 
+async function maybeShowIntro() {
+  try {
+    const intro = await jsonFetch("/api/guest/intro");
+    state.intro = intro;
+    if (!intro || intro.mode === "none") return;
+    if (intro.first_visit_only && localStorage.getItem("concierge-intro-seen") === "1") return;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const overlay = $("intro-overlay");
+    const stage = $("intro-stage");
+    overlay.dataset.preset = reducedMotion ? "none" : intro.preset;
+    overlay.style.background = intro.background || "#fbfbfa";
+    overlay.style.color = intro.brand_color || "#18181b";
+    $("intro-logo").style.background = intro.brand_color || "#18181b";
+    $("intro-logo").textContent = (state.hotel?.name || "Concierge").slice(0, 1).toUpperCase();
+    $("intro-message").textContent = intro.welcome_message || state.hotel?.welcome || "Welcome";
+    $("intro-skip").hidden = !intro.allow_skip;
+    overlay.hidden = false;
+    const finish = () => {
+      overlay.hidden = true;
+      localStorage.setItem("concierge-intro-seen", "1");
+    };
+    $("intro-skip").onclick = finish;
+    window.setTimeout(finish, reducedMotion ? 450 : intro.duration_ms || 1400);
+    stage.addEventListener("animationend", () => {}, { once: true });
+  } catch {
+    $("intro-overlay").hidden = true;
+  }
+}
+
 function applyDesignTokens(design) {
   const theme = design.theme || {};
   const typography = design.typography || {};
@@ -585,6 +615,7 @@ async function start() {
   setupMenu();
   const profile = await jsonFetch("/api/hotel");
   applyHotelProfile(profile);
+  await maybeShowIntro();
 
   state.clientId = localStorage.getItem("concierge-client-id") || createClientId();
   localStorage.setItem("concierge-client-id", state.clientId);

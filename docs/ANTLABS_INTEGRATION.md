@@ -125,3 +125,16 @@ The milestone is complete when this flow works without manually changing the gat
 9. Concierge session remains active
 10. SG5/PMS logout causes concierge session expiry
 ```
+
+## Location and stay event hooks
+
+The roadmap foundation exposes backend APIs that a real ANTlabs/WLAN adapter can call after the SG5 contract is validated:
+
+- submit server-side WLAN device identity to restore or create an active Concierge Stay
+- submit AP association observations as `access_point_identifier`
+- map that AP to a configured Concierge zone
+- update aggregate occupancy, dwell, and movement analytics
+
+This integration must keep raw MAC handling server-side. Concierge.Ai stores and returns a property-scoped pseudonymous device ID and uses the active Concierge Stay as the AI memory anchor.
+
+AP association is an aggregate location signal only. It supports reports such as `Lobby -> Restaurant -> Pool`; it does not provide exact guest coordinates.

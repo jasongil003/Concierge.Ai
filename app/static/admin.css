@@ -258,6 +258,148 @@ input[type="color"] {
   gap: 10px;
 }
 
+.map-workspace {
+  display: grid;
+  grid-template-columns: 230px minmax(520px, 1fr) 280px;
+  gap: 12px;
+  min-height: calc(100vh - 132px);
+}
+
+.map-sidebar,
+.map-properties,
+.map-canvas-shell,
+.intro-preview {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.map-sidebar,
+.map-properties {
+  padding: 14px;
+  overflow: auto;
+}
+
+.map-sidebar h2,
+.map-properties h2 {
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+
+.tool-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.tool-grid button,
+.map-topbar button,
+.card > button {
+  min-height: 34px;
+  border-radius: 7px;
+  color: white;
+  background: var(--accent);
+}
+
+.tool-grid button {
+  color: var(--text);
+  background: #eceef0;
+}
+
+.tool-grid button.active {
+  color: white;
+  background: var(--accent);
+}
+
+.map-canvas-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.map-topbar {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.4fr auto;
+  gap: 8px;
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+#floor-map-canvas {
+  width: 100%;
+  height: 100%;
+  background: #fcfcfb;
+  touch-action: none;
+}
+
+.compact-list {
+  display: grid;
+  gap: 8px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.compact-row {
+  display: grid;
+  gap: 3px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--muted);
+}
+
+.compact-row span {
+  color: var(--subtle);
+  font-size: 12px;
+}
+
+.table-card {
+  margin-top: 16px;
+}
+
+#location-live-metrics {
+  margin-bottom: 16px;
+}
+
+.intro-preview {
+  display: grid;
+  place-items: center;
+  min-height: 420px;
+  padding: 24px;
+}
+
+#intro-preview-card {
+  display: grid;
+  place-items: center;
+  gap: 14px;
+  width: min(420px, 100%);
+  aspect-ratio: 4 / 3;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fbfbfa;
+  color: var(--text);
+}
+
+#intro-preview-card strong {
+  display: grid;
+  place-items: center;
+  width: 74px;
+  height: 74px;
+  border-radius: 18px;
+  color: white;
+  background: var(--accent);
+  font-size: 34px;
+}
+
+#intro-preview-card button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid currentColor;
+  border-radius: 7px;
+  background: transparent;
+}
+
 .toggle-list {
   display: grid;
   gap: 8px;

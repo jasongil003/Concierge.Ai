@@ -21,6 +21,10 @@ The `feature/onprem-mvp` branch now includes:
 - ANTlabs integration adapter
 - mock gateway authentication
 - browser-based ANTlabs authentication handoff scaffold
+- admin zone/facility/floor-map foundation with AP-to-zone mapping and deterministic route graph
+- privacy-first guest stay memory with property-scoped pseudonymous device identity
+- location analytics foundation for live zone occupancy, dwell time, movement, and aggregate reports
+- configurable intro experience with logo-generated presets and validated web animation uploads
 - SQLite prototype state
 - Docker deployment
 - phased architecture/security documentation
@@ -100,6 +104,17 @@ Admin AI configuration is available at:
 http://localhost:8080/admin
 Settings -> AI Models
 ```
+
+New roadmap administration sections are available in the same admin platform:
+
+```text
+Zones
+Sessions
+Location Analytics
+Branding -> Intro Experience
+```
+
+The V1 location model is intentionally aggregate: `Device -> Associated AP -> Zone -> Facility`. Concierge.Ai does not infer exact indoor X/Y guest position from a single AP and guest-facing APIs never expose AP identifiers or WLAN infrastructure.
 
 For Docker-based local AI, use an endpoint reachable from the container, commonly `http://host.docker.internal:11434`.
 
