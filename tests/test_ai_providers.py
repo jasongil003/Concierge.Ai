@@ -41,8 +41,8 @@ def test_local_only_rejects_cloud_default(tmp_path: Path):
         raise AssertionError("Cloud provider should be rejected in local-only mode")
 
 
-def test_admin_ai_provider_api_does_not_return_secret():
-    client = TestClient(app)
+def test_admin_ai_provider_api_does_not_return_secret(admin_client: TestClient):
+    client = admin_client
     property_id = client.get("/api/admin/properties").json()["properties"][0]["property_id"]
 
     save_response = client.put(
@@ -72,8 +72,8 @@ def test_admin_ai_provider_api_does_not_return_secret():
     assert "gsk_live_should_not_return" not in str(ai_response.json())
 
 
-def test_admin_ai_settings_support_property_default():
-    client = TestClient(app)
+def test_admin_ai_settings_support_property_default(admin_client: TestClient):
+    client = admin_client
     property_id = client.get("/api/admin/properties").json()["properties"][0]["property_id"]
 
     response = client.put(

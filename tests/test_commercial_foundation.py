@@ -152,8 +152,8 @@ def test_journey_events_and_wifi_provider_contract(tmp_path: Path):
     assert provider.current_observations("hotel-b") == []
 
 
-def test_commercial_apis_property_scope_and_guest_facilities():
-    client = TestClient(app)
+def test_commercial_apis_property_scope_and_guest_facilities(admin_client: TestClient):
+    client = admin_client
     properties = client.get("/api/admin/properties").json()["properties"]
     property_id = properties[0]["property_id"]
 

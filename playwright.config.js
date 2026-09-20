@@ -1,4 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const e2eDatabase = join(tmpdir(), `concierge-ai-e2e-${process.pid}.db`);
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -6,7 +10,8 @@ export default defineConfig({
   expect: {
     timeout: 5_000,
   },
-  fullyParallel: true,
+  fullyParallel: false,
+  workers: 1,
   reporter: [["list"], ["html", { open: "never" }]],
   use: {
     baseURL: "http://127.0.0.1:8092",
@@ -16,6 +21,7 @@ export default defineConfig({
   },
   webServer: {
     command: ".venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8092",
+    env: { ...process.env, DB_PATH: e2eDatabase },
     url: "http://127.0.0.1:8092/health",
     reuseExistingServer: !process.env.CI,
     timeout: 20_000,

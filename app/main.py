@@ -1,16 +1,28 @@
+from contextlib import asynccontextmanager
+from collections import defaultdict, deque
 from pathlib import Path
+import re
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from .admin_auth import (
+    PERMISSIONS,
+    SESSION_COOKIE,
+    AccountLockedError,
+    AdminAuthStore,
+    AdminPrincipal,
+    AuthenticationError,
+)
 from .ai import AIOrchestrator
 from .ai_providers import AIModelService, AIProviderStore
 from .antlabs import AntlabsAdapter
 from .config import settings
 from .hotel import HotelKnowledge
+from .improvement_loop import ImprovementLoopManager, ImprovementLoopStore
 from .guest_identity import GuestIdentityStore
 from .hospitality import HospitalityStore
 from .intro import IntroExperienceStore
@@ -22,9 +34,6 @@ from .zones import ZoneStore
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
-
-app = FastAPI(title=settings.app_name, version="0.2.0")
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 knowledge = HotelKnowledge(settings.hotel_config_path)
 store = SessionStore(settings.db_path, settings.session_ttl_minutes)
@@ -38,8 +47,149 @@ hospitality = HospitalityStore(settings.db_path)
 ai = AIOrchestrator()
 ai_provider_store = AIProviderStore(settings.db_path)
 ai_models = AIModelService(ai_provider_store)
+improvement_loop_store = ImprovementLoopStore(settings.db_path)
+improvement_loops = ImprovementLoopManager(improvement_loop_store, ai_models)
+admin_auth = AdminAuthStore(
+    settings.db_path,
+    session_ttl_minutes=settings.admin_session_ttl_minutes,
+    lockout_attempts=settings.admin_lockout_attempts,
+    lockout_minutes=settings.admin_lockout_minutes,
+)
+if settings.app_environment == "production" and settings.admin_bootstrap_password == "ChangeMe123!":
+    raise RuntimeError("Set ADMIN_BOOTSTRAP_PASSWORD before starting Concierge.Ai in production.")
+admin_auth.ensure_bootstrap_admin(
+    settings.admin_bootstrap_username,
+    settings.admin_bootstrap_password,
+)
+admin_request_windows: dict[str, deque[float]] = defaultdict(deque)
 places = GooglePlaces()
 antlabs = AntlabsAdapter()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    improvement_loops.resume_persisted()
+    yield
+    improvement_loops.shutdown()
+
+
+app = FastAPI(title=settings.app_name, version="0.2.0", lifespan=lifespan)
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+def _required_admin_permission(method: str, path: str) -> str | None:
+    if path.startswith("/api/admin/auth/"):
+        return None
+    if path.startswith("/api/admin/users"):
+        if method == "GET":
+            return "users.view"
+        if method == "POST" and path.endswith("/revoke-sessions"):
+            return "security.configure"
+        if method == "POST":
+            return "users.create" if path == "/api/admin/users" else "users.edit"
+        return "users.delete" if method == "DELETE" else "users.edit"
+    if path.startswith("/api/admin/roles"):
+        return "roles.view" if method == "GET" else "roles.manage"
+    if path.startswith("/api/admin/permissions"):
+        return "roles.view"
+    if path.startswith("/api/admin/audit"):
+        return "audit.view"
+    if "/ai/" in path or path.endswith("/ai") or "/improvement-loop" in path:
+        return "ai.view" if method == "GET" else "ai.configure"
+    if "/design" in path or "/intro" in path:
+        return "concierge.view" if method == "GET" else "concierge.edit"
+    if "/service-requests" in path or "/feedback" in path or "/notifications" in path:
+        return "requests.view" if method == "GET" else "requests.manage"
+    if "/sessions" in path or "/stays/" in path:
+        return "conversations.view" if method == "GET" else "conversations.reply"
+    if "/location/" in path:
+        return "analytics.view" if method == "GET" else "properties.edit"
+    if any(token in path for token in ("/zones", "/buildings", "/floors", "/floor-maps", "/facilities", "/restaurants", "/menus", "/events", "/navigation/", "/access-points")):
+        return "properties.view" if method == "GET" else "properties.edit"
+    return "properties.view" if method == "GET" else "properties.edit"
+
+
+def _path_property_id(path: str) -> str | None:
+    match = re.match(r"^/api/admin/properties/([^/]+)", path)
+    return match.group(1) if match else None
+
+
+def _admin_rate_limited(session_id: str) -> bool:
+    import time
+
+    now = time.monotonic()
+    window = admin_request_windows[session_id]
+    while window and window[0] < now - 60:
+        window.popleft()
+    if len(window) >= 300:
+        return True
+    window.append(now)
+    return False
+
+
+@app.middleware("http")
+async def enforce_admin_security(request: Request, call_next):
+    path = request.url.path.rstrip("/") or "/"
+    public_admin_paths = {
+        "/admin/login",
+        "/api/admin/auth/login",
+        "/api/admin/auth/password-reset/request",
+    }
+    is_admin_page = path == "/admin"
+    is_admin_api = path == "/api/admin" or path.startswith("/api/admin/")
+    if path in public_admin_paths or not (is_admin_page or is_admin_api):
+        return await call_next(request)
+
+    principal = admin_auth.authenticate(request.cookies.get(SESSION_COOKIE))
+    if principal is None:
+        if is_admin_page:
+            return RedirectResponse("/admin/login", status_code=303)
+        return JSONResponse({"detail": "Administrator authentication required."}, status_code=401)
+    request.state.admin = principal
+
+    if is_admin_api:
+        if _admin_rate_limited(principal.session_id):
+            return JSONResponse({"detail": "Administrative request limit exceeded. Try again shortly."}, status_code=429)
+        if principal.force_password_change and path not in {
+            "/api/admin/auth/me", "/api/admin/auth/change-password", "/api/admin/auth/logout"
+        }:
+            return JSONResponse({"detail": "Change your temporary password before continuing."}, status_code=428)
+        permission = _required_admin_permission(request.method, path)
+        if permission and not principal.can(permission):
+            return JSONResponse({"detail": f"Permission required: {permission}"}, status_code=403)
+        property_id = _path_property_id(path)
+        if property_id and not principal.can_access_property(property_id):
+            return JSONResponse({"detail": "You do not have access to this property."}, status_code=403)
+        if request.method not in {"GET", "HEAD", "OPTIONS"}:
+            csrf = request.headers.get("X-CSRF-Token", "")
+            if not csrf or not secrets_compare(csrf, principal.csrf_token):
+                return JSONResponse({"detail": "CSRF validation failed."}, status_code=403)
+
+    response = await call_next(request)
+    if is_admin_api and request.method not in {"GET", "HEAD", "OPTIONS"} and response.status_code < 400:
+        property_id = _path_property_id(path)
+        admin_auth.audit(
+            principal,
+            f"api.{request.method.lower()}",
+            "api",
+            path,
+            property_id=property_id,
+            ip_address=request.client.host if request.client else "",
+        )
+    return response
+
+
+def secrets_compare(left: str, right: str) -> bool:
+    import hmac
+
+    return hmac.compare_digest(left.encode("utf-8"), right.encode("utf-8"))
+
+
+def _admin_principal(request: Request) -> AdminPrincipal:
+    principal = getattr(request.state, "admin", None)
+    if principal is None:
+        raise HTTPException(status_code=401, detail="Administrator authentication required.")
+    return principal
 
 
 class StartSessionRequest(BaseModel):
@@ -180,9 +330,77 @@ class NotificationEvaluatePayload(BaseModel):
     current_zone_id: str | None = None
 
 
+class ImprovementLoopConfigPayload(BaseModel):
+    objective: str = Field(default="")
+    satisfaction_criteria: str = Field(default="")
+    evidence: str = Field(default="")
+    provider_id: str = Field(default="local")
+    model: str = Field(default="")
+    approval_mode: str = Field(default="manual")
+    interval_seconds: int = Field(default=60)
+    max_iterations: int = Field(default=0)
+    max_consecutive_failures: int = Field(default=3)
+
+
+class ImprovementLoopDecisionPayload(BaseModel):
+    decision: str = Field(pattern=r"^(approved|revision_requested)$")
+    feedback: str = Field(default="")
+
+
+class AdminLoginPayload(BaseModel):
+    username: str = Field(min_length=3, max_length=64)
+    password: str = Field(min_length=1, max_length=256)
+    remember_me: bool = False
+
+
+class AdminUserCreatePayload(BaseModel):
+    username: str = Field(min_length=3, max_length=64)
+    display_name: str = Field(min_length=1, max_length=120)
+    password: str = Field(min_length=12, max_length=256)
+    property_id: str | None = None
+    role_id: str
+    email: str | None = Field(default=None, max_length=254)
+    status: str = Field(default="active", pattern=r"^(active|disabled)$")
+    force_password_change: bool = True
+
+
+class AdminUserUpdatePayload(BaseModel):
+    display_name: str | None = Field(default=None, min_length=1, max_length=120)
+    property_id: str | None = None
+    role_id: str | None = None
+    email: str | None = Field(default=None, max_length=254)
+    status: str | None = Field(default=None, pattern=r"^(active|disabled|locked)$")
+
+
+class AdminPasswordResetPayload(BaseModel):
+    password: str = Field(min_length=12, max_length=256)
+    force_password_change: bool = True
+
+
+class AdminPasswordChangePayload(BaseModel):
+    current_password: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(min_length=12, max_length=256)
+
+
+class AdminPasswordResetRequestPayload(BaseModel):
+    username: str = Field(min_length=3, max_length=64)
+
+
+class AdminRolePayload(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    description: str = Field(default="", max_length=500)
+    property_id: str | None = None
+    permissions: list[str] = Field(default_factory=list)
+
+
 @app.get("/")
 async def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/admin/login")
+async def admin_login_page() -> FileResponse:
+    return FileResponse(STATIC_DIR / "admin-login.html")
 
 
 @app.get("/admin")
@@ -250,9 +468,208 @@ async def guest_facilities(property_id: str | None = None) -> dict[str, Any]:
     return hospitality.guest_facilities(requested_property_id)
 
 
+@app.post("/api/admin/auth/login")
+async def admin_login(payload: AdminLoginPayload, request: Request, response: Response) -> dict[str, Any]:
+    try:
+        token, principal = admin_auth.login(
+            payload.username,
+            payload.password,
+            request.client.host if request.client else "",
+            request.headers.get("User-Agent", ""),
+        )
+    except AccountLockedError as exc:
+        raise HTTPException(status_code=423, detail=str(exc)) from exc
+    except (AuthenticationError, ValueError) as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    max_age = settings.admin_session_ttl_minutes * 60 if payload.remember_me else None
+    response.set_cookie(
+        SESSION_COOKIE,
+        token,
+        max_age=max_age,
+        httponly=True,
+        secure=settings.admin_cookie_secure or settings.app_environment == "production",
+        samesite="strict",
+        path="/",
+    )
+    return {"user": principal.public_dict(), "redirect": "/admin"}
+
+
+@app.post("/api/admin/auth/password-reset/request")
+async def request_admin_password_reset(payload: AdminPasswordResetRequestPayload, request: Request) -> dict[str, str]:
+    admin_auth.audit(
+        None,
+        "auth.password_reset_requested",
+        "user",
+        payload.username.casefold(),
+        ip_address=request.client.host if request.client else "",
+    )
+    return {"message": "If recovery is configured for this account, reset instructions will be sent."}
+
+
+@app.get("/api/admin/auth/me")
+async def current_admin(request: Request) -> dict[str, Any]:
+    return {"user": _admin_principal(request).public_dict()}
+
+
+@app.post("/api/admin/auth/logout")
+async def admin_logout(request: Request, response: Response) -> dict[str, str]:
+    admin_auth.logout(_admin_principal(request))
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    return {"status": "logged_out"}
+
+
+@app.post("/api/admin/auth/change-password")
+async def change_admin_password(payload: AdminPasswordChangePayload, request: Request) -> dict[str, str]:
+    try:
+        admin_auth.change_password(_admin_principal(request), payload.current_password, payload.new_password)
+    except (AuthenticationError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"status": "password_changed"}
+
+
+@app.get("/api/admin/permissions")
+async def list_admin_permissions() -> dict[str, Any]:
+    return {"permissions": [{"key": key, "name": value} for key, value in PERMISSIONS.items()]}
+
+
+@app.get("/api/admin/roles")
+async def list_admin_roles(request: Request) -> dict[str, Any]:
+    return {"roles": admin_auth.list_roles(_admin_principal(request))}
+
+
+@app.post("/api/admin/roles")
+async def create_admin_role(payload: AdminRolePayload, request: Request) -> dict[str, Any]:
+    try:
+        role = admin_auth.save_role(payload.model_dump(), _admin_principal(request))
+    except (ValueError, PermissionError) as exc:
+        raise HTTPException(status_code=422 if isinstance(exc, ValueError) else 403, detail=str(exc)) from exc
+    return {"role": role}
+
+
+@app.put("/api/admin/roles/{role_id}")
+async def update_admin_role(role_id: str, payload: AdminRolePayload, request: Request) -> dict[str, Any]:
+    try:
+        role = admin_auth.save_role(payload.model_dump(), _admin_principal(request), role_id=role_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ValueError, PermissionError) as exc:
+        raise HTTPException(status_code=422 if isinstance(exc, ValueError) else 403, detail=str(exc)) from exc
+    return {"role": role}
+
+
+@app.delete("/api/admin/roles/{role_id}")
+async def delete_admin_role(role_id: str, request: Request) -> dict[str, str]:
+    try:
+        admin_auth.delete_role(role_id, _admin_principal(request))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ValueError, PermissionError) as exc:
+        raise HTTPException(status_code=422 if isinstance(exc, ValueError) else 403, detail=str(exc)) from exc
+    return {"status": "deleted"}
+
+
+@app.get("/api/admin/users")
+async def list_admin_users(request: Request) -> dict[str, Any]:
+    return {"users": admin_auth.list_users(_admin_principal(request))}
+
+
+@app.post("/api/admin/users")
+async def create_admin_user(payload: AdminUserCreatePayload, request: Request) -> dict[str, Any]:
+    try:
+        user = admin_auth.create_user(payload.model_dump(), _admin_principal(request))
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"user": user}
+
+
+@app.put("/api/admin/users/{user_id}")
+async def update_admin_user(user_id: str, payload: AdminUserUpdatePayload, request: Request) -> dict[str, Any]:
+    try:
+        user = admin_auth.update_user(user_id, payload.model_dump(exclude_none=True), _admin_principal(request))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"user": user}
+
+
+@app.delete("/api/admin/users/{user_id}")
+async def delete_admin_user(user_id: str, request: Request) -> dict[str, str]:
+    try:
+        admin_auth.delete_user(user_id, _admin_principal(request))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"status": "deleted"}
+
+
+@app.post("/api/admin/users/{user_id}/reset-password")
+async def reset_admin_user_password(user_id: str, payload: AdminPasswordResetPayload, request: Request) -> dict[str, str]:
+    try:
+        admin_auth.reset_password(user_id, payload.password, payload.force_password_change, _admin_principal(request))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"status": "password_reset"}
+
+
+@app.post("/api/admin/users/{user_id}/revoke-sessions")
+async def revoke_admin_user_sessions(user_id: str, request: Request) -> dict[str, Any]:
+    try:
+        count = admin_auth.revoke_sessions(user_id, _admin_principal(request))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    return {"status": "sessions_revoked", "count": count}
+
+
+@app.get("/api/admin/audit")
+async def list_admin_audit(
+    request: Request,
+    username: str = "",
+    property_id: str = "",
+    role: str = "",
+    action: str = "",
+    resource: str = "",
+    start_at: int | None = None,
+    end_at: int | None = None,
+    limit: int = 100,
+) -> dict[str, Any]:
+    return {
+        "events": admin_auth.list_audit(
+            _admin_principal(request),
+            {
+                "username": username,
+                "property_id": property_id,
+                "role_name": role,
+                "action": action,
+                "resource": resource,
+                "start_at": start_at,
+                "end_at": end_at,
+            },
+            limit=limit,
+        )
+    }
+
+
 @app.get("/api/admin/properties")
-async def list_properties() -> dict[str, Any]:
-    return {"properties": [record.to_dict() for record in properties.list()]}
+async def list_properties(request: Request) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    records = properties.list()
+    if not principal.can("properties.all"):
+        records = [record for record in records if record.property_id == principal.property_id]
+    return {"properties": [record.to_dict() for record in records]}
 
 
 @app.get("/api/admin/properties/{property_id}")
@@ -764,6 +1181,77 @@ async def record_journey_event(property_id: str, payload: GenericPayload) -> dic
         return hospitality.record_journey_event(property_id, payload.data)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/admin/properties/{property_id}/improvement-loop")
+async def get_improvement_loop(property_id: str) -> dict[str, Any]:
+    _require_property(property_id)
+    return improvement_loops.snapshot(property_id)
+
+
+@app.put("/api/admin/properties/{property_id}/improvement-loop")
+async def save_improvement_loop_config(property_id: str, payload: ImprovementLoopConfigPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        improvement_loop_store.save_config(property_id, payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return improvement_loops.snapshot(property_id)
+
+
+@app.post("/api/admin/properties/{property_id}/improvement-loop/start")
+async def start_improvement_loop(property_id: str) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        improvement_loops.start(property_id)
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return improvement_loops.snapshot(property_id)
+
+
+@app.post("/api/admin/properties/{property_id}/improvement-loop/resume")
+async def resume_improvement_loop(property_id: str) -> dict[str, Any]:
+    return await start_improvement_loop(property_id)
+
+
+@app.post("/api/admin/properties/{property_id}/improvement-loop/pause")
+async def pause_improvement_loop(property_id: str) -> dict[str, Any]:
+    _require_property(property_id)
+    improvement_loops.pause(property_id)
+    return improvement_loops.snapshot(property_id)
+
+
+@app.post("/api/admin/properties/{property_id}/improvement-loop/stop")
+async def stop_improvement_loop(property_id: str) -> dict[str, Any]:
+    _require_property(property_id)
+    improvement_loops.stop(property_id)
+    return improvement_loops.snapshot(property_id)
+
+
+@app.post("/api/admin/properties/{property_id}/improvement-loop/satisfied")
+async def satisfy_improvement_loop(property_id: str) -> dict[str, Any]:
+    _require_property(property_id)
+    improvement_loops.satisfy(property_id)
+    return improvement_loops.snapshot(property_id)
+
+
+@app.post("/api/admin/properties/{property_id}/improvement-loop/run-next")
+async def run_single_improvement_loop_iteration(property_id: str) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return await improvement_loops.run_single(property_id)
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/improvement-loop/decision")
+async def decide_improvement_loop(property_id: str, payload: ImprovementLoopDecisionPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        improvement_loops.decide(property_id, payload.decision, payload.feedback)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return improvement_loops.snapshot(property_id)
 
 
 @app.post("/api/session/start")

@@ -1,9 +1,15 @@
 const state = {
+  auth: null,
+  properties: [],
+  users: [],
+  roles: [],
+  permissions: [],
   property: null,
   designDraft: null,
   designPublished: null,
   versions: [],
   ai: null,
+  improvementLoop: null,
   activeProvider: null,
   providerDirty: false,
   zones: null,
@@ -31,11 +37,21 @@ const authTypeDefinitions = [
 ];
 
 async function jsonFetch(url, options = {}) {
+  const method = (options.method || "GET").toUpperCase();
+  const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+  if (!["GET", "HEAD", "OPTIONS"].includes(method) && state.auth?.csrf_token) {
+    headers["X-CSRF-Token"] = state.auth.csrf_token;
+  }
   const response = await fetch(url, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    headers,
     ...options,
   });
-  const data = await response.json();
+  if (response.status === 401) {
+    window.location.assign("/admin/login");
+    throw new Error("Administrator session expired.");
+  }
+  const data = await response.json().catch(() => ({}));
+  if (response.status === 428) activatePanel("security");
   if (!response.ok) throw new Error(data.detail || "Request failed");
   return data;
 }
@@ -50,6 +66,48 @@ function showToast(message, tone = "default") {
   }, 2800);
 }
 
+function escapeHTML(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function can(permission) {
+  return Boolean(state.auth?.permissions?.includes(permission));
+}
+
+function applyPermissionVisibility() {
+  for (const element of document.querySelectorAll("[data-permission]")) {
+    element.hidden = !can(element.dataset.permission);
+  }
+}
+
+async function loadCurrentAdmin() {
+  const payload = await jsonFetch("/api/admin/auth/me");
+  state.auth = payload.user;
+  const initial = state.auth.display_name?.trim()?.[0] || state.auth.username[0] || "A";
+  $("profile-avatar").textContent = initial.toUpperCase();
+  $("profile-name").textContent = state.auth.display_name;
+  $("profile-role").textContent = state.auth.role.name;
+  $("profile-menu-name").textContent = state.auth.display_name;
+  $("profile-username").textContent = `@${state.auth.username}`;
+  $("profile-menu-role").textContent = state.auth.role.name;
+  $("profile-detail-name").textContent = state.auth.display_name;
+  $("profile-detail-username").textContent = `@${state.auth.username}`;
+  $("profile-detail-role").textContent = state.auth.role.name;
+  $("profile-detail-property").textContent = state.auth.property_id || "All properties";
+  $("profile-detail-email").textContent = state.auth.email || "Not configured";
+  $("session-expiry").textContent = formatDate(state.auth.session_expires_at);
+  applyPermissionVisibility();
+  if (state.auth.force_password_change) {
+    activatePanel("security");
+    showToast("Change your temporary password to continue.");
+  }
+}
+
 function activatePanel(panelId) {
   for (const panel of document.querySelectorAll(".panel")) {
     panel.classList.toggle("active", panel.id === panelId);
@@ -60,11 +118,18 @@ function activatePanel(panelId) {
   if (panelId === "ai" && currentPropertyId()) {
     loadAI().catch((error) => showToast(error.message, "error"));
   }
+  if (panelId === "improvement-loop" && currentPropertyId()) {
+    loadImprovementLoop().catch((error) => showToast(error.message, "error"));
+  }
   if (panelId === "zones" && currentPropertyId()) loadZones().catch((error) => showToast(error.message, "error"));
   if (panelId === "sessions" && currentPropertyId()) loadSessions().catch((error) => showToast(error.message, "error"));
   if (panelId === "location" && currentPropertyId()) loadLocationLive().catch((error) => showToast(error.message, "error"));
   if (panelId === "intro" && currentPropertyId()) loadIntro().catch((error) => showToast(error.message, "error"));
   if (panelId === "requests" && currentPropertyId()) loadServiceRequests().catch((error) => showToast(error.message, "error"));
+  if (panelId === "users") loadUsers().catch((error) => showToast(error.message, "error"));
+  if (panelId === "roles") loadRoles().catch((error) => showToast(error.message, "error"));
+  if (panelId === "permissions") loadPermissions().catch((error) => showToast(error.message, "error"));
+  if (panelId === "audit") loadAudit().catch((error) => showToast(error.message, "error"));
 }
 
 function currentPropertyId() {
@@ -186,9 +251,20 @@ function renderProviderCards() {
   const providers = state.ai?.providers || [];
   const healthy = providers.filter((provider) => ["connected", "local"].includes(provider.status)).length;
   $("ai-health-summary").textContent = `${healthy} ready · ${providers.length} providers`;
+
+  const header = document.createElement("div");
+  header.className = "provider-row provider-header-row";
+  header.innerHTML = `
+    <span class="col-header">Provider</span>
+    <span class="col-header">Status</span>
+    <span class="col-header text-right">Configuration</span>
+  `;
+  grid.appendChild(header);
+
   for (const provider of providers) {
     const row = document.createElement("article");
     row.className = "provider-row";
+    const statusType = statusClass(provider.status);
     row.innerHTML = `
       <div class="provider-name-cell">
         <span class="provider-icon">${providerLabel(provider)}</span>
@@ -197,13 +273,13 @@ function renderProviderCards() {
           <p>${provider.auth_method.replaceAll("_", " ")}</p>
         </div>
       </div>
-      <span class="status-pill ${statusClass(provider.status)}">${statusLabel(provider.status)}</span>
-      <div class="provider-selected-model">${provider.selected_model || "Not selected"}</div>
-      <div class="provider-models" aria-label="${provider.name} models">${renderModelChips(provider)}</div>
-      <div class="provider-credential">${provider.credentials?.[0]?.display_hint || (provider.provider_id === "local" ? "No cloud key" : "Not configured")}</div>
+      <div class="provider-status ${statusType}">
+        <span class="status-dot ${statusType}"></span>
+        <span class="status-text">${statusLabel(provider.status)}</span>
+      </div>
       <div class="provider-actions">
-        <button type="button" data-action="configure">${provider.unavailable ? "Details" : "Configure"}</button>
-        <button type="button" data-action="test">Test</button>
+        <button type="button" data-action="configure" class="configure-btn">${provider.unavailable ? "Details" : "Configure"}</button>
+        <button type="button" data-action="test" class="test-btn">Test</button>
       </div>
     `;
     row.querySelector('[data-action="configure"]').addEventListener("click", () => openProviderDrawer(provider.provider_id));
@@ -398,6 +474,192 @@ async function testProvider(providerId = state.activeProvider?.provider_id) {
     $("drawer-test-result").textContent = message;
   }
   showToast(message, result.ok ? "default" : "error");
+}
+
+function providerName(providerId) {
+  return state.ai?.providers.find((item) => item.provider_id === providerId)?.name || providerId;
+}
+
+function loopModelOptions(selectedModel = "") {
+  const provider = state.ai?.providers.find((item) => item.provider_id === $("loop-provider").value);
+  const select = $("loop-model");
+  const current = selectedModel || select.value || provider?.selected_model || "";
+  select.innerHTML = "";
+  const models = new Set(modelOptions(provider || {}));
+  if (current) models.add(current);
+  for (const model of models) select.appendChild(new Option(model, model));
+  select.value = current || provider?.selected_model || "";
+}
+
+function loopProviderOptions(providerId, model) {
+  const select = $("loop-provider");
+  select.innerHTML = "";
+  for (const provider of state.ai?.providers || []) {
+    if (provider.unavailable) continue;
+    select.appendChild(new Option(`${provider.name}${provider.enabled ? "" : " · disabled"}`, provider.provider_id));
+  }
+  select.value = providerId || state.ai?.settings?.default_provider || "local";
+  if (!select.value && select.options.length) select.selectedIndex = 0;
+  loopModelOptions(model);
+}
+
+async function loadImprovementLoop(preserveForm = false) {
+  if (!state.ai) await loadAI();
+  const payload = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/improvement-loop`);
+  hydrateImprovementLoop(payload, preserveForm);
+}
+
+function hydrateImprovementLoop(payload, preserveForm = false) {
+  state.improvementLoop = payload;
+  const loop = payload.loop;
+  if (!preserveForm) {
+    $("loop-objective").value = loop.objective || "";
+    $("loop-criteria").value = loop.satisfaction_criteria || "";
+    $("loop-evidence").value = loop.evidence || "";
+    loopProviderOptions(loop.provider_id, loop.model);
+    $("loop-approval-mode").value = loop.approval_mode || "manual";
+    $("loop-interval").value = loop.interval_seconds ?? 60;
+    $("loop-max-iterations").value = loop.max_iterations ?? 0;
+    $("loop-failure-limit").value = loop.max_consecutive_failures ?? 3;
+  }
+  renderLoopStatus(loop);
+  renderLoopLatest(payload.iterations || []);
+  renderLoopHistory(payload.iterations || []);
+}
+
+function renderLoopStatus(loop) {
+  const badge = $("loop-status-badge");
+  badge.className = `loop-status-badge ${loop.status}`;
+  badge.querySelector("span").textContent = statusLabel(loop.status);
+  $("loop-iteration-count").textContent = `${loop.iteration_count} iteration${loop.iteration_count === 1 ? "" : "s"}`;
+  const copy = {
+    draft: ["Ready to configure", "Choose an enabled provider and define exactly what satisfaction means."],
+    running: ["Loop is running", `${providerName(loop.provider_id)} · ${loop.model} · iteration ${loop.iteration_count + 1}`],
+    awaiting_approval: ["Waiting for your decision", "Approve the latest result or request a revision with feedback."],
+    paused: ["Loop is paused", "You can change its evidence and controls before resuming."],
+    stopped: ["Loop is stopped", "History is preserved and the loop can be resumed."],
+    satisfied: ["Marked satisfied by operator", "Only an operator can set this state."],
+    error: ["Loop needs attention", loop.last_error || "The selected provider could not complete the iteration."],
+  }[loop.status] || ["Ready", "Configure the loop to begin."];
+  $("loop-command-title").textContent = copy[0];
+  $("loop-command-detail").textContent = copy[1];
+  const active = ["running", "awaiting_approval"].includes(loop.status);
+  $("loop-save").disabled = active;
+  $("loop-run-once").disabled = active;
+  $("loop-start").disabled = active;
+  $("loop-pause").disabled = loop.status !== "running";
+  $("loop-resume").disabled = !["paused", "stopped", "error"].includes(loop.status);
+  $("loop-stop").disabled = ["draft", "stopped", "satisfied"].includes(loop.status);
+  $("loop-satisfied").disabled = loop.status === "satisfied";
+  $("loop-approve").disabled = loop.status !== "awaiting_approval";
+  $("loop-revise").disabled = loop.status !== "awaiting_approval";
+  for (const input of document.querySelectorAll("#improvement-loop .loop-config input, #improvement-loop .loop-config select, #improvement-loop .loop-config textarea")) {
+    input.disabled = active;
+  }
+}
+
+function renderLoopLatest(iterations) {
+  const latest = iterations[0];
+  if (!latest) {
+    $("loop-latest").innerHTML = "<p>No iteration has run yet.</p>";
+    $("loop-review-state").textContent = "No review";
+    return;
+  }
+  $("loop-review-state").textContent = statusLabel(latest.operator_decision || latest.status);
+  if (latest.status === "error") {
+    $("loop-latest").innerHTML = `<p><strong>Provider error</strong></p><p>${escapeHTML(latest.error)}</p>`;
+    return;
+  }
+  const response = latest.response || {};
+  const findings = Array.isArray(response.findings) ? response.findings : [];
+  const score = latest.score == null ? "—" : latest.score;
+  $("loop-latest").innerHTML = `
+    <div class="loop-score-row"><strong>${escapeHTML(score)}</strong><div class="loop-score-track" aria-label="Quality score ${escapeHTML(score)}"><i style="width:${latest.score == null ? 0 : latest.score}%"></i></div></div>
+    <p><strong>${escapeHTML(latest.summary || "Iteration completed")}</strong></p>
+    ${findings.length ? `<ul class="loop-finding-list">${findings.map((item) => `<li>${escapeHTML(item)}</li>`).join("")}</ul>` : ""}
+    <p><strong>Next action:</strong> ${escapeHTML(response.next_action || "Review this iteration.")}</p>
+    ${latest.model_recommends_satisfied ? "<p>The model recommends readiness. You still decide when the loop is satisfied.</p>" : ""}
+  `;
+}
+
+function renderLoopHistory(iterations) {
+  const history = $("loop-history");
+  history.innerHTML = "";
+  if (!iterations.length) {
+    history.innerHTML = '<div class="loop-history-empty">Iterations will appear here with their model, score, decision, and timestamp.</div>';
+    return;
+  }
+  for (const iteration of iterations) {
+    const row = document.createElement("article");
+    row.className = "loop-history-row";
+    const when = iteration.finished_at || iteration.started_at;
+    row.innerHTML = `
+      <strong>#${iteration.iteration_number}</strong>
+      <div><strong>${escapeHTML(iteration.summary || iteration.error || "In progress")}</strong><p>${escapeHTML(providerName(iteration.provider_id))} · ${escapeHTML(iteration.model)}</p></div>
+      <span class="status-pill ${iteration.status === "error" ? "bad" : "good"}">${escapeHTML(statusLabel(iteration.operator_decision || iteration.status))}</span>
+      <time>${when ? new Date(when * 1000).toLocaleString() : "Running"}</time>
+    `;
+    history.appendChild(row);
+  }
+}
+
+function improvementLoopPayload() {
+  return {
+    objective: $("loop-objective").value.trim(),
+    satisfaction_criteria: $("loop-criteria").value.trim(),
+    evidence: $("loop-evidence").value.trim(),
+    provider_id: $("loop-provider").value,
+    model: $("loop-model").value,
+    approval_mode: $("loop-approval-mode").value,
+    interval_seconds: Number($("loop-interval").value || 60),
+    max_iterations: Number($("loop-max-iterations").value || 0),
+    max_consecutive_failures: Number($("loop-failure-limit").value || 3),
+  };
+}
+
+async function saveImprovementLoop({ quiet = false } = {}) {
+  const payload = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/improvement-loop`, {
+    method: "PUT",
+    body: JSON.stringify(improvementLoopPayload()),
+  });
+  hydrateImprovementLoop(payload);
+  if (!quiet) showToast("Improvement loop saved.");
+}
+
+async function improvementLoopAction(action, message) {
+  const payload = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/improvement-loop/${action}`, { method: "POST" });
+  hydrateImprovementLoop(payload, ["start", "resume"].includes(action));
+  showToast(message);
+}
+
+async function startImprovementLoop(action = "start") {
+  await saveImprovementLoop({ quiet: true });
+  await improvementLoopAction(action, action === "start" ? "Improvement loop started." : "Improvement loop resumed.");
+}
+
+async function runImprovementLoopOnce() {
+  await saveImprovementLoop({ quiet: true });
+  const button = $("loop-run-once");
+  const label = button.textContent;
+  button.disabled = true;
+  button.textContent = "Running...";
+  try {
+    const payload = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/improvement-loop/run-next`, { method: "POST" });
+    hydrateImprovementLoop(payload);
+    showToast("Iteration completed.");
+  } finally {
+    button.textContent = label;
+  }
+}
+
+async function decideImprovementLoop(decision) {
+  const payload = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/improvement-loop/decision`, {
+    method: "POST",
+    body: JSON.stringify({ decision, feedback: $("loop-feedback").value.trim() }),
+  });
+  $("loop-feedback").value = "";
+  hydrateImprovementLoop(payload, true);
+  showToast(decision === "approved" ? "Approved. The loop will continue." : "Revision requested and feedback recorded.");
 }
 
 function hydrateDesign(design) {
@@ -710,8 +972,14 @@ async function savePropertyBasics() {
 }
 
 async function saveDraft({ quiet = false } = {}) {
-  $("hotel-name-input").value = $("design-hotel-name").value || $("hotel-name-input").value;
-  $("concierge-name-input").value = $("design-concierge-name").value || $("concierge-name-input").value;
+  const activePanel = document.querySelector(".panel.active")?.id;
+  if (activePanel === "appearance") {
+    $("hotel-name-input").value = $("design-hotel-name").value || $("hotel-name-input").value;
+    $("concierge-name-input").value = $("design-concierge-name").value || $("concierge-name-input").value;
+  } else if (activePanel === "overview") {
+    $("design-hotel-name").value = $("hotel-name-input").value || $("design-hotel-name").value;
+    $("design-concierge-name").value = $("concierge-name-input").value || $("design-concierge-name").value;
+  }
   await savePropertyBasics();
   const result = await jsonFetch("/api/admin/properties/" + encodeURIComponent(currentPropertyId()) + "/design/draft", {
     method: "PUT",
@@ -765,9 +1033,44 @@ async function loadDesign() {
 async function loadProperty() {
   const data = await jsonFetch("/api/admin/properties");
   if (!data.properties.length) throw new Error("No property configured.");
-  hydrateProperty(data.properties[0]);
-  await loadDesign();
-  await loadAI();
+  state.properties = data.properties;
+  const switcher = $("property-switcher");
+  switcher.innerHTML = "";
+  for (const property of state.properties) {
+    switcher.appendChild(new Option(property.hotel_name, property.property_id));
+  }
+  const selectedId = state.property?.property_id || state.auth?.property_id || state.properties[0].property_id;
+  const selected = state.properties.find((property) => property.property_id === selectedId) || state.properties[0];
+  switcher.value = selected.property_id;
+  hydrateProperty(selected);
+  hydratePropertyOptions();
+  if (can("concierge.view")) await loadDesign();
+  if (can("ai.view")) await loadAI();
+}
+
+async function switchProperty(propertyId) {
+  const property = state.properties.find((item) => item.property_id === propertyId);
+  if (!property || property.property_id === currentPropertyId()) return;
+  hydrateProperty(property);
+  state.ai = null;
+  state.improvementLoop = null;
+  const tasks = [];
+  if (can("concierge.view")) tasks.push(loadDesign());
+  if (can("ai.view")) tasks.push(loadAI());
+  await Promise.all(tasks);
+  showToast(`Switched to ${property.hotel_name}.`);
+}
+
+function hydratePropertyOptions() {
+  for (const id of ["admin-property", "role-property", "audit-property"]) {
+    const select = $(id);
+    if (!select) continue;
+    const current = select.value;
+    select.innerHTML = id === "audit-property" ? '<option value="">All properties</option>' : "";
+    if (id === "role-property" && can("properties.all")) select.appendChild(new Option("Global", ""));
+    for (const property of state.properties) select.appendChild(new Option(property.hotel_name, property.property_id));
+    select.value = current || state.auth?.property_id || (id === "role-property" && can("properties.all") ? "" : state.properties[0]?.property_id || "");
+  }
 }
 
 async function loadZones() {
@@ -1144,14 +1447,391 @@ async function updateServiceStatus(requestId, status) {
   showToast("Service request updated.");
 }
 
+function formatDate(timestamp) {
+  if (!timestamp) return "Never";
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(timestamp * 1000));
+}
+
+function propertyName(propertyId) {
+  if (!propertyId) return "All properties";
+  return state.properties.find((item) => item.property_id === propertyId)?.hotel_name || propertyId;
+}
+
+async function loadPermissions() {
+  if (!state.permissions.length) {
+    const payload = await jsonFetch("/api/admin/permissions");
+    state.permissions = payload.permissions;
+  }
+  const catalog = $("permission-catalog");
+  catalog.innerHTML = state.permissions.map((permission) => `
+    <article class="permission-item"><strong>${escapeHTML(permission.key)}</strong><span>${escapeHTML(permission.name)}</span></article>
+  `).join("");
+  renderRolePermissionSelector([]);
+}
+
+async function loadRoles() {
+  const payload = await jsonFetch("/api/admin/roles");
+  state.roles = payload.roles;
+  const select = $("admin-role");
+  const current = select.value;
+  select.innerHTML = "";
+  for (const role of state.roles) {
+    if (!can("properties.all") && role.slug === "super-admin") continue;
+    select.appendChild(new Option(role.name, role.role_id));
+  }
+  if (current) select.value = current;
+  const list = $("role-list");
+  list.innerHTML = "";
+  for (const role of state.roles) {
+    const row = document.createElement("article");
+    row.className = "role-row";
+    row.innerHTML = `
+      <div><h3>${escapeHTML(role.name)}</h3><p>${escapeHTML(role.description || "Custom permission role")}</p></div>
+      <p>${role.permissions.length} permission${role.permissions.length === 1 ? "" : "s"} · ${escapeHTML(role.property_id ? propertyName(role.property_id) : "Platform")}</p>
+      <span>${role.user_count || 0} user${role.user_count === 1 ? "" : "s"}</span>
+      ${!role.is_system && can("roles.manage") ? '<button type="button">Edit</button>' : '<span>System</span>'}
+    `;
+    const button = row.querySelector("button");
+    if (button) button.addEventListener("click", () => openRoleDialog(role));
+    list.appendChild(row);
+  }
+}
+
+function renderRolePermissionSelector(selected) {
+  const target = $("role-permissions");
+  if (!target) return;
+  target.innerHTML = "";
+  for (const permission of state.permissions) {
+    const label = document.createElement("label");
+    label.innerHTML = `<input type="checkbox" value="${escapeHTML(permission.key)}" ${selected.includes(permission.key) ? "checked" : ""}> <span>${escapeHTML(permission.key)}</span>`;
+    label.title = permission.name;
+    target.appendChild(label);
+  }
+}
+
+async function openRoleDialog(role = null) {
+  if (!state.permissions.length) await loadPermissions();
+  hydratePropertyOptions();
+  $("role-id").value = role?.role_id || "";
+  $("role-name").value = role?.name || "";
+  $("role-description").value = role?.description || "";
+  $("role-property").value = role?.property_id || state.auth?.property_id || "";
+  $("role-dialog-title").textContent = role ? "Edit Role" : "Create Role";
+  $("save-role-button").textContent = role ? "Save Changes" : "Create Role";
+  $("role-dialog-message").textContent = "";
+  renderRolePermissionSelector(role?.permissions || []);
+  $("role-dialog").showModal();
+}
+
+async function saveRole(event) {
+  event.preventDefault();
+  const roleId = $("role-id").value;
+  const payload = {
+    name: $("role-name").value.trim(),
+    description: $("role-description").value.trim(),
+    property_id: $("role-property").value || null,
+    permissions: [...document.querySelectorAll('#role-permissions input:checked')].map((item) => item.value),
+  };
+  try {
+    await jsonFetch(roleId ? `/api/admin/roles/${encodeURIComponent(roleId)}` : "/api/admin/roles", {
+      method: roleId ? "PUT" : "POST",
+      body: JSON.stringify(payload),
+    });
+    $("role-dialog").close();
+    await loadRoles();
+    showToast(roleId ? "Role updated." : "Role created.");
+  } catch (error) {
+    $("role-dialog-message").textContent = error.message;
+  }
+}
+
+async function loadUsers() {
+  if (!state.roles.length && can("roles.view")) await loadRoles();
+  const payload = await jsonFetch("/api/admin/users");
+  state.users = payload.users;
+  renderUsers();
+}
+
+function renderUsers() {
+  const query = $("user-search").value.trim().toLowerCase();
+  const status = $("user-status-filter").value;
+  const users = state.users.filter((user) => {
+    const matchesQuery = !query || user.username.toLowerCase().includes(query) || user.display_name.toLowerCase().includes(query);
+    return matchesQuery && (!status || user.status === status);
+  });
+  $("user-count").textContent = `${users.length} user${users.length === 1 ? "" : "s"}`;
+  $("users-empty").hidden = users.length > 0;
+  const body = $("users-table-body");
+  body.innerHTML = "";
+  for (const user of users) {
+    const row = document.createElement("tr");
+    row.innerHTML = `
+      <td><div class="user-cell"><strong>@${escapeHTML(user.username)}</strong><span>${escapeHTML(user.email || "No recovery email")}</span></div></td>
+      <td>${escapeHTML(user.display_name)}</td>
+      <td>${escapeHTML(propertyName(user.property_id))}</td>
+      <td>${escapeHTML(user.role)}</td>
+      <td><span class="status-label ${escapeHTML(user.status)}">${escapeHTML(user.status)}</span></td>
+      <td>${escapeHTML(formatDate(user.last_login))}</td>
+      <td>${escapeHTML(formatDate(user.created))}</td>
+      <td><div class="row-actions"></div></td>
+    `;
+    const actions = row.querySelector(".row-actions");
+    if (can("users.edit")) {
+      const edit = document.createElement("button");
+      edit.type = "button";
+      edit.textContent = "Edit";
+      edit.addEventListener("click", () => openUserDialog(user));
+      actions.appendChild(edit);
+      const more = document.createElement("button");
+      more.type = "button";
+      more.textContent = "Actions";
+      more.addEventListener("click", (event) => openUserActions(user, event.currentTarget));
+      actions.appendChild(more);
+    }
+    body.appendChild(row);
+  }
+}
+
+async function openUserDialog(user = null) {
+  if (!state.roles.length) await loadRoles();
+  hydratePropertyOptions();
+  const creating = !user;
+  $("user-id").value = user?.id || "";
+  $("admin-username").value = user?.username || "";
+  $("admin-username").disabled = !creating;
+  $("admin-display-name").value = user?.display_name || "";
+  $("admin-property").value = user?.property_id || state.auth?.property_id || state.properties[0]?.property_id || "";
+  $("admin-role").value = user?.role_id || state.roles.find((role) => role.slug === "viewer-auditor")?.role_id || state.roles[0]?.role_id || "";
+  $("admin-email").value = user?.email || "";
+  $("admin-status").value = user?.status || "active";
+  $("admin-status").querySelector('option[value="locked"]').hidden = creating;
+  $("admin-password").value = "";
+  $("admin-password-confirm").value = "";
+  $("admin-force-password").checked = true;
+  for (const field of document.querySelectorAll(".create-password-field")) field.hidden = !creating;
+  $("user-dialog-title").textContent = creating ? "Create User" : "Edit User";
+  $("save-user-button").textContent = creating ? "Create User" : "Save Changes";
+  $("user-dialog-message").textContent = "";
+  $("user-dialog").showModal();
+}
+
+async function saveUser(event) {
+  event.preventDefault();
+  const userId = $("user-id").value;
+  const creating = !userId;
+  const payload = {
+    display_name: $("admin-display-name").value.trim(),
+    property_id: $("admin-property").value || null,
+    role_id: $("admin-role").value,
+    email: $("admin-email").value.trim() || null,
+    status: $("admin-status").value,
+  };
+  if (creating) {
+    if ($("admin-password").value !== $("admin-password-confirm").value) {
+      $("user-dialog-message").textContent = "Passwords do not match.";
+      return;
+    }
+    Object.assign(payload, {
+      username: $("admin-username").value.trim(),
+      password: $("admin-password").value,
+      force_password_change: $("admin-force-password").checked,
+    });
+  }
+  try {
+    await jsonFetch(creating ? "/api/admin/users" : `/api/admin/users/${encodeURIComponent(userId)}`, {
+      method: creating ? "POST" : "PUT",
+      body: JSON.stringify(payload),
+    });
+    $("user-dialog").close();
+    await loadUsers();
+    showToast(creating ? "User created." : "User updated.");
+  } catch (error) {
+    $("user-dialog-message").textContent = error.message;
+  }
+}
+
+function openUserActions(user, anchor) {
+  const menu = $("user-action-menu");
+  const actions = [
+    ["Edit User", () => openUserDialog(user)],
+    ["Change Role / Property", () => openUserDialog(user)],
+    ["Reset Password", () => openPasswordReset(user)],
+    [user.status === "locked" ? "Unlock Account" : user.status === "disabled" ? "Enable Account" : "Disable Account", () => toggleUserStatus(user, user.status !== "active")],
+    ["Revoke Sessions", () => revokeUserSessions(user)],
+    ["View Activity", () => viewUserActivity(user)],
+  ];
+  if (can("users.delete") && user.id !== state.auth.id) actions.push(["Delete User", () => deleteUser(user), "danger"]);
+  menu.innerHTML = `<strong>@${escapeHTML(user.username)}</strong>`;
+  for (const [label, handler, className] of actions) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = label;
+    if (className) button.className = className;
+    button.addEventListener("click", () => {
+      menu.hidden = true;
+      handler();
+    });
+    menu.appendChild(button);
+  }
+  const rect = anchor.getBoundingClientRect();
+  menu.style.top = `${Math.min(window.innerHeight - 280, rect.bottom + 5)}px`;
+  menu.style.left = `${Math.max(8, Math.min(window.innerWidth - 210, rect.right - 200))}px`;
+  menu.hidden = false;
+}
+
+function openPasswordReset(user) {
+  $("password-reset-user-id").value = user.id;
+  $("password-reset-user").textContent = `Create a temporary password for @${user.username}. All active sessions will be revoked.`;
+  $("password-reset-value").value = "";
+  $("password-reset-confirm").value = "";
+  $("password-reset-message").textContent = "";
+  $("password-reset-dialog").showModal();
+}
+
+async function resetUserPassword(event) {
+  event.preventDefault();
+  const value = $("password-reset-value").value;
+  if (value !== $("password-reset-confirm").value) {
+    $("password-reset-message").textContent = "Passwords do not match.";
+    return;
+  }
+  try {
+    await jsonFetch(`/api/admin/users/${encodeURIComponent($("password-reset-user-id").value)}/reset-password`, {
+      method: "POST",
+      body: JSON.stringify({ password: value, force_password_change: $("password-reset-force").checked }),
+    });
+    $("password-reset-dialog").close();
+    await loadUsers();
+    showToast("Temporary password created and sessions revoked.");
+  } catch (error) {
+    $("password-reset-message").textContent = error.message;
+  }
+}
+
+async function toggleUserStatus(user, enable) {
+  await jsonFetch(`/api/admin/users/${encodeURIComponent(user.id)}`, {
+    method: "PUT",
+    body: JSON.stringify({ status: enable ? "active" : "disabled" }),
+  });
+  await loadUsers();
+  showToast(enable ? "Account enabled." : "Account disabled and sessions revoked.");
+}
+
+async function revokeUserSessions(user) {
+  await jsonFetch(`/api/admin/users/${encodeURIComponent(user.id)}/revoke-sessions`, { method: "POST" });
+  await loadUsers();
+  showToast("Active sessions revoked.");
+}
+
+function viewUserActivity(user) {
+  $("audit-username").value = user.username;
+  activatePanel("audit");
+}
+
+async function deleteUser(user) {
+  if (!window.confirm(`Delete @${user.username}? This cannot be undone.`)) return;
+  await jsonFetch(`/api/admin/users/${encodeURIComponent(user.id)}`, { method: "DELETE" });
+  await loadUsers();
+  showToast("User deleted.");
+}
+
+async function loadAudit() {
+  hydratePropertyOptions();
+  const params = new URLSearchParams();
+  if ($("audit-username").value.trim()) params.set("username", $("audit-username").value.trim());
+  if ($("audit-property").value) params.set("property_id", $("audit-property").value);
+  if ($("audit-action").value.trim()) params.set("action", $("audit-action").value.trim());
+  if ($("audit-resource").value.trim()) params.set("resource", $("audit-resource").value.trim());
+  if ($("audit-date").value) {
+    const start = new Date(`${$("audit-date").value}T00:00:00`);
+    params.set("start_at", String(Math.floor(start.getTime() / 1000)));
+    params.set("end_at", String(Math.floor((start.getTime() + 86400000 - 1) / 1000)));
+  }
+  const payload = await jsonFetch(`/api/admin/audit?${params.toString()}`);
+  const body = $("audit-table-body");
+  body.innerHTML = "";
+  $("audit-empty").hidden = payload.events.length > 0;
+  for (const event of payload.events) {
+    const row = document.createElement("tr");
+    row.innerHTML = `<td>${escapeHTML(formatDate(event.timestamp))}</td><td><div class="user-cell"><strong>${escapeHTML(event.display_name || "System")}</strong><span>${event.username ? `@${escapeHTML(event.username)}` : "Unauthenticated"}</span></div></td><td>${escapeHTML(event.role || "—")}</td><td>${escapeHTML(propertyName(event.property_id))}</td><td>${escapeHTML(event.action)}</td><td>${escapeHTML(event.resource)}${event.resource_id ? `<br><small>${escapeHTML(event.resource_id)}</small>` : ""}</td><td>${escapeHTML(event.ip_address || "—")}</td>`;
+    body.appendChild(row);
+  }
+}
+
+async function changePassword(event) {
+  event.preventDefault();
+  if ($("new-password").value !== $("confirm-new-password").value) {
+    showToast("New passwords do not match.", "error");
+    return;
+  }
+  await jsonFetch("/api/admin/auth/change-password", {
+    method: "POST",
+    body: JSON.stringify({ current_password: $("current-password").value, new_password: $("new-password").value }),
+  });
+  event.currentTarget.reset();
+  state.auth.force_password_change = false;
+  showToast("Password changed. Other sessions were revoked.");
+}
+
+async function logout() {
+  await jsonFetch("/api/admin/auth/logout", { method: "POST" });
+  window.location.assign("/admin/login");
+}
+
 function normalizeColor(value) {
   return /^#[0-9a-f]{6}$/i.test(value) ? value : "#18181b";
 }
 
 function setup() {
+  for (const icon of document.querySelectorAll(".nav-icon")) icon.setAttribute("aria-hidden", "true");
   for (const item of document.querySelectorAll(".nav-item")) {
     item.addEventListener("click", () => activatePanel(item.dataset.panel));
   }
+  if (localStorage.getItem("concierge.admin.sidebar") === "collapsed") {
+    document.querySelector(".platform-shell").classList.add("sidebar-collapsed");
+  }
+  $("sidebar-toggle").addEventListener("click", () => {
+    const collapsed = document.querySelector(".platform-shell").classList.toggle("sidebar-collapsed");
+    localStorage.setItem("concierge.admin.sidebar", collapsed ? "collapsed" : "expanded");
+    $("sidebar-toggle").setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
+  });
+  $("property-switcher").addEventListener("change", (event) => switchProperty(event.target.value).catch((error) => showToast(error.message, "error")));
+  $("profile-button").addEventListener("click", () => {
+    const menu = $("profile-menu");
+    menu.hidden = !menu.hidden;
+    $("profile-button").setAttribute("aria-expanded", String(!menu.hidden));
+  });
+  for (const button of document.querySelectorAll("[data-profile-panel]")) {
+    button.addEventListener("click", () => {
+      $("profile-menu").hidden = true;
+      activatePanel(button.dataset.profilePanel);
+    });
+  }
+  $("profile-switch-property").addEventListener("click", () => {
+    $("profile-menu").hidden = true;
+    $("property-switcher").focus();
+  });
+  $("logout-button").addEventListener("click", () => logout().catch((error) => showToast(error.message, "error")));
+  $("create-user-button").addEventListener("click", () => openUserDialog().catch((error) => showToast(error.message, "error")));
+  $("user-form").addEventListener("submit", saveUser);
+  $("user-search").addEventListener("input", renderUsers);
+  $("user-status-filter").addEventListener("change", renderUsers);
+  $("create-role-button").addEventListener("click", () => openRoleDialog().catch((error) => showToast(error.message, "error")));
+  $("role-form").addEventListener("submit", saveRole);
+  $("password-reset-form").addEventListener("submit", resetUserPassword);
+  $("change-password-form").addEventListener("submit", (event) => changePassword(event).catch((error) => showToast(error.message, "error")));
+  $("refresh-audit").addEventListener("click", () => loadAudit().catch((error) => showToast(error.message, "error")));
+  $("apply-audit-filters").addEventListener("click", () => loadAudit().catch((error) => showToast(error.message, "error")));
+  for (const button of document.querySelectorAll("[data-close-dialog]")) {
+    button.addEventListener("click", () => $(button.dataset.closeDialog).close());
+  }
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".profile-shell")) {
+      $("profile-menu").hidden = true;
+      $("profile-button").setAttribute("aria-expanded", "false");
+    }
+    if (!event.target.closest("#user-action-menu") && !event.target.closest(".row-actions")) $("user-action-menu").hidden = true;
+  });
 
   const liveInputs = [
     "design-hotel-name",
@@ -1232,6 +1912,16 @@ function setup() {
   $("remove-provider-secret").addEventListener("click", () => removeProviderSecret().catch((error) => showToast(error.message, "error")));
   $("refresh-provider-models").addEventListener("click", () => refreshProviderModels().catch((error) => showToast(error.message, "error")));
   $("test-provider").addEventListener("click", () => testProvider().catch((error) => showToast(error.message, "error")));
+  $("loop-provider").addEventListener("change", () => loopModelOptions());
+  $("loop-save").addEventListener("click", () => saveImprovementLoop().catch((error) => showToast(error.message, "error")));
+  $("loop-run-once").addEventListener("click", () => runImprovementLoopOnce().catch((error) => showToast(error.message, "error")));
+  $("loop-start").addEventListener("click", () => startImprovementLoop().catch((error) => showToast(error.message, "error")));
+  $("loop-pause").addEventListener("click", () => improvementLoopAction("pause", "Improvement loop paused.").catch((error) => showToast(error.message, "error")));
+  $("loop-resume").addEventListener("click", () => startImprovementLoop("resume").catch((error) => showToast(error.message, "error")));
+  $("loop-stop").addEventListener("click", () => improvementLoopAction("stop", "Improvement loop stopped.").catch((error) => showToast(error.message, "error")));
+  $("loop-satisfied").addEventListener("click", () => improvementLoopAction("satisfied", "Loop marked satisfied by operator.").catch((error) => showToast(error.message, "error")));
+  $("loop-approve").addEventListener("click", () => decideImprovementLoop("approved").catch((error) => showToast(error.message, "error")));
+  $("loop-revise").addEventListener("click", () => decideImprovementLoop("revision_requested").catch((error) => showToast(error.message, "error")));
 
   for (const button of document.querySelectorAll("[data-map-tool]")) {
     button.addEventListener("click", () => {
@@ -1293,5 +1983,23 @@ function setup() {
   }
 }
 
+document.body.dataset.adminReady = "false";
+const platformShell = document.querySelector(".platform-shell");
+if (platformShell) platformShell.inert = true;
 setup();
-loadProperty().catch((error) => showToast(error.message, "error"));
+async function initializeAdmin() {
+  await loadCurrentAdmin();
+  await loadProperty();
+  document.body.dataset.adminReady = "true";
+  if (platformShell) platformShell.inert = false;
+}
+initializeAdmin().catch((error) => {
+  document.body.dataset.adminReady = "error";
+  if (platformShell) platformShell.inert = false;
+  showToast(error.message, "error");
+});
+window.setInterval(() => {
+  if (!$("improvement-loop").classList.contains("active")) return;
+  if (!["running", "awaiting_approval"].includes(state.improvementLoop?.loop?.status)) return;
+  loadImprovementLoop(true).catch((error) => showToast(error.message, "error"));
+}, 2500);

@@ -832,6 +832,71 @@ class AIModelService:
         self.store.save_test_result(property_id, provider_id, result)
         return result
 
+    def validate_direct_connection(self, property_id: str, provider_id: str, model: str) -> None:
+        if provider_id not in PROVIDER_DEFINITIONS:
+            raise ValueError(f"Unknown AI provider '{provider_id}'.")
+        if PROVIDER_DEFINITIONS[provider_id].get("unavailable"):
+            raise ValueError(f"Provider '{provider_id}' is unavailable.")
+        connection = self.store.get_connection(property_id, provider_id)
+        if not connection.get("enabled"):
+            raise RuntimeError(f"Enable {connection['name']} before using it in the improvement loop.")
+        ai_settings = self.store.get_settings(property_id)
+        if ai_settings.get("local_only") and PROVIDER_DEFINITIONS[provider_id].get("cloud"):
+            raise RuntimeError("Local-only mode is enabled. Cloud AI providers cannot be used.")
+        if not model or not model.strip():
+            raise ValueError("A model must be specified.")
+
+    async def direct_chat(
+        self,
+        property_id: str,
+        provider_id: str,
+        model: str,
+        messages: list[AIMessage],
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        timeout_seconds: int | None = None,
+    ) -> AIChatResponse:
+        self.validate_direct_connection(property_id, provider_id, model)
+        connection = self.store.get_connection(property_id, provider_id)
+        temp = float(connection["temperature"]) if temperature is None else float(temperature)
+        tokens = int(connection["max_output_tokens"]) if max_tokens is None else int(max_tokens)
+        timeout = int(connection["timeout_seconds"]) if timeout_seconds is None else int(timeout_seconds)
+
+        request = AIChatRequest(
+            property_id=property_id,
+            provider_id=provider_id,
+            model=model,
+            messages=messages,
+            temperature=temp,
+            max_tokens=tokens,
+            timeout_seconds=timeout,
+        )
+        adapter = self.adapter_for(provider_id, connection.get("endpoint_url", ""))
+        credential = self.store.credentials_for(property_id, provider_id)
+        started = time.perf_counter()
+        try:
+            response = await adapter.send_message(request, credential)
+        except Exception as exc:
+            self.store.record_usage(
+                property_id,
+                provider_id,
+                model,
+                int((time.perf_counter() - started) * 1000),
+                False,
+                error_type=exc.__class__.__name__,
+            )
+            raise
+        self.store.record_usage(
+            property_id,
+            provider_id,
+            model,
+            int((time.perf_counter() - started) * 1000),
+            True,
+            response.input_tokens,
+            response.output_tokens,
+        )
+        return response
+
 
 def friendly_http_error(status_code: int) -> str:
     if status_code in {401, 403}:
