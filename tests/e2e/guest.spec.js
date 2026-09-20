@@ -1,5 +1,21 @@
 import { expect, test } from "@playwright/test";
 
+async function setAuthTypes(request, enabledIds) {
+  const propertyId = (await (await request.get("/api/admin/properties")).json()).properties[0].property_id;
+  const prop = await (await request.get(`/api/admin/properties/${propertyId}`)).json();
+  const labels = {
+    pms: "PMS / Room Login",
+    access_code: "Access Code",
+  };
+  prop.antlabs_config = {
+    ...(prop.antlabs_config || {}),
+    authentication_types: Object.fromEntries(
+      ["pms", "access_code"].map((id) => [id, { label: labels[id], enabled: enabledIds.includes(id) }])
+    ),
+  };
+  await request.put(`/api/admin/properties/${propertyId}`, { data: prop });
+}
+
 // --- 1. Guest initial load ---
 
 test("guest: loads and shows welcome state with suggestions", async ({ page }) => {
@@ -98,18 +114,23 @@ test("guest: pool hours question returns fast-path answer", async ({ page }) => 
 
 // --- 4. Wi-Fi authentication flow ---
 
-test("guest: wi-fi flow shows auth card with room/last name fields", async ({ page }) => {
+test.describe("wi-fi authentication flow", () => {
+test.describe.configure({ mode: "serial" });
+
+test("guest: wi-fi flow shows auth card with room/last name fields", async ({ page, request }) => {
+  await setAuthTypes(request, ["pms"]);
   await page.goto("/");
   await page.getByLabel("Ask your concierge").fill("Connect me to Wi-Fi");
   await page.getByRole("button", { name: "Send message" }).click();
 
-  await expect(page.getByText("Please verify your stay.")).toBeVisible();
+  await expect(page.getByText("Please verify your stay with your room number and last name.")).toBeVisible();
   await expect(page.getByPlaceholder("1503")).toBeVisible();
   await expect(page.getByPlaceholder("Surname")).toBeVisible();
   await expect(page.getByRole("button", { name: "Continue" })).toBeVisible();
 });
 
-test("guest: wi-fi flow validates empty fields", async ({ page }) => {
+test("guest: wi-fi flow validates empty fields", async ({ page, request }) => {
+  await setAuthTypes(request, ["pms"]);
   await page.goto("/");
   await page.getByLabel("Ask your concierge").fill("Connect me to Wi-Fi");
   await page.getByRole("button", { name: "Send message" }).click();
@@ -118,7 +139,8 @@ test("guest: wi-fi flow validates empty fields", async ({ page }) => {
   await expect(page.getByRole("status")).toContainText("Enter room number and last name.");
 });
 
-test("guest: wi-fi flow authenticates successfully in mock mode", async ({ page }) => {
+test("guest: wi-fi flow authenticates successfully in mock mode", async ({ page, request }) => {
+  await setAuthTypes(request, ["pms"]);
   await page.goto("/");
   await page.getByLabel("Ask your concierge").fill("Connect me to Wi-Fi");
   await page.getByRole("button", { name: "Send message" }).click();
@@ -128,6 +150,17 @@ test("guest: wi-fi flow authenticates successfully in mock mode", async ({ page 
   await page.getByRole("button", { name: "Continue" }).click();
 
   await expect(page.getByText("You're connected")).toBeVisible();
+});
+
+test("guest: wi-fi flow only lists enabled non-PMS methods", async ({ page, request }) => {
+  await setAuthTypes(request, ["access_code"]);
+  await page.goto("/");
+  await page.getByLabel("Ask your concierge").fill("Connect me to Wi-Fi");
+  await page.getByRole("button", { name: "Send message" }).click();
+
+  await expect(page.getByText("This hotel currently supports: Access Code.")).toBeVisible();
+  await expect(page.getByPlaceholder("1503")).toHaveCount(0);
+});
 });
 
 // --- 5. Nearby dining / restaurant cards ---

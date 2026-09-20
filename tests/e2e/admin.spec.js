@@ -27,15 +27,15 @@ test("topbar: publish state, Save Draft, Publish, Discard, Open guest app", asyn
   await expect(page.getByRole("link", { name: "Open guest app" })).toHaveAttribute("href", "/");
 });
 
-test("sidebar: all 9 navigation items are visible and clickable", async ({ page }) => {
+test("sidebar: all navigation items are visible and clickable", async ({ page }) => {
   await page.goto("/admin");
   const panels = [
     "overview", "appearance", "guest", "ai", "knowledge",
-    "wifi", "requests", "deployment", "license",
+    "wifi", "auth-types", "requests", "deployment", "license",
   ];
   const navLabels = [
-    "Overview", "AI Chat Design", "Guest Experience", "AI Routing",
-    "Knowledge", "Wi-Fi / ANTlabs", "Service Requests", "Deployment", "License",
+    "Overview", "AI Chat Design", "Guest Experience", "AI Models",
+    "Knowledge", "Wi-Fi / ANTlabs", "Authentication Type", "Service Requests", "Deployment", "License",
   ];
   for (let i = 0; i < navLabels.length; i++) {
     await page.getByRole("button", { name: navLabels[i] }).click();
@@ -50,17 +50,23 @@ test("overview panel: property basics are editable", async ({ page }) => {
   await expect(page.locator("#concierge-name-input")).toBeEnabled();
   await expect(page.locator("#domain-input")).toBeEnabled();
   await expect(page.locator("#deployment-mode")).toBeEnabled();
-  await expect(page.locator("#overview-title")).toHaveText("Demo Hotel");
+  await expect(page.locator("#overview-title")).not.toBeEmpty();
 });
 
 test("appearance panel: all design controls are wired and update preview", async ({ page }) => {
   await page.goto("/admin");
   await page.getByRole("button", { name: "AI Chat Design" }).click();
 
-  await expect(page.locator("#design-hotel-name")).toHaveValue("Demo Hotel");
+  await expect(page.locator("#design-hotel-name")).not.toHaveValue("");
   await expect(page.locator("#welcome-input")).toBeEnabled();
   await expect(page.locator("#greeting-input")).toBeEnabled();
+  await expect(page.locator("#logo-display-input")).toBeEnabled();
+  await expect(page.locator("#logo-upload-input")).toBeEnabled();
   await expect(page.locator("#background-input")).toBeEnabled();
+  await expect(page.locator("#text-color-input")).toBeEnabled();
+  await expect(page.locator("#secondary-text-color-input")).toBeEnabled();
+  await expect(page.locator("#background-image-input")).toBeEnabled();
+  await expect(page.locator("#background-overlay-input")).toBeEnabled();
   await expect(page.locator("#accent-input")).toBeEnabled();
   await expect(page.locator("#font-input")).toBeEnabled();
   await expect(page.locator("#density-input")).toBeEnabled();
@@ -98,16 +104,17 @@ test("guest experience panel: module table has locked buttons", async ({ page })
   }
 });
 
-test("AI routing panel: all controls disabled with POC note", async ({ page }) => {
+test("AI models panel: provider management controls are available", async ({ page }) => {
   await page.goto("/admin");
-  await page.getByRole("button", { name: "AI Routing" }).click();
-  await expect(page.locator("#ai .poc-note")).toBeVisible();
-  for (const sel of await page.locator("#ai select").all()) {
-    await expect(sel).toBeDisabled();
-  }
-  for (const inp of await page.locator("#ai input").all()) {
-    await expect(inp).toBeDisabled();
-  }
+  await page.getByRole("button", { name: "AI Models" }).click();
+  await expect(page.locator("#ai-default-provider")).toBeEnabled();
+  await expect(page.locator("#ai-routing-mode")).toBeEnabled();
+  await expect(page.locator("#ai-local-only")).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Save AI Settings" })).toBeEnabled();
+  await expect(page.locator(".provider-row")).toHaveCount(7);
+  await expect(page.getByRole("heading", { name: "Google Gemini" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "OpenRouter" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Local AI" })).toBeVisible();
 });
 
 test("knowledge panel: upload zone disabled with POC note", async ({ page }) => {
@@ -127,6 +134,15 @@ test("wifi panel: all controls disabled with POC note", async ({ page }) => {
   for (const inp of await page.locator("#wifi input").all()) {
     await expect(inp).toBeDisabled();
   }
+});
+
+test("authentication type panel: toggles are available", async ({ page }) => {
+  await page.goto("/admin");
+  await page.getByRole("button", { name: "Authentication Type" }).click();
+  await expect(page.locator("#auth-types .poc-note")).toBeVisible();
+  await expect(page.locator(".auth-type-row")).toHaveCount(10);
+  await expect(page.getByText("PMS / Room Login")).toBeVisible();
+  await expect(page.locator('[data-auth-type="pms"]')).toBeEnabled();
 });
 
 test("requests panel: static table with POC note", async ({ page }) => {

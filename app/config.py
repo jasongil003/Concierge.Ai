@@ -26,6 +26,7 @@ class Settings:
     ai_guest_mode_switch: bool = _bool("AI_GUEST_MODE_SWITCH", True)
     ai_default_mode: str = os.getenv("AI_DEFAULT_MODE", "auto").strip().lower()
     max_output_tokens: int = int(os.getenv("MAX_OUTPUT_TOKENS", "160"))
+    credential_encryption_secret: str = os.getenv("CREDENTIAL_ENCRYPTION_SECRET", "").strip()
 
     ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
     ollama_model: str = os.getenv("OLLAMA_MODEL", "qwen3:8b")

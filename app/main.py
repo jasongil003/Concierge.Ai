@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .ai import AIOrchestrator
+from .ai_providers import AIModelService, AIProviderStore
 from .antlabs import AntlabsAdapter
 from .config import settings
 from .hotel import HotelKnowledge
@@ -25,6 +26,8 @@ store = SessionStore(settings.db_path, settings.session_ttl_minutes)
 properties = PropertyStore(settings.db_path)
 properties.seed_from_hotel_json(settings.property_id, settings.hotel_config_path)
 ai = AIOrchestrator()
+ai_provider_store = AIProviderStore(settings.db_path)
+ai_models = AIModelService(ai_provider_store)
 places = GooglePlaces()
 antlabs = AntlabsAdapter()
 
@@ -89,6 +92,31 @@ class DesignConfigPayload(BaseModel):
 
 class RestoreDesignPayload(BaseModel):
     version: int
+
+
+class AISettingsPayload(BaseModel):
+    default_provider: str | None = None
+    organization_default_provider: str | None = None
+    routing_mode: str | None = None
+    local_only: bool | None = None
+    fallback_chain: list[str] | None = None
+    limits: dict[str, Any] | None = None
+
+
+class AIProviderPayload(BaseModel):
+    enabled: bool = False
+    auth_method: str | None = None
+    selected_model: str | None = None
+    endpoint_url: str = ""
+    temperature: float = Field(default=0.2, ge=0, le=2)
+    max_output_tokens: int = Field(default=160, ge=1, le=32000)
+    timeout_seconds: int = Field(default=45, ge=1, le=300)
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+class CredentialPayload(BaseModel):
+    credential_type: str = Field(default="api_key", min_length=1, max_length=80)
+    value: str = Field(min_length=1, max_length=8000)
 
 
 @app.get("/")
@@ -170,6 +198,72 @@ async def get_property_design(property_id: str) -> dict[str, Any]:
             for item in record.design_versions
         ],
     }
+
+
+@app.get("/api/admin/properties/{property_id}/ai")
+async def get_property_ai(property_id: str) -> dict[str, Any]:
+    if properties.get(property_id) is None:
+        raise HTTPException(status_code=404, detail="Property not found.")
+    return {
+        "settings": ai_provider_store.get_settings(property_id),
+        "providers": ai_provider_store.list_connections(property_id),
+    }
+
+
+@app.put("/api/admin/properties/{property_id}/ai/settings")
+async def save_property_ai_settings(property_id: str, payload: AISettingsPayload) -> dict[str, Any]:
+    if properties.get(property_id) is None:
+        raise HTTPException(status_code=404, detail="Property not found.")
+    try:
+        settings_payload = ai_provider_store.save_settings(property_id, payload.model_dump(exclude_none=True))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"settings": settings_payload, "providers": ai_provider_store.list_connections(property_id)}
+
+
+@app.put("/api/admin/properties/{property_id}/ai/providers/{provider_id}")
+async def save_property_ai_provider(property_id: str, provider_id: str, payload: AIProviderPayload) -> dict[str, Any]:
+    if properties.get(property_id) is None:
+        raise HTTPException(status_code=404, detail="Property not found.")
+    try:
+        provider = ai_provider_store.save_connection(property_id, provider_id, payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"provider": provider}
+
+
+@app.post("/api/admin/properties/{property_id}/ai/providers/{provider_id}/credentials")
+async def save_property_ai_credential(property_id: str, provider_id: str, payload: CredentialPayload) -> dict[str, Any]:
+    if properties.get(property_id) is None:
+        raise HTTPException(status_code=404, detail="Property not found.")
+    ai_provider_store.save_credential(property_id, provider_id, payload.credential_type, payload.value)
+    return {"provider": ai_provider_store.get_connection(property_id, provider_id)}
+
+
+@app.delete("/api/admin/properties/{property_id}/ai/providers/{provider_id}/credentials/{credential_type}")
+async def delete_property_ai_credential(property_id: str, provider_id: str, credential_type: str) -> dict[str, Any]:
+    if properties.get(property_id) is None:
+        raise HTTPException(status_code=404, detail="Property not found.")
+    ai_provider_store.remove_credential(property_id, provider_id, credential_type)
+    return {"provider": ai_provider_store.get_connection(property_id, provider_id)}
+
+
+@app.post("/api/admin/properties/{property_id}/ai/providers/{provider_id}/models/refresh")
+async def refresh_property_ai_models(property_id: str, provider_id: str) -> dict[str, Any]:
+    if properties.get(property_id) is None:
+        raise HTTPException(status_code=404, detail="Property not found.")
+    try:
+        models = await ai_models.list_models(property_id, provider_id)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"models": models}
+
+
+@app.post("/api/admin/properties/{property_id}/ai/providers/{provider_id}/test")
+async def test_property_ai_provider(property_id: str, provider_id: str) -> dict[str, Any]:
+    if properties.get(property_id) is None:
+        raise HTTPException(status_code=404, detail="Property not found.")
+    return await ai_models.test_connection(property_id, provider_id)
 
 
 @app.put("/api/admin/properties/{property_id}/design/draft")
@@ -277,11 +371,16 @@ async def chat(request: ChatRequest) -> dict[str, Any]:
         raise HTTPException(status_code=401, detail="Concierge session expired.")
 
     requested_mode = request.mode if settings.ai_guest_mode_switch else settings.ai_default_mode
+    property_record = properties.get(session.property_id)
+    auth_types = property_record.public_profile.get("authentication", {}).get("enabled_types", []) if property_record else []
 
     fast_answer = knowledge.exact_fast_answer(request.message)
     if fast_answer and requested_mode != "advanced":
+        answer = fast_answer
+        if _is_authentication_question(request.message):
+            answer = f"{answer}\n\n{_authentication_guidance(auth_types)}"
         return {
-            "answer": fast_answer,
+            "answer": answer,
             "source": "fast_path",
             "provider": "none",
             "model": "none",
@@ -290,6 +389,13 @@ async def chat(request: ChatRequest) -> dict[str, Any]:
         }
 
     context = knowledge.retrieve(request.message)
+    if auth_types:
+        context.append(
+            {
+                "title": "Enabled hotel authentication methods",
+                "answer": _authentication_guidance(auth_types),
+            }
+        )
     location = knowledge.data.get("location", {})
     place_results = await places.search(
         request.message,
@@ -299,33 +405,63 @@ async def chat(request: ChatRequest) -> dict[str, Any]:
     live_context = format_places_for_ai(place_results)
 
     try:
-        result = await ai.chat(
+        model_result = await ai_models.concierge_chat(
+            property_id=session.property_id,
             user_message=request.message,
             hotel_name=knowledge.data["name"],
             context=context,
             live_context=live_context,
             requested_mode=requested_mode,
         )
-    except RuntimeError as exc:
-        if context:
-            return {
-                "answer": context[0].get("answer"),
-                "source": "verified_fallback",
-                "provider": "none",
-                "model": "none",
-                "mode": requested_mode,
-                "escalated": False,
-            }
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        provider = model_result.provider
+        model = model_result.model
+        answer = model_result.text
+    except Exception as exc:
+        try:
+            result = await ai.chat(
+                user_message=request.message,
+                hotel_name=knowledge.data["name"],
+                context=context,
+                live_context=live_context,
+                requested_mode=requested_mode,
+            )
+            provider = result.provider
+            model = result.model
+            answer = result.answer
+        except Exception:
+            if context:
+                return {
+                    "answer": context[0].get("answer"),
+                    "source": "verified_fallback",
+                    "provider": "none",
+                    "model": "none",
+                    "mode": requested_mode,
+                    "escalated": False,
+                }
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     return {
-        "answer": result.answer,
+        "answer": answer,
         "source": "ai",
-        "provider": result.provider,
-        "model": result.model,
-        "mode": result.mode,
-        "escalated": result.escalated,
+        "provider": provider,
+        "model": model,
+        "mode": requested_mode,
+        "escalated": requested_mode == "advanced",
         "live_places_used": bool(place_results),
         "places": place_results,
         "context_titles": [item.get("title") for item in context],
     }
+
+
+def _is_authentication_question(message: str) -> bool:
+    normalized = message.lower()
+    return any(token in normalized for token in ("wi-fi", "wifi", "internet", "connect", "login", "auth"))
+
+
+def _authentication_guidance(auth_types: list[dict[str, Any]]) -> str:
+    if not auth_types:
+        return "No hotel authentication method is currently enabled in the admin settings. Tell the guest to contact the front desk."
+    return "Enabled authentication methods for this hotel: " + "; ".join(
+        f"{item['label']} requires {', '.join(item.get('fields') or ['hotel validation'])}. {item.get('guest_guidance', '')}".strip()
+        for item in auth_types
+    )

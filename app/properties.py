@@ -6,7 +6,18 @@ from pathlib import Path
 from typing import Any
 
 
-SAFE_FONTS = {"Geist", "Inter", "Manrope", "DM Sans", "system-ui"}
+SAFE_FONTS = {
+    "Geist",
+    "Inter",
+    "Manrope",
+    "DM Sans",
+    "Poppins",
+    "Montserrat",
+    "Lato",
+    "Merriweather",
+    "Playfair Display",
+    "system-ui",
+}
 HEX_FIELDS = {
     "background",
     "surface",
@@ -20,6 +31,49 @@ HEX_FIELDS = {
     "assistantText",
     "composerBackground",
     "buttonColor",
+}
+
+AUTHENTICATION_RULES = {
+    "complimentary": {
+        "fields": ["code", "plan"],
+        "guest_guidance": "Use this when the hotel provides a complimentary access code or free internet plan.",
+    },
+    "local": {
+        "fields": ["username", "password"],
+        "guest_guidance": "Use this when the guest has a locally managed username and password.",
+    },
+    "radius": {
+        "fields": ["username", "password", "plan"],
+        "guest_guidance": "Use this for external RADIUS account authentication.",
+    },
+    "pms": {
+        "fields": ["room", "last_name"],
+        "guest_guidance": "Use this for room or reservation based guest authentication.",
+    },
+    "credit_card": {
+        "fields": ["card_payment", "plan"],
+        "guest_guidance": "Use this when the guest must purchase internet access by card.",
+    },
+    "access_code": {
+        "fields": ["access_code"],
+        "guest_guidance": "Use this when the guest has a hotel-issued access code.",
+    },
+    "global_account": {
+        "fields": ["username", "password"],
+        "guest_guidance": "Use this when the guest has a global roaming or group account.",
+    },
+    "global_code": {
+        "fields": ["global_code"],
+        "guest_guidance": "Use this when the guest has a global access code.",
+    },
+    "user_form": {
+        "fields": ["name", "email"],
+        "guest_guidance": "Use this when the hotel requires a guest registration form.",
+    },
+    "social_network": {
+        "fields": ["social_provider"],
+        "guest_guidance": "Use this when social login is enabled for the hotel.",
+    },
 }
 
 
@@ -55,6 +109,7 @@ def default_design_config(
             "hotelName": hotel_name,
             "conciergeName": concierge_name,
             "logoUrl": "",
+            "logoDisplay": "mark_name",
             "conciergeAvatarUrl": "",
             "faviconUrl": "",
         },
@@ -74,6 +129,8 @@ def default_design_config(
             "buttonColor": "#18181b",
             "radius": 14,
             "density": "comfortable",
+            "backgroundImageUrl": "",
+            "backgroundOverlay": 0,
         },
         "typography": {
             "fontFamily": "Geist",
@@ -153,6 +210,7 @@ def validate_design_config(config: dict[str, Any]) -> dict[str, Any]:
 
     for field, minimum, maximum in (
         ("radius", 0, 32),
+        ("backgroundOverlay", 0, 70),
     ):
         theme[field] = _bounded_int(theme.get(field), minimum, maximum, field)
 
@@ -178,6 +236,8 @@ def validate_design_config(config: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Invalid assistant message style.")
     if composer.get("sendButtonStyle") not in {"filled", "minimal"}:
         raise ValueError("Invalid send button style.")
+    if merged["branding"].get("logoDisplay") not in {"mark_name", "logo_only", "name_only"}:
+        raise ValueError("Invalid logo display mode.")
 
     suggestions = []
     for index, suggestion in enumerate(merged.get("suggestions", [])):
@@ -310,6 +370,17 @@ class PropertyRecord:
 
     @property
     def public_profile(self) -> dict[str, Any]:
+        authentication_types = self.antlabs_config.get("authentication_types", {})
+        enabled_authentication_types = [
+            {
+                "id": auth_id,
+                "label": value.get("label", auth_id.replace("_", " ").title()),
+                "fields": AUTHENTICATION_RULES.get(auth_id, {}).get("fields", []),
+                "guest_guidance": AUTHENTICATION_RULES.get(auth_id, {}).get("guest_guidance", ""),
+            }
+            for auth_id, value in authentication_types.items()
+            if isinstance(value, dict) and value.get("enabled")
+        ]
         return {
             "property_id": self.property_id,
             "name": self.hotel_name,
@@ -341,6 +412,9 @@ class PropertyRecord:
             "quick_actions": self.quick_actions,
             "welcome": self.welcome,
             "ai": self.ai_settings,
+            "authentication": {
+                "enabled_types": enabled_authentication_types,
+            },
             "design": self.design_published,
         }
 

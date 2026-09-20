@@ -3,9 +3,25 @@ const state = {
   designDraft: null,
   designPublished: null,
   versions: [],
+  ai: null,
+  activeProvider: null,
+  providerDirty: false,
 };
 
 const $ = (id) => document.getElementById(id);
+
+const authTypeDefinitions = [
+  { id: "complimentary", label: "Complimentary", description: "Free internet codes or access plans issued by the hotel." },
+  { id: "local", label: "Local", description: "Username and password managed locally on the gateway." },
+  { id: "radius", label: "RADIUS", description: "External RADIUS username and password authentication." },
+  { id: "pms", label: "PMS / Room Login", description: "Guest room, name, or reservation based authentication." },
+  { id: "credit_card", label: "Credit Card", description: "Paid access through credit card charging." },
+  { id: "access_code", label: "Access Code", description: "Guests enter a shared or assigned access code." },
+  { id: "global_account", label: "Global Account", description: "Guests sign in with an existing global account." },
+  { id: "global_code", label: "Global Code", description: "Global code based login for roaming or group access." },
+  { id: "user_form", label: "User Form", description: "Guest registration form with configurable fields." },
+  { id: "social_network", label: "Social Network", description: "Social login such as Facebook, Google, Line, or WeChat." },
+];
 
 async function jsonFetch(url, options = {}) {
   const response = await fetch(url, {
@@ -34,6 +50,9 @@ function activatePanel(panelId) {
   for (const item of document.querySelectorAll(".nav-item")) {
     item.classList.toggle("active", item.dataset.panel === panelId);
   }
+  if (panelId === "ai" && currentPropertyId()) {
+    loadAI().catch((error) => showToast(error.message, "error"));
+  }
 }
 
 function currentPropertyId() {
@@ -52,6 +71,321 @@ function hydrateProperty(property) {
   $("concierge-name-input").value = property.concierge_name;
   $("domain-input").value = property.domain || "";
   $("deployment-mode").value = property.deployment_mode || "on-prem";
+  renderAuthTypes(property.antlabs_config?.authentication_types || {});
+}
+
+function renderAuthTypes(config = {}) {
+  const list = $("auth-type-list");
+  if (!list) return;
+  list.innerHTML = "";
+  for (const type of authTypeDefinitions) {
+    const row = document.createElement("article");
+    row.className = "auth-type-row";
+    row.innerHTML = `
+      <div>
+        <h3>${type.label}</h3>
+        <p>${type.description}</p>
+      </div>
+      <label class="toggle-switch">
+        <input type="checkbox" data-auth-type="${type.id}" ${config[type.id]?.enabled ? "checked" : ""}>
+        <span></span>
+      </label>
+    `;
+    row.querySelector("input").addEventListener("change", () => {
+      const enabled = readAuthTypes().filter((item) => item.enabled).length;
+      showToast(`${enabled} authentication type${enabled === 1 ? "" : "s"} enabled.`);
+    });
+    row.querySelector(".toggle-switch").addEventListener("click", (event) => {
+      event.preventDefault();
+      const input = row.querySelector("input");
+      input.checked = !input.checked;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    list.appendChild(row);
+  }
+}
+
+function readAuthTypes() {
+  return authTypeDefinitions.map((type) => ({
+    id: type.id,
+    label: type.label,
+    enabled: Boolean(document.querySelector(`[data-auth-type="${type.id}"]`)?.checked),
+  }));
+}
+
+function providerLabel(provider) {
+  const icons = {
+    gemini: "G",
+    groq: "Gr",
+    openai: "O",
+    openrouter: "OR",
+    claude: "C",
+    copilot: "GH",
+    local: "L",
+  };
+  return icons[provider.provider_id] || "AI";
+}
+
+function statusLabel(status) {
+  return String(status || "not_configured").replaceAll("_", " ");
+}
+
+function statusClass(status) {
+  if (["connected", "local"].includes(status)) return "good";
+  if (["connection_failed", "authentication_expired"].includes(status)) return "bad";
+  if (status === "disabled") return "muted";
+  return "neutral";
+}
+
+function modelOptions(provider) {
+  const models = new Set(provider.model_catalog || []);
+  if (provider.selected_model) models.add(provider.selected_model);
+  return [...models].filter(Boolean);
+}
+
+function renderModelChips(provider) {
+  const models = modelOptions(provider);
+  if (!models.length) return '<p class="model-empty">No public model list available yet.</p>';
+  return models
+    .map((model) => `<span class="model-chip${model === provider.selected_model ? " selected" : ""}">${model}</span>`)
+    .join("");
+}
+
+function hydrateAI(payload) {
+  state.ai = payload;
+  const defaultSelect = $("ai-default-provider");
+  defaultSelect.innerHTML = "";
+  for (const provider of payload.providers) {
+    const option = document.createElement("option");
+    option.value = provider.provider_id;
+    option.textContent = provider.name;
+    option.disabled = provider.unavailable;
+    defaultSelect.appendChild(option);
+  }
+  defaultSelect.value = payload.settings.default_provider;
+  $("ai-routing-mode").value = payload.settings.routing_mode || "fixed";
+  $("ai-local-only").checked = Boolean(payload.settings.local_only);
+  renderProviderCards();
+}
+
+function renderProviderCards() {
+  const grid = $("provider-grid");
+  grid.innerHTML = "";
+  const providers = state.ai?.providers || [];
+  const healthy = providers.filter((provider) => ["connected", "local"].includes(provider.status)).length;
+  $("ai-health-summary").textContent = `${healthy} ready · ${providers.length} providers`;
+  for (const provider of providers) {
+    const row = document.createElement("article");
+    row.className = "provider-row";
+    row.innerHTML = `
+      <div class="provider-name-cell">
+        <span class="provider-icon">${providerLabel(provider)}</span>
+        <div>
+          <h3>${provider.name}</h3>
+          <p>${provider.auth_method.replaceAll("_", " ")}</p>
+        </div>
+      </div>
+      <span class="status-pill ${statusClass(provider.status)}">${statusLabel(provider.status)}</span>
+      <div class="provider-selected-model">${provider.selected_model || "Not selected"}</div>
+      <div class="provider-models" aria-label="${provider.name} models">${renderModelChips(provider)}</div>
+      <div class="provider-credential">${provider.credentials?.[0]?.display_hint || (provider.provider_id === "local" ? "No cloud key" : "Not configured")}</div>
+      <div class="provider-actions">
+        <button type="button" data-action="configure">${provider.unavailable ? "Details" : "Configure"}</button>
+        <button type="button" data-action="test">Test</button>
+      </div>
+    `;
+    row.querySelector('[data-action="configure"]').addEventListener("click", () => openProviderDrawer(provider.provider_id));
+    row.querySelector('[data-action="test"]').addEventListener("click", () => testProvider(provider.provider_id));
+    grid.appendChild(row);
+  }
+}
+
+function openProviderDrawer(providerId) {
+  const provider = state.ai.providers.find((item) => item.provider_id === providerId);
+  state.activeProvider = provider;
+  $("drawer-provider-name").textContent = provider.name;
+  $("drawer-provider-status").textContent = statusLabel(provider.status);
+  $("drawer-provider-note").textContent = provider.status_note;
+  $("drawer-status").value = statusLabel(provider.status);
+  $("drawer-model").value = provider.selected_model || "";
+  renderDrawerModelList(provider);
+  $("drawer-endpoint").value = provider.endpoint_url || "";
+  $("drawer-temperature").value = provider.temperature ?? 0.2;
+  $("drawer-max-tokens").value = provider.max_output_tokens ?? 160;
+  $("drawer-timeout").value = provider.timeout_seconds ?? 45;
+  $("drawer-enabled").checked = Boolean(provider.enabled);
+  $("drawer-enabled").disabled = Boolean(provider.unavailable);
+  const auth = $("drawer-auth-method");
+  auth.innerHTML = "";
+  for (const method of provider.auth_methods) {
+    const option = document.createElement("option");
+    option.value = method;
+    option.textContent = method.replaceAll("_", " ");
+    auth.appendChild(option);
+  }
+  auth.value = provider.auth_method;
+  const hint = provider.credentials?.[0]?.display_hint;
+  $("drawer-credential-hint").textContent = hint ? `Stored credential: ${hint}` : (provider.provider_id === "local" ? "No cloud credential required." : "No credential stored.");
+  $("drawer-secret").value = "";
+  $("drawer-test-result").textContent = "";
+  setProviderDirty(false);
+  $("provider-drawer-backdrop").hidden = false;
+  $("provider-drawer").hidden = false;
+}
+
+function renderDrawerModelList(provider) {
+  const list = $("drawer-model-list");
+  list.innerHTML = "";
+  for (const model of modelOptions(provider)) {
+    const option = document.createElement("option");
+    option.value = model;
+    option.label = model;
+    list.appendChild(option);
+  }
+}
+
+function closeProviderDrawer() {
+  if (state.providerDirty && !window.confirm("You have changes not yet saved. Close without saving?")) {
+    return;
+  }
+  $("provider-drawer-backdrop").hidden = true;
+  $("provider-drawer").hidden = true;
+  state.activeProvider = null;
+  setProviderDirty(false);
+}
+
+function setProviderDirty(isDirty) {
+  state.providerDirty = isDirty;
+  $("provider-unsaved-note").hidden = !isDirty;
+}
+
+function markProviderDirty() {
+  if (state.activeProvider) setProviderDirty(true);
+}
+
+async function loadAI() {
+  const payload = await jsonFetch("/api/admin/properties/" + encodeURIComponent(currentPropertyId()) + "/ai");
+  hydrateAI(payload);
+}
+
+async function saveAISettings() {
+  const selectedProvider = state.ai?.providers.find((provider) => provider.provider_id === $("ai-default-provider").value);
+  if ($("ai-local-only").checked && selectedProvider?.cloud) {
+    $("ai-local-only").checked = false;
+  }
+  const payload = {
+    default_provider: $("ai-default-provider").value,
+    routing_mode: $("ai-routing-mode").value,
+    local_only: $("ai-local-only").checked,
+  };
+  const result = await jsonFetch("/api/admin/properties/" + encodeURIComponent(currentPropertyId()) + "/ai/settings", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+  hydrateAI(result);
+  showToast("AI settings saved.");
+}
+
+function handleDefaultProviderChange() {
+  const selectedProvider = state.ai?.providers.find((provider) => provider.provider_id === $("ai-default-provider").value);
+  if (selectedProvider?.cloud && $("ai-local-only").checked) {
+    $("ai-local-only").checked = false;
+    showToast("Local-Only Mode turned off for cloud provider selection.");
+  }
+}
+
+function handleLocalOnlyChange() {
+  const selectedProvider = state.ai?.providers.find((provider) => provider.provider_id === $("ai-default-provider").value);
+  if ($("ai-local-only").checked && selectedProvider?.cloud) {
+    $("ai-default-provider").value = "local";
+    showToast("Default provider changed to Local AI.");
+  }
+}
+
+function providerPayloadFromDrawer() {
+  return {
+    enabled: $("drawer-enabled").checked,
+    auth_method: $("drawer-auth-method").value,
+    selected_model: $("drawer-model").value.trim(),
+    endpoint_url: $("drawer-endpoint").value.trim(),
+    temperature: Number($("drawer-temperature").value || 0.2),
+    max_output_tokens: Number($("drawer-max-tokens").value || 160),
+    timeout_seconds: Number($("drawer-timeout").value || 45),
+    config: {
+      engine: state.activeProvider?.provider_id === "local" ? "ollama" : undefined,
+    },
+  };
+}
+
+async function saveProvider() {
+  const providerId = state.activeProvider.provider_id;
+  const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/ai/providers/${providerId}`, {
+    method: "PUT",
+    body: JSON.stringify(providerPayloadFromDrawer()),
+  });
+  await loadAI();
+  openProviderDrawer(result.provider.provider_id);
+  setProviderDirty(false);
+  showToast(`${result.provider.name} saved.`);
+}
+
+async function saveProviderSecret() {
+  const value = $("drawer-secret").value.trim();
+  if (!value) {
+    showToast("Paste a credential first.", "error");
+    return;
+  }
+  const providerId = state.activeProvider.provider_id;
+  const credentialType = $("drawer-auth-method").value === "oauth" ? "oauth_access_token" : "api_key";
+  const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/ai/providers/${providerId}/credentials`, {
+    method: "POST",
+    body: JSON.stringify({ credential_type: credentialType, value }),
+  });
+  await loadAI();
+  openProviderDrawer(result.provider.provider_id);
+  showToast("Credential saved.");
+}
+
+async function removeProviderSecret() {
+  const providerId = state.activeProvider.provider_id;
+  const credential = state.activeProvider.credentials?.[0];
+  if (!credential) return;
+  const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/ai/providers/${providerId}/credentials/${credential.type}`, {
+    method: "DELETE",
+  });
+  await loadAI();
+  openProviderDrawer(result.provider.provider_id);
+  showToast("Credential removed.");
+}
+
+async function refreshProviderModels() {
+  const providerId = state.activeProvider.provider_id;
+  const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/ai/providers/${providerId}/models/refresh`, {
+    method: "POST",
+  });
+  const list = $("drawer-model-list");
+  list.innerHTML = "";
+  for (const model of result.models || []) {
+    const option = document.createElement("option");
+    option.value = model.id;
+    option.label = model.name || model.id;
+    list.appendChild(option);
+  }
+  showToast(`${result.models.length} models detected.`);
+}
+
+async function testProvider(providerId = state.activeProvider?.provider_id) {
+  const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/ai/providers/${providerId}/test`, {
+    method: "POST",
+  });
+  await loadAI();
+  const message = result.ok
+    ? `Connection successful · ${result.latency_ms ?? 0} ms · ${result.models_detected ?? 0} models`
+    : `Connection failed · ${result.error || "Check configuration"}`;
+  if (state.activeProvider?.provider_id === providerId) {
+    $("drawer-test-result").textContent = message;
+  }
+  showToast(message, result.ok ? "default" : "error");
 }
 
 function hydrateDesign(design) {
@@ -67,13 +401,19 @@ function hydrateDesign(design) {
 function fillDesignForm(config) {
   $("design-hotel-name").value = config.branding?.hotelName || "";
   $("design-concierge-name").value = config.branding?.conciergeName || "";
+  $("logo-display-input").value = config.branding?.logoDisplay || "mark_name";
+  $("logo-url-input").value = config.branding?.logoUrl || "";
   $("greeting-input").value = config.welcome?.greeting || "";
   $("welcome-input").value = config.welcome?.headline || "";
   $("composer-placeholder-input").value = config.composer?.placeholder || "";
   $("background-input").value = normalizeColor(config.theme?.background || "#fbfbfa");
   $("surface-input").value = normalizeColor(config.theme?.surface || "#ffffff");
+  $("text-color-input").value = normalizeColor(config.theme?.textPrimary || "#18181b");
+  $("secondary-text-color-input").value = normalizeColor(config.theme?.textSecondary || "#71717a");
   $("accent-input").value = normalizeColor(config.theme?.accent || "#18181b");
   $("user-message-input").value = normalizeColor(config.theme?.userMessageBackground || "#eeeeee");
+  $("background-image-url-input").value = config.theme?.backgroundImageUrl || "";
+  $("background-overlay-input").value = config.theme?.backgroundOverlay ?? 0;
   $("font-input").value = config.typography?.fontFamily || "Geist";
   $("density-input").value = config.theme?.density || "comfortable";
   $("content-width-input").value = config.layout?.contentWidth || 840;
@@ -92,14 +432,16 @@ function designPayload() {
     ...(base.branding || {}),
     hotelName: $("design-hotel-name").value.trim() || "Hotel",
     conciergeName: $("design-concierge-name").value.trim() || "Concierge",
+    logoUrl: $("logo-url-input").value,
+    logoDisplay: $("logo-display-input").value,
   };
   base.theme = {
     ...(base.theme || {}),
     font: $("font-input").value,
     background: $("background-input").value,
     surface: $("surface-input").value,
-    textPrimary: base.theme?.textPrimary || "#18181b",
-    textSecondary: base.theme?.textSecondary || "#71717a",
+    textPrimary: $("text-color-input").value,
+    textSecondary: $("secondary-text-color-input").value,
     accent: $("accent-input").value,
     accentText: base.theme?.accentText || "#ffffff",
     border: base.theme?.border || "#e4e4e7",
@@ -110,6 +452,8 @@ function designPayload() {
     buttonColor: $("accent-input").value,
     radius: Number(base.theme?.radius || 14),
     density: $("density-input").value,
+    backgroundImageUrl: $("background-image-url-input").value,
+    backgroundOverlay: Number($("background-overlay-input").value || 0),
   };
   base.typography = {
     ...(base.typography || {}),
@@ -147,6 +491,12 @@ function designPayload() {
 
 function propertyPayload() {
   const property = state.property || {};
+  const antlabsConfig = {
+    ...(property.antlabs_config || {}),
+    authentication_types: Object.fromEntries(
+      readAuthTypes().map((type) => [type.id, { label: type.label, enabled: type.enabled }])
+    ),
+  };
   return {
     property_id: $("property-id").value,
     hotel_name: $("hotel-name-input").value,
@@ -175,7 +525,7 @@ function propertyPayload() {
     support_contacts: property.support_contacts || [],
     quick_actions: readPrompts().map((item) => ({ label: item.label, prompt: item.prompt })),
     ai_settings: property.ai_settings || {},
-    antlabs_config: property.antlabs_config || {},
+    antlabs_config: antlabsConfig,
     knowledge_sources: property.knowledge_sources || [],
     welcome: $("welcome-input").value,
   };
@@ -285,15 +635,57 @@ function renderVersions() {
 function updatePreview() {
   const config = designPayload();
   const accent = config.theme.accent;
+  const logo = $("preview-logo");
   $("preview-hotel").textContent = config.branding.hotelName;
   $("preview-concierge").textContent = config.branding.conciergeName;
+  logo.textContent = config.branding.hotelName.slice(0, 1).toUpperCase();
+  logo.style.backgroundImage = config.branding.logoUrl ? `url("${config.branding.logoUrl}")` : "";
+  logo.classList.toggle("has-image", Boolean(config.branding.logoUrl));
+  $("chat-preview").dataset.logoDisplay = config.branding.logoDisplay || "mark_name";
   $("preview-greeting").textContent = config.welcome.greeting;
   $("preview-welcome").textContent = config.welcome.headline;
   $("preview-placeholder").textContent = config.composer.placeholder;
   $("chat-preview").style.setProperty("--preview-bg", config.theme.background);
   $("chat-preview").style.setProperty("--preview-surface", config.theme.surface);
+  $("chat-preview").style.setProperty("--preview-text", config.theme.textPrimary);
+  $("chat-preview").style.setProperty("--preview-subtle", config.theme.textSecondary);
+  $("chat-preview").style.setProperty("--preview-bg-image", config.theme.backgroundImageUrl ? `url("${config.theme.backgroundImageUrl}")` : "none");
+  $("chat-preview").style.setProperty("--preview-overlay", (config.theme.backgroundOverlay || 0) / 100);
+  $("chat-preview").style.setProperty("--preview-font", previewFontStack(config.typography.fontFamily || config.theme.font || "Geist"));
   document.documentElement.style.setProperty("--accent", accent);
   renderPreviewPrompts();
+}
+
+function previewFontStack(font) {
+  const stacks = {
+    Geist: '"Geist Sans", Inter, system-ui, sans-serif',
+    Inter: 'Inter, system-ui, sans-serif',
+    Manrope: 'Manrope, Inter, system-ui, sans-serif',
+    "DM Sans": '"DM Sans", Inter, system-ui, sans-serif',
+    Poppins: 'Poppins, Inter, system-ui, sans-serif',
+    Montserrat: 'Montserrat, Inter, system-ui, sans-serif',
+    Lato: 'Lato, Inter, system-ui, sans-serif',
+    Merriweather: 'Merriweather, Georgia, serif',
+    "Playfair Display": '"Playfair Display", Georgia, serif',
+    "system-ui": 'system-ui, sans-serif',
+  };
+  return stacks[font] || stacks.Geist;
+}
+
+function handleImageUpload(input, targetId, { maxBytes, recommended }) {
+  const file = input.files?.[0];
+  if (!file) return;
+  if (file.size > maxBytes) {
+    showToast(`${recommended} Try a smaller file.`, "error");
+    input.value = "";
+    return;
+  }
+  const reader = new FileReader();
+  reader.addEventListener("load", () => {
+    $(targetId).value = reader.result;
+    updatePreview();
+  });
+  reader.readAsDataURL(file);
 }
 
 async function savePropertyBasics() {
@@ -363,6 +755,7 @@ async function loadProperty() {
   if (!data.properties.length) throw new Error("No property configured.");
   hydrateProperty(data.properties[0]);
   await loadDesign();
+  await loadAI();
 }
 
 function normalizeColor(value) {
@@ -377,13 +770,17 @@ function setup() {
   const liveInputs = [
     "design-hotel-name",
     "design-concierge-name",
+    "logo-display-input",
     "greeting-input",
     "welcome-input",
     "composer-placeholder-input",
     "background-input",
     "surface-input",
+    "text-color-input",
+    "secondary-text-color-input",
     "accent-input",
     "user-message-input",
+    "background-overlay-input",
     "font-input",
     "density-input",
     "content-width-input",
@@ -398,6 +795,18 @@ function setup() {
     $(id).addEventListener("input", updatePreview);
     $(id).addEventListener("change", updatePreview);
   }
+  $("logo-upload-input").addEventListener("change", (event) => {
+    handleImageUpload(event.target, "logo-url-input", {
+      maxBytes: 500 * 1024,
+      recommended: "Recommended logo: 512 x 512 px or 800 x 240 px, under 500 KB.",
+    });
+  });
+  $("background-image-input").addEventListener("change", (event) => {
+    handleImageUpload(event.target, "background-image-url-input", {
+      maxBytes: 1536 * 1024,
+      recommended: "Recommended background: 1600 x 2400 px portrait or 2400 x 1600 px landscape, under 1.5 MB.",
+    });
+  });
 
   $("hotel-name-input").addEventListener("input", (event) => {
     $("design-hotel-name").value = event.target.value;
@@ -415,6 +824,28 @@ function setup() {
   $("save-draft").addEventListener("click", () => saveDraft().catch((error) => showToast(error.message, "error")));
   $("publish-design").addEventListener("click", () => publishDesign().catch((error) => showToast(error.message, "error")));
   $("discard-design").addEventListener("click", () => discardDesign().catch((error) => showToast(error.message, "error")));
+  $("ai-default-provider").addEventListener("change", handleDefaultProviderChange);
+  $("ai-local-only").addEventListener("change", handleLocalOnlyChange);
+  $("save-ai-settings").addEventListener("click", () => saveAISettings().catch((error) => showToast(error.message, "error")));
+  $("close-provider-drawer").addEventListener("click", closeProviderDrawer);
+  $("provider-drawer-backdrop").addEventListener("click", closeProviderDrawer);
+  for (const id of [
+    "drawer-auth-method",
+    "drawer-model",
+    "drawer-endpoint",
+    "drawer-temperature",
+    "drawer-max-tokens",
+    "drawer-timeout",
+    "drawer-enabled",
+  ]) {
+    $(id).addEventListener("input", markProviderDirty);
+    $(id).addEventListener("change", markProviderDirty);
+  }
+  $("save-provider").addEventListener("click", () => saveProvider().catch((error) => showToast(error.message, "error")));
+  $("save-provider-secret").addEventListener("click", () => saveProviderSecret().catch((error) => showToast(error.message, "error")));
+  $("remove-provider-secret").addEventListener("click", () => removeProviderSecret().catch((error) => showToast(error.message, "error")));
+  $("refresh-provider-models").addEventListener("click", () => refreshProviderModels().catch((error) => showToast(error.message, "error")));
+  $("test-provider").addEventListener("click", () => testProvider().catch((error) => showToast(error.message, "error")));
 
   for (const button of document.querySelectorAll(".preview-size")) {
     button.addEventListener("click", () => {

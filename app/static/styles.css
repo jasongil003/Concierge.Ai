@@ -1,5 +1,7 @@
 :root {
   --background: #fbfbfa;
+  --background-image: none;
+  --background-overlay: 0;
   --surface: #ffffff;
   --surface-elevated: #ffffff;
   --text-primary: #18181b;
@@ -84,12 +86,15 @@ input:focus-visible {
 }
 
 .concierge-shell {
+  position: relative;
   display: grid;
   grid-template-rows: var(--header-height) minmax(0, 1fr) auto;
   width: 100vw;
   height: 100dvh;
   padding-top: env(safe-area-inset-top);
   background:
+    linear-gradient(rgba(251,251,250,var(--background-overlay)), rgba(251,251,250,var(--background-overlay))),
+    var(--background-image) center / cover no-repeat,
     radial-gradient(circle at top left, color-mix(in srgb, var(--accent) 5%, transparent), transparent 32rem),
     var(--background);
 }
@@ -174,8 +179,15 @@ body.hotel-name-hidden .hotel-identity div:last-child {
   border-radius: 9px;
   color: white;
   background: var(--accent);
+  background-position: center;
+  background-size: cover;
   font-size: 13px;
   font-weight: 650;
+}
+
+.hotel-mark.has-image {
+  color: transparent;
+  background-color: transparent;
 }
 
 .hotel-identity div:last-child {
