@@ -66,17 +66,49 @@ test("topbar: publish state, Save Draft, Publish, Discard, Open guest app", asyn
 
 test("sidebar: all navigation items are visible and clickable", async ({ page }) => {
   await page.goto("/admin");
-  const panels = [
-    "overview", "appearance", "guest", "ai", "knowledge",
-    "wifi", "requests", "deployment", "users", "audit",
-  ];
   const navLabels = [
-    "Dashboard", "Concierge Design", "Concierge Preview", "AI Providers",
-    "Knowledge Base", "Wi-Fi Gateway", "Guest Requests", "Domain", "Users", "Audit Logs",
+    ["Dashboard", "overview"],
+    ["Guest Requests", "requests"],
+    ["Guest Sessions", "sessions"],
+    ["Preview", "guest"],
+    ["Rooms", "rooms"],
+    ["Zones & Maps", "zones"],
+    ["Overview", "knowledge"],
+    ["Models & Providers", "ai"],
+    ["Improvement Loop", "improvement-loop"],
+    ["ANTlabs / Wi-Fi", "wifi"],
+    ["Design", "appearance"],
+    ["Branding / Intro", "intro"],
+    ["Location", "location"],
+    ["Users", "users"],
+    ["Roles", "roles"],
+    ["Permissions", "permissions"],
+    ["Domain", "domain"],
+    ["SSL", "ssl"],
+    ["Network", "network"],
+    ["Audit", "audit"],
+    ["Security", "security"],
+    ["License", "license"],
   ];
-  for (let i = 0; i < navLabels.length; i++) {
-    await openPanel(page, navLabels[i]);
-    await expect(page.locator(`#${panels[i]}`)).toBeVisible();
+  for (const [label, panel] of navLabels) {
+    await openPanel(page, label);
+    await expect(page.locator(`#${panel}`)).toBeVisible();
+  }
+});
+
+test("sidebar: each visible navigation item has a feature status", async ({ page }) => {
+  await page.goto("/admin");
+  await page.locator('body[data-admin-ready="true"]').waitFor();
+  const navItems = page.locator(".nav-item");
+  const count = await navItems.count();
+  expect(count).toBeGreaterThan(0);
+  const labels = new Set();
+  for (let i = 0; i < count; i++) {
+    const item = navItems.nth(i);
+    const label = (await item.locator(".nav-label").innerText()).trim();
+    expect(labels.has(label)).toBeFalsy();
+    labels.add(label);
+    await expect(item.locator(".nav-status")).toHaveText(/Live|Partial|Coming Soon|Configuration Required/);
   }
 });
 
@@ -92,7 +124,7 @@ test("overview panel: property basics are editable", async ({ page }) => {
 
 test("appearance panel: all design controls are wired and update preview", async ({ page }) => {
   await page.goto("/admin");
-  await openPanel(page, "Concierge Design");
+  await openPanel(page, "Design");
 
   await expect(page.locator("#design-hotel-name")).not.toHaveValue("");
   await expect(page.locator("#welcome-input")).toBeEnabled();
@@ -120,7 +152,7 @@ test("appearance panel: all design controls are wired and update preview", async
 
 test("appearance panel: preview size buttons work", async ({ page }) => {
   await page.goto("/admin");
-  await openPanel(page, "Concierge Design");
+  await openPanel(page, "Design");
 
   await expect(page.locator(".phone-preview")).toHaveClass(/mobile/);
   await page.getByRole("button", { name: "Tablet" }).click();
@@ -143,7 +175,7 @@ test("guest experience panel: module table has locked buttons", async ({ page })
 
 test("AI providers panel: provider management controls are available", async ({ page }) => {
   await page.goto("/admin");
-  await openPanel(page, "AI Providers");
+  await openPanel(page, "Models & Providers");
   await expect(page.locator("#ai-default-provider")).toBeEnabled();
   await expect(page.locator("#ai-routing-mode")).toBeEnabled();
   await expect(page.locator("#ai-local-only")).toBeEnabled();
@@ -172,14 +204,14 @@ test("improvement loop panel: operator controls and model selection are availabl
 
 test("knowledge panel: upload zone disabled with POC note", async ({ page }) => {
   await page.goto("/admin");
-  await openPanel(page, "Knowledge Base");
+  await openPanel(page, "Overview");
   await expect(page.locator("#knowledge .poc-note")).toBeVisible();
   await expect(page.locator(".upload-zone")).toHaveAttribute("aria-disabled", "true");
 });
 
 test("wifi panel: all controls disabled with POC note", async ({ page }) => {
   await page.goto("/admin");
-  await openPanel(page, "Wi-Fi Gateway");
+  await openPanel(page, "ANTlabs / Wi-Fi");
   await expect(page.locator("#wifi .poc-note")).toBeVisible();
   for (const sel of await page.locator("#wifi select").all()) {
     await expect(sel).toBeDisabled();
@@ -210,7 +242,7 @@ test("requests panel: service request controls are available", async ({ page }) 
 test("deployment panel: status info displayed", async ({ page }) => {
   await page.goto("/admin");
   await openPanel(page, "Domain");
-  await expect(page.locator("#deployment .status-list")).toBeVisible();
+  await expect(page.locator("#domain .feature-status")).toHaveText("Configuration Required");
 });
 
 test("license panel: license grid displayed", async ({ page }) => {
@@ -235,7 +267,7 @@ test("users and access panels expose username-first management", async ({ page }
   await expect(page.locator("#role-list").getByRole("heading", { name: "Super Admin" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Create Role" })).toBeVisible();
 
-  await openPanel(page, "Audit Logs");
+  await openPanel(page, "Audit");
   await expect(page.getByRole("heading", { name: "Audit logs" })).toBeVisible();
   await expect(page.locator("#audit .data-table-shell")).toBeVisible();
 });
@@ -259,7 +291,7 @@ test.describe("config workflow (serial)", () => {
 
     try {
       await page.goto("/admin");
-      await openPanel(page, "Concierge Design");
+      await openPanel(page, "Design");
 
       await page.locator("#design-hotel-name").fill(qaHotelName);
       await page.locator("#welcome-input").fill(qaHeadline);
@@ -310,7 +342,7 @@ test.describe("config workflow (serial)", () => {
 
     try {
       await page.goto("/admin");
-      await openPanel(page, "Concierge Design");
+      await openPanel(page, "Design");
 
       await page.locator("#welcome-input").fill(discardHeadline);
       await page.getByRole("button", { name: "Save Draft" }).click();
@@ -343,7 +375,7 @@ test.describe("config workflow (serial)", () => {
     try {
       // Publish version A
       await page.goto("/admin");
-      await openPanel(page, "Concierge Design");
+      await openPanel(page, "Design");
       await page.locator("#welcome-input").fill("Version A headline");
       await page.getByRole("button", { name: "Save Draft" }).click();
       await expect(page.getByText("Draft saved.")).toBeVisible();

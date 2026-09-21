@@ -49,70 +49,7 @@
 
     <aside class="platform-sidebar">
       <nav class="sidebar-nav" aria-label="Administration">
-        <button class="nav-item active" data-panel="overview" data-permission="dashboard.view"><span class="nav-icon">⌂</span><span class="nav-label">Dashboard</span></button>
-        <details class="nav-group" open><summary><span class="nav-label">Guest Experience</span></summary>
-          <button class="nav-item" data-panel="sessions" data-permission="conversations.view"><span class="nav-icon">◫</span><span class="nav-label">Conversations</span></button>
-          <button class="nav-item" data-panel="requests" data-permission="requests.view"><span class="nav-icon">☷</span><span class="nav-label">Guest Requests</span></button>
-          <button class="nav-item" data-panel="guest" data-permission="concierge.view"><span class="nav-icon">◉</span><span class="nav-label">Concierge Preview</span></button>
-        </details>
-        <details class="nav-group" open><summary><span class="nav-label">Property</span></summary>
-          <button class="nav-item" data-panel="overview" data-permission="properties.view"><span class="nav-icon">□</span><span class="nav-label">Hotel Information</span></button>
-          <button class="nav-item" data-panel="rooms" data-permission="properties.view"><span class="nav-icon">▤</span><span class="nav-label">Rooms</span></button>
-          <button class="nav-item" data-panel="zones" data-permission="properties.view"><span class="nav-icon">◇</span><span class="nav-label">Facilities</span></button>
-          <button class="nav-item" data-panel="restaurants" data-permission="properties.view"><span class="nav-icon">○</span><span class="nav-label">Restaurants</span></button>
-          <button class="nav-item" data-panel="requests" data-permission="requests.view"><span class="nav-icon">＋</span><span class="nav-label">Services</span></button>
-          <button class="nav-item" data-panel="recommendations" data-permission="properties.view"><span class="nav-icon">⌖</span><span class="nav-label">Local Recommendations</span></button>
-        </details>
-        <details class="nav-group"><summary><span class="nav-label">Knowledge</span></summary>
-          <button class="nav-item" data-panel="knowledge" data-permission="knowledge.view"><span class="nav-icon">▣</span><span class="nav-label">Knowledge Base</span></button>
-          <button class="nav-item" data-panel="documents" data-permission="knowledge.view"><span class="nav-icon">▧</span><span class="nav-label">Documents</span></button>
-          <button class="nav-item" data-panel="faqs" data-permission="knowledge.view"><span class="nav-icon">?</span><span class="nav-label">FAQs</span></button>
-        </details>
-        <details class="nav-group" open><summary><span class="nav-label">AI</span></summary>
-          <button class="nav-item" data-panel="ai" data-permission="ai.view"><span class="nav-icon">◈</span><span class="nav-label">AI Providers</span></button>
-          <button class="nav-item" data-panel="ai" data-permission="ai.view"><span class="nav-icon">≡</span><span class="nav-label">Models</span></button>
-          <button class="nav-item" data-panel="ai" data-permission="ai.view"><span class="nav-icon">▥</span><span class="nav-label">Local AI</span></button>
-          <button class="nav-item" data-panel="ai-personality" data-permission="ai.view"><span class="nav-icon">✦</span><span class="nav-label">AI Personality</span></button>
-          <button class="nav-item" data-panel="system-prompt" data-permission="ai.view"><span class="nav-icon">⌘</span><span class="nav-label">System Prompt</span></button>
-          <button class="nav-item" data-panel="guardrails" data-permission="ai.view"><span class="nav-icon">⊡</span><span class="nav-label">Guardrails</span></button>
-          <button class="nav-item" data-panel="improvement-loop" data-permission="ai.configure"><span class="nav-icon">↻</span><span class="nav-label">Improvement Loop</span></button>
-        </details>
-        <details class="nav-group"><summary><span class="nav-label">Integrations</span></summary>
-          <button class="nav-item" data-panel="pms" data-permission="integrations.view"><span class="nav-icon">▦</span><span class="nav-label">PMS</span></button>
-          <button class="nav-item" data-panel="wifi" data-permission="integrations.view"><span class="nav-icon">⌁</span><span class="nav-label">Wi-Fi Gateway</span></button>
-          <button class="nav-item" data-panel="api" data-permission="integrations.view"><span class="nav-icon">{ }</span><span class="nav-label">API</span></button>
-          <button class="nav-item" data-panel="webhooks" data-permission="integrations.view"><span class="nav-icon">↗</span><span class="nav-label">Webhooks</span></button>
-          <button class="nav-item" data-panel="third-party" data-permission="integrations.view"><span class="nav-icon">＋</span><span class="nav-label">Third-Party Services</span></button>
-        </details>
-        <details class="nav-group"><summary><span class="nav-label">Appearance</span></summary>
-          <button class="nav-item" data-panel="appearance" data-permission="concierge.view"><span class="nav-icon">◐</span><span class="nav-label">Concierge Design</span></button>
-          <button class="nav-item" data-panel="intro" data-permission="concierge.view"><span class="nav-icon">A</span><span class="nav-label">Branding</span></button>
-          <button class="nav-item" data-panel="appearance" data-permission="concierge.view"><span class="nav-icon">C</span><span class="nav-label">Logo</span></button>
-          <button class="nav-item" data-panel="appearance" data-permission="concierge.view"><span class="nav-icon">T</span><span class="nav-label">Fonts</span></button>
-          <button class="nav-item" data-panel="appearance" data-permission="concierge.view"><span class="nav-icon">“</span><span class="nav-label">Welcome Message</span></button>
-        </details>
-        <details class="nav-group"><summary><span class="nav-label">Analytics</span></summary>
-          <button class="nav-item" data-panel="location" data-permission="analytics.view"><span class="nav-icon">⌗</span><span class="nav-label">Guest Usage</span></button>
-          <button class="nav-item" data-panel="questions" data-permission="analytics.view"><span class="nav-icon">?</span><span class="nav-label">Questions</span></button>
-          <button class="nav-item" data-panel="request-analytics" data-permission="analytics.view"><span class="nav-icon">▥</span><span class="nav-label">Requests</span></button>
-          <button class="nav-item" data-panel="ai-usage" data-permission="analytics.view"><span class="nav-icon">◫</span><span class="nav-label">AI Usage</span></button>
-        </details>
-        <details class="nav-group" open data-permission="users.view"><summary><span class="nav-label">Users &amp; Access</span></summary>
-          <button class="nav-item" data-panel="users" data-permission="users.view"><span class="nav-icon">◎</span><span class="nav-label">Users</span></button>
-          <button class="nav-item" data-panel="roles" data-permission="roles.view"><span class="nav-icon">◇</span><span class="nav-label">Roles</span></button>
-          <button class="nav-item" data-panel="permissions" data-permission="roles.view"><span class="nav-icon">✓</span><span class="nav-label">Permissions</span></button>
-        </details>
-        <details class="nav-group"><summary><span class="nav-label">Deployment</span></summary>
-          <button class="nav-item" data-panel="deployment" data-permission="domains.view"><span class="nav-icon">◌</span><span class="nav-label">Domain</span></button>
-          <button class="nav-item" data-panel="deployment" data-permission="domains.view"><span class="nav-icon">⌑</span><span class="nav-label">SSL</span></button>
-          <button class="nav-item" data-panel="deployment" data-permission="domains.view"><span class="nav-icon">⌁</span><span class="nav-label">Network</span></button>
-        </details>
-        <details class="nav-group"><summary><span class="nav-label">System</span></summary>
-          <button class="nav-item" data-panel="audit" data-permission="audit.view"><span class="nav-icon">☷</span><span class="nav-label">Audit Logs</span></button>
-          <button class="nav-item" data-panel="security" data-permission="security.view"><span class="nav-icon">⊡</span><span class="nav-label">Security</span></button>
-          <button class="nav-item" data-panel="system-settings" data-permission="system.configure"><span class="nav-icon">⌘</span><span class="nav-label">Settings</span></button>
-          <button class="nav-item" data-panel="license" data-permission="system.configure"><span class="nav-icon">▱</span><span class="nav-label">License</span></button>
-        </details>
+        <div class="nav-loading">Loading navigation...</div>
       </nav>
       <div class="sidebar-health"><i aria-hidden="true"></i><div><strong>System operational</strong><span>On-prem runtime</span></div></div>
     </aside>
@@ -124,10 +61,10 @@
           <span class="live-badge"><i aria-hidden="true"></i> Live operations</span>
         </div>
         <div class="metrics">
-          <article><div class="metric-top"><span>Active guests</span><span class="metric-icon"><svg viewBox="0 0 24 24"><path d="M16 20v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M9.5 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM16 6h5M18.5 3.5v5"/></svg></span></div><strong>128</strong><small><b>+12%</b> vs yesterday</small></article>
-          <article><div class="metric-top"><span>AI requests today</span><span class="metric-icon"><svg viewBox="0 0 24 24"><path d="M12 3 10 8.5 4.5 10.5 10 13l2 5.5 2-5.5 5.5-2.5L14 8.5 12 3Z"/></svg></span></div><strong>1,842</strong><small><b>96%</b> resolved instantly</small></article>
-          <article><div class="metric-top"><span>Open requests</span><span class="metric-icon"><svg viewBox="0 0 24 24"><path d="M5 20h14M7 20a5 5 0 0 1 10 0M12 10V7M10 7h4"/></svg></span></div><strong>8</strong><small><em>3</em> need attention</small></article>
-          <article><div class="metric-top"><span>Auth success</span><span class="metric-icon"><svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.3 2.8 7.9 7 10 4.2-2.1 7-5.7 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-5"/></svg></span></div><strong>97.4%</strong><small><b>Healthy</b> guest access</small></article>
+          <article><div class="metric-top"><span>Active guests</span><span class="metric-icon"><svg viewBox="0 0 24 24"><path d="M16 20v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M9.5 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM16 6h5M18.5 3.5v5"/></svg></span></div><strong>Not available</strong><small>Session analytics not connected</small></article>
+          <article><div class="metric-top"><span>AI requests today</span><span class="metric-icon"><svg viewBox="0 0 24 24"><path d="M12 3 10 8.5 4.5 10.5 10 13l2 5.5 2-5.5 5.5-2.5L14 8.5 12 3Z"/></svg></span></div><strong>Not available</strong><small>Usage reporting not connected</small></article>
+          <article><div class="metric-top"><span>Open requests</span><span class="metric-icon"><svg viewBox="0 0 24 24"><path d="M5 20h14M7 20a5 5 0 0 1 10 0M12 10V7M10 7h4"/></svg></span></div><strong>Not available</strong><small>Request analytics not connected</small></article>
+          <article><div class="metric-top"><span>Auth success</span><span class="metric-icon"><svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.3 2.8 7.9 7 10 4.2-2.1 7-5.7 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-5"/></svg></span></div><strong>Configuration required</strong><small>Gateway metrics not connected</small></article>
         </div>
         <div class="two-col">
           <section class="card">
@@ -537,21 +474,21 @@
       <section class="panel placeholder-panel" id="system-settings"><div class="page-title"><div><p>System</p><h1>Settings</h1><span>Global platform behavior and environment-backed configuration.</span></div></div><div class="empty-state"><strong>Critical settings remain environment-controlled</strong><p>This protects infrastructure secrets from browser access.</p></div></section>
 
       <section class="panel" id="deployment">
-        <div class="page-title"><p>Deployment</p><h1>On-prem runtime</h1></div>
+        <div class="page-title"><p>Configuration Required</p><h1>Deployment status</h1></div>
         <section class="card status-list">
-          <div><dt>Canonical guest URL</dt><dd>https://concierge.hotel.com</dd></div>
-          <div><dt>HTTPS</dt><dd>Required for pilot</dd></div>
-          <div><dt>Guest VLAN policy</dt><dd>Allow Concierge HTTPS only</dd></div>
+          <div><dt>Canonical guest URL</dt><dd>Not configured</dd></div>
+          <div><dt>HTTPS</dt><dd>Configuration required</dd></div>
+          <div><dt>Network readiness</dt><dd>Configuration required</dd></div>
         </section>
       </section>
 
       <section class="panel" id="license">
-        <div class="page-title"><p>License</p><h1>Concierge.Ai Pro</h1></div>
+        <div class="page-title"><p>Configuration Required</p><h1>License</h1></div>
         <section class="license-grid">
-          <article><span>Type</span><strong>Perpetual</strong></article>
-          <article><span>Rooms</span><strong>248 / 300</strong></article>
-          <article><span>Nodes</span><strong>1 / 2</strong></article>
-          <article><span>Maintenance</span><strong>Until Sep 19, 2027</strong></article>
+          <article><span>License</span><strong>Not configured</strong></article>
+          <article><span>Rooms</span><strong>Not available</strong></article>
+          <article><span>Nodes</span><strong>Not available</strong></article>
+          <article><span>Maintenance</span><strong>Not available</strong></article>
         </section>
       </section>
     </main>
