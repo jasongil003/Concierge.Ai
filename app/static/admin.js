@@ -36,6 +36,115 @@ const authTypeDefinitions = [
   { id: "social_network", label: "Social Network", description: "Social login such as Facebook, Google, Line, or WeChat." },
 ];
 
+const FEATURE_STATUS = {
+  live: { label: "Live", className: "live" },
+  partial: { label: "Partial", className: "partial" },
+  coming_soon: { label: "Coming Soon", className: "soon" },
+  configuration_required: { label: "Configuration Required", className: "required" },
+};
+
+const NAV_SECTIONS = [
+  {
+    title: "Core",
+    items: [
+      { id: "dashboard", label: "Dashboard", panel: "overview", permission: "dashboard.view", status: "partial", icon: "⌂" },
+    ],
+  },
+  {
+    title: "Guest Experience",
+    open: true,
+    items: [
+      { id: "conversations", label: "Conversations", panel: "conversations", permission: "conversations.view", status: "coming_soon", icon: "◫", superAdminOnly: true, description: "Conversation inbox, human takeover, and staff replies are not implemented yet." },
+      { id: "guest-requests", label: "Guest Requests", panel: "requests", permission: "requests.view", status: "partial", icon: "☷" },
+      { id: "guest-sessions", label: "Guest Sessions", panel: "sessions", permission: "conversations.view", status: "partial", icon: "◉" },
+      { id: "guest-preview", label: "Preview", panel: "guest", permission: "concierge.view", status: "partial", icon: "◐" },
+    ],
+  },
+  {
+    title: "Property",
+    open: true,
+    items: [
+      { id: "hotel-information", label: "Hotel Information", panel: "hotel-information", permission: "properties.view", status: "partial", icon: "□", description: "Dedicated editor is scheduled in Issue #22. Current editable property basics remain in Dashboard until that backend split lands." },
+      { id: "rooms", label: "Rooms", panel: "rooms", permission: "properties.view", status: "configuration_required", icon: "▤" },
+      { id: "facilities", label: "Facilities", panel: "facilities", permission: "properties.view", status: "coming_soon", icon: "◇", superAdminOnly: true, description: "Canonical facility management is tracked in Issue #24." },
+      { id: "restaurants", label: "Restaurants", panel: "restaurants", permission: "properties.view", status: "coming_soon", icon: "○", superAdminOnly: true },
+      { id: "service-catalog", label: "Service Catalog", panel: "service-catalog", permission: "requests.view", status: "coming_soon", icon: "＋", superAdminOnly: true, description: "Service Catalog CRUD is tracked in Issues #18 and #23." },
+      { id: "recommendations", label: "Recommendations", panel: "recommendations", permission: "properties.view", status: "coming_soon", icon: "⌖", superAdminOnly: true },
+      { id: "zones-maps", label: "Zones & Maps", panel: "zones", permission: "properties.view", status: "partial", icon: "⌗" },
+    ],
+  },
+  {
+    title: "Knowledge",
+    items: [
+      { id: "knowledge-overview", label: "Overview", panel: "knowledge", permission: "knowledge.view", status: "configuration_required", icon: "▣" },
+      { id: "documents", label: "Documents", panel: "documents", permission: "knowledge.view", status: "coming_soon", icon: "▧", superAdminOnly: true },
+      { id: "faqs", label: "FAQs", panel: "faqs", permission: "knowledge.view", status: "coming_soon", icon: "?", superAdminOnly: true },
+    ],
+  },
+  {
+    title: "AI",
+    open: true,
+    items: [
+      { id: "models-providers", label: "Models & Providers", panel: "ai", permission: "ai.view", status: "live", icon: "◈" },
+      { id: "ai-personality", label: "Personality", panel: "ai-personality", permission: "ai.view", status: "coming_soon", icon: "✦", superAdminOnly: true },
+      { id: "guardrails", label: "Guardrails", panel: "guardrails", permission: "ai.view", status: "coming_soon", icon: "⊡", superAdminOnly: true },
+      { id: "improvement-loop", label: "Improvement Loop", panel: "improvement-loop", permission: "ai.configure", status: "partial", icon: "↻" },
+      { id: "ai-usage", label: "Usage", panel: "ai-usage", permission: "analytics.view", status: "coming_soon", icon: "◫", superAdminOnly: true },
+    ],
+  },
+  {
+    title: "Integrations",
+    items: [
+      { id: "pms", label: "PMS", panel: "pms", permission: "integrations.view", status: "configuration_required", icon: "▦" },
+      { id: "antlabs-wifi", label: "ANTlabs / Wi-Fi", panel: "wifi", permission: "integrations.view", status: "configuration_required", icon: "⌁" },
+      { id: "webhooks", label: "Webhooks", panel: "webhooks", permission: "integrations.view", status: "coming_soon", icon: "↗", superAdminOnly: true },
+    ],
+  },
+  {
+    title: "Appearance",
+    items: [
+      { id: "design", label: "Design", panel: "appearance", permission: "concierge.view", status: "live", icon: "◐" },
+      { id: "branding-intro", label: "Branding / Intro", panel: "intro", permission: "concierge.view", status: "partial", icon: "A" },
+    ],
+  },
+  {
+    title: "Analytics",
+    items: [
+      { id: "guest-usage", label: "Guest Usage", panel: "guest-usage", permission: "analytics.view", status: "coming_soon", icon: "◎", superAdminOnly: true, description: "Guest usage analytics are tracked in Issue #28." },
+      { id: "questions", label: "Questions", panel: "questions", permission: "analytics.view", status: "coming_soon", icon: "?", superAdminOnly: true },
+      { id: "requests-analytics", label: "Requests", panel: "request-analytics", permission: "analytics.view", status: "coming_soon", icon: "▥", superAdminOnly: true },
+      { id: "location", label: "Location", panel: "location", permission: "analytics.view", status: "partial", icon: "⌖" },
+      { id: "analytics-ai-usage", label: "AI Usage", panel: "ai-usage", permission: "analytics.view", status: "coming_soon", icon: "◫", superAdminOnly: true },
+    ],
+  },
+  {
+    title: "Users & Access",
+    open: true,
+    items: [
+      { id: "users", label: "Users", panel: "users", permission: "users.view", status: "live", icon: "◎" },
+      { id: "roles", label: "Roles", panel: "roles", permission: "roles.view", status: "live", icon: "◇" },
+      { id: "permissions", label: "Permissions", panel: "permissions", permission: "roles.view", status: "live", icon: "✓" },
+    ],
+  },
+  {
+    title: "Deployment",
+    items: [
+      { id: "domain", label: "Domain", panel: "domain", permission: "domains.view", status: "configuration_required", icon: "◌", description: "Domain status is not wired to a live deployment backend yet." },
+      { id: "ssl", label: "SSL", panel: "ssl", permission: "domains.view", status: "configuration_required", icon: "⌑", description: "Certificate status is not wired to a live deployment backend yet." },
+      { id: "network", label: "Network", panel: "network", permission: "domains.view", status: "configuration_required", icon: "⌁", description: "Network diagnostics must stay read-only until governed runtime checks are implemented." },
+    ],
+  },
+  {
+    title: "System",
+    items: [
+      { id: "audit", label: "Audit", panel: "audit", permission: "audit.view", status: "live", icon: "☷" },
+      { id: "security", label: "Security", panel: "security", permission: "security.view", status: "partial", icon: "⊡" },
+      { id: "settings", label: "Settings", panel: "system-settings", permission: "system.configure", status: "coming_soon", icon: "⌘", superAdminOnly: true },
+      { id: "license", label: "License", panel: "license", permission: "system.configure", status: "configuration_required", icon: "▱" },
+    ],
+  },
+];
+
 async function jsonFetch(url, options = {}) {
   const method = (options.method || "GET").toUpperCase();
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
@@ -79,10 +188,92 @@ function can(permission) {
   return Boolean(state.auth?.permissions?.includes(permission));
 }
 
+function isSuperAdmin() {
+  return state.auth?.role?.slug === "super-admin";
+}
+
+function allNavItems() {
+  return NAV_SECTIONS.flatMap((section) => section.items);
+}
+
 function applyPermissionVisibility() {
   for (const element of document.querySelectorAll("[data-permission]")) {
     element.hidden = !can(element.dataset.permission);
   }
+}
+
+function renderNavigation() {
+  const nav = document.querySelector(".sidebar-nav");
+  if (!nav) return;
+  nav.innerHTML = "";
+  for (const section of NAV_SECTIONS) {
+    const visibleItems = section.items.filter((item) => {
+      if (!can(item.permission)) return false;
+      return !item.superAdminOnly || isSuperAdmin();
+    });
+    if (!visibleItems.length) continue;
+    if (section.title === "Core") {
+      for (const item of visibleItems) nav.appendChild(createNavButton(item));
+      continue;
+    }
+    const group = document.createElement("details");
+    group.className = "nav-group";
+    group.open = Boolean(section.open);
+    const summary = document.createElement("summary");
+    summary.innerHTML = `<span class="nav-label">${escapeHTML(section.title)}</span>`;
+    group.appendChild(summary);
+    for (const item of visibleItems) group.appendChild(createNavButton(item));
+    nav.appendChild(group);
+  }
+}
+
+function createNavButton(item) {
+  const status = FEATURE_STATUS[item.status] || FEATURE_STATUS.coming_soon;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "nav-item";
+  button.dataset.navId = item.id;
+  button.dataset.panel = item.panel;
+  button.dataset.permission = item.permission;
+  button.title = `${item.label}: ${status.label}`;
+  button.innerHTML = `
+    <span class="nav-icon" aria-hidden="true">${escapeHTML(item.icon || "•")}</span>
+    <span class="nav-label">${escapeHTML(item.label)}</span>
+    <span class="nav-status ${status.className}" aria-label="${status.label}" title="${status.label}">${escapeHTML(status.label)}</span>
+  `;
+  button.addEventListener("click", () => activatePanel(item.panel, item.id));
+  return button;
+}
+
+function createPlaceholderPanel(item) {
+  const status = FEATURE_STATUS[item.status] || FEATURE_STATUS.coming_soon;
+  const panel = document.createElement("section");
+  panel.className = "panel placeholder-panel";
+  panel.id = item.panel;
+  panel.innerHTML = `
+    <div class="page-title">
+      <div>
+        <p>${escapeHTML(status.label)}</p>
+        <h1>${escapeHTML(item.label)}</h1>
+        <span>${escapeHTML(item.description || "This capability is intentionally unavailable until its backend workflow is implemented.")}</span>
+      </div>
+      <span class="feature-status ${status.className}">${escapeHTML(status.label)}</span>
+    </div>
+    <div class="empty-state">
+      <strong>${escapeHTML(status.label)}</strong>
+      <p>${escapeHTML(item.description || "This tab is visible for roadmap validation, but it is not presented as a working production feature.")}</p>
+    </div>
+  `;
+  document.querySelector(".platform-main")?.appendChild(panel);
+  return panel;
+}
+
+function ensurePanel(panelId) {
+  let panel = $(panelId);
+  if (panel) return panel;
+  const item = allNavItems().find((candidate) => candidate.panel === panelId);
+  if (!item) return null;
+  return createPlaceholderPanel(item);
 }
 
 async function loadCurrentAdmin() {
@@ -101,19 +292,24 @@ async function loadCurrentAdmin() {
   $("profile-detail-property").textContent = state.auth.property_id || "All properties";
   $("profile-detail-email").textContent = state.auth.email || "Not configured";
   $("session-expiry").textContent = formatDate(state.auth.session_expires_at);
+  renderNavigation();
   applyPermissionVisibility();
+  activatePanel(state.activeNavId ? allNavItems().find((item) => item.id === state.activeNavId)?.panel || "overview" : "overview", state.activeNavId || "dashboard");
   if (state.auth.force_password_change) {
     activatePanel("security");
     showToast("Change your temporary password to continue.");
   }
 }
 
-function activatePanel(panelId) {
+function activatePanel(panelId, navId = null) {
+  ensurePanel(panelId);
   for (const panel of document.querySelectorAll(".panel")) {
     panel.classList.toggle("active", panel.id === panelId);
   }
+  if (navId) state.activeNavId = navId;
+  if (!navId) state.activeNavId = allNavItems().find((item) => item.panel === panelId)?.id || null;
   for (const item of document.querySelectorAll(".nav-item")) {
-    item.classList.toggle("active", item.dataset.panel === panelId);
+    item.classList.toggle("active", item.dataset.navId === state.activeNavId);
   }
   if (panelId === "ai" && currentPropertyId()) {
     loadAI().catch((error) => showToast(error.message, "error"));

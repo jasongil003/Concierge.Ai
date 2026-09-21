@@ -116,13 +116,35 @@ a { color: inherit; text-decoration: none; }
 .nav-item:hover { color: var(--black); background: #ededed; }
 .nav-item.active { color: var(--black); background: #e4e4e4; font-weight: 700; }
 .nav-icon { display: grid; width: 18px; height: 18px; flex: 0 0 auto; place-items: center; color: #555; font-size: 13px; font-weight: 600; }
-.nav-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-status, .feature-status {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 86px;
+  min-height: 17px;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--mid);
+  background: var(--white);
+  font-size: 8px;
+  font-weight: 750;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.nav-status.live, .feature-status.live { border-color: #b8d7bf; color: #276738; background: #eef8f0; }
+.nav-status.partial, .feature-status.partial { border-color: #d8caa9; color: #725c22; background: #fbf6e8; }
+.nav-status.soon, .feature-status.soon { border-color: #d2d2d2; color: #777; background: #f3f3f3; }
+.nav-status.required, .feature-status.required { border-color: #d5b9b9; color: #7a3b3b; background: #fbefef; }
+.nav-loading { padding: 12px 9px; color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; }
 .sidebar-health { display: flex; align-items: center; gap: 9px; margin: 0 10px 10px; padding: 11px 8px; border-top: 1px solid var(--line); }
 .sidebar-health div { display: grid; gap: 2px; }
 .sidebar-health strong { font-size: 10px; }
 .sidebar-health span { color: var(--muted); font-size: 9px; }
 .sidebar-collapsed .nav-group summary { display: none; }
-.sidebar-collapsed .nav-group:not([open]) > .nav-item, .sidebar-collapsed .nav-label, .sidebar-collapsed .sidebar-health div { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
+.sidebar-collapsed .nav-group:not([open]) > .nav-item, .sidebar-collapsed .nav-label, .sidebar-collapsed .nav-status, .sidebar-collapsed .nav-loading, .sidebar-collapsed .sidebar-health div { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
 .sidebar-collapsed .nav-item { justify-content: center; padding: 6px; }
 .sidebar-collapsed .nav-group { display: contents; }
 .sidebar-collapsed .sidebar-health { justify-content: center; margin-inline: 7px; }
@@ -142,7 +164,7 @@ a { color: inherit; text-decoration: none; }
 .metrics article { min-width: 0; padding: 18px; border-right: 1px solid var(--line); }
 .metrics article:last-child { border-right: 0; }
 .metrics article > span, .metric-top span { color: var(--mid); font-size: 10px; font-weight: 650; }
-.metrics article > strong, .metrics article > div + strong { display: block; margin: 10px 0 5px; color: var(--black); font-size: 24px; font-weight: 650; }
+.metrics article > strong, .metrics article > div + strong { display: block; margin: 10px 0 5px; color: var(--black); font-size: 18px; font-weight: 650; line-height: 1.2; overflow-wrap: anywhere; }
 .metrics small { color: var(--muted); font-size: 10px; }
 .metrics b, .metrics em { color: var(--dark); font-style: normal; }
 .metric-top { display: flex; align-items: center; justify-content: space-between; }
@@ -400,7 +422,7 @@ td button { min-height: 29px; padding: 5px 9px; border: 1px solid var(--line); b
 @media (max-width: 900px) {
   .platform-shell { --sidebar-width: 64px; }
   .platform-topbar { grid-template-columns: 64px 40px minmax(120px, 1fr) auto; }
-  .brand > div:last-child, .nav-group summary, .nav-label, .sidebar-health div { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
+  .brand > div:last-child, .nav-group summary, .nav-label, .nav-status, .sidebar-health div { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
   .brand { justify-content: center; padding: 0; }
   .nav-group { display: contents; }
   .nav-item { justify-content: center; padding: 6px; }
