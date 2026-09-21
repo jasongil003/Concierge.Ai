@@ -34,6 +34,31 @@ async function setAuthTypes(request, enabledIds) {
   expect(response.ok()).toBeTruthy();
 }
 
+async function ensureGuestData(request) {
+  const csrf = await loginAdmin(request);
+  const propertyId = (await (await request.get("/api/admin/properties")).json()).properties[0].property_id;
+  let catalog = await (await request.get(`/api/admin/properties/${propertyId}/service-catalog`)).json();
+  let department = catalog.departments.find((item) => item.name === "Housekeeping");
+  if (!department) {
+    department = await (await request.put(`/api/admin/properties/${propertyId}/departments`, {
+      headers: { "X-CSRF-Token": csrf }, data: { data: { name: "Housekeeping", default_sla_minutes: 15 } },
+    })).json();
+  }
+  if (!catalog.services.some((item) => item.name === "Towels")) {
+    await request.put(`/api/admin/properties/${propertyId}/service-catalog`, {
+      headers: { "X-CSRF-Token": csrf },
+      data: { data: { name: "Towels", department_id: department.department_id, keywords: ["towel", "towels"], sla_minutes: 15 } },
+    });
+  }
+  const recommendations = await (await request.get(`/api/admin/properties/${propertyId}/recommendations`)).json();
+  if (!recommendations.recommendations.some((item) => item.name === "Verified Bistro")) {
+    await request.put(`/api/admin/properties/${propertyId}/recommendations`, {
+      headers: { "X-CSRF-Token": csrf },
+      data: { data: { name: "Verified Bistro", category: "Dining", address: "100 Hotel Street", map_url: "https://maps.example/bistro", description: "Property-verified nearby dining.", enabled: true } },
+    });
+  }
+}
+
 // --- 1. Guest initial load ---
 
 test("guest: loads and shows welcome state with suggestions", async ({ page }) => {
@@ -183,53 +208,60 @@ test("guest: wi-fi flow only lists enabled non-PMS methods", async ({ page, requ
 
 // --- 5. Nearby dining / restaurant cards ---
 
-test("guest: nearby dining shows recommendation cards", async ({ page }) => {
+test("guest: nearby dining shows persisted recommendation cards", async ({ page, request }) => {
+  await ensureGuestData(request);
   await page.goto("/");
   await page.getByLabel("Ask your concierge").fill("Recommend somewhere nearby to eat");
   await page.getByRole("button", { name: "Send message" }).click();
 
-  await expect(page.locator(".recommendation-card")).toHaveCount(3);
-  await expect(page.locator(".recommendation-card").first()).toContainText("Lusso Bistro");
+  await expect(page.locator(".recommendation-card")).toHaveCount(1);
+  await expect(page.locator(".recommendation-card").first()).toContainText("Verified Bistro");
 });
 
-test("guest: restaurant card directions button shows toast", async ({ page }) => {
+test("guest: restaurant card directions button opens configured map", async ({ page, request }) => {
+  await ensureGuestData(request);
   await page.goto("/");
   await page.getByLabel("Ask your concierge").fill("Recommend somewhere nearby to eat");
   await page.getByRole("button", { name: "Send message" }).click();
 
   const directionsBtn = page.locator(".recommendation-card").first().getByRole("button", { name: "Directions" });
-  await directionsBtn.click();
-  await expect(page.locator(".toast")).toBeVisible();
+  const [popup] = await Promise.all([page.waitForEvent("popup"), directionsBtn.click()]);
+  expect(popup.url()).toContain("maps.example/bistro");
+  await popup.close();
 });
 
-test("guest: restaurant card details button shows toast", async ({ page }) => {
+test("guest: restaurant card details button toggles verified details", async ({ page, request }) => {
+  await ensureGuestData(request);
   await page.goto("/");
   await page.getByLabel("Ask your concierge").fill("Recommend somewhere nearby to eat");
   await page.getByRole("button", { name: "Send message" }).click();
 
   const detailsBtn = page.locator(".recommendation-card").first().getByRole("button", { name: "Details" });
   await detailsBtn.click();
-  await expect(page.locator(".toast")).toBeVisible();
+  await expect(page.locator(".recommendation-card").first()).toContainText("Property-verified nearby dining.");
+  await expect(detailsBtn).toHaveText("Hide details");
 });
 
 // --- 6. Service request confirmation ---
 
-test("guest: housekeeping request shows confirmation card", async ({ page }) => {
+test("guest: configured service request shows confirmation card", async ({ page, request }) => {
+  await ensureGuestData(request);
   await page.goto("/");
   await page.getByLabel("Ask your concierge").fill("Send two towels to my room");
   await page.getByRole("button", { name: "Send message" }).click();
 
-  await expect(page.getByText("Please confirm before I create it.")).toBeVisible();
+  await expect(page.getByText(/Please confirm before I send it/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Confirm request" })).toBeVisible();
 });
 
-test("guest: confirm request shows confirmed status", async ({ page }) => {
+test("guest: confirm request persists and returns a request id", async ({ page, request }) => {
+  await ensureGuestData(request);
   await page.goto("/");
   await page.getByLabel("Ask your concierge").fill("Send two towels to my room");
   await page.getByRole("button", { name: "Send message" }).click();
 
   await page.getByRole("button", { name: "Confirm request" }).click();
-  await expect(page.getByText("Request confirmed.")).toBeVisible();
+  await expect(page.getByText(/Request req_[a-f0-9]+ was created/)).toBeVisible();
 });
 
 // --- 7. Hotel menu ---
@@ -273,13 +305,11 @@ test("guest: mobile layout shows all core elements", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Send message" })).toBeVisible();
 });
 
-// --- 9. Plus button shows POC warning ---
+// --- 9. Unsupported attachment control is not exposed ---
 
-test("guest: plus button shows POC warning", async ({ page }) => {
+test("guest: unsupported attachment control is not exposed", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "More actions" }).click();
-  await expect(page.locator(".toast")).toBeVisible();
-  await expect(page.locator(".toast")).toContainText("disabled for this POC");
+  await expect(page.getByRole("button", { name: "More actions" })).toHaveCount(0);
 });
 
 // --- 10. Dark mode (if supported) ---

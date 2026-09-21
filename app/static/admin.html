@@ -61,10 +61,10 @@
           <span class="live-badge"><i aria-hidden="true"></i> Live operations</span>
         </div>
         <div class="metrics">
-          <article><div class="metric-top"><span>Active guests</span><span class="metric-icon"><svg viewBox="0 0 24 24"><path d="M16 20v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M9.5 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM16 6h5M18.5 3.5v5"/></svg></span></div><strong>Not available</strong><small>Session analytics not connected</small></article>
-          <article><div class="metric-top"><span>AI requests today</span><span class="metric-icon"><svg viewBox="0 0 24 24"><path d="M12 3 10 8.5 4.5 10.5 10 13l2 5.5 2-5.5 5.5-2.5L14 8.5 12 3Z"/></svg></span></div><strong>Not available</strong><small>Usage reporting not connected</small></article>
-          <article><div class="metric-top"><span>Open requests</span><span class="metric-icon"><svg viewBox="0 0 24 24"><path d="M5 20h14M7 20a5 5 0 0 1 10 0M12 10V7M10 7h4"/></svg></span></div><strong>Not available</strong><small>Request analytics not connected</small></article>
-          <article><div class="metric-top"><span>Auth success</span><span class="metric-icon"><svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.3 2.8 7.9 7 10 4.2-2.1 7-5.7 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-5"/></svg></span></div><strong>Configuration required</strong><small>Gateway metrics not connected</small></article>
+          <article><div class="metric-top"><span>Active guests</span><span class="metric-icon"><svg viewBox="0 0 24 24"><path d="M16 20v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M9.5 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM16 6h5M18.5 3.5v5"/></svg></span></div><strong id="metric-active-guests">0</strong><small>Active concierge sessions</small></article>
+          <article><div class="metric-top"><span>AI requests today</span><span class="metric-icon"><svg viewBox="0 0 24 24"><path d="M12 3 10 8.5 4.5 10.5 10 13l2 5.5 2-5.5 5.5-2.5L14 8.5 12 3Z"/></svg></span></div><strong id="metric-ai-requests">0</strong><small>Recorded assistant responses</small></article>
+          <article><div class="metric-top"><span>Open requests</span><span class="metric-icon"><svg viewBox="0 0 24 24"><path d="M5 20h14M7 20a5 5 0 0 1 10 0M12 10V7M10 7h4"/></svg></span></div><strong id="metric-open-requests">0</strong><small id="metric-overdue-requests">0 overdue</small></article>
+          <article><div class="metric-top"><span>Auth success</span><span class="metric-icon"><svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.3 2.8 7.9 7 10 4.2-2.1 7-5.7 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-5"/></svg></span></div><strong id="metric-auth-success">No attempts</strong><small id="metric-auth-attempts">0 attempts today</small></article>
         </div>
         <div class="two-col">
           <section class="card">
@@ -79,8 +79,8 @@
             <div class="card-heading"><div><span>Infrastructure</span><h2>Operational status</h2></div><span class="card-chip healthy">Healthy</span></div>
             <dl class="status-list">
               <div><dt><i class="status-indicator good"></i>Runtime</dt><dd>Local on-prem</dd></div>
-              <div><dt><i class="status-indicator good"></i>Database</dt><dd>SQLite POC</dd></div>
-              <div><dt><i class="status-indicator warn"></i>ANTlabs</dt><dd>Mock / lab adapter</dd></div>
+              <div><dt><i class="status-indicator good"></i>Database</dt><dd>SQLite connected</dd></div>
+              <div><dt><i class="status-indicator warn"></i>ANTlabs</dt><dd>Simulation mode; gateway access unchanged</dd></div>
               <div><dt>Guest URL</dt><dd><a href="/" target="_blank" rel="noopener">/</a></dd></div>
             </dl>
           </section>
@@ -380,14 +380,23 @@
         <section class="auth-type-list" id="auth-type-list" aria-label="Authentication type list"></section>
       </section>
 
+      <section class="panel" id="conversations">
+        <div class="page-title"><div><p>Guest Experience</p><h1>Conversations</h1><span>Guest messages, AI responses, escalation, and human takeover.</span></div><button class="secondary" id="refresh-conversations" type="button">Refresh</button></div>
+        <div class="two-col">
+          <section class="card"><h2>Conversation list</h2><label>Search<input id="conversation-search" type="search" aria-label="Search conversations"></label><label>Status<select id="conversation-status-filter"><option value="">All statuses</option><option value="open">Open</option><option value="escalated">Escalated</option><option value="closed">Closed</option></select></label><div id="conversation-list" class="compact-list"></div></section>
+          <section class="card"><h2>Message history</h2><div id="conversation-messages" class="compact-list">Select a conversation.</div><label>Staff response<textarea id="staff-response" rows="3"></textarea></label><div class="dialog-actions"><button class="secondary" id="toggle-takeover" type="button" disabled>Take Over</button><button class="secondary" id="close-conversation" type="button" disabled>Close</button><button id="send-staff-response" type="button" disabled>Send Response</button></div></section>
+        </div>
+      </section>
+
       <section class="panel" id="requests">
         <div class="page-title"><p>Operations</p><h1>Service request workflow</h1></div>
         <div class="two-col">
           <section class="card">
             <h2>Create request</h2>
             <label>Room<input id="service-room" placeholder="1503"></label>
-            <label>Type<select id="service-type"><option value="towels">Towels</option><option value="housekeeping">Housekeeping</option><option value="maintenance">Maintenance</option><option value="transport">Transport</option><option value="amenities">Room amenities</option><option value="complaint">Complaint</option><option value="dining">Dining</option></select></label>
-            <label>Department<input id="service-department" value="housekeeping"></label>
+            <label>Service<select id="service-type"><option value="">Select a configured service</option></select></label>
+            <label>Department<input id="service-department" readonly></label>
+            <label>Priority<select id="service-priority"><option value="low">Low</option><option value="normal" selected>Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></label>
             <label>Description<textarea id="service-description" rows="3" placeholder="Please send two towels."></textarea></label>
             <label>SLA minutes<input id="service-sla" type="number" min="1" max="240" value="15"></label>
             <button id="create-service-request" type="button">Create Request</button>
@@ -395,6 +404,35 @@
           <section class="card">
             <h2>Open operations</h2>
             <div id="service-request-list" class="compact-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="panel" id="service-catalog">
+        <div class="page-title"><div><p>Property</p><h1>Service Catalog</h1><span>Property-managed guest services and operational routing.</span></div></div>
+        <div class="two-col">
+          <section class="card">
+            <h2>Department</h2>
+            <input id="department-id" type="hidden">
+            <label>Name<input id="department-name" maxlength="120"></label>
+            <label>Default SLA minutes<input id="department-sla" type="number" min="1" max="1440" value="30"></label>
+            <label>Escalation target<input id="department-escalation" maxlength="240"></label>
+            <label class="check-row"><input id="department-enabled" type="checkbox" checked> Enabled</label>
+            <button id="save-department" type="button">Save Department</button>
+            <div id="department-list" class="compact-list"></div>
+          </section>
+          <section class="card">
+            <h2>Service</h2>
+            <input id="catalog-service-id" type="hidden">
+            <label>Name<input id="catalog-service-name" maxlength="160"></label>
+            <label>Department<select id="catalog-service-department"><option value="">Unassigned</option></select></label>
+            <label>Keywords<input id="catalog-service-keywords" placeholder="crib, baby bed"></label>
+            <label>Description<textarea id="catalog-service-description" rows="3"></textarea></label>
+            <label>SLA minutes<input id="catalog-service-sla" type="number" min="1" max="1440" value="30"></label>
+            <label class="check-row"><input id="catalog-service-confirm" type="checkbox" checked> Confirmation required</label>
+            <label class="check-row"><input id="catalog-service-enabled" type="checkbox" checked> Enabled</label>
+            <button id="save-catalog-service" type="button">Save Service</button>
+            <div id="catalog-service-list" class="compact-list"></div>
           </section>
         </div>
       </section>
@@ -458,7 +496,24 @@
 
       <section class="panel placeholder-panel" id="rooms"><div class="page-title"><div><p>Property</p><h1>Rooms</h1><span>Room inventory and guest-facing room information.</span></div></div><div class="empty-state"><strong>No room inventory connected</strong><p>Connect a PMS integration to synchronize room types and operational status.</p></div></section>
       <section class="panel placeholder-panel" id="restaurants"><div class="page-title"><div><p>Property</p><h1>Restaurants</h1><span>Dining venues, hours, menus, and guest guidance.</span></div></div><div class="empty-state"><strong>Restaurant management is ready for configuration</strong><p>Add dining records through the property hospitality API.</p></div></section>
-      <section class="panel placeholder-panel" id="recommendations"><div class="page-title"><div><p>Property</p><h1>Local recommendations</h1><span>Curated nearby places and trusted guest suggestions.</span></div></div><div class="empty-state"><strong>No curated recommendations yet</strong><p>Live nearby search remains available through the configured Places provider.</p></div></section>
+      <section class="panel" id="recommendations">
+        <div class="page-title"><div><p>Property</p><h1>Local recommendations</h1><span>Curated nearby places and trusted guest suggestions.</span></div></div>
+        <div class="two-col">
+          <section class="card">
+            <h2>Recommendation</h2>
+            <input id="recommendation-id" type="hidden">
+            <label>Name<input id="recommendation-name" maxlength="160"></label>
+            <label>Category<input id="recommendation-category" maxlength="80"></label>
+            <label>Address<input id="recommendation-address" maxlength="300"></label>
+            <label>Map link<input id="recommendation-map-url" type="url" maxlength="500"></label>
+            <label>Description<textarea id="recommendation-description" rows="4"></textarea></label>
+            <label>Source<input id="recommendation-source" value="property" maxlength="160"></label>
+            <label class="check-row"><input id="recommendation-enabled" type="checkbox" checked> Visible to guests</label>
+            <button id="save-recommendation" type="button">Save Recommendation</button>
+          </section>
+          <section class="card"><h2>Managed recommendations</h2><div id="recommendation-list" class="compact-list"></div></section>
+        </div>
+      </section>
       <section class="panel placeholder-panel" id="documents"><div class="page-title"><div><p>Knowledge</p><h1>Documents</h1><span>Source documents used by the concierge knowledge layer.</span></div></div><div class="empty-state"><strong>No managed documents</strong><p>Document ingestion will appear here when the knowledge pipeline is enabled.</p></div></section>
       <section class="panel placeholder-panel" id="faqs"><div class="page-title"><div><p>Knowledge</p><h1>FAQs</h1><span>Structured hotel questions and approved answers.</span></div></div><div class="empty-state"><strong>FAQs are currently seeded from hotel configuration</strong><p>Managed FAQ editing can be enabled without changing the guest experience.</p></div></section>
       <section class="panel placeholder-panel" id="ai-personality"><div class="page-title"><div><p>AI</p><h1>AI personality</h1><span>Tone, service posture, and property-specific conversational behavior.</span></div></div><div class="empty-state"><strong>Uses the current property concierge profile</strong><p>Advanced personality controls are reserved for a governed configuration release.</p></div></section>

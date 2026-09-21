@@ -19,6 +19,10 @@ const state = {
   mapHistory: [],
   mapRedo: [],
   intro: null,
+  catalog: { departments: [], services: [] },
+  recommendations: [],
+  conversations: [],
+  selectedConversation: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -54,7 +58,7 @@ const NAV_SECTIONS = [
     title: "Guest Experience",
     open: true,
     items: [
-      { id: "conversations", label: "Conversations", panel: "conversations", permission: "conversations.view", status: "coming_soon", icon: "◫", superAdminOnly: true, description: "Conversation inbox, human takeover, and staff replies are not implemented yet." },
+      { id: "conversations", label: "Conversations", panel: "conversations", permission: "conversations.view", status: "live", icon: "◫" },
       { id: "guest-requests", label: "Guest Requests", panel: "requests", permission: "requests.view", status: "partial", icon: "☷" },
       { id: "guest-sessions", label: "Guest Sessions", panel: "sessions", permission: "conversations.view", status: "partial", icon: "◉" },
       { id: "guest-preview", label: "Preview", panel: "guest", permission: "concierge.view", status: "partial", icon: "◐" },
@@ -68,8 +72,8 @@ const NAV_SECTIONS = [
       { id: "rooms", label: "Rooms", panel: "rooms", permission: "properties.view", status: "configuration_required", icon: "▤" },
       { id: "facilities", label: "Facilities", panel: "facilities", permission: "properties.view", status: "coming_soon", icon: "◇", superAdminOnly: true, description: "Canonical facility management is tracked in Issue #24." },
       { id: "restaurants", label: "Restaurants", panel: "restaurants", permission: "properties.view", status: "coming_soon", icon: "○", superAdminOnly: true },
-      { id: "service-catalog", label: "Service Catalog", panel: "service-catalog", permission: "requests.view", status: "coming_soon", icon: "＋", superAdminOnly: true, description: "Service Catalog CRUD is tracked in Issues #18 and #23." },
-      { id: "recommendations", label: "Recommendations", panel: "recommendations", permission: "properties.view", status: "coming_soon", icon: "⌖", superAdminOnly: true },
+      { id: "service-catalog", label: "Service Catalog", panel: "service-catalog", permission: "requests.view", status: "live", icon: "＋" },
+      { id: "recommendations", label: "Recommendations", panel: "recommendations", permission: "properties.view", status: "live", icon: "⌖" },
       { id: "zones-maps", label: "Zones & Maps", panel: "zones", permission: "properties.view", status: "partial", icon: "⌗" },
     ],
   },
@@ -311,6 +315,7 @@ function activatePanel(panelId, navId = null) {
   for (const item of document.querySelectorAll(".nav-item")) {
     item.classList.toggle("active", item.dataset.navId === state.activeNavId);
   }
+  if (panelId === "overview" && currentPropertyId()) loadDashboard().catch((error) => showToast(error.message, "error"));
   if (panelId === "ai" && currentPropertyId()) {
     loadAI().catch((error) => showToast(error.message, "error"));
   }
@@ -322,6 +327,9 @@ function activatePanel(panelId, navId = null) {
   if (panelId === "location" && currentPropertyId()) loadLocationLive().catch((error) => showToast(error.message, "error"));
   if (panelId === "intro" && currentPropertyId()) loadIntro().catch((error) => showToast(error.message, "error"));
   if (panelId === "requests" && currentPropertyId()) loadServiceRequests().catch((error) => showToast(error.message, "error"));
+  if (panelId === "conversations" && currentPropertyId()) loadConversations().catch((error) => showToast(error.message, "error"));
+  if (panelId === "service-catalog" && currentPropertyId()) loadServiceCatalog().catch((error) => showToast(error.message, "error"));
+  if (panelId === "recommendations" && currentPropertyId()) loadRecommendations().catch((error) => showToast(error.message, "error"));
   if (panelId === "users") loadUsers().catch((error) => showToast(error.message, "error"));
   if (panelId === "roles") loadRoles().catch((error) => showToast(error.message, "error"));
   if (panelId === "permissions") loadPermissions().catch((error) => showToast(error.message, "error"));
@@ -330,6 +338,16 @@ function activatePanel(panelId, navId = null) {
 
 function currentPropertyId() {
   return state.property?.property_id || $("property-id").value;
+}
+
+async function loadDashboard() {
+  const metrics = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/dashboard`);
+  $("metric-active-guests").textContent = metrics.active_guests;
+  $("metric-ai-requests").textContent = metrics.ai_requests_today;
+  $("metric-open-requests").textContent = metrics.open_requests;
+  $("metric-overdue-requests").textContent = `${metrics.overdue_requests} overdue`;
+  $("metric-auth-success").textContent = metrics.auth_success_rate === null ? "No attempts" : `${metrics.auth_success_rate}%`;
+  $("metric-auth-attempts").textContent = `${metrics.auth_attempts_today} attempts today`;
 }
 
 function setPublishState(text) {
@@ -1242,6 +1260,7 @@ async function loadProperty() {
   hydratePropertyOptions();
   if (can("concierge.view")) await loadDesign();
   if (can("ai.view")) await loadAI();
+  if (can("dashboard.view")) await loadDashboard();
 }
 
 async function switchProperty(propertyId) {
@@ -1250,9 +1269,12 @@ async function switchProperty(propertyId) {
   hydrateProperty(property);
   state.ai = null;
   state.improvementLoop = null;
+  state.catalog = { departments: [], services: [] };
+  state.recommendations = [];
   const tasks = [];
   if (can("concierge.view")) tasks.push(loadDesign());
   if (can("ai.view")) tasks.push(loadAI());
+  if (can("dashboard.view")) tasks.push(loadDashboard());
   await Promise.all(tasks);
   showToast(`Switched to ${property.hotel_name}.`);
 }
@@ -1587,7 +1609,245 @@ async function uploadIntroAsset(file) {
   showToast("Intro animation uploaded.");
 }
 
+async function loadConversations() {
+  const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations`);
+  state.conversations = data.conversations;
+  renderConversations();
+  if (state.selectedConversation) {
+    state.selectedConversation = state.conversations.find((item) => item.session_id === state.selectedConversation.session_id) || null;
+    renderConversationMessages();
+  }
+}
+
+function renderConversations() {
+  const query = $("conversation-search").value.trim().toLowerCase();
+  const status = $("conversation-status-filter").value;
+  const list = $("conversation-list");
+  list.innerHTML = "";
+  for (const conversation of state.conversations.filter((item) => (!status || item.status === status) && (!query || item.session_id.toLowerCase().includes(query) || item.messages.some((message) => message.content.toLowerCase().includes(query))))) {
+    const row = document.createElement("button");
+    row.type = "button"; row.className = "compact-row";
+    row.innerHTML = `<strong>${escapeHTML(conversation.session_id.slice(0, 12))}</strong><span>${escapeHTML(conversation.status)} · ${conversation.message_count} messages · ${conversation.human_takeover ? "Staff" : "AI"}</span>`;
+    row.addEventListener("click", () => { state.selectedConversation = conversation; renderConversationMessages(); });
+    list.appendChild(row);
+  }
+  if (!list.children.length) list.textContent = "No conversations match this view.";
+}
+
+function renderConversationMessages() {
+  const conversation = state.selectedConversation;
+  const list = $("conversation-messages");
+  list.innerHTML = "";
+  for (const message of conversation?.messages || []) {
+    const row = document.createElement("div"); row.className = "compact-row";
+    row.innerHTML = `<strong>${escapeHTML(message.role)}</strong><span>${escapeHTML(message.content)}</span><small>${escapeHTML(formatDate(message.created_at))}</small>`;
+    list.appendChild(row);
+  }
+  if (!conversation) list.textContent = "Select a conversation.";
+  $("toggle-takeover").disabled = !conversation;
+  $("close-conversation").disabled = !conversation;
+  $("send-staff-response").disabled = !conversation;
+  $("toggle-takeover").textContent = conversation?.human_takeover ? "Return to AI" : "Take Over";
+}
+
+async function setConversationState(status, humanTakeover) {
+  if (!state.selectedConversation) return;
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations/${encodeURIComponent(state.selectedConversation.session_id)}`, { method: "PUT", body: JSON.stringify({ status, human_takeover: humanTakeover }) });
+  await loadConversations(); showToast("Conversation updated.");
+}
+
+async function sendStaffResponse() {
+  const message = $("staff-response").value.trim();
+  if (!state.selectedConversation || !message) throw new Error("Enter a staff response.");
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations/${encodeURIComponent(state.selectedConversation.session_id)}/messages`, { method: "POST", body: JSON.stringify({ message }) });
+  $("staff-response").value = ""; await loadConversations(); showToast("Staff response sent.");
+}
+
+async function loadServiceCatalog() {
+  state.catalog = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/service-catalog`);
+  const departmentSelect = $("catalog-service-department");
+  const requestSelect = $("service-type");
+  departmentSelect.innerHTML = '<option value="">Unassigned</option>';
+  requestSelect.innerHTML = '<option value="">Select a configured service</option>';
+  for (const department of state.catalog.departments) {
+    departmentSelect.appendChild(new Option(department.name, department.department_id));
+  }
+  for (const service of state.catalog.services.filter((item) => item.enabled && !item.archived)) {
+    requestSelect.appendChild(new Option(service.name, service.service_id));
+  }
+  renderDepartments();
+  renderCatalogServices();
+  syncRequestService();
+}
+
+function renderDepartments() {
+  const list = $("department-list");
+  list.innerHTML = "";
+  for (const department of state.catalog.departments) {
+    const row = document.createElement("div");
+    row.className = "compact-row";
+    row.innerHTML = `<strong>${escapeHTML(department.name)}</strong><span>${department.enabled ? "Enabled" : "Disabled"} · ${department.default_sla_minutes} min SLA</span>`;
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.textContent = "Edit";
+    edit.addEventListener("click", () => {
+      $("department-id").value = department.department_id;
+      $("department-name").value = department.name;
+      $("department-sla").value = department.default_sla_minutes;
+      $("department-escalation").value = department.escalation_target || "";
+      $("department-enabled").checked = department.enabled;
+    });
+    row.appendChild(edit);
+    list.appendChild(row);
+  }
+  if (!list.children.length) list.textContent = "No departments configured.";
+}
+
+function renderCatalogServices() {
+  const list = $("catalog-service-list");
+  list.innerHTML = "";
+  for (const service of state.catalog.services) {
+    const department = state.catalog.departments.find((item) => item.department_id === service.department_id);
+    const row = document.createElement("div");
+    row.className = "compact-row";
+    row.innerHTML = `<strong>${escapeHTML(service.name)}</strong><span>${escapeHTML(department?.name || "Unassigned")} · ${service.sla_minutes} min · ${service.enabled && !service.archived ? "Enabled" : "Unavailable"}</span>`;
+    const actions = document.createElement("div");
+    for (const [label, handler] of [
+      ["Edit", () => editCatalogService(service)],
+      ["Duplicate", () => duplicateCatalogService(service.service_id)],
+      [service.archived ? "Delete" : "Archive", () => service.archived ? deleteCatalogService(service.service_id) : archiveCatalogService(service)],
+    ]) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.addEventListener("click", () => Promise.resolve(handler()).catch((error) => showToast(error.message, "error")));
+      actions.appendChild(button);
+    }
+    row.appendChild(actions);
+    list.appendChild(row);
+  }
+  if (!list.children.length) list.textContent = "No services configured.";
+}
+
+function editCatalogService(service) {
+  $("catalog-service-id").value = service.service_id;
+  $("catalog-service-name").value = service.name;
+  $("catalog-service-department").value = service.department_id || "";
+  $("catalog-service-keywords").value = (service.keywords || []).join(", ");
+  $("catalog-service-description").value = service.description || "";
+  $("catalog-service-sla").value = service.sla_minutes;
+  $("catalog-service-confirm").checked = service.confirmation_required;
+  $("catalog-service-enabled").checked = service.enabled;
+}
+
+async function saveDepartment() {
+  const name = $("department-name").value.trim();
+  if (!name) throw new Error("Department name is required.");
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/departments`, {
+    method: "PUT",
+    body: JSON.stringify({ data: { department_id: $("department-id").value || undefined, name, default_sla_minutes: Number($("department-sla").value), escalation_target: $("department-escalation").value.trim(), enabled: $("department-enabled").checked } }),
+  });
+  $("department-id").value = "";
+  $("department-name").value = "";
+  await loadServiceCatalog();
+  showToast("Department saved.");
+}
+
+async function saveCatalogService() {
+  const name = $("catalog-service-name").value.trim();
+  if (!name) throw new Error("Service name is required.");
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/service-catalog`, {
+    method: "PUT",
+    body: JSON.stringify({ data: {
+      service_id: $("catalog-service-id").value || undefined,
+      name, department_id: $("catalog-service-department").value || null,
+      keywords: $("catalog-service-keywords").value.split(",").map((item) => item.trim()).filter(Boolean),
+      description: $("catalog-service-description").value.trim(), sla_minutes: Number($("catalog-service-sla").value),
+      confirmation_required: $("catalog-service-confirm").checked, enabled: $("catalog-service-enabled").checked,
+    } }),
+  });
+  $("catalog-service-id").value = "";
+  $("catalog-service-name").value = "";
+  $("catalog-service-keywords").value = "";
+  $("catalog-service-description").value = "";
+  await loadServiceCatalog();
+  showToast("Service saved.");
+}
+
+async function duplicateCatalogService(serviceId) {
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/service-catalog/${encodeURIComponent(serviceId)}/duplicate`, { method: "POST" });
+  await loadServiceCatalog();
+  showToast("Service duplicated.");
+}
+
+async function archiveCatalogService(service) {
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/service-catalog`, { method: "PUT", body: JSON.stringify({ data: { ...service, archived: true, enabled: false } }) });
+  await loadServiceCatalog();
+  showToast("Service archived.");
+}
+
+async function deleteCatalogService(serviceId) {
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/service-catalog/${encodeURIComponent(serviceId)}`, { method: "DELETE" });
+  await loadServiceCatalog();
+  showToast("Service deleted.");
+}
+
+function syncRequestService() {
+  const service = state.catalog.services.find((item) => item.service_id === $("service-type").value);
+  const department = state.catalog.departments.find((item) => item.department_id === service?.department_id);
+  $("service-department").value = department?.name || "";
+  if (service) $("service-sla").value = service.sla_minutes;
+}
+
+async function loadRecommendations() {
+  const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/recommendations`);
+  state.recommendations = data.recommendations;
+  const list = $("recommendation-list");
+  list.innerHTML = "";
+  for (const recommendation of state.recommendations) {
+    const row = document.createElement("div");
+    row.className = "compact-row";
+    row.innerHTML = `<strong>${escapeHTML(recommendation.name)}</strong><span>${escapeHTML(recommendation.category)} · ${recommendation.enabled ? "Visible" : "Disabled"}</span><span>${escapeHTML(recommendation.address || recommendation.description)}</span>`;
+    const edit = document.createElement("button");
+    edit.type = "button"; edit.textContent = "Edit"; edit.addEventListener("click", () => editRecommendation(recommendation));
+    const remove = document.createElement("button");
+    remove.type = "button"; remove.textContent = "Delete"; remove.addEventListener("click", () => deleteRecommendation(recommendation.recommendation_id).catch((error) => showToast(error.message, "error")));
+    row.append(edit, remove); list.appendChild(row);
+  }
+  if (!list.children.length) list.textContent = "No curated recommendations yet.";
+}
+
+function editRecommendation(item) {
+  $("recommendation-id").value = item.recommendation_id;
+  $("recommendation-name").value = item.name;
+  $("recommendation-category").value = item.category;
+  $("recommendation-address").value = item.address;
+  $("recommendation-map-url").value = item.map_url;
+  $("recommendation-description").value = item.description;
+  $("recommendation-source").value = item.source;
+  $("recommendation-enabled").checked = item.enabled;
+}
+
+async function saveRecommendation() {
+  const name = $("recommendation-name").value.trim();
+  if (!name) throw new Error("Recommendation name is required.");
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/recommendations`, { method: "PUT", body: JSON.stringify({ data: {
+    recommendation_id: $("recommendation-id").value || undefined, name,
+    category: $("recommendation-category").value.trim() || "other", address: $("recommendation-address").value.trim(),
+    map_url: $("recommendation-map-url").value.trim(), description: $("recommendation-description").value.trim(),
+    source: $("recommendation-source").value.trim() || "property", enabled: $("recommendation-enabled").checked,
+  } }) });
+  $("recommendation-id").value = ""; $("recommendation-name").value = ""; $("recommendation-description").value = "";
+  await loadRecommendations(); showToast("Recommendation saved.");
+}
+
+async function deleteRecommendation(recommendationId) {
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/recommendations/${encodeURIComponent(recommendationId)}`, { method: "DELETE" });
+  await loadRecommendations(); showToast("Recommendation deleted.");
+}
+
 async function loadServiceRequests() {
+  await loadServiceCatalog();
   const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/hospitality`);
   const list = $("service-request-list");
   list.innerHTML = "";
@@ -1597,7 +1857,7 @@ async function loadServiceRequests() {
     const next = nextServiceStatus(request.status);
     row.innerHTML = `
       <strong>${request.request_type} · ${request.room || "no room"}</strong>
-      <span>${request.status} · ${request.sla_state} · ${request.department}</span>
+      <span>${request.status} · ${request.sla_state} · ${request.department} · ${request.priority}</span>
       <span>${request.description}</span>
     `;
     if (next) {
@@ -1619,13 +1879,14 @@ function nextServiceStatus(status) {
 }
 
 async function createServiceRequest() {
+  if (!$("service-type").value) throw new Error("Select a configured service.");
   await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/service-requests`, {
     method: "POST",
     body: JSON.stringify({ data: {
       room: $("service-room").value.trim() || null,
-      request_type: $("service-type").value,
-      department: $("service-department").value.trim() || "front_desk",
+      service_id: $("service-type").value,
       description: $("service-description").value.trim(),
+      priority: $("service-priority").value,
       sla_target_seconds: Number($("service-sla").value || 15) * 60,
     } }),
   });
@@ -2162,6 +2423,16 @@ function setup() {
   $("record-observation").addEventListener("click", () => recordObservation().catch((error) => showToast(error.message, "error")));
   $("load-location-report").addEventListener("click", () => loadLocationReport().catch((error) => showToast(error.message, "error")));
   $("create-service-request").addEventListener("click", () => createServiceRequest().catch((error) => showToast(error.message, "error")));
+  $("service-type").addEventListener("change", syncRequestService);
+  $("save-department").addEventListener("click", () => saveDepartment().catch((error) => showToast(error.message, "error")));
+  $("save-catalog-service").addEventListener("click", () => saveCatalogService().catch((error) => showToast(error.message, "error")));
+  $("save-recommendation").addEventListener("click", () => saveRecommendation().catch((error) => showToast(error.message, "error")));
+  $("refresh-conversations").addEventListener("click", () => loadConversations().catch((error) => showToast(error.message, "error")));
+  $("conversation-search").addEventListener("input", renderConversations);
+  $("conversation-status-filter").addEventListener("change", renderConversations);
+  $("toggle-takeover").addEventListener("click", () => setConversationState("open", !state.selectedConversation?.human_takeover).catch((error) => showToast(error.message, "error")));
+  $("close-conversation").addEventListener("click", () => setConversationState("closed", false).catch((error) => showToast(error.message, "error")));
+  $("send-staff-response").addEventListener("click", () => sendStaffResponse().catch((error) => showToast(error.message, "error")));
   for (const id of ["intro-mode", "intro-preset", "intro-duration", "intro-message", "intro-background", "intro-brand-color", "intro-first-visit", "intro-skip"]) {
     $(id).addEventListener("input", updateIntroPreview);
     $(id).addEventListener("change", updateIntroPreview);
