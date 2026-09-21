@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const e2eDatabase = join(tmpdir(), `concierge-ai-e2e-${process.pid}.db`);
+const serverCommand = process.env.PLAYWRIGHT_SERVER_COMMAND
+  || ".venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8092";
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -20,7 +22,7 @@ export default defineConfig({
     video: "retain-on-failure",
   },
   webServer: {
-    command: ".venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8092",
+    command: serverCommand,
     env: { ...process.env, DB_PATH: e2eDatabase },
     url: "http://127.0.0.1:8092/health",
     reuseExistingServer: !process.env.CI,

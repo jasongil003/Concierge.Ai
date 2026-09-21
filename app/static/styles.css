@@ -534,7 +534,7 @@ body[data-density="compact"] .welcome-state {
 
 .composer {
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) 40px;
+  grid-template-columns: minmax(0, 1fr) 40px;
   align-items: end;
   gap: 8px;
   width: min(var(--composer-max), 100%);
@@ -1385,7 +1385,7 @@ body[data-assistant-message-style="bubble"] .message-row.assistant .message-text
 }
 
 .composer {
-  grid-template-columns: 42px minmax(0, 1fr) 42px;
+  grid-template-columns: minmax(0, 1fr) 42px;
   gap: 9px;
   padding: 8px;
   border-color: color-mix(in srgb, var(--text-primary) 12%, transparent);

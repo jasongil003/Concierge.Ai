@@ -79,6 +79,7 @@ test("guest: hotel name and concierge name are displayed", async ({ page }) => {
 test("guest: suggestion buttons exist and are clickable", async ({ page }) => {
   await page.goto("/");
   const suggestions = page.locator("#suggestion-list button");
+  await expect(suggestions.first()).toBeVisible();
   const count = await suggestions.count();
   expect(count).toBeGreaterThan(0);
 
@@ -220,14 +221,19 @@ test("guest: nearby dining shows persisted recommendation cards", async ({ page,
 
 test("guest: restaurant card directions button opens configured map", async ({ page, request }) => {
   await ensureGuestData(request);
+  let openedUrl = null;
+  await page.exposeFunction("__testCaptureUrl", (url) => { openedUrl = url; });
+  await page.addInitScript(() => {
+    const realOpen = window.open.bind(window);
+    window.open = (url, ...args) => { window.__testCaptureUrl(String(url)); return realOpen(url, ...args); };
+  });
   await page.goto("/");
   await page.getByLabel("Ask your concierge").fill("Recommend somewhere nearby to eat");
   await page.getByRole("button", { name: "Send message" }).click();
 
   const directionsBtn = page.locator(".recommendation-card").first().getByRole("button", { name: "Directions" });
-  const [popup] = await Promise.all([page.waitForEvent("popup"), directionsBtn.click()]);
-  expect(popup.url()).toContain("maps.example/bistro");
-  await popup.close();
+  await directionsBtn.click();
+  expect(openedUrl).toContain("maps.example/bistro");
 });
 
 test("guest: restaurant card details button toggles verified details", async ({ page, request }) => {
@@ -275,6 +281,30 @@ test("guest: menu opens and closes", async ({ page }) => {
   await expect(page.locator("#hotel-menu")).not.toHaveClass(/open/);
 });
 
+test("guest: options button opens the same working menu", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open options" }).click();
+  await expect(page.locator("#hotel-menu")).toHaveClass(/open/);
+  await page.getByRole("button", { name: "Close menu" }).click();
+  await expect(page.locator("#hotel-menu")).not.toHaveClass(/open/);
+});
+
+for (const [label, expectedText] of [
+  ["Hotel information", "Property description"],
+  ["Language", "Language preference set"],
+  ["Accessibility", "Accessibility display mode"],
+  ["Privacy", "session is temporary"],
+  ["Help", "Ask about verified hotel information"],
+]) {
+  test(`guest: ${label.toLowerCase()} menu action responds`, async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Open hotel menu" }).click();
+    await page.getByRole("button", { name: label, exact: true }).click();
+    await expect(page.locator(".message-row.assistant").last()).toContainText(expectedText);
+    await expect(page.locator("#hotel-menu")).not.toHaveClass(/open/);
+  });
+}
+
 test("guest: new conversation resets messages", async ({ page }) => {
   await page.goto("/");
   await page.getByLabel("Ask your concierge").fill("Hello");
@@ -303,6 +333,15 @@ test("guest: mobile layout shows all core elements", async ({ page }) => {
   await expect(page.locator("#welcome-headline")).toBeVisible();
   await expect(page.getByLabel("Ask your concierge")).toBeVisible();
   await expect(page.getByRole("button", { name: "Send message" })).toBeVisible();
+});
+
+test("guest: composer input uses the available width", async ({ page }) => {
+  await page.goto("/");
+  const sizes = await page.locator("#composer-form").evaluate((form) => {
+    const input = form.querySelector("textarea");
+    return { form: form.getBoundingClientRect().width, input: input.getBoundingClientRect().width };
+  });
+  expect(sizes.input).toBeGreaterThan(sizes.form * 0.7);
 });
 
 // --- 9. Unsupported attachment control is not exposed ---

@@ -241,6 +241,7 @@ function renderRecommendationResults(results) {
     meta.textContent = [result.category, result.address, result.open_now === true ? "Open now" : result.open_now === false ? "Closed now" : ""].filter(Boolean).join(" · ");
 
     const detail = document.createElement("p");
+    detail.hidden = true;
     detail.textContent = result.description || result.detail || "No additional description supplied.";
 
     const actions = document.createElement("div");

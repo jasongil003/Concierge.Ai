@@ -138,7 +138,11 @@ class AIProvider(Protocol):
 
 class SecretBox:
     def __init__(self, secret: str) -> None:
-        self.secret = secret or "local-development-secret"
+        if not secret:
+            if settings.app_environment in ("production", "staging"):
+                raise RuntimeError("CREDENTIAL_ENCRYPTION_SECRET must be set in production/staging.")
+            secret = "local-development-secret"
+        self.secret = secret
         digest = hashlib.sha256(self.secret.encode("utf-8")).digest()
         self._fernet = Fernet(base64.urlsafe_b64encode(digest))
 

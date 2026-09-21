@@ -21,6 +21,33 @@ test("invalid username and password remain on login", async ({ page }) => {
   await expect(page).toHaveURL(/\/admin\/login$/);
 });
 
+test("password visibility button toggles the password field", async ({ page }) => {
+  await page.goto("/admin/login");
+  const password = page.getByLabel("Password", { exact: true });
+  const toggle = page.getByRole("button", { name: "Show password" });
+
+  await expect(password).toHaveAttribute("type", "password");
+  await toggle.click();
+  await expect(password).toHaveAttribute("type", "text");
+  await expect(page.getByRole("button", { name: "Hide password" })).toBeVisible();
+  await page.getByRole("button", { name: "Hide password" }).click();
+  await expect(password).toHaveAttribute("type", "password");
+});
+
+test("password recovery buttons open, submit, and close the dialog", async ({ page }) => {
+  await page.goto("/admin/login");
+  await page.locator("#username").fill("admin");
+  await page.getByRole("button", { name: "Forgot password?" }).click();
+
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await expect(page.locator("#recovery-username")).toHaveValue("admin");
+  await page.getByRole("button", { name: "Request reset" }).click();
+  await expect(page.locator("#recovery-message")).toContainText("reset instructions will be sent");
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).not.toBeVisible();
+});
+
 test("username login opens admin and logout revokes the session", async ({ page }) => {
   await page.goto("/admin/login");
   await page.locator("#username").fill("admin");

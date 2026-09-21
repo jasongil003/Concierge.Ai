@@ -5,11 +5,15 @@ from app.guest_identity import GuestIdentityStore, pseudonymous_device_id
 from app.intro import IntroExperienceStore
 from app.location_analytics import LocationAnalyticsStore
 from app.properties import PropertyRecord, PropertyStore
+import app.zones as zones_module
 from app.zones import ZoneStore
 
 
 def _stores(tmp_path: Path):
     db = tmp_path / "concierge.db"
+    upload = tmp_path / "uploads"
+    upload.mkdir(parents=True, exist_ok=True)
+    zones_module.UPLOAD_ROOT = upload
     properties = PropertyStore(db)
     zones = ZoneStore(db)
     identities = GuestIdentityStore(db)

@@ -2217,6 +2217,7 @@ async function loadAudit() {
 
 async function changePassword(event) {
   event.preventDefault();
+  const form = event.currentTarget;
   if ($("new-password").value !== $("confirm-new-password").value) {
     showToast("New passwords do not match.", "error");
     return;
@@ -2225,7 +2226,7 @@ async function changePassword(event) {
     method: "POST",
     body: JSON.stringify({ current_password: $("current-password").value, new_password: $("new-password").value }),
   });
-  event.currentTarget.reset();
+  form.reset();
   state.auth.force_password_change = false;
   showToast("Password changed. Other sessions were revoked.");
 }

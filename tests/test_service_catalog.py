@@ -2,6 +2,7 @@ from pathlib import Path
 
 import app.main as main_module
 from app.hospitality import HospitalityStore
+from app.properties import PropertyRecord, PropertyStore
 
 
 def test_catalog_and_recommendations_are_property_scoped_and_persistent(tmp_path: Path):
@@ -79,3 +80,70 @@ def test_disabled_service_cannot_be_requested(admin_client, tmp_path: Path, monk
     )
     assert response.status_code == 422
     assert response.json()["detail"] == "The selected service is not available."
+
+
+def test_department_property_isolation(admin_client, tmp_path: Path, monkeypatch):
+    hospitality = HospitalityStore(tmp_path / "isolation.db")
+    properties = PropertyStore(tmp_path / "isolation.db")
+    properties.upsert(PropertyRecord(property_id="hotel-a", hotel_name="Hotel A"))
+    properties.upsert(PropertyRecord(property_id="hotel-b", hotel_name="Hotel B"))
+    monkeypatch.setattr(main_module, "hospitality", hospitality)
+    monkeypatch.setattr(main_module, "properties", properties)
+
+    dept_a = hospitality.upsert_department("hotel-a", {"name": "Housekeeping"})
+    dept_b = hospitality.upsert_department("hotel-b", {"name": "Concierge"})
+
+    catalog_a = hospitality.catalog("hotel-a")
+    catalog_b = hospitality.catalog("hotel-b")
+    assert len(catalog_a["departments"]) == 1
+    assert catalog_a["departments"][0]["name"] == "Housekeeping"
+    assert len(catalog_b["departments"]) == 1
+    assert catalog_b["departments"][0]["name"] == "Concierge"
+
+    service = hospitality.upsert_service("hotel-a", {"name": "Towels", "department_id": dept_a["department_id"]})
+    catalog_a = hospitality.catalog("hotel-a")
+    assert len(catalog_a["services"]) == 1
+    assert catalog_a["services"][0]["name"] == "Towels"
+    catalog_b = hospitality.catalog("hotel-b")
+    assert len(catalog_b["services"]) == 0
+
+
+def test_recommendation_property_isolation(admin_client, tmp_path: Path, monkeypatch):
+    hospitality = HospitalityStore(tmp_path / "rec_isolation.db")
+    properties = PropertyStore(tmp_path / "rec_isolation.db")
+    properties.upsert(PropertyRecord(property_id="hotel-a", hotel_name="Hotel A"))
+    properties.upsert(PropertyRecord(property_id="hotel-b", hotel_name="Hotel B"))
+    monkeypatch.setattr(main_module, "hospitality", hospitality)
+    monkeypatch.setattr(main_module, "properties", properties)
+
+    hospitality.upsert_recommendation("hotel-a", {"name": "Museum", "category": "attraction"})
+    hospitality.upsert_recommendation("hotel-b", {"name": "Beach", "category": "nature"})
+
+    recs_a = hospitality.recommendations("hotel-a")
+    recs_b = hospitality.recommendations("hotel-b")
+    assert len(recs_a) == 1
+    assert recs_a[0]["name"] == "Museum"
+    assert len(recs_b) == 1
+    assert recs_b[0]["name"] == "Beach"
+
+    assert hospitality.delete_recommendation("hotel-a", recs_a[0]["recommendation_id"])
+    assert len(hospitality.recommendations("hotel-a")) == 0
+    assert len(hospitality.recommendations("hotel-b")) == 1
+
+
+def test_service_request_cross_property_access_rejected(admin_client, tmp_path: Path, monkeypatch):
+    hospitality = HospitalityStore(tmp_path / "req_isolation.db")
+    properties = PropertyStore(tmp_path / "req_isolation.db")
+    properties.upsert(PropertyRecord(property_id="hotel-a", hotel_name="Hotel A"))
+    properties.upsert(PropertyRecord(property_id="hotel-b", hotel_name="Hotel B"))
+    monkeypatch.setattr(main_module, "hospitality", hospitality)
+    monkeypatch.setattr(main_module, "properties", properties)
+
+    service_a = hospitality.upsert_service("hotel-a", {"name": "Towels"})
+    session = admin_client.post("/api/session/start", json={"client_id": "guest-cross", "property_id": "hotel-b"}).json()
+    response = admin_client.post(
+        "/api/guest/service-requests",
+        json={"session_id": session["session_id"], "service_id": service_a["service_id"], "description": "Send towels"},
+    )
+    assert response.status_code == 422
+    assert "not available" in response.json()["detail"].lower()

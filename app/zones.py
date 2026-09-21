@@ -8,8 +8,9 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from .config import settings
 
-UPLOAD_ROOT = Path("state/uploads")
+UPLOAD_ROOT = settings.upload_root
 FLOOR_PLAN_TYPES = {
     "image/png": ".png",
     "image/jpeg": ".jpg",
