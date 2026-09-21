@@ -8,6 +8,9 @@ const state = {
   draftKey: "concierge-draft",
   mode: "auto",
   intro: null,
+  services: [],
+  recommendations: [],
+  staffMessageIds: new Set(),
 };
 
 let startupPromise = null;
@@ -20,24 +23,6 @@ const defaultSuggestions = [
   { label: "What time does the pool close?", prompt: "What time does the pool close?" },
   { label: "Recommend somewhere nearby to eat", prompt: "Recommend somewhere nearby to eat" },
   { label: "Can I request a late checkout?", prompt: "Can I request a late checkout?" },
-];
-
-const recommendationResults = [
-  {
-    name: "Lusso Bistro",
-    meta: "Italian · 350 m · Open until 11 PM",
-    detail: "Quiet dining room, good for a relaxed dinner after check-in.",
-  },
-  {
-    name: "Harbor Kitchen",
-    meta: "Seafood · 600 m · Open until 10:30 PM",
-    detail: "Casual, nearby, and usually easy to get a table.",
-  },
-  {
-    name: "Matsuya Table",
-    meta: "Japanese · 900 m · Open until 10 PM",
-    detail: "Good option for sushi, rice bowls, and lighter dishes.",
-  },
 ];
 
 function setText(id, value) {
@@ -253,20 +238,27 @@ function renderRecommendationResults(results) {
     name.textContent = result.name;
 
     const meta = document.createElement("span");
-    meta.textContent = result.meta;
+    meta.textContent = [result.category, result.address, result.open_now === true ? "Open now" : result.open_now === false ? "Closed now" : ""].filter(Boolean).join(" · ");
 
     const detail = document.createElement("p");
-    detail.textContent = result.detail;
+    detail.textContent = result.description || result.detail || "No additional description supplied.";
 
     const actions = document.createElement("div");
     const directionsBtn = document.createElement("button");
     directionsBtn.type = "button";
     directionsBtn.textContent = "Directions";
-    directionsBtn.addEventListener("click", () => showToast("Directions will connect to maps and booking integrations."));
+    const mapUrl = result.map_url || result.maps_url;
+    directionsBtn.disabled = !mapUrl;
+    directionsBtn.addEventListener("click", () => {
+      if (mapUrl) window.open(mapUrl, "_blank", "noopener,noreferrer");
+    });
     const detailsBtn = document.createElement("button");
     detailsBtn.type = "button";
     detailsBtn.textContent = "Details";
-    detailsBtn.addEventListener("click", () => showToast("Details will connect to maps and booking integrations."));
+    detailsBtn.addEventListener("click", () => {
+      detail.hidden = !detail.hidden;
+      detailsBtn.textContent = detail.hidden ? "Details" : "Hide details";
+    });
     actions.appendChild(directionsBtn);
     actions.appendChild(detailsBtn);
 
@@ -285,10 +277,21 @@ function renderConfirmationCard(message) {
   const button = document.createElement("button");
   button.type = "button";
   button.textContent = message.actionLabel || "Confirm";
-  button.addEventListener("click", () => {
+  button.addEventListener("click", async () => {
     button.disabled = true;
-    button.textContent = "Confirmed";
-    addMessage({ role: "assistant", type: "status", text: "Request confirmed. Hotel staff will follow up shortly." });
+    button.textContent = "Creating...";
+    try {
+      const result = await jsonFetch("/api/guest/service-requests", {
+        method: "POST",
+        body: JSON.stringify({ session_id: state.sessionId, service_id: message.service.service_id, description: message.description, room: state.room }),
+      });
+      button.textContent = "Confirmed";
+      addMessage({ role: "assistant", type: "status", text: `Request ${result.request.request_id} was created. Hotel staff can now track it.` });
+    } catch (error) {
+      button.disabled = false;
+      button.textContent = message.actionLabel || "Confirm";
+      addMessage({ role: "assistant", type: "error", text: error.message });
+    }
   });
   card.appendChild(button);
   return card;
@@ -366,24 +369,29 @@ async function handleGuestInput(rawMessage) {
     return;
   }
 
-  if (isServiceRequest(message)) {
+  const matchedService = matchService(message);
+  if (matchedService) {
     addMessage({
       role: "assistant",
       type: "confirmation",
-      text: "I can send that request to housekeeping. Please confirm before I create it.",
+      text: `I can create a ${matchedService.name} request. Please confirm before I send it to hotel staff.`,
       actionLabel: "Confirm request",
+      service: matchedService,
+      description: message,
     });
     return;
   }
 
   if (isRestaurantRequest(message)) {
-    addMessage({
-      role: "assistant",
-      type: "recommendation",
-      text: "Here are a few nearby options that should work well. I can narrow these by cuisine, budget, or walking distance.",
-      results: recommendationResults,
-    });
-    return;
+    if (state.recommendations.length) {
+      addMessage({
+        role: "assistant",
+        type: "recommendation",
+        text: "Here are property-verified recommendations.",
+        results: state.recommendations,
+      });
+      return;
+    }
   }
 
   await sendChat(message);
@@ -401,8 +409,9 @@ async function sendChat(message) {
         mode: state.mode,
       }),
     });
-    thinking.type = "text";
+    thinking.type = result.places?.length ? "recommendation" : "text";
     thinking.text = result.answer;
+    thinking.results = (result.places || []).map((place) => ({ ...place, category: "Live Places result", description: place.address }));
     renderMessages();
   } catch (error) {
     thinking.type = "error";
@@ -449,9 +458,9 @@ function isRestaurantRequest(message) {
   return ["restaurant", "dining", "eat", "food", "nearby", "japanese"].some((word) => normalized.includes(word));
 }
 
-function isServiceRequest(message) {
+function matchService(message) {
   const normalized = message.toLowerCase();
-  return ["towel", "towels", "housekeeping", "room service", "maintenance", "send"].some((word) => normalized.includes(word));
+  return state.services.find((service) => [service.name, ...(service.keywords || [])].some((word) => normalized.includes(String(word).toLowerCase())));
 }
 
 function setDraft(value) {
@@ -490,9 +499,6 @@ function setupComposer() {
     handleGuestInput(input.value);
   });
 
-  $("plus-button").addEventListener("click", () => {
-    showToast("Photo upload and location sharing are disabled for this POC.", "warning");
-  });
 }
 
 function setupMenu() {
@@ -509,7 +515,7 @@ function setupMenu() {
     if (event.target === $("hotel-menu")) closeMenu();
   });
   for (const button of document.querySelectorAll("[data-menu-action]")) {
-    button.addEventListener("click", () => handleMenuAction(button.dataset.menuAction));
+    button.addEventListener("click", () => handleMenuAction(button.dataset.menuAction).catch((error) => showToast(error.message, "warning")));
   }
 }
 
@@ -518,22 +524,36 @@ function closeMenu() {
   $("hotel-menu").setAttribute("aria-hidden", "true");
 }
 
-function handleMenuAction(action) {
+async function handleMenuAction(action) {
   closeMenu();
   if (action === "new-chat") {
     state.messages = [];
+    state.sessionId = null;
+    state.staffMessageIds.clear();
+    await startGuestSession();
     renderMessages();
     showToast("Started a new conversation.");
     return;
   }
-  const labels = {
-    "hotel-info": "Hotel information",
-    language: "Language preferences",
-    accessibility: "Accessibility controls",
-    privacy: "Privacy information",
-    help: "Help",
-  };
-  showToast((labels[action] || "Menu item") + " will open in the next POC pass.");
+  if (action === "hotel-info") {
+    const location = state.hotel?.location?.address || "Address not configured";
+    addMessage({ role: "assistant", type: "text", text: `${state.hotel?.name || "Hotel"}\n${state.hotel?.description || "Property description not configured."}\n${location}` });
+  } else if (action === "language") {
+    const languages = state.hotel?.languages || ["en"];
+    const current = Math.max(0, languages.indexOf(document.documentElement.lang));
+    const next = languages[(current + 1) % languages.length];
+    document.documentElement.lang = next;
+    localStorage.setItem("concierge-language", next);
+    addMessage({ role: "assistant", type: "status", text: `Language preference set to ${next}. Available: ${languages.join(", ")}.` });
+  } else if (action === "accessibility") {
+    const enabled = document.body.classList.toggle("accessibility-mode");
+    localStorage.setItem("concierge-accessibility", enabled ? "1" : "0");
+    addMessage({ role: "assistant", type: "status", text: `Accessibility display mode ${enabled ? "enabled" : "disabled"}.` });
+  } else if (action === "privacy") {
+    addMessage({ role: "assistant", type: "text", text: "Your concierge session is temporary. Hotel staff should only receive information needed to fulfill confirmed requests. Avoid sharing payment details or passwords in chat." });
+  } else if (action === "help") {
+    addMessage({ role: "assistant", type: "text", text: "Ask about verified hotel information, enabled services, dining, facilities, Wi-Fi access, or local recommendations. Operational requests are created only after you confirm them." });
+  }
 }
 
 function applyHotelProfile(profile) {
@@ -648,13 +668,25 @@ function fontStack(font) {
 async function start() {
   setupComposer();
   setupMenu();
-  const profile = await jsonFetch("/api/hotel");
+  const [profile, catalog, recommendations] = await Promise.all([
+    jsonFetch("/api/hotel"),
+    jsonFetch("/api/guest/service-catalog"),
+    jsonFetch("/api/guest/recommendations"),
+  ]);
+  state.services = catalog.services || [];
+  state.recommendations = recommendations.recommendations || [];
   applyHotelProfile(profile);
   await maybeShowIntro();
 
   state.clientId = localStorage.getItem("concierge-client-id") || createClientId();
   localStorage.setItem("concierge-client-id", state.clientId);
 
+  if (localStorage.getItem("concierge-accessibility") === "1") document.body.classList.add("accessibility-mode");
+  document.documentElement.lang = localStorage.getItem("concierge-language") || document.documentElement.lang;
+  await startGuestSession();
+}
+
+async function startGuestSession() {
   const session = await jsonFetch("/api/session/start", {
     method: "POST",
     body: JSON.stringify({
@@ -665,6 +697,20 @@ async function start() {
   state.sessionId = session.session_id;
 }
 
+async function pollStaffMessages() {
+  if (!state.sessionId || document.hidden) return;
+  try {
+    const data = await jsonFetch(`/api/guest/conversations/${encodeURIComponent(state.sessionId)}/staff-messages`);
+    for (const message of data.messages || []) {
+      if (state.staffMessageIds.has(message.message_id)) continue;
+      state.staffMessageIds.add(message.message_id);
+      addMessage({ role: "assistant", type: "text", text: message.content });
+    }
+  } catch (error) {
+    if (!String(error.message).toLowerCase().includes("expired")) console.warn("Unable to refresh staff replies", error);
+  }
+}
+
 function ensureStarted() {
   if (!startupPromise) startupPromise = start();
   return startupPromise;
@@ -673,3 +719,4 @@ function ensureStarted() {
 ensureStarted().catch((error) => {
   addMessage({ role: "assistant", type: "error", text: "Unable to start the concierge: " + error.message });
 });
+window.setInterval(pollStaffMessages, 3000);

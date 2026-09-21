@@ -598,6 +598,17 @@ body[data-density="compact"] .welcome-state {
   color: var(--text-muted);
 }
 
+body.accessibility-mode {
+  --text-secondary: #3f3f46;
+  --border: #71717a;
+  --base-font-size: 18px;
+}
+
+body.accessibility-mode :focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+
 .composer-note {
   width: min(var(--composer-max), 100%);
   margin: 7px auto 0;

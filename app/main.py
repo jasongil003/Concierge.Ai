@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 from collections import defaultdict, deque
 from pathlib import Path
 import re
+import time
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -94,6 +95,12 @@ def _required_admin_permission(method: str, path: str) -> str | None:
         return "roles.view"
     if path.startswith("/api/admin/audit"):
         return "audit.view"
+    if path.endswith("/dashboard"):
+        return "dashboard.view"
+    if "/conversations" in path:
+        return "conversations.view" if method == "GET" else "conversations.reply"
+    if "/service-catalog" in path or "/departments" in path:
+        return "requests.view" if method == "GET" else "requests.manage"
     if "/ai/" in path or path.endswith("/ai") or "/improvement-loop" in path:
         return "ai.view" if method == "GET" else "ai.configure"
     if "/design" in path or "/intro" in path:
@@ -323,6 +330,29 @@ class ServiceStatusPayload(BaseModel):
     status: str
 
 
+class GuestServiceRequestPayload(BaseModel):
+    session_id: str = Field(min_length=1, max_length=200)
+    service_id: str = Field(min_length=1, max_length=120)
+    description: str = Field(min_length=1, max_length=1000)
+    room: str | None = Field(default=None, max_length=80)
+
+
+class ServiceRequestUpdatePayload(BaseModel):
+    priority: str | None = Field(default=None, max_length=40)
+    department: str | None = Field(default=None, max_length=120)
+    assigned_to: str | None = Field(default=None, max_length=160)
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class ConversationStatePayload(BaseModel):
+    status: str = Field(pattern=r"^(open|closed|escalated)$")
+    human_takeover: bool = False
+
+
+class StaffReplyPayload(BaseModel):
+    message: str = Field(min_length=1, max_length=2000)
+
+
 class NotificationEvaluatePayload(BaseModel):
     stay_id: str | None = None
     verified_payload: dict[str, Any] = Field(default_factory=dict)
@@ -466,6 +496,50 @@ async def guest_facilities(property_id: str | None = None) -> dict[str, Any]:
     if properties.get(requested_property_id) is None:
         raise HTTPException(status_code=404, detail="Property not found.")
     return hospitality.guest_facilities(requested_property_id)
+
+
+@app.get("/api/guest/service-catalog")
+async def guest_service_catalog(property_id: str | None = None) -> dict[str, Any]:
+    requested_property_id = property_id or settings.property_id
+    if properties.get(requested_property_id) is None:
+        raise HTTPException(status_code=404, detail="Property not found.")
+    return hospitality.catalog(requested_property_id, guest=True)
+
+
+@app.get("/api/guest/recommendations")
+async def guest_recommendations(property_id: str | None = None) -> dict[str, Any]:
+    requested_property_id = property_id or settings.property_id
+    if properties.get(requested_property_id) is None:
+        raise HTTPException(status_code=404, detail="Property not found.")
+    return {"recommendations": hospitality.recommendations(requested_property_id, guest=True)}
+
+
+@app.post("/api/guest/service-requests")
+async def create_guest_service_request(payload: GuestServiceRequestPayload) -> dict[str, Any]:
+    session = store.get(payload.session_id)
+    if session is None:
+        raise HTTPException(status_code=401, detail="Concierge session expired.")
+    try:
+        request_record = hospitality.create_service_request(
+            session.property_id,
+            {
+                "service_id": payload.service_id,
+                "description": payload.description,
+                "room": payload.room,
+                "stay_id": session.session_id,
+            },
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"status": "created", "request": request_record}
+
+
+@app.get("/api/guest/conversations/{session_id}/staff-messages")
+async def guest_staff_messages(session_id: str) -> dict[str, Any]:
+    session = store.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=401, detail="Concierge session expired.")
+    return {"messages": store.staff_messages(session_id, session.property_id)}
 
 
 @app.post("/api/admin/auth/login")
@@ -678,6 +752,40 @@ async def get_property(property_id: str) -> dict[str, Any]:
     if record is None:
         raise HTTPException(status_code=404, detail="Property not found.")
     return record.to_dict()
+
+
+@app.get("/api/admin/properties/{property_id}/dashboard")
+async def property_dashboard(property_id: str) -> dict[str, Any]:
+    _require_property(property_id)
+    return {**store.metrics(property_id), **hospitality.request_metrics(property_id)}
+
+
+@app.get("/api/admin/properties/{property_id}/conversations")
+async def property_conversations(property_id: str) -> dict[str, Any]:
+    _require_property(property_id)
+    return {"conversations": store.conversations(property_id)}
+
+
+@app.put("/api/admin/properties/{property_id}/conversations/{session_id}")
+async def update_conversation_state(property_id: str, session_id: str, payload: ConversationStatePayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return store.set_conversation_state(session_id, property_id, payload.status, payload.human_takeover)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/conversations/{session_id}/messages")
+async def staff_conversation_reply(property_id: str, session_id: str, payload: StaffReplyPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    session = store.get(session_id)
+    if session is None or session.property_id != property_id:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    store.record_message(session_id, property_id, "staff", payload.message, provider="human", model="staff")
+    store.set_conversation_state(session_id, property_id, "open", True)
+    return {"status": "sent"}
 
 
 @app.put("/api/admin/properties/{property_id}")
@@ -1071,6 +1179,70 @@ async def hospitality_overview(property_id: str) -> dict[str, Any]:
     return hospitality.overview(property_id)
 
 
+@app.get("/api/admin/properties/{property_id}/service-catalog")
+async def admin_service_catalog(property_id: str) -> dict[str, Any]:
+    _require_property(property_id)
+    return hospitality.catalog(property_id)
+
+
+@app.put("/api/admin/properties/{property_id}/departments")
+async def save_department(property_id: str, payload: GenericPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return hospitality.upsert_department(property_id, payload.data)
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.put("/api/admin/properties/{property_id}/service-catalog")
+async def save_catalog_service(property_id: str, payload: GenericPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return hospitality.upsert_service(property_id, payload.data)
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/service-catalog/{service_id}/duplicate")
+async def duplicate_catalog_service(property_id: str, service_id: str) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return hospitality.duplicate_service(property_id, service_id)
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(status_code=404 if isinstance(exc, KeyError) else 422, detail=str(exc)) from exc
+
+
+@app.delete("/api/admin/properties/{property_id}/service-catalog/{service_id}")
+async def delete_catalog_service(property_id: str, service_id: str) -> dict[str, str]:
+    _require_property(property_id)
+    if not hospitality.delete_service(property_id, service_id):
+        raise HTTPException(status_code=404, detail="Service not found.")
+    return {"status": "deleted"}
+
+
+@app.get("/api/admin/properties/{property_id}/recommendations")
+async def admin_recommendations(property_id: str) -> dict[str, Any]:
+    _require_property(property_id)
+    return {"recommendations": hospitality.recommendations(property_id)}
+
+
+@app.put("/api/admin/properties/{property_id}/recommendations")
+async def save_recommendation(property_id: str, payload: GenericPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return hospitality.upsert_recommendation(property_id, payload.data)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.delete("/api/admin/properties/{property_id}/recommendations/{recommendation_id}")
+async def delete_recommendation(property_id: str, recommendation_id: str) -> dict[str, str]:
+    _require_property(property_id)
+    if not hospitality.delete_recommendation(property_id, recommendation_id):
+        raise HTTPException(status_code=404, detail="Recommendation not found.")
+    return {"status": "deleted"}
+
+
 @app.put("/api/admin/properties/{property_id}/hospitality/facilities")
 async def upsert_facility_profile(property_id: str, payload: GenericPayload) -> dict[str, Any]:
     _require_property(property_id)
@@ -1138,6 +1310,21 @@ async def update_service_request_status(property_id: str, request_id: str, paylo
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.put("/api/admin/properties/{property_id}/service-requests/{request_id}")
+async def update_service_request(property_id: str, request_id: str, payload: ServiceRequestUpdatePayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return hospitality.update_service_request(property_id, request_id, payload.model_dump(exclude_none=True))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/admin/properties/{property_id}/service-requests/{request_id}/history")
+async def service_request_history(property_id: str, request_id: str) -> dict[str, Any]:
+    _require_property(property_id)
+    return {"history": hospitality.request_history(property_id, request_id)}
 
 
 @app.post("/api/admin/properties/{property_id}/feedback")
@@ -1285,6 +1472,7 @@ async def authenticate(request: AuthRequest) -> dict[str, Any]:
 
     if result.status == "authenticated":
         store.mark_authenticated(session.session_id)
+    store.record_authentication(session.session_id, session.property_id, result.status == "authenticated")
 
     return {
         "status": result.status,
@@ -1302,12 +1490,20 @@ async def chat(request: ChatRequest) -> dict[str, Any]:
     requested_mode = request.mode if settings.ai_guest_mode_switch else settings.ai_default_mode
     property_record = properties.get(session.property_id)
     auth_types = property_record.public_profile.get("authentication", {}).get("enabled_types", []) if property_record else []
+    store.record_message(session.session_id, session.property_id, "guest", request.message)
+    started_at = time.perf_counter()
+    conversation_state = store.conversation_state(session.session_id, session.property_id)
+    if conversation_state["human_takeover"]:
+        answer = "Your message was added to the staff conversation. A hotel team member can reply here."
+        store.record_message(session.session_id, session.property_id, "assistant", answer, provider="human_queue", model="staff")
+        return {"answer": answer, "source": "human_queue", "provider": "human", "model": "staff", "mode": requested_mode, "escalated": True}
 
     fast_answer = knowledge.exact_fast_answer(request.message)
     if fast_answer and requested_mode != "advanced":
         answer = fast_answer
         if _is_authentication_question(request.message):
             answer = f"{answer}\n\n{_authentication_guidance(auth_types)}"
+        store.record_message(session.session_id, session.property_id, "assistant", answer, provider="fast_path", model="none", latency_ms=int((time.perf_counter() - started_at) * 1000))
         return {
             "answer": answer,
             "source": "fast_path",
@@ -1359,8 +1555,10 @@ async def chat(request: ChatRequest) -> dict[str, Any]:
             answer = result.answer
         except Exception:
             if context:
+                answer = context[0].get("answer")
+                store.record_message(session.session_id, session.property_id, "assistant", answer or "", provider="verified_fallback", model="none", latency_ms=int((time.perf_counter() - started_at) * 1000))
                 return {
-                    "answer": context[0].get("answer"),
+                    "answer": answer,
                     "source": "verified_fallback",
                     "provider": "none",
                     "model": "none",
@@ -1369,6 +1567,7 @@ async def chat(request: ChatRequest) -> dict[str, Any]:
                 }
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 
+    store.record_message(session.session_id, session.property_id, "assistant", answer, provider=provider, model=model, latency_ms=int((time.perf_counter() - started_at) * 1000))
     return {
         "answer": answer,
         "source": "ai",

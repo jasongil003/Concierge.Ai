@@ -135,6 +135,59 @@ class HospitalityStore:
                     created_at INTEGER NOT NULL,
                     updated_at INTEGER NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS departments (
+                    department_id TEXT PRIMARY KEY,
+                    property_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    default_sla_minutes INTEGER NOT NULL DEFAULT 30,
+                    escalation_target TEXT NOT NULL DEFAULT '',
+                    operating_hours TEXT NOT NULL DEFAULT '{}',
+                    webhook_url TEXT NOT NULL DEFAULT '',
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    UNIQUE(property_id, name)
+                );
+                CREATE TABLE IF NOT EXISTS service_catalog (
+                    service_id TEXT PRIMARY KEY,
+                    property_id TEXT NOT NULL,
+                    department_id TEXT,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    keywords TEXT NOT NULL DEFAULT '[]',
+                    sla_minutes INTEGER NOT NULL DEFAULT 30,
+                    confirmation_required INTEGER NOT NULL DEFAULT 1,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    archived INTEGER NOT NULL DEFAULT 0,
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    UNIQUE(property_id, name)
+                );
+                CREATE TABLE IF NOT EXISTS recommendations (
+                    recommendation_id TEXT PRIMARY KEY,
+                    property_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    category TEXT NOT NULL DEFAULT 'other',
+                    address TEXT NOT NULL DEFAULT '',
+                    map_url TEXT NOT NULL DEFAULT '',
+                    description TEXT NOT NULL DEFAULT '',
+                    images TEXT NOT NULL DEFAULT '[]',
+                    opening_hours TEXT NOT NULL DEFAULT '{}',
+                    source TEXT NOT NULL DEFAULT 'property',
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    UNIQUE(property_id, name)
+                );
+                CREATE TABLE IF NOT EXISTS service_request_history (
+                    history_id TEXT PRIMARY KEY,
+                    property_id TEXT NOT NULL,
+                    request_id TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    detail TEXT NOT NULL DEFAULT '{}',
+                    created_at INTEGER NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS guest_feedback (
                     feedback_id TEXT PRIMARY KEY,
                     property_id TEXT NOT NULL,
@@ -194,6 +247,143 @@ class HospitalityStore:
                 );
                 """
             )
+            self._ensure_column(db, "service_requests", "service_id", "TEXT")
+            self._ensure_column(db, "service_requests", "assigned_to", "TEXT")
+            self._ensure_column(db, "service_requests", "notes", "TEXT NOT NULL DEFAULT '[]'")
+
+    def _ensure_column(self, db: sqlite3.Connection, table: str, name: str, definition: str) -> None:
+        columns = {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}
+        if name not in columns:
+            db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+
+    def upsert_department(self, property_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        now = _now()
+        department_id = str(payload.get("department_id") or _id("dept"))
+        name = _clean(payload.get("name"), 120)
+        if not name:
+            raise ValueError("Department name is required.")
+        sla = int(payload.get("default_sla_minutes") or 30)
+        if not 1 <= sla <= 1440:
+            raise ValueError("Default SLA must be between 1 and 1440 minutes.")
+        record = {
+            "department_id": department_id, "property_id": property_id, "name": name,
+            "enabled": 1 if payload.get("enabled", True) else 0,
+            "default_sla_minutes": sla,
+            "escalation_target": _clean(payload.get("escalation_target"), 240),
+            "operating_hours": _json(payload.get("operating_hours") or {}),
+            "webhook_url": _clean(payload.get("webhook_url"), 500),
+            "created_at": now, "updated_at": now,
+        }
+        with self._connect() as db:
+            existing = db.execute("SELECT created_at FROM departments WHERE property_id=? AND department_id=?", (property_id, department_id)).fetchone()
+            if existing:
+                record["created_at"] = existing["created_at"]
+                db.execute("""UPDATE departments SET name=:name,enabled=:enabled,default_sla_minutes=:default_sla_minutes,
+                    escalation_target=:escalation_target,operating_hours=:operating_hours,webhook_url=:webhook_url,
+                    updated_at=:updated_at WHERE property_id=:property_id AND department_id=:department_id""", record)
+            else:
+                db.execute("INSERT INTO departments VALUES (:department_id,:property_id,:name,:enabled,:default_sla_minutes,:escalation_target,:operating_hours,:webhook_url,:created_at,:updated_at)", record)
+        return self._department_dict(record)
+
+    def upsert_service(self, property_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        now = _now()
+        service_id = str(payload.get("service_id") or _id("svc"))
+        name = _clean(payload.get("name"), 160)
+        if not name:
+            raise ValueError("Service name is required.")
+        department_id = payload.get("department_id") or None
+        if department_id:
+            self._require_owned("departments", "department_id", str(department_id), property_id)
+        sla = int(payload.get("sla_minutes") or 30)
+        if not 1 <= sla <= 1440:
+            raise ValueError("SLA must be between 1 and 1440 minutes.")
+        record = {
+            "service_id": service_id, "property_id": property_id, "department_id": department_id,
+            "name": name, "description": _clean(payload.get("description"), 1000),
+            "keywords": _json([_clean(item, 80) for item in list(payload.get("keywords") or [])[:30] if _clean(item, 80)]),
+            "sla_minutes": sla, "confirmation_required": 1 if payload.get("confirmation_required", True) else 0,
+            "enabled": 1 if payload.get("enabled", True) else 0,
+            "archived": 1 if payload.get("archived", False) else 0,
+            "sort_order": int(payload.get("sort_order") or 0), "created_at": now, "updated_at": now,
+        }
+        with self._connect() as db:
+            existing = db.execute("SELECT created_at FROM service_catalog WHERE property_id=? AND service_id=?", (property_id, service_id)).fetchone()
+            if existing:
+                record["created_at"] = existing["created_at"]
+                db.execute("""UPDATE service_catalog SET department_id=:department_id,name=:name,description=:description,
+                    keywords=:keywords,sla_minutes=:sla_minutes,confirmation_required=:confirmation_required,enabled=:enabled,
+                    archived=:archived,sort_order=:sort_order,updated_at=:updated_at
+                    WHERE property_id=:property_id AND service_id=:service_id""", record)
+            else:
+                db.execute("INSERT INTO service_catalog VALUES (:service_id,:property_id,:department_id,:name,:description,:keywords,:sla_minutes,:confirmation_required,:enabled,:archived,:sort_order,:created_at,:updated_at)", record)
+        return self._service_catalog_dict(record)
+
+    def duplicate_service(self, property_id: str, service_id: str) -> dict[str, Any]:
+        with self._connect() as db:
+            row = db.execute("SELECT * FROM service_catalog WHERE property_id=? AND service_id=?", (property_id, service_id)).fetchone()
+        if not row:
+            raise KeyError("Service not found.")
+        data = self._service_catalog_dict(row)
+        data.pop("service_id", None)
+        data["name"] = f"{data['name']} Copy"
+        data["sort_order"] = int(data.get("sort_order") or 0) + 1
+        return self.upsert_service(property_id, data)
+
+    def delete_service(self, property_id: str, service_id: str) -> bool:
+        with self._connect() as db:
+            cursor = db.execute("DELETE FROM service_catalog WHERE property_id=? AND service_id=?", (property_id, service_id))
+        return cursor.rowcount > 0
+
+    def upsert_recommendation(self, property_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        now = _now()
+        recommendation_id = str(payload.get("recommendation_id") or _id("rec"))
+        name = _clean(payload.get("name"), 160)
+        if not name:
+            raise ValueError("Recommendation name is required.")
+        record = {
+            "recommendation_id": recommendation_id, "property_id": property_id, "name": name,
+            "category": _clean(payload.get("category") or "other", 80),
+            "address": _clean(payload.get("address"), 300), "map_url": _clean(payload.get("map_url"), 500),
+            "description": _clean(payload.get("description"), 1200),
+            "images": _json(list(payload.get("images") or [])[:12]),
+            "opening_hours": _json(payload.get("opening_hours") or {}),
+            "source": _clean(payload.get("source") or "property", 160),
+            "enabled": 1 if payload.get("enabled", True) else 0, "created_at": now, "updated_at": now,
+        }
+        with self._connect() as db:
+            existing = db.execute("SELECT created_at FROM recommendations WHERE property_id=? AND recommendation_id=?", (property_id, recommendation_id)).fetchone()
+            if existing:
+                record["created_at"] = existing["created_at"]
+                db.execute("""UPDATE recommendations SET name=:name,category=:category,address=:address,map_url=:map_url,
+                    description=:description,images=:images,opening_hours=:opening_hours,source=:source,enabled=:enabled,
+                    updated_at=:updated_at WHERE property_id=:property_id AND recommendation_id=:recommendation_id""", record)
+            else:
+                db.execute("INSERT INTO recommendations VALUES (:recommendation_id,:property_id,:name,:category,:address,:map_url,:description,:images,:opening_hours,:source,:enabled,:created_at,:updated_at)", record)
+        return self._recommendation_dict(record)
+
+    def delete_recommendation(self, property_id: str, recommendation_id: str) -> bool:
+        with self._connect() as db:
+            cursor = db.execute("DELETE FROM recommendations WHERE property_id=? AND recommendation_id=?", (property_id, recommendation_id))
+        return cursor.rowcount > 0
+
+    def catalog(self, property_id: str, guest: bool = False) -> dict[str, Any]:
+        with self._connect() as db:
+            departments = db.execute("SELECT * FROM departments WHERE property_id=? ORDER BY name", (property_id,)).fetchall()
+            services = db.execute("SELECT * FROM service_catalog WHERE property_id=? ORDER BY sort_order,name", (property_id,)).fetchall()
+        if guest:
+            departments = [row for row in departments if row["enabled"]]
+            services = [row for row in services if row["enabled"] and not row["archived"]]
+        return {"departments": [self._department_dict(row) for row in departments], "services": [self._service_catalog_dict(row) for row in services]}
+
+    def recommendations(self, property_id: str, guest: bool = False) -> list[dict[str, Any]]:
+        query = "SELECT * FROM recommendations WHERE property_id=?"
+        params: tuple[Any, ...] = (property_id,)
+        if guest:
+            query += " AND enabled=1"
+        query += " ORDER BY name"
+        with self._connect() as db:
+            rows = db.execute(query, params).fetchall()
+        return [self._recommendation_dict(row) for row in rows]
 
     def upsert_facility_profile(self, property_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         status = str(payload.get("live_status") or "open")
@@ -351,17 +541,32 @@ class HospitalityStore:
 
     def create_service_request(self, property_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         now = _now()
+        service_id = payload.get("service_id") or None
+        catalog_service = None
+        if service_id:
+            with self._connect() as db:
+                catalog_service = db.execute(
+                    "SELECT s.*, d.name AS department_name FROM service_catalog s LEFT JOIN departments d ON d.department_id=s.department_id WHERE s.property_id=? AND s.service_id=? AND s.enabled=1 AND s.archived=0",
+                    (property_id, service_id),
+                ).fetchone()
+            if not catalog_service:
+                raise ValueError("The selected service is not available.")
         sla = payload.get("sla_target_seconds")
+        if sla is None and catalog_service:
+            sla = int(catalog_service["sla_minutes"]) * 60
         due_at = now + int(sla) if sla else None
         record = {
             "request_id": _id("req"),
             "property_id": property_id,
+            "service_id": service_id,
             "stay_id": payload.get("stay_id"),
             "room": _clean(payload.get("room"), 80) or None,
-            "request_type": _clean(payload.get("request_type") or "general", 80),
+            "request_type": _clean((catalog_service["name"] if catalog_service else payload.get("request_type")) or "general", 80),
             "description": _clean(payload.get("description"), 1000),
             "priority": _clean(payload.get("priority") or "normal", 40),
-            "department": _clean(payload.get("department") or "front_desk", 80),
+            "department": _clean((catalog_service["department_name"] if catalog_service else payload.get("department")) or "front_desk", 80),
+            "assigned_to": _clean(payload.get("assigned_to"), 160) or None,
+            "notes": _json(list(payload.get("notes") or [])[:100]),
             "status": "new",
             "sla_target_seconds": sla,
             "due_at": due_at,
@@ -373,11 +578,14 @@ class HospitalityStore:
             raise ValueError("Service request description is required.")
         with self._connect() as db:
             db.execute(
-                """INSERT INTO service_requests VALUES
-                (:request_id,:property_id,:stay_id,:room,:request_type,:description,:priority,:department,
-                :status,:sla_target_seconds,:due_at,:completed_at,:created_at,:updated_at)""",
+                """INSERT INTO service_requests
+                (request_id,property_id,stay_id,room,request_type,description,priority,department,status,
+                 sla_target_seconds,due_at,completed_at,created_at,updated_at,service_id,assigned_to,notes)
+                VALUES (:request_id,:property_id,:stay_id,:room,:request_type,:description,:priority,:department,
+                :status,:sla_target_seconds,:due_at,:completed_at,:created_at,:updated_at,:service_id,:assigned_to,:notes)""",
                 record,
             )
+            self._record_request_history(db, property_id, record["request_id"], "created", {"status": "new"}, now)
         return self._service_dict(record)
 
     def update_service_status(self, property_id: str, request_id: str, status: str) -> dict[str, Any]:
@@ -391,9 +599,39 @@ class HospitalityStore:
                 (status, completed, now, property_id, request_id),
             )
             row = db.execute("SELECT * FROM service_requests WHERE property_id=? AND request_id=?", (property_id, request_id)).fetchone()
+            if row:
+                self._record_request_history(db, property_id, request_id, "status_changed", {"status": status}, now)
         if not row:
             raise KeyError("Service request not found.")
         return self._service_dict(row)
+
+    def update_service_request(self, property_id: str, request_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        allowed = {"priority", "department", "assigned_to"}
+        updates = {key: _clean(payload.get(key), 160) for key in allowed if key in payload}
+        note = _clean(payload.get("note"), 1000)
+        now = _now()
+        with self._connect() as db:
+            row = db.execute("SELECT * FROM service_requests WHERE property_id=? AND request_id=?", (property_id, request_id)).fetchone()
+            if not row:
+                raise KeyError("Service request not found.")
+            notes = _load(row["notes"] or "[]")
+            if note:
+                notes.append({"text": note, "created_at": now})
+                updates["notes"] = _json(notes[-100:])
+            if updates:
+                clause = ",".join(f"{key}=?" for key in updates)
+                db.execute(f"UPDATE service_requests SET {clause},updated_at=? WHERE property_id=? AND request_id=?", (*updates.values(), now, property_id, request_id))
+                self._record_request_history(db, property_id, request_id, "updated", {key: value for key, value in updates.items() if key != "notes"} | ({"note": note} if note else {}), now)
+            row = db.execute("SELECT * FROM service_requests WHERE property_id=? AND request_id=?", (property_id, request_id)).fetchone()
+        return self._service_dict(row)
+
+    def request_history(self, property_id: str, request_id: str) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            rows = db.execute("SELECT * FROM service_request_history WHERE property_id=? AND request_id=? ORDER BY created_at,history_id", (property_id, request_id)).fetchall()
+        return [{**dict(row), "detail": _load(row["detail"])} for row in rows]
+
+    def _record_request_history(self, db: sqlite3.Connection, property_id: str, request_id: str, action: str, detail: dict[str, Any], created_at: int) -> None:
+        db.execute("INSERT INTO service_request_history VALUES (?,?,?,?,?,?)", (_id("hist"), property_id, request_id, action, _json(detail), created_at))
 
     def add_feedback(self, property_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         resolution = str(payload.get("resolution") or "")
@@ -507,6 +745,9 @@ class HospitalityStore:
                 "events": [self._event_dict(row) for row in db.execute("SELECT * FROM hotel_events WHERE property_id=? ORDER BY starts_at", (property_id,))],
                 "service_requests": [self._service_dict(row) for row in db.execute("SELECT * FROM service_requests WHERE property_id=? ORDER BY created_at DESC", (property_id,))],
                 "notification_rules": [self._notification_rule_dict(row) for row in db.execute("SELECT * FROM notification_rules WHERE property_id=? ORDER BY name", (property_id,))],
+                "departments": [self._department_dict(row) for row in db.execute("SELECT * FROM departments WHERE property_id=? ORDER BY name", (property_id,))],
+                "services": [self._service_catalog_dict(row) for row in db.execute("SELECT * FROM service_catalog WHERE property_id=? ORDER BY sort_order,name", (property_id,))],
+                "recommendations": [self._recommendation_dict(row) for row in db.execute("SELECT * FROM recommendations WHERE property_id=? ORDER BY name", (property_id,))],
             }
 
     def guest_facilities(self, property_id: str) -> dict[str, Any]:
@@ -522,6 +763,17 @@ class HospitalityStore:
             menus = [self._menu_item_dict(row) for row in db.execute("SELECT mi.* FROM menu_items mi JOIN menus m ON m.menu_id=mi.menu_id WHERE mi.property_id=? AND mi.available=1 AND m.active=1", (property_id,))]
             events = [self._event_dict(row) for row in db.execute("SELECT * FROM hotel_events WHERE property_id=? AND status='scheduled' ORDER BY starts_at", (property_id,))]
         return {"facilities": facilities, "restaurants": restaurants, "menu_items": menus, "events": events}
+
+    def request_metrics(self, property_id: str) -> dict[str, int]:
+        with self._connect() as db:
+            row = db.execute(
+                """SELECT COUNT(*) AS total,
+                SUM(CASE WHEN status!='completed' THEN 1 ELSE 0 END) AS open_count,
+                SUM(CASE WHEN status!='completed' AND due_at IS NOT NULL AND due_at<? THEN 1 ELSE 0 END) AS overdue_count
+                FROM service_requests WHERE property_id=?""",
+                (_now(), property_id),
+            ).fetchone()
+        return {"total_requests": int(row["total"] or 0), "open_requests": int(row["open_count"] or 0), "overdue_requests": int(row["overdue_count"] or 0)}
 
     def _notification_allowed(self, rule: dict[str, Any], payload: dict[str, Any], prefs: dict[str, Any], current_zone_id: str | None, moment: int) -> tuple[bool, str]:
         policy = rule.get("policy") or {}
@@ -577,6 +829,7 @@ class HospitalityStore:
 
     def _service_dict(self, row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
         data = dict(row)
+        data["notes"] = _load(data.get("notes") or "[]")
         now = _now()
         if data["status"] == "completed":
             data["sla_state"] = "completed"
@@ -586,6 +839,22 @@ class HospitalityStore:
             data["sla_state"] = "warning"
         else:
             data["sla_state"] = "within_sla"
+        return data
+
+    def _department_dict(self, row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
+        data = self._bools(row, ["enabled"])
+        data["operating_hours"] = _load(data["operating_hours"])
+        return data
+
+    def _service_catalog_dict(self, row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
+        data = self._bools(row, ["confirmation_required", "enabled", "archived"])
+        data["keywords"] = _load(data["keywords"])
+        return data
+
+    def _recommendation_dict(self, row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
+        data = self._bools(row, ["enabled"])
+        data["images"] = _load(data["images"])
+        data["opening_hours"] = _load(data["opening_hours"])
         return data
 
     def _notification_rule_dict(self, row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
