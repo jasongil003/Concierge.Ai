@@ -64,6 +64,31 @@ test("topbar: publish state, Save Draft, Publish, Discard, Open guest app", asyn
   await expect(page.locator('.topbar-status a[href="/"]')).toHaveAttribute("href", "/");
 });
 
+test("topbar: sidebar and profile buttons perform their actions", async ({ page }) => {
+  await page.goto("/admin");
+  await page.locator('body[data-admin-ready="true"]').waitFor();
+
+  const shell = page.locator(".platform-shell");
+  await page.locator("#sidebar-toggle").click();
+  await expect(shell).toHaveClass(/sidebar-collapsed/);
+  await expect(page.locator("#sidebar-toggle")).toHaveAttribute("aria-label", "Expand sidebar");
+  await page.locator("#sidebar-toggle").click();
+  await expect(shell).not.toHaveClass(/sidebar-collapsed/);
+
+  await page.locator("#profile-button").click();
+  await expect(page.locator("#profile-menu")).toBeVisible();
+  await page.getByRole("button", { name: "Profile", exact: true }).click();
+  await expect(page.locator("#profile")).toBeVisible();
+
+  await page.locator("#profile-button").click();
+  await page.getByRole("button", { name: "Security", exact: true }).click();
+  await expect(page.locator("#security")).toBeVisible();
+
+  await page.locator("#profile-button").click();
+  await page.getByRole("button", { name: "Switch Property" }).click();
+  await expect(page.locator("#property-switcher")).toBeFocused();
+});
+
 test("sidebar: all navigation items are visible and clickable", async ({ page }) => {
   await page.goto("/admin");
   const navLabels = [
@@ -97,8 +122,12 @@ test("sidebar: all navigation items are visible and clickable", async ({ page })
 });
 
 test("sidebar: each visible navigation item has a feature status", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
   await page.goto("/admin");
   await page.locator('body[data-admin-ready="true"]').waitFor();
+  for (const details of await page.locator("details.nav-group").all()) {
+    await details.evaluate((el) => { el.open = true; });
+  }
   const navItems = page.locator(".nav-item");
   const count = await navItems.count();
   expect(count).toBeGreaterThan(0);
@@ -163,14 +192,38 @@ test("appearance panel: preview size buttons work", async ({ page }) => {
   await expect(page.locator(".phone-preview")).toHaveClass(/mobile/);
 });
 
+test("appearance panel: add and remove prompt buttons work", async ({ page }) => {
+  await page.goto("/admin");
+  await openPanel(page, "Design");
+  const rows = page.locator("#prompt-list .prompt-row");
+  const initialCount = await rows.count();
+
+  await page.getByRole("button", { name: "Add prompt" }).click();
+  await expect(rows).toHaveCount(initialCount + 1);
+  await rows.last().getByRole("button", { name: "Remove prompt" }).click();
+  await expect(rows).toHaveCount(initialCount);
+});
+
 test("guest experience panel: module table has locked buttons", async ({ page }) => {
   await page.goto("/admin");
-  await openPanel(page, "Concierge Preview");
+  await openPanel(page, "Preview");
   const lockedButtons = page.locator('button:has-text("Locked")');
   await expect(lockedButtons).toHaveCount(4);
   for (const btn of await lockedButtons.all()) {
     await expect(btn).toBeDisabled();
   }
+});
+
+test("preview-only controls are explicitly disabled", async ({ page }) => {
+  await page.goto("/admin");
+  await openPanel(page, "Design");
+  await expect(page.locator("#chat-preview button[title='Preview only']")).toHaveCount(3);
+  for (const button of await page.locator("#chat-preview button").all()) {
+    await expect(button).toBeDisabled();
+  }
+
+  await openPanel(page, "Branding / Intro");
+  await expect(page.locator("#intro-preview-card button")).toBeDisabled();
 });
 
 test("AI providers panel: provider management controls are available", async ({ page }) => {
@@ -184,6 +237,29 @@ test("AI providers panel: provider management controls are available", async ({ 
   await expect(page.getByRole("heading", { name: "Google Gemini" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "OpenRouter" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Local AI" })).toBeVisible();
+});
+
+test("AI provider configure and drawer close buttons work", async ({ page }) => {
+  await page.goto("/admin");
+  await openPanel(page, "Models & Providers");
+  await page.locator("article.provider-row [data-action='configure']").first().click();
+  await expect(page.locator("#provider-drawer")).toBeVisible();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(page.locator("#provider-drawer")).toBeHidden();
+});
+
+test("zones map toolbar buttons switch tools and execute safely", async ({ page }) => {
+  await page.goto("/admin");
+  await openPanel(page, "Zones & Maps");
+
+  for (const tool of ["Rectangle", "Polygon", "Ellipse", "Select"]) {
+    const button = page.getByRole("button", { name: tool, exact: true });
+    await button.click();
+    await expect(button).toHaveClass(/active/);
+  }
+  for (const action of ["Duplicate", "Delete", "Undo", "Redo"]) {
+    await page.getByRole("button", { name: action, exact: true }).click();
+  }
 });
 
 test("improvement loop panel: operator controls and model selection are available", async ({ page }) => {
@@ -270,6 +346,20 @@ test("users and access panels expose username-first management", async ({ page }
   await openPanel(page, "Audit");
   await expect(page.getByRole("heading", { name: "Audit logs" })).toBeVisible();
   await expect(page.locator("#audit .data-table-shell")).toBeVisible();
+});
+
+test("role dialog and audit action buttons work", async ({ page }) => {
+  await page.goto("/admin");
+  await openPanel(page, "Roles");
+  await page.getByRole("button", { name: "Create Role" }).click();
+  await expect(page.locator("#role-dialog")).toBeVisible();
+  await page.locator('#role-dialog [data-close-dialog="role-dialog"]').last().click();
+  await expect(page.locator("#role-dialog")).toBeHidden();
+
+  await openPanel(page, "Audit");
+  await page.getByRole("button", { name: "Refresh" }).click();
+  await page.getByRole("button", { name: "Apply" }).click();
+  await expect(page.locator("#audit-table-body")).toBeVisible();
 });
 
 // --- 2. Core Configuration Workflow (serial - mutates shared DB) ---

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Concierge.Ai Platform</title>
-  <link rel="stylesheet" href="/static/admin.css?v=13">
+  <link rel="stylesheet" href="/static/admin.css?v=14">
 </head>
 <body>
   <div class="platform-shell">
@@ -148,9 +148,9 @@
             </div>
             <div class="phone-preview mobile" id="chat-preview">
               <header>
-                <button>☰</button>
+                <button type="button" disabled title="Preview only">☰</button>
                 <div class="preview-brand"><span class="preview-logo" id="preview-logo">D</span><div><strong id="preview-hotel">Demo Hotel</strong><span id="preview-concierge">Ava</span></div></div>
-                <button>⋯</button>
+                <button type="button" disabled title="Preview only">⋯</button>
               </header>
               <main>
                 <section class="preview-welcome">
@@ -163,7 +163,7 @@
                   <div class="assistant-copy">Here are a few nearby options that should work well. I can narrow these by cuisine, budget, or walking distance.</div>
                 </section>
               </main>
-              <footer><span id="preview-placeholder">Ask your concierge...</span><button>↑</button></footer>
+              <footer><span id="preview-placeholder">Ask your concierge...</span><button type="button" disabled title="Preview only">↑</button></footer>
             </div>
           </section>
         </div>
@@ -279,7 +279,7 @@
             <button id="save-intro" type="button">Save Intro</button>
           </section>
           <section class="intro-preview">
-            <div id="intro-preview-card"><strong>C</strong><span id="intro-preview-message">Welcome</span><button>Skip</button></div>
+            <div id="intro-preview-card"><strong>C</strong><span id="intro-preview-message">Welcome</span><button type="button" disabled title="Preview only">Skip</button></div>
             <p class="field-note">If animation loading fails or reduced motion is preferred, the guest app shows the logo and continues directly to chat.</p>
           </section>
         </div>
@@ -635,6 +635,6 @@
     </footer>
   </aside>
   <div class="toast" id="toast"></div>
-  <script src="/static/admin.js?v=8"></script>
+  <script src="/static/admin.js?v=9"></script>
 </body>
 </html>

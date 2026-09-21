@@ -273,6 +273,7 @@ td button { min-height: 29px; padding: 5px 9px; border: 1px solid var(--line); b
 .phone-preview header, .phone-preview footer { display: flex; align-items: center; justify-content: space-between; min-height: 58px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
 .phone-preview footer { border-top: 1px solid var(--line); border-bottom: 0; }
 .phone-preview header button, .phone-preview footer button { width: 32px; height: 32px; border: 1px solid var(--line); border-radius: 50%; background: var(--white); }
+.phone-preview button:disabled, #intro-preview-card button:disabled { cursor: default; opacity: 1; }
 .phone-preview main { overflow: auto; padding: 28px 22px; }
 .preview-brand { display: flex; align-items: center; gap: 8px; }
 .preview-brand div { display: grid; }

@@ -56,13 +56,14 @@ admin_auth = AdminAuthStore(
     lockout_attempts=settings.admin_lockout_attempts,
     lockout_minutes=settings.admin_lockout_minutes,
 )
-if settings.app_environment == "production" and settings.admin_bootstrap_password == "ChangeMe123!":
-    raise RuntimeError("Set ADMIN_BOOTSTRAP_PASSWORD before starting Concierge.Ai in production.")
+if settings.app_environment in ("production", "staging") and settings.admin_bootstrap_password == "ChangeMe123!":
+    raise RuntimeError("Set ADMIN_BOOTSTRAP_PASSWORD before starting Concierge.Ai in production/staging.")
 admin_auth.ensure_bootstrap_admin(
     settings.admin_bootstrap_username,
     settings.admin_bootstrap_password,
 )
 admin_request_windows: dict[str, deque[float]] = defaultdict(deque)
+chat_rate_windows: dict[str, deque[float]] = defaultdict(deque)
 places = GooglePlaces()
 antlabs = AntlabsAdapter()
 
@@ -132,6 +133,27 @@ def _admin_rate_limited(session_id: str) -> bool:
         return True
     window.append(now)
     return False
+
+
+def _chat_rate_limited(session_id: str) -> bool:
+    now = time.monotonic()
+    window = chat_rate_windows[session_id]
+    while window and window[0] < now - 60:
+        window.popleft()
+    if len(window) >= 20:
+        return True
+    window.append(now)
+    return False
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    if settings.app_environment in ("production", "staging"):
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
 
 
 @app.middleware("http")
@@ -1486,6 +1508,8 @@ async def chat(request: ChatRequest) -> dict[str, Any]:
     session = store.get(request.session_id)
     if session is None:
         raise HTTPException(status_code=401, detail="Concierge session expired.")
+    if _chat_rate_limited(request.session_id):
+        raise HTTPException(status_code=429, detail="Too many messages. Please wait a moment.")
 
     requested_mode = request.mode if settings.ai_guest_mode_switch else settings.ai_default_mode
     property_record = properties.get(session.property_id)
@@ -1565,7 +1589,7 @@ async def chat(request: ChatRequest) -> dict[str, Any]:
                     "mode": requested_mode,
                     "escalated": False,
                 }
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
+            raise HTTPException(status_code=503, detail="The AI service is temporarily unavailable. Please try again.") from exc
 
     store.record_message(session.session_id, session.property_id, "assistant", answer, provider=provider, model=model, latency_ms=int((time.perf_counter() - started_at) * 1000))
     return {

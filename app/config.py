@@ -21,6 +21,7 @@ class Settings:
     property_id: str = os.getenv("PROPERTY_ID", "demo-hotel")
     hotel_config_path: Path = Path(os.getenv("HOTEL_CONFIG_PATH", "data/hotel.json"))
     db_path: Path = Path(os.getenv("DB_PATH", "state/concierge.db"))
+    upload_root: Path = Path(os.getenv("UPLOAD_ROOT", "")) if os.getenv("UPLOAD_ROOT") else Path("")  # resolved below
     session_ttl_minutes: int = int(os.getenv("SESSION_TTL_MINUTES", "30"))
     admin_session_ttl_minutes: int = int(os.getenv("ADMIN_SESSION_TTL_MINUTES", "480"))
     admin_lockout_attempts: int = int(os.getenv("ADMIN_LOCKOUT_ATTEMPTS", "5"))
@@ -73,3 +74,6 @@ class Settings:
 
 settings = Settings()
 settings.db_path.parent.mkdir(parents=True, exist_ok=True)
+if not settings.upload_root.parts:
+    object.__setattr__(settings, "upload_root", settings.db_path.parent / "uploads")
+settings.upload_root.mkdir(parents=True, exist_ok=True)
