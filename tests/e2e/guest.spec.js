@@ -268,6 +268,15 @@ test("guest: confirm request persists and returns a request id", async ({ page, 
 
   await page.getByRole("button", { name: "Confirm request" }).click();
   await expect(page.getByText(/Request req_[a-f0-9]+ was created/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Confirmed" })).toBeDisabled();
+});
+
+test("guest: facility-hours question answers instead of creating a booking", async ({ page }) => {
+  await page.goto("/");
+  await page.getByLabel("Ask your concierge").fill("What are the pool, gym, and spa hours?");
+  await page.getByRole("button", { name: "Send message" }).click();
+  await expect(page.getByText(/Infinity Pool.*06:00-22:00.*Fitness Center.*24 hours.*Lunara Spa.*10:00-22:00/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Confirm request" })).toHaveCount(0);
 });
 
 // --- 7. Hotel menu ---

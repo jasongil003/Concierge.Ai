@@ -401,6 +401,7 @@ class GuestServiceRequestPayload(BaseModel):
     service_id: str = Field(min_length=1, max_length=120)
     description: str = Field(min_length=1, max_length=1000)
     room: str | None = Field(default=None, max_length=80)
+    client_request_id: str | None = Field(default=None, min_length=8, max_length=120)
 
 
 class ServiceRequestUpdatePayload(BaseModel):
@@ -660,12 +661,15 @@ async def create_guest_service_request(payload: GuestServiceRequestPayload) -> d
                 "description": payload.description,
                 "room": payload.room,
                 "stay_id": session.session_id,
+                "client_request_id": payload.client_request_id,
             },
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    await _dispatch_webhooks(session.property_id, "guest.request.created", {"request": request_record})
-    return {"status": "created", "request": request_record}
+    replayed = bool(request_record.pop("idempotent_replay", False))
+    if not replayed:
+        await _dispatch_webhooks(session.property_id, "guest.request.created", {"request": request_record})
+    return {"status": "existing" if replayed else "created", "request": request_record}
 
 
 @app.get("/api/guest/conversations/{session_id}/staff-messages")
@@ -1188,6 +1192,7 @@ async def refresh_property_ai_models(property_id: str, provider_id: str) -> dict
         raise HTTPException(status_code=404, detail="Property not found.")
     try:
         models = await ai_models.list_models(property_id, provider_id)
+        ai_provider_store.save_discovered_models(property_id, provider_id, models)
     except Exception as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {"models": models}
@@ -1860,6 +1865,8 @@ async def chat(request: ChatRequest) -> dict[str, Any]:
     requested_mode = request.mode if settings.ai_guest_mode_switch else settings.ai_default_mode
     property_record = properties.get(session.property_id)
     auth_types = property_record.public_profile.get("authentication", {}).get("enabled_types", []) if property_record else []
+    conversation_history = store.recent_messages(session.session_id, session.property_id, limit=10)
+    contextual_query = _contextual_query(request.message, conversation_history)
     store.record_message(session.session_id, session.property_id, "guest", request.message)
     started_at = time.perf_counter()
     conversation_state = store.conversation_state(session.session_id, session.property_id)
@@ -1868,7 +1875,7 @@ async def chat(request: ChatRequest) -> dict[str, Any]:
         store.record_message(session.session_id, session.property_id, "assistant", answer, provider="human_queue", model="staff")
         return {"answer": answer, "source": "human_queue", "provider": "human", "model": "staff", "mode": requested_mode, "escalated": True}
 
-    fast_answer = _property_fast_answer(property_record, request.message) or knowledge.exact_fast_answer(request.message)
+    fast_answer = _safety_fast_answer(request.message) or _property_fast_answer(property_record, contextual_query) or knowledge.exact_fast_answer(contextual_query)
     if fast_answer and requested_mode != "advanced":
         answer = fast_answer
         if _is_authentication_question(request.message):
@@ -1883,7 +1890,7 @@ async def chat(request: ChatRequest) -> dict[str, Any]:
             "escalated": False,
         }
 
-    context = operations.search_knowledge(session.property_id, request.message) + knowledge.retrieve(request.message)
+    context = operations.search_knowledge(session.property_id, contextual_query) + knowledge.retrieve(contextual_query)
     context.extend(_property_ai_context(property_record))
     if auth_types:
         context.append(
@@ -1908,6 +1915,7 @@ async def chat(request: ChatRequest) -> dict[str, Any]:
             context=context,
             live_context=live_context,
             requested_mode=requested_mode,
+            conversation_history=conversation_history,
         )
         provider = model_result.provider
         model = model_result.model
@@ -1963,6 +1971,29 @@ def _is_authentication_question(message: str) -> bool:
     return any(token in normalized for token in ("wi-fi", "wifi", "internet", "connect", "login", "auth"))
 
 
+def _contextual_query(message: str, history: list[dict[str, Any]]) -> str:
+    normalized = message.lower()
+    follow_up_tokens = ("it", "there", "that", "they", "what time", "how much", "how long", "does it", "can they")
+    if not any(token in normalized for token in follow_up_tokens):
+        return message
+    recent = " ".join(str(item.get("content") or "") for item in history[-4:]).lower()
+    for subject in ("pool", "gym", "spa", "breakfast", "restaurant", "rooftop bar", "business center", "airport", "wi-fi", "wifi"):
+        if subject in recent and subject not in normalized:
+            return f"{message} (follow-up about {subject})"
+    return message
+
+
+def _safety_fast_answer(message: str) -> str | None:
+    normalized = message.lower()
+    emergencies = ("fire", "smell smoke", "chest pain", "can't breathe", "cannot breathe", "collapsed", "bleeding badly", "stroke", "child is missing", "security immediately", "trying to enter my room")
+    if any(term in normalized for term in emergencies):
+        return "This sounds urgent. Please call local emergency services now and alert the hotel Front Desk or Security immediately. Move to a safe location if you can, and do not delay for a chat response."
+    protected = ("what room is", "is staying at this hotel", "name of the guest", "another guest's", "cctv footage", "staff wi-fi password", "admin password", "master key code", "bypass the safe", "disable the room lock", "credit card number")
+    if any(term in normalized for term in protected):
+        return "I can’t provide private guest information, credentials, surveillance footage, payment details, or instructions that bypass hotel security. I can connect you with the Front Desk or Security for a properly verified request."
+    return None
+
+
 def _property_fast_answer(property_record: PropertyRecord | None, message: str) -> str | None:
     if property_record is None:
         return None
@@ -1974,16 +2005,38 @@ def _property_fast_answer(property_record: PropertyRecord | None, message: str) 
         return f"Standard checkout is {contact['checkout']}."
     if any(term in lowered for term in ("wifi", "wi-fi", "internet")) and contact.get("wifi_guidance"):
         return str(contact["wifi_guidance"])
-    facility_terms = ("pool", "gym", "spa", "parking", "business center")
-    if any(term in lowered for term in facility_terms):
+    requested_facilities: list[dict[str, Any]] = []
+    configured_facilities = {
+        "pool": property_record.pool,
+        "gym": property_record.gym,
+        "spa": property_record.spa,
+    }
+    for term, facility in configured_facilities.items():
+        if term in lowered and facility:
+            requested_facilities.append(facility)
+    if requested_facilities:
+        details = []
+        for facility in requested_facilities:
+            name = str(facility.get("name") or "Facility")
+            location = str(facility.get("location") or "").strip()
+            hours = str(facility.get("hours") or "").strip()
+            facts = [value for value in (location, hours) if value]
+            details.append(f"{name}: {'; '.join(facts)}." if facts else f"{name} information is available from the concierge.")
+        return " ".join(details)
+    facility_aliases = {
+        "parking": ("parking",),
+        "business center": ("business center", "business"),
+    }
+    if any(term in lowered for term in facility_aliases):
         overview = hospitality.overview(property_record.property_id)
-        for facility in overview.get("facilities", []):
-            haystack = f"{facility.get('name', '')} {facility.get('facility_type', '')}".lower()
-            if any(term in lowered and term in haystack for term in facility_terms):
+        for term, aliases in facility_aliases.items():
+            if term not in lowered:
+                continue
+            facility = next((item for item in overview.get("facilities", []) if any(alias in f"{item.get('name', '')} {item.get('facility_type', '')}".lower() for alias in aliases)), None)
+            if facility:
                 hours = (facility.get("opening_hours") or {}).get("display")
-                status = str(facility.get("live_status") or "open").replace("_", " ")
                 detail = f" Hours: {hours}." if hours else ""
-                return f"{facility['name']} is currently {status}.{detail}"
+                return f"{facility['name']}.{detail}"
     for location in (property_record.app_settings or {}).get("locations", []):
         if location.get("guest_visible", True) and str(location.get("name", "")).lower() in lowered:
             description = str(location.get("description") or "").strip()
@@ -2007,6 +2060,45 @@ def _property_ai_context(property_record: PropertyRecord | None) -> list[dict[st
     personality = property_record.personality or {}
     guardrails = property_record.guardrails or {}
     result: list[dict[str, str]] = []
+    result.append(
+        {
+            "title": "Hotel profile",
+            "answer": (
+                f"{property_record.hotel_name}; {property_record.description} Address: {property_record.address}. "
+                f"Timezone: {property_record.timezone}."
+            )[:1800],
+        }
+    )
+    if property_record.facilities:
+        result.append(
+            {
+                "title": "Hotel facilities",
+                "answer": "; ".join(
+                    f"{item.get('name')}: {item.get('location', '')}, hours {item.get('hours', 'ask staff')}"
+                    for item in property_record.facilities
+                )[:3000],
+            }
+        )
+    if property_record.dining:
+        result.append(
+            {
+                "title": "Dining venues",
+                "answer": "; ".join(
+                    f"{item.get('name')}: {item.get('location', '')}, {', '.join(item.get('meal_periods', []))}"
+                    for item in property_record.dining
+                )[:2500],
+            }
+        )
+    if property_record.rooms:
+        result.append(
+            {
+                "title": "Room inventory",
+                "answer": "; ".join(
+                    f"{item.get('name')} ({item.get('count')} rooms, floors {item.get('floors')})"
+                    for item in property_record.rooms
+                )[:2000],
+            }
+        )
     if personality:
         result.append(
             {

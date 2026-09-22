@@ -16,6 +16,7 @@ def test_knowledge_crud_search_and_property_isolation(tmp_path: Path):
 
     assert store.list_knowledge("hotel-b") == []
     assert store.search_knowledge("hotel-a", "When does the pool close?")[0]["title"] == "Rooftop pool"
+    assert store.search_knowledge("hotel-a", "I am bored. What can I do inside the hotel?") == []
     assert store.delete_knowledge("hotel-b", item["item_id"]) is False
     assert store.delete_knowledge("hotel-a", item["item_id"]) is True
 

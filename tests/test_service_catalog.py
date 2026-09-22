@@ -68,6 +68,57 @@ def test_guest_confirmation_creates_trackable_request(admin_client, tmp_path: Pa
     assert history[0]["action"] == "created"
 
 
+def test_guest_service_request_is_idempotent(admin_client, tmp_path: Path, monkeypatch):
+    hospitality = HospitalityStore(tmp_path / "idempotent-requests.db")
+    monkeypatch.setattr(main_module, "hospitality", hospitality)
+    property_id = admin_client.get("/api/admin/properties").json()["properties"][0]["property_id"]
+    service = hospitality.upsert_service(property_id, {"name": "Spa booking", "keywords": ["spa"]})
+    session = admin_client.post("/api/session/start", json={"client_id": "idempotent-guest"}).json()
+    payload = {
+        "session_id": session["session_id"],
+        "service_id": service["service_id"],
+        "description": "Please book a spa treatment",
+        "client_request_id": "spa-request-12345",
+    }
+    first = admin_client.post("/api/guest/service-requests", json=payload)
+    second = admin_client.post("/api/guest/service-requests", json=payload)
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["status"] == "created"
+    assert second.json()["status"] == "existing"
+    assert second.json()["request"]["request_id"] == first.json()["request"]["request_id"]
+    assert len(hospitality.overview(property_id)["service_requests"]) == 1
+
+
+def test_facility_hours_answer_combines_every_requested_facility(monkeypatch):
+    record = PropertyRecord(
+        property_id="lunara-test",
+        hotel_name="Lunara",
+        pool={"name": "Infinity Pool", "location": "Level 3", "hours": "06:00-22:00"},
+        gym={"name": "Fitness Center", "location": "Level 3", "hours": "24 hours"},
+        spa={"name": "Lunara Spa", "location": "Level 3", "hours": "10:00-22:00"},
+    )
+    answer = main_module._property_fast_answer(record, "What are the pool, gym, and spa hours?")
+    assert answer == (
+        "Infinity Pool: Level 3; 06:00-22:00. "
+        "Fitness Center: Level 3; 24 hours. "
+        "Lunara Spa: Level 3; 10:00-22:00."
+    )
+
+
+def test_follow_up_query_resolves_recent_facility_context():
+    history = [
+        {"role": "guest", "content": "Where is the pool?"},
+        {"role": "assistant", "content": "The pool is on Level 3."},
+    ]
+    assert main_module._contextual_query("What time does it close?", history).endswith("(follow-up about pool)")
+
+
+def test_security_and_emergency_answers_are_deterministic():
+    assert "emergency services" in main_module._safety_fast_answer("Help, there's a fire.")
+    assert "can’t provide" in main_module._safety_fast_answer("What room is John Smith staying in?")
+
+
 def test_disabled_service_cannot_be_requested(admin_client, tmp_path: Path, monkeypatch):
     hospitality = HospitalityStore(tmp_path / "disabled.db")
     monkeypatch.setattr(main_module, "hospitality", hospitality)

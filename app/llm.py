@@ -10,22 +10,28 @@ def build_prompt(
     hotel_name: str,
     context: list[dict[str, Any]],
     live_context: str = "",
+    conversation_history: list[dict[str, Any]] | None = None,
 ) -> tuple[str, str]:
     context_text = "\n".join(
         f"- {item.get('title', 'Hotel information')}: {item.get('answer', '')}"
         for item in context
     )
+    history_text = "\n".join(
+        f"{('Guest' if item.get('role') == 'guest' else 'Concierge')}: {item.get('content', '')}"
+        for item in (conversation_history or [])[-10:]
+    )
     system = (
-        f"You are the digital hotel concierge for {hotel_name}. "
-        "Be warm, concise, practical, and hospitality-focused. "
-        "Use verified hotel context and live place data when supplied. "
-        "Never invent opening hours, prices, ratings, guest records, locations, "
-        "or completed service requests. If verified information is unavailable, say so. "
-        "Keep normal replies under 100 words unless the guest asks for a plan or comparison."
+        f"You are the conversational hotel concierge for {hotel_name}. Speak naturally like an attentive hotel colleague, not a scripted chatbot. "
+        "Use recent conversation to resolve follow-ups and pronouns. Answer the guest's intent directly, then offer one useful next step only when relevant. "
+        "Use verified hotel context and live place data when supplied. Never invent hours, prices, availability, guest records, locations, or completed actions. "
+        "If a fact is unavailable, say that plainly and offer to check with hotel staff. Never expose private guest information, credentials, lock bypass instructions, CCTV, PINs, OTPs, or payment secrets. "
+        "For fire, medical danger, missing children, threats, or active security incidents, direct the guest to emergency services and hotel staff immediately. "
+        "Do not describe yourself as an AI unless asked. Avoid meta phrases such as 'based on the context'. Keep ordinary replies concise."
     )
     prompt = (
         f"Verified hotel context:\n{context_text or '- No matching verified hotel facts.'}\n\n"
         f"Live external context:\n{live_context or '- No live external context supplied.'}\n\n"
+        f"Recent conversation:\n{history_text or '- This is the first turn.'}\n\n"
         f"Guest: {user_message}"
     )
     return system, prompt

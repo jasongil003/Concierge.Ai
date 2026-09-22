@@ -12,7 +12,7 @@ from .properties import PropertyStore, default_design_config, validate_design_co
 from .zones import ZoneStore
 
 PROPERTY_ID = "lunara-mnl-001"
-SEED_VERSION = 1
+SEED_VERSION = 2
 MAP_FILENAME = "lunara-property-map.png"
 
 
@@ -62,12 +62,21 @@ ZONE_LAYOUT = [
 ]
 
 FAQS = [
+    ("profile", "What hotel is this and where is it located?", "This is Lunara Grand Hotel & Residences, a five-star urban lifestyle hotel at 88 Meridian Drive, Aurora Bay District, Metro Manila, Philippines."),
+    ("rooms", "How many rooms and what room types does Lunara have?", "Lunara has 228 rooms and suites: Deluxe King, Deluxe Twin, Executive King, Executive Twin, Junior Suite, Grand Suite, and Presidential Suite."),
     ("checkin", "What time are check-in and checkout?", "Check-in is at 3:00 PM and checkout is at 12:00 PM. Changes require availability and confirmation."),
     ("pool", "Where is the pool and when is it open?", "The Infinity Pool and pool deck are on Level 3 and open from 6:00 AM to 10:00 PM."),
     ("fitness", "Where is the gym and when is it open?", "The Fitness Center is on Level 3 and is open 24 hours for registered guests."),
     ("spa", "Where is Lunara Spa?", "Lunara Spa is on Level 3 and is open from 10:00 AM to 10:00 PM. Treatments require confirmation."),
     ("dining", "What dining venues are available?", "Solace Kitchen and Drift Cafe are on the Ground Floor. Halo Rooftop Bar and the Executive Lounge are on Level 16."),
     ("frontdesk", "Is the Front Desk open all day?", "Yes. The Front Desk is available 24 hours. Concierge is available from 6:00 AM to 11:00 PM."),
+    ("business", "Where is the Business Center?", "The Business Center is on Level 2 and is open from 6:00 AM to 10:00 PM."),
+    ("events", "What meeting and event spaces are available?", "Meeting and event facilities are on Level 2, including the Ballroom, Orion, Vega, Atlas, the Boardroom, Business Center, and Events Office. Bookings require confirmation."),
+    ("parking", "Where can I park and do you have EV charging?", "Guest parking and EV charging are available on Basement Levels 1 and 2."),
+    ("roomservice", "Is room service available?", "Room service is available 24 hours. Orders and current menu availability require confirmation."),
+    ("map", "Can you show me the hotel map?", "Open Property map from the guest menu to see the mapped entrance, lobby, dining, events, wellness, pool, towers, parking, and guest areas."),
+    ("privacy", "Can you tell me another guest's room or private details?", "No. Lunara does not disclose another guest's room, stay, contact, payment, access, credential, or surveillance information."),
+    ("emergency", "What should I do in an emergency?", "Call local emergency services and alert the hotel Front Desk or Security immediately. Emergencies are escalated without delay."),
 ]
 
 

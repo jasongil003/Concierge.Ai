@@ -250,6 +250,10 @@ class HospitalityStore:
             self._ensure_column(db, "service_requests", "service_id", "TEXT")
             self._ensure_column(db, "service_requests", "assigned_to", "TEXT")
             self._ensure_column(db, "service_requests", "notes", "TEXT NOT NULL DEFAULT '[]'")
+            self._ensure_column(db, "service_requests", "client_request_id", "TEXT")
+            db.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_service_request_idempotency ON service_requests(property_id, stay_id, client_request_id) WHERE client_request_id IS NOT NULL"
+            )
 
     def _ensure_column(self, db: sqlite3.Connection, table: str, name: str, definition: str) -> None:
         columns = {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}
@@ -592,6 +596,15 @@ class HospitalityStore:
     def create_service_request(self, property_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         now = _now()
         service_id = payload.get("service_id") or None
+        client_request_id = _clean(payload.get("client_request_id"), 120) or None
+        if client_request_id:
+            with self._connect() as db:
+                existing = db.execute(
+                    "SELECT * FROM service_requests WHERE property_id=? AND stay_id IS ? AND client_request_id=?",
+                    (property_id, payload.get("stay_id"), client_request_id),
+                ).fetchone()
+            if existing:
+                return {**self._service_dict(existing), "idempotent_replay": True}
         catalog_service = None
         if service_id:
             with self._connect() as db:
@@ -623,6 +636,7 @@ class HospitalityStore:
             "completed_at": None,
             "created_at": now,
             "updated_at": now,
+            "client_request_id": client_request_id,
         }
         if not record["description"]:
             raise ValueError("Service request description is required.")
@@ -630,9 +644,9 @@ class HospitalityStore:
             db.execute(
                 """INSERT INTO service_requests
                 (request_id,property_id,stay_id,room,request_type,description,priority,department,status,
-                 sla_target_seconds,due_at,completed_at,created_at,updated_at,service_id,assigned_to,notes)
+                 sla_target_seconds,due_at,completed_at,created_at,updated_at,service_id,assigned_to,notes,client_request_id)
                 VALUES (:request_id,:property_id,:stay_id,:room,:request_type,:description,:priority,:department,
-                :status,:sla_target_seconds,:due_at,:completed_at,:created_at,:updated_at,:service_id,:assigned_to,:notes)""",
+                :status,:sla_target_seconds,:due_at,:completed_at,:created_at,:updated_at,:service_id,:assigned_to,:notes,:client_request_id)""",
                 record,
             )
             self._record_request_history(db, property_id, record["request_id"], "created", {"status": "new"}, now)

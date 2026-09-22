@@ -353,6 +353,11 @@ class AIProviderStore:
         for provider_id, definition in PROVIDER_DEFINITIONS.items():
             row = rows.get(provider_id)
             config = json.loads(row["config_json"]) if row else {}
+            discovered_models = config.get("discovered_models", []) if isinstance(config, dict) else []
+            model_catalog = list(dict.fromkeys([
+                *definition.get("model_catalog", []),
+                *[item.get("id") for item in discovered_models if isinstance(item, dict) and item.get("id")],
+            ]))
             connection = {
                 "provider_id": provider_id,
                 "name": definition["name"],
@@ -361,7 +366,17 @@ class AIProviderStore:
                 "status": row["status"] if row else ("local" if provider_id == "local" else "not_configured"),
                 "enabled": bool(row["enabled"]) if row else provider_id == settings_payload["default_provider"],
                 "selected_model": row["selected_model"] if row and row["selected_model"] else definition["default_model"],
-                "model_catalog": definition.get("model_catalog", []),
+                "model_catalog": model_catalog,
+                "model_options": [
+                    {
+                        "id": model_id,
+                        "name": next(
+                            (item.get("name") for item in discovered_models if isinstance(item, dict) and item.get("id") == model_id),
+                            None,
+                        ) or model_id,
+                    }
+                    for model_id in model_catalog
+                ],
                 "endpoint_url": row["endpoint_url"] if row else ("http://host.docker.internal:11434" if provider_id == "local" else ""),
                 "temperature": row["temperature"] if row else 0.2,
                 "max_output_tokens": row["max_output_tokens"] if row else settings.max_output_tokens,
@@ -394,7 +409,10 @@ class AIProviderStore:
         enabled = bool(payload.get("enabled", False))
         if definition.get("unavailable"):
             enabled = False
-        config = payload.get("config") if isinstance(payload.get("config"), dict) else {}
+        current = self.get_connection(property_id, provider_id)
+        config = dict(current.get("config") or {})
+        if isinstance(payload.get("config"), dict):
+            config.update({key: value for key, value in payload["config"].items() if value is not None})
         now = int(time.time())
         with self._connect() as db:
             db.execute(
@@ -431,6 +449,20 @@ class AIProviderStore:
             )
         self.audit(property_id, "provider_configuration_saved", provider_id, {"model": selected_model, "enabled": enabled})
         return self.get_connection(property_id, provider_id)
+
+    def save_discovered_models(self, property_id: str, provider_id: str, models: list[dict[str, Any]]) -> None:
+        connection = self.get_connection(property_id, provider_id)
+        config = dict(connection.get("config") or {})
+        config["discovered_models"] = [
+            {"id": str(item.get("id")), "name": str(item.get("name") or item.get("id"))}
+            for item in models
+            if item.get("id")
+        ]
+        with self._connect() as db:
+            db.execute(
+                "UPDATE ai_provider_connections SET config_json=?,updated_at=? WHERE property_id=? AND provider_id=?",
+                (json.dumps(config, separators=(",", ":")), int(time.time()), property_id, provider_id),
+            )
 
     def save_credential(self, property_id: str, provider_id: str, credential_type: str, value: str) -> None:
         encrypted = self.secrets.encrypt(value)
@@ -780,6 +812,7 @@ class AIModelService:
         context: list[dict[str, Any]],
         live_context: str = "",
         requested_mode: str = "auto",
+        conversation_history: list[dict[str, Any]] | None = None,
     ) -> AIChatResponse:
         connection = self.resolve_connection(property_id)
         provider_id = connection["provider_id"]
@@ -787,7 +820,7 @@ class AIModelService:
         if ai_settings["local_only"] and PROVIDER_DEFINITIONS[provider_id]["cloud"]:
             raise RuntimeError("Local-only mode is enabled. Cloud AI providers cannot be used.")
         model = connection["selected_model"] or PROVIDER_DEFINITIONS[provider_id]["default_model"]
-        system, prompt = build_prompt(user_message, hotel_name, context, live_context)
+        system, prompt = build_prompt(user_message, hotel_name, context, live_context, conversation_history)
         request = AIChatRequest(
             property_id=property_id,
             provider_id=provider_id,
