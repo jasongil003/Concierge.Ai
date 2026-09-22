@@ -278,18 +278,24 @@ function renderConfirmationCard(message) {
   card.className = "inline-card confirmation-card";
   const button = document.createElement("button");
   button.type = "button";
-  button.textContent = message.actionLabel || "Confirm";
+  button.disabled = Boolean(message.submitting || message.confirmed);
+  button.textContent = message.confirmed ? "Confirmed" : message.submitting ? "Creating..." : message.actionLabel || "Confirm";
   button.addEventListener("click", async () => {
+    if (message.submitting || message.confirmed) return;
+    message.submitting = true;
     button.disabled = true;
     button.textContent = "Creating...";
     try {
       const result = await jsonFetch("/api/guest/service-requests", {
         method: "POST",
-        body: JSON.stringify({ session_id: state.sessionId, service_id: message.service.service_id, description: message.description, room: state.room }),
+        body: JSON.stringify({ session_id: state.sessionId, service_id: message.service.service_id, description: message.description, room: state.room, client_request_id: message.clientRequestId }),
       });
-      button.textContent = "Confirmed";
+      message.submitting = false;
+      message.confirmed = true;
+      message.requestId = result.request.request_id;
       addMessage({ role: "assistant", type: "status", text: `Request ${result.request.request_id} was created. Hotel staff can now track it.` });
     } catch (error) {
+      message.submitting = false;
       button.disabled = false;
       button.textContent = message.actionLabel || "Confirm";
       addMessage({ role: "assistant", type: "error", text: error.message });
@@ -371,15 +377,16 @@ async function handleGuestInput(rawMessage) {
     return;
   }
 
-  const matchedService = matchService(message);
+  const matchedService = isInformationRequest(message) ? null : matchService(message);
   if (matchedService) {
     addMessage({
       role: "assistant",
       type: "confirmation",
-      text: `I can create a ${matchedService.name} request. Please confirm before I send it to hotel staff.`,
+      text: `Absolutely — I can arrange ${matchedService.name.toLowerCase()} for you. Please confirm and I’ll send it to the hotel team.`,
       actionLabel: "Confirm request",
       service: matchedService,
       description: message,
+      clientRequestId: createClientId(),
     });
     return;
   }
@@ -465,6 +472,14 @@ function isRestaurantRequest(message) {
 function matchService(message) {
   const normalized = message.toLowerCase();
   return state.services.find((service) => [service.name, ...(service.keywords || [])].some((word) => normalized.includes(String(word).toLowerCase())));
+}
+
+function isInformationRequest(message) {
+  const normalized = String(message || "").toLowerCase();
+  const asksForFacts = /\b(what|where|when|which|hours?|open|opening|close|closing|located|location)\b/.test(normalized)
+    || /\bhow\s+(late|early|long)\b/.test(normalized);
+  const asksForAction = /\b(book|reserve|schedule|send|bring|deliver|request|fix|repair|clean|replace)\b/.test(normalized);
+  return asksForFacts && !asksForAction;
 }
 
 function setDraft(value) {

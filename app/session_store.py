@@ -179,6 +179,16 @@ class SessionStore:
                 (uuid.uuid4().hex, property_id, session_id, role, content[:8000], provider, model, latency_ms, error, int(time.time())),
             )
 
+    def recent_messages(self, session_id: str, property_id: str, limit: int = 10) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            rows = db.execute(
+                """SELECT role,content FROM conversation_messages
+                WHERE session_id=? AND property_id=? AND role IN ('guest','assistant')
+                ORDER BY created_at DESC,message_id DESC LIMIT ?""",
+                (session_id, property_id, max(1, min(limit, 20))),
+            ).fetchall()
+        return [dict(row) for row in reversed(rows)]
+
     def metrics(self, property_id: str) -> dict[str, Any]:
         now = int(time.time())
         day_start = now - (now % 86400)

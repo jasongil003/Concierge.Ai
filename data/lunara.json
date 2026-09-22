@@ -10,7 +10,7 @@
     {"label": "Checkout", "prompt": "What time is checkout?"}
   ],
   "knowledge": [
-    {"title": "Hotel profile", "keywords": ["hotel", "address", "property", "lunara"], "answer": "Lunara Grand Hotel & Residences is a five-star urban lifestyle hotel at 88 Meridian Drive, Aurora Bay District, Metro Manila, Philippines. The property has 228 rooms and suites.", "fast_path": true},
+    {"title": "Hotel profile", "keywords": ["hotel name", "hotel address", "where is the hotel", "lunara grand"], "answer": "Lunara Grand Hotel & Residences is a five-star urban lifestyle hotel at 88 Meridian Drive, Aurora Bay District, Metro Manila, Philippines. The property has 228 rooms and suites.", "fast_path": true},
     {"title": "Check-in and checkout", "keywords": ["check in", "check-in", "checkout", "check out"], "answer": "Standard check-in is 3:00 PM and checkout is 12:00 PM. Early arrival and late checkout are subject to availability and confirmation.", "fast_path": true},
     {"title": "Pool", "keywords": ["pool", "swimming", "children's pool"], "answer": "The Infinity Pool, children's pool, and pool deck are on Level 3 and are open from 6:00 AM to 10:00 PM.", "fast_path": true},
     {"title": "Fitness Center", "keywords": ["gym", "fitness", "workout"], "answer": "The Fitness Center is on Level 3 and is open 24 hours for registered guests.", "fast_path": true},

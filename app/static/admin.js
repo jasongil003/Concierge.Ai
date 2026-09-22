@@ -791,6 +791,11 @@ function modelOptions(provider) {
   return [...models].filter(Boolean);
 }
 
+function namedModelOptions(provider) {
+  const names = new Map((provider.model_options || []).map((item) => [item.id, item.name || item.id]));
+  return modelOptions(provider).map((id) => ({ id, name: names.get(id) || id }));
+}
+
 function renderModelChips(provider) {
   const models = modelOptions(provider);
   if (!models.length) return '<p class="model-empty">No public model list available yet.</p>';
@@ -866,8 +871,8 @@ function openProviderDrawer(providerId) {
   $("drawer-provider-status").textContent = statusLabel(provider.status);
   $("drawer-provider-note").textContent = provider.status_note;
   $("drawer-status").value = statusLabel(provider.status);
-  $("drawer-model").value = provider.selected_model || "";
   renderDrawerModelList(provider);
+  $("drawer-model").value = provider.selected_model || "";
   $("drawer-endpoint").value = provider.endpoint_url || "";
   $("drawer-temperature").value = provider.temperature ?? 0.2;
   $("drawer-max-tokens").value = provider.max_output_tokens ?? 160;
@@ -893,13 +898,10 @@ function openProviderDrawer(providerId) {
 }
 
 function renderDrawerModelList(provider) {
-  const list = $("drawer-model-list");
+  const list = $("drawer-model");
   list.innerHTML = "";
-  for (const model of modelOptions(provider)) {
-    const option = document.createElement("option");
-    option.value = model;
-    option.label = model;
-    list.appendChild(option);
+  for (const model of namedModelOptions(provider)) {
+    list.appendChild(new Option(model.name === model.id ? model.id : `${model.name} · ${model.id}`, model.id));
   }
 }
 
@@ -1022,14 +1024,10 @@ async function refreshProviderModels() {
   const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/ai/providers/${providerId}/models/refresh`, {
     method: "POST",
   });
-  const list = $("drawer-model-list");
-  list.innerHTML = "";
-  for (const model of result.models || []) {
-    const option = document.createElement("option");
-    option.value = model.id;
-    option.label = model.name || model.id;
-    list.appendChild(option);
-  }
+  await loadAI();
+  state.activeProvider = state.ai.providers.find((provider) => provider.provider_id === providerId);
+  renderDrawerModelList(state.activeProvider);
+  $("drawer-model").value = state.activeProvider.selected_model || "";
   showToast(`${result.models.length} models detected.`);
 }
 

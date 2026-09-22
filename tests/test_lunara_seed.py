@@ -18,12 +18,12 @@ def test_lunara_seed_maps_property_and_is_idempotent(tmp_path: Path):
     operations = OperationsStore(db_path)
 
     result = seed_lunara_demo(properties, zones, hospitality, operations, asset_path)
-    assert result == {"zones": 15, "facilities": 7, "services": 6, "faqs": 6}
+    assert result == {"zones": 15, "facilities": 7, "services": 6, "faqs": 15}
     assert properties.get(PROPERTY_ID).hotel_name == "Lunara Grand Hotel & Residences"
     assert len(zones.overview(PROPERTY_ID)["zones"]) == 15
     assert len(zones.overview(PROPERTY_ID)["maps"]) == 1
     assert len(hospitality.catalog(PROPERTY_ID)["services"]) == 6
-    assert len(operations.list_knowledge(PROPERTY_ID)) == 7
+    assert len(operations.list_knowledge(PROPERTY_ID)) == 16
 
     assert seed_lunara_demo(properties, zones, hospitality, operations, asset_path) == {"zones": 0, "facilities": 0, "services": 0, "faqs": 0}
     assert len(zones.overview(PROPERTY_ID)["zones"]) == 15

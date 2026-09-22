@@ -229,7 +229,8 @@ class OperationsStore:
             if not item["enabled"] or item["status"] != "ready":
                 continue
             haystack = " ".join([item["title"], item["question"], item["answer"], item["body"]]).casefold()
-            score = sum(1 for term in terms if term in haystack)
+            haystack_terms = set(re.findall(r"[a-z0-9]+", haystack))
+            score = len(terms & haystack_terms)
             if score:
                 answer = item["answer"] or item["body"][:1800]
                 scored.append((score, {"title": item["title"], "answer": answer}))

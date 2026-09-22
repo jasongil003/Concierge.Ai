@@ -591,8 +591,7 @@
       <div class="form-grid">
         <label>Authentication<select id="drawer-auth-method"></select></label>
         <label>Status<input id="drawer-status" disabled></label>
-        <label>Model<input id="drawer-model" list="drawer-model-list"></label>
-        <datalist id="drawer-model-list"></datalist>
+        <label>Model<select id="drawer-model"></select></label>
         <label>Endpoint URL<input id="drawer-endpoint" placeholder="http://host.docker.internal:11434"></label>
         <label>Temperature<input id="drawer-temperature" type="number" min="0" max="2" step="0.1"></label>
         <label>Max output tokens<input id="drawer-max-tokens" type="number" min="1" max="32000"></label>
@@ -617,6 +616,6 @@
     </footer>
   </aside>
   <div class="toast" id="toast"></div>
-  <script src="/static/admin.js?v=11"></script>
+  <script src="/static/admin.js?v=12"></script>
 </body>
 </html>
