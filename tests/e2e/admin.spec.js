@@ -96,11 +96,14 @@ test("sidebar: all navigation items are visible and clickable", async ({ page })
     ["Guest Requests", "requests"],
     ["Guest Sessions", "sessions"],
     ["Preview", "guest"],
+    ["Hotel Information", "hotel-information"],
     ["Rooms", "rooms"],
+    ["Facilities", "facilities"],
+    ["Restaurants", "restaurants"],
     ["Zones & Maps", "zones"],
     ["Overview", "knowledge"],
     ["Models & Providers", "ai"],
-    ["Improvement Loop", "improvement-loop"],
+    ["Usage", "ai-usage"],
     ["ANTlabs / Wi-Fi", "wifi"],
     ["Design", "appearance"],
     ["Branding / Intro", "intro"],
@@ -113,7 +116,6 @@ test("sidebar: all navigation items are visible and clickable", async ({ page })
     ["Network", "network"],
     ["Audit", "audit"],
     ["Security", "security"],
-    ["License", "license"],
   ];
   for (const [label, panel] of navLabels) {
     await openPanel(page, label);
@@ -141,14 +143,15 @@ test("sidebar: each visible navigation item has a feature status", async ({ page
   }
 });
 
-test("overview panel: property basics are editable", async ({ page }) => {
+test("overview panel: operational health is visible and configuration moved out", async ({ page }) => {
   await page.goto("/admin");
-  await expect(page.locator("#property-id")).toBeDisabled();
-  await expect(page.locator("#hotel-name-input")).toBeEnabled();
-  await expect(page.locator("#concierge-name-input")).toBeEnabled();
-  await expect(page.locator("#domain-input")).toBeEnabled();
-  await expect(page.locator("#deployment-mode")).toBeEnabled();
   await expect(page.locator("#overview-title")).not.toBeEmpty();
+  await expect(page.locator("#dashboard-ai-status")).not.toHaveText("Checking");
+  await expect(page.locator("#dashboard-antlabs-status")).not.toHaveText("Checking");
+  await expect(page.locator("#dashboard-version")).not.toHaveText("—");
+  await openPanel(page, "Hotel Information");
+  await expect(page.locator("#hotel-info-name")).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Save & Publish" })).toBeEnabled();
 });
 
 test("appearance panel: all design controls are wired and update preview", async ({ page }) => {
@@ -204,14 +207,12 @@ test("appearance panel: add and remove prompt buttons work", async ({ page }) =>
   await expect(rows).toHaveCount(initialCount);
 });
 
-test("guest experience panel: module table has locked buttons", async ({ page }) => {
+test("guest experience panel: modules can be managed", async ({ page }) => {
   await page.goto("/admin");
   await openPanel(page, "Preview");
-  const lockedButtons = page.locator('button:has-text("Locked")');
-  await expect(lockedButtons).toHaveCount(4);
-  for (const btn of await lockedButtons.all()) {
-    await expect(btn).toBeDisabled();
-  }
+  await expect(page.locator("#guest-module-name")).toBeEnabled();
+  await expect(page.locator("#guest-module-prompt")).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Save Module" })).toBeEnabled();
 });
 
 test("preview-only controls are explicitly disabled", async ({ page }) => {
@@ -252,7 +253,7 @@ test("zones map toolbar buttons switch tools and execute safely", async ({ page 
   await page.goto("/admin");
   await openPanel(page, "Zones & Maps");
 
-  for (const tool of ["Rectangle", "Polygon", "Ellipse", "Select"]) {
+  for (const tool of ["Rectangle", "Polygon", "Ellipse", "Freeform", "Select"]) {
     const button = page.getByRole("button", { name: tool, exact: true });
     await button.click();
     await expect(button).toHaveClass(/active/);
@@ -262,20 +263,11 @@ test("zones map toolbar buttons switch tools and execute safely", async ({ page 
   }
 });
 
-test("improvement loop panel: operator controls and model selection are available", async ({ page }) => {
+test("obsolete product sections are removed from navigation", async ({ page }) => {
   await page.goto("/admin");
-  await openPanel(page, "Improvement Loop");
-
-  await expect(page.getByRole("heading", { name: "Continuous improvement loop" })).toBeVisible();
-  await expect(page.locator("#loop-provider")).toBeEnabled();
-  await expect(page.locator("#loop-model")).toBeEnabled();
-  await expect(page.locator("#loop-approval-mode")).toBeEnabled();
-  await expect(page.getByRole("button", { name: "Run once" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Start loop" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Stop" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Mark satisfied" })).toBeVisible();
-  await expect(page.locator("#loop-provider option", { hasText: "Google Gemini" })).toHaveCount(1);
+  await expect(page.locator('.nav-item .nav-label', { hasText: "Improvement Loop" })).toHaveCount(0);
+  await expect(page.locator('.nav-item .nav-label', { hasText: "PMS" })).toHaveCount(0);
+  await expect(page.locator('.nav-item .nav-label', { hasText: "License" })).toHaveCount(0);
 });
 
 test("knowledge panel: upload zone disabled with POC note", async ({ page }) => {
@@ -285,16 +277,11 @@ test("knowledge panel: upload zone disabled with POC note", async ({ page }) => 
   await expect(page.locator(".upload-zone")).toHaveAttribute("aria-disabled", "true");
 });
 
-test("wifi panel: all controls disabled with POC note", async ({ page }) => {
+test("wifi panel: truthful status and manual test are available", async ({ page }) => {
   await page.goto("/admin");
   await openPanel(page, "ANTlabs / Wi-Fi");
-  await expect(page.locator("#wifi .poc-note")).toBeVisible();
-  for (const sel of await page.locator("#wifi select").all()) {
-    await expect(sel).toBeDisabled();
-  }
-  for (const inp of await page.locator("#wifi input").all()) {
-    await expect(inp).toBeDisabled();
-  }
+  await expect(page.locator("#antlabs-configured")).not.toHaveText("Checking");
+  await expect(page.getByRole("button", { name: "Test Connection" })).toBeEnabled();
 });
 
 test("authentication type panel: toggles are available", async ({ page }) => {
@@ -319,12 +306,6 @@ test("deployment panel: status info displayed", async ({ page }) => {
   await page.goto("/admin");
   await openPanel(page, "Domain");
   await expect(page.locator("#domain .feature-status")).toHaveText("Configuration Required");
-});
-
-test("license panel: license grid displayed", async ({ page }) => {
-  await page.goto("/admin");
-  await openPanel(page, "License");
-  await expect(page.locator(".license-grid")).toBeVisible();
 });
 
 test("users and access panels expose username-first management", async ({ page }) => {

@@ -285,6 +285,18 @@ class HospitalityStore:
                 db.execute("INSERT INTO departments VALUES (:department_id,:property_id,:name,:enabled,:default_sla_minutes,:escalation_target,:operating_hours,:webhook_url,:created_at,:updated_at)", record)
         return self._department_dict(record)
 
+    def delete_department(self, property_id: str, department_id: str) -> bool:
+        with self._connect() as db:
+            db.execute(
+                "UPDATE service_catalog SET department_id=NULL,updated_at=? WHERE property_id=? AND department_id=?",
+                (_now(), property_id, department_id),
+            )
+            cursor = db.execute(
+                "DELETE FROM departments WHERE property_id=? AND department_id=?",
+                (property_id, department_id),
+            )
+        return cursor.rowcount > 0
+
     def upsert_service(self, property_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         now = _now()
         service_id = str(payload.get("service_id") or _id("svc"))
@@ -431,13 +443,21 @@ class HospitalityStore:
                 )
         return self._facility_dict(record)
 
+    def delete_facility_profile(self, property_id: str, facility_id: str) -> bool:
+        with self._connect() as db:
+            cursor = db.execute(
+                "DELETE FROM facility_profiles WHERE property_id=? AND facility_id=?",
+                (property_id, facility_id),
+            )
+        return cursor.rowcount > 0
+
     def create_restaurant(self, property_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         now = _now()
         status = str(payload.get("status") or "open")
         if status not in FACILITY_STATUSES:
             raise ValueError("Invalid restaurant status.")
         record = {
-            "restaurant_id": _id("rest"),
+            "restaurant_id": str(payload.get("restaurant_id") or _id("rest")),
             "property_id": property_id,
             "facility_id": payload.get("facility_id"),
             "name": _clean(payload.get("name"), 160),
@@ -453,13 +473,43 @@ class HospitalityStore:
         if not record["name"]:
             raise ValueError("Restaurant name is required.")
         with self._connect() as db:
-            db.execute(
-                """INSERT INTO restaurants VALUES
-                (:restaurant_id,:property_id,:facility_id,:name,:location,:opening_hours,:meal_periods,
-                :reservation_available,:description,:status,:updated_at,:created_at)""",
-                record,
-            )
+            existing = db.execute(
+                "SELECT created_at FROM restaurants WHERE property_id=? AND restaurant_id=?",
+                (property_id, record["restaurant_id"]),
+            ).fetchone()
+            if existing:
+                record["created_at"] = existing["created_at"]
+                db.execute(
+                    """UPDATE restaurants SET facility_id=:facility_id,name=:name,location=:location,
+                    opening_hours=:opening_hours,meal_periods=:meal_periods,reservation_available=:reservation_available,
+                    description=:description,status=:status,updated_at=:updated_at
+                    WHERE property_id=:property_id AND restaurant_id=:restaurant_id""",
+                    record,
+                )
+            else:
+                db.execute(
+                    """INSERT INTO restaurants VALUES
+                    (:restaurant_id,:property_id,:facility_id,:name,:location,:opening_hours,:meal_periods,
+                    :reservation_available,:description,:status,:updated_at,:created_at)""",
+                    record,
+                )
         return self._restaurant_dict(record)
+
+    def delete_restaurant(self, property_id: str, restaurant_id: str) -> bool:
+        with self._connect() as db:
+            menu_ids = [row[0] for row in db.execute(
+                "SELECT menu_id FROM menus WHERE property_id=? AND restaurant_id=?",
+                (property_id, restaurant_id),
+            ).fetchall()]
+            if menu_ids:
+                placeholders = ",".join("?" for _ in menu_ids)
+                db.execute(
+                    f"DELETE FROM menu_items WHERE property_id=? AND menu_id IN ({placeholders})",
+                    (property_id, *menu_ids),
+                )
+            db.execute("DELETE FROM menus WHERE property_id=? AND restaurant_id=?", (property_id, restaurant_id))
+            cursor = db.execute("DELETE FROM restaurants WHERE property_id=? AND restaurant_id=?", (property_id, restaurant_id))
+        return cursor.rowcount > 0
 
     def create_menu(self, property_id: str, restaurant_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         self._require_owned("restaurants", "restaurant_id", restaurant_id, property_id)

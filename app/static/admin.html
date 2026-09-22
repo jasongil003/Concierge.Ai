@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Concierge.Ai Platform</title>
-  <link rel="stylesheet" href="/static/admin.css?v=14">
+  <link rel="stylesheet" href="/static/admin.css?v=16">
 </head>
 <body>
   <div class="platform-shell">
@@ -68,23 +68,30 @@
         </div>
         <div class="two-col">
           <section class="card">
-            <div class="card-heading"><div><span>Configuration</span><h2>Property basics</h2></div><span class="card-chip">Primary</span></div>
-            <label>Property ID<input id="property-id" disabled></label>
-            <label>Hotel name<input id="hotel-name-input"></label>
-            <label>Concierge name<input id="concierge-name-input"></label>
-            <label>Domain / subdomain<input id="domain-input" placeholder="concierge.hotel.com"></label>
-            <label>Deployment mode<select id="deployment-mode"><option>on-prem</option><option>cloud</option><option>hybrid</option><option>edge</option></select></label>
+            <div class="card-heading"><div><span>System health</span><h2>Service readiness</h2></div><span class="card-chip" id="dashboard-health-chip">Checking</span></div>
+            <dl class="status-list">
+              <div data-dashboard-panel="ai"><dt>AI provider</dt><dd id="dashboard-ai-status">Checking</dd></div>
+              <div data-dashboard-panel="wifi"><dt>ANTlabs</dt><dd id="dashboard-antlabs-status">Checking</dd></div>
+              <div data-dashboard-panel="sessions"><dt>Guest sessions</dt><dd id="dashboard-session-status">Checking</dd></div>
+              <div data-dashboard-panel="requests"><dt>Request queue</dt><dd id="dashboard-request-status">Checking</dd></div>
+            </dl>
           </section>
           <section class="card">
-            <div class="card-heading"><div><span>Infrastructure</span><h2>Operational status</h2></div><span class="card-chip healthy">Healthy</span></div>
+            <div class="card-heading"><div><span>Runtime</span><h2>Application status</h2></div><span class="card-chip healthy" id="dashboard-runtime-chip">Healthy</span></div>
             <dl class="status-list">
-              <div><dt><i class="status-indicator good"></i>Runtime</dt><dd>Local on-prem</dd></div>
+              <div><dt><i class="status-indicator good"></i>Version</dt><dd id="dashboard-version">—</dd></div>
+              <div><dt>Environment</dt><dd id="dashboard-environment">—</dd></div>
               <div><dt><i class="status-indicator good"></i>Database</dt><dd>SQLite connected</dd></div>
-              <div><dt><i class="status-indicator warn"></i>ANTlabs</dt><dd>Simulation mode; gateway access unchanged</dd></div>
               <div><dt>Guest URL</dt><dd><a href="/" target="_blank" rel="noopener">/</a></dd></div>
             </dl>
           </section>
         </div>
+        <section class="card table-card"><div class="card-heading"><div><span>Recent operations</span><h2>Activity</h2></div><button class="secondary" type="button" data-dashboard-panel="conversations">View conversations</button></div><div id="dashboard-activity" class="compact-list"></div></section>
+        <input id="property-id" type="hidden">
+        <input id="hotel-name-input" type="hidden">
+        <input id="concierge-name-input" type="hidden">
+        <input id="domain-input" type="hidden">
+        <select id="deployment-mode" hidden><option>on-prem</option><option>cloud</option><option>hybrid</option><option>edge</option></select>
       </section>
 
       <section class="panel" id="appearance">
@@ -111,6 +118,8 @@
               <label>Secondary text<input id="secondary-text-color-input" type="color" value="#71717a"></label>
               <label>Accent<input id="accent-input" type="color" value="#18181b"></label>
               <label>User bubble<input id="user-message-input" type="color" value="#eeeeee"></label>
+              <label>Button color<input id="button-color-input" type="color" value="#18181b"></label>
+              <label>Composer<input id="composer-background-input" type="color" value="#ffffff"></label>
             </div>
             <label>Background picture<input id="background-image-input" type="file" accept="image/png,image/jpeg,image/webp"></label>
             <p class="field-note">Recommended background: JPG/WebP, 1600 x 2400 px portrait for mobile, 2400 x 1600 px landscape fallback, under 1.5 MB.</p>
@@ -122,6 +131,11 @@
               <label>Density<select id="density-input"><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></label>
               <label>Width<input id="content-width-input" type="number" min="320" max="1100" step="10"></label>
               <label>Message width<input id="message-width-input" type="number" min="280" max="900" step="10"></label>
+              <label>Composer width<input id="composer-width-input" type="number" min="280" max="1100" step="10"></label>
+              <label>Base font size<input id="base-font-size-input" type="number" min="12" max="22" step="1"></label>
+              <label>Message spacing<input id="message-spacing-input" type="number" min="8" max="64" step="2"></label>
+              <label>Border radius<input id="radius-input" type="number" min="0" max="40" step="1"></label>
+              <label>Prompt layout<select id="suggestion-layout-input"><option value="stack">Stack</option><option value="grid">Grid</option></select></label>
               <label>Message style<select id="user-style-input"><option value="bubble">Bubble</option><option value="minimal">Minimal</option></select></label>
               <label>Assistant style<select id="assistant-style-input"><option value="minimal">Minimal</option><option value="bubble">Bubble</option></select></label>
             </div>
@@ -129,6 +143,7 @@
               <label><input id="header-enabled-input" type="checkbox"> Show header</label>
               <label><input id="show-logo-input" type="checkbox"> Show logo mark</label>
               <label><input id="show-name-input" type="checkbox"> Show hotel name</label>
+              <label><input id="show-concierge-input" type="checkbox"> Show concierge name</label>
             </div>
             <h2>Suggested prompts</h2>
             <div class="prompt-list" id="prompt-list"></div>
@@ -170,18 +185,8 @@
       </section>
 
       <section class="panel" id="guest">
-        <div class="page-title"><p>Guest experience</p><h1>Conversation modules</h1></div>
-        <section class="card">
-          <table>
-            <thead><tr><th>Module</th><th>Trigger</th><th>Status</th><th>Action</th></tr></thead>
-            <tbody>
-              <tr><td>Wi-Fi authentication</td><td>Wi-Fi / internet intent</td><td>Enabled</td><td><button disabled title="Configuration API is not implemented yet.">Locked</button></td></tr>
-              <tr><td>Restaurant recommendations</td><td>Dining / nearby intent</td><td>Enabled</td><td><button disabled title="Recommendation source management is not implemented yet.">Locked</button></td></tr>
-              <tr><td>Housekeeping request</td><td>Service intent</td><td>POC</td><td><button disabled title="Service workflow configuration is not implemented yet.">Locked</button></td></tr>
-              <tr><td>Late checkout</td><td>Checkout intent</td><td>POC</td><td><button disabled title="Service workflow configuration is not implemented yet.">Locked</button></td></tr>
-            </tbody>
-          </table>
-        </section>
+        <div class="page-title"><div><p>Guest experience</p><h1>Conversation modules</h1><span>Enabled modules appear in the guest menu in the configured order.</span></div></div>
+        <div class="two-col"><section class="card"><h2>Module</h2><input id="guest-module-id" type="hidden"><label>Name<input id="guest-module-name" maxlength="80"></label><label>Guest prompt<textarea id="guest-module-prompt" rows="3" placeholder="What time is breakfast?"></textarea></label><label>Order<input id="guest-module-order" type="number" min="0" max="99" value="0"></label><label class="check-row"><input id="guest-module-enabled" type="checkbox" checked> Enabled</label><button id="save-guest-module" type="button">Save Module</button></section><section class="card"><h2>Published modules</h2><div id="guest-module-list" class="compact-list"></div></section></div>
       </section>
 
       <section class="panel" id="zones">
@@ -192,6 +197,7 @@
             <div class="tool-grid">
               <button data-map-tool="select">Select</button><button data-map-tool="rectangle">Rectangle</button>
               <button data-map-tool="polygon">Polygon</button><button data-map-tool="ellipse">Ellipse</button>
+              <button data-map-tool="freeform">Freeform</button>
               <button id="duplicate-map-object" type="button">Duplicate</button><button id="delete-map-object" type="button">Delete</button>
               <button id="undo-map" type="button">Undo</button><button id="redo-map" type="button">Redo</button>
             </div>
@@ -245,7 +251,8 @@
       </section>
 
       <section class="panel" id="location">
-        <div class="page-title"><p>Location Analytics</p><h1>Live occupancy, heatmap, behavior, and movement</h1></div>
+        <div class="page-title"><div><p>Location Analytics</p><h1>Locations, occupancy, and movement</h1><span>Manage guest-visible property locations and review aggregate WLAN-derived activity.</span></div></div>
+        <div class="two-col"><section class="card"><h2>Location</h2><input id="location-id" type="hidden"><label>Name<input id="location-name" maxlength="160"></label><label>Type<input id="location-type" maxlength="80" placeholder="entrance, venue, landmark"></label><label>Description<textarea id="location-description" rows="3" maxlength="1000"></textarea></label><div class="inline-fields"><label>Latitude<input id="location-latitude" type="number" step="any"></label><label>Longitude<input id="location-longitude" type="number" step="any"></label></div><label class="check-row"><input id="location-visible" type="checkbox" checked> Guest visible</label><button id="save-location" type="button">Save Location</button></section><section class="card"><h2>Managed locations</h2><div id="managed-location-list" class="compact-list"></div></section></div>
         <section class="metrics" id="location-live-metrics"></section>
         <div class="two-col">
           <section class="card">
@@ -350,28 +357,13 @@
       </section>
 
       <section class="panel" id="knowledge">
-        <div class="page-title"><p>Knowledge</p><h1>Hotel source library</h1></div>
-        <p class="poc-note">Not available in this POC. Knowledge is seeded from data/hotel.json.</p>
-        <section class="upload-zone" aria-disabled="true">Drop PDFs, menus, policies, and FAQs here</section>
-        <section class="card">
-          <table><thead><tr><th>Name</th><th>Type</th><th>Status</th><th>Chunks</th><th>Updated</th></tr></thead><tbody>
-            <tr><td>Guest directory</td><td>PDF</td><td>Ready</td><td>126</td><td>Today</td></tr>
-            <tr><td>Wi-Fi FAQ</td><td>Seed</td><td>Ready</td><td>6</td><td>Initial</td></tr>
-          </tbody></table>
-        </section>
+        <div class="page-title"><div><p>Knowledge</p><h1>Hotel source library</h1><span>Approved property facts are retrieved as verified context for guest answers.</span></div></div>
+        <div class="two-col"><section class="card"><h2>Knowledge entry</h2><input id="knowledge-id" type="hidden"><label>Title<input id="knowledge-title" maxlength="200"></label><label>Approved content<textarea id="knowledge-body" rows="8" maxlength="50000"></textarea></label><label class="check-row"><input id="knowledge-enabled" type="checkbox" checked> Available to Concierge AI</label><button id="save-knowledge" type="button">Save Knowledge</button></section><section class="card"><h2>Managed entries</h2><div id="knowledge-list" class="compact-list"></div></section></div>
       </section>
 
       <section class="panel" id="wifi">
-        <div class="page-title"><p>Wi-Fi / ANTlabs</p><h1>Gateway handoff settings</h1></div>
-        <p class="poc-note">Not available in this POC. ANTlabs mode is configured via ANTLABS_MODE environment variable.</p>
-        <section class="card form-grid">
-          <label>Mode<select disabled title="Not available in this POC"><option>mock</option><option>browser_handoff</option></select></label>
-          <label>Login URL<input placeholder="Validated SG5 URL" disabled title="Not available in this POC"></label>
-          <label>Room field<input placeholder="Validated field" disabled title="Not available in this POC"></label>
-          <label>Last-name field<input placeholder="Validated field" disabled title="Not available in this POC"></label>
-          <label>Session context key<input placeholder="Gateway context key" disabled title="Not available in this POC"></label>
-          <label>Success redirect<input placeholder="/resume" disabled title="Not available in this POC"></label>
-        </section>
+        <div class="page-title"><div><p>Wi-Fi / ANTlabs</p><h1>Gateway connection status</h1><span>Runtime settings remain environment-controlled so gateway credentials never reach the browser.</span></div><button id="test-antlabs" type="button">Test Connection</button></div>
+        <section class="card"><dl class="detail-list"><div><dt>Configuration</dt><dd id="antlabs-configured">Checking</dd></div><div><dt>Mode</dt><dd id="antlabs-mode">—</dd></div><div><dt>Status</dt><dd id="antlabs-status">—</dd></div><div><dt>Endpoint</dt><dd id="antlabs-endpoint">Not configured</dd></div><div><dt>Last check</dt><dd id="antlabs-last-check">Never</dd></div></dl><p class="field-note" id="antlabs-detail">Use Test Connection to verify gateway reachability. Mock mode never contacts hardware.</p></section>
       </section>
 
       <section class="panel" id="auth-types">
@@ -382,6 +374,7 @@
 
       <section class="panel" id="conversations">
         <div class="page-title"><div><p>Guest Experience</p><h1>Conversations</h1><span>Guest messages, AI responses, escalation, and human takeover.</span></div><button class="secondary" id="refresh-conversations" type="button">Refresh</button></div>
+        <section class="card retention-card"><div><h2>Privacy and retention</h2><p class="field-note">Active conversations support service delivery and human takeover. Historical messages are deleted after the configured retention period.</p></div><label>Retention days<input id="conversation-retention-days" type="number" min="1" max="365" value="30"></label><button id="save-conversation-retention" type="button">Save Retention</button></section>
         <div class="two-col">
           <section class="card"><h2>Conversation list</h2><label>Search<input id="conversation-search" type="search" aria-label="Search conversations"></label><label>Status<select id="conversation-status-filter"><option value="">All statuses</option><option value="open">Open</option><option value="escalated">Escalated</option><option value="closed">Closed</option></select></label><div id="conversation-list" class="compact-list"></div></section>
           <section class="card"><h2>Message history</h2><div id="conversation-messages" class="compact-list">Select a conversation.</div><label>Staff response<textarea id="staff-response" rows="3"></textarea></label><div class="dialog-actions"><button class="secondary" id="toggle-takeover" type="button" disabled>Take Over</button><button class="secondary" id="close-conversation" type="button" disabled>Close</button><button id="send-staff-response" type="button" disabled>Send Response</button></div></section>
@@ -395,7 +388,7 @@
             <h2>Create request</h2>
             <label>Room<input id="service-room" placeholder="1503"></label>
             <label>Service<select id="service-type"><option value="">Select a configured service</option></select></label>
-            <label>Department<input id="service-department" readonly></label>
+            <label>Department<select id="service-department"><option value="">Select a department</option></select></label>
             <label>Priority<select id="service-priority"><option value="low">Low</option><option value="normal" selected>Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></label>
             <label>Description<textarea id="service-description" rows="3" placeholder="Please send two towels."></textarea></label>
             <label>SLA minutes<input id="service-sla" type="number" min="1" max="240" value="15"></label>
@@ -409,7 +402,7 @@
       </section>
 
       <section class="panel" id="service-catalog">
-        <div class="page-title"><div><p>Property</p><h1>Service Catalog</h1><span>Property-managed guest services and operational routing.</span></div></div>
+        <div class="page-title"><div><p>Property</p><h1>Service Catalog</h1><span>Departments route work to operational teams. Services are the guest-request choices assigned to those teams, with SLAs and confirmation rules.</span></div></div>
         <div class="two-col">
           <section class="card">
             <h2>Department</h2>
@@ -494,10 +487,15 @@
         </div>
       </section>
 
-      <section class="panel placeholder-panel" id="rooms"><div class="page-title"><div><p>Property</p><h1>Rooms</h1><span>Room inventory and guest-facing room information.</span></div></div><div class="empty-state"><strong>No room inventory connected</strong><p>Connect a PMS integration to synchronize room types and operational status.</p></div></section>
-      <section class="panel placeholder-panel" id="restaurants"><div class="page-title"><div><p>Property</p><h1>Restaurants</h1><span>Dining venues, hours, menus, and guest guidance.</span></div></div><div class="empty-state"><strong>Restaurant management is ready for configuration</strong><p>Add dining records through the property hospitality API.</p></div></section>
+      <section class="panel" id="hotel-information">
+        <div class="page-title"><div><p>Property</p><h1>Hotel information</h1><span>Published property facts used by the guest experience and verified-answer paths.</span></div></div>
+        <div class="two-col"><section class="card"><h2>Identity and contact</h2><label>Hotel name<input id="hotel-info-name" maxlength="200"></label><label>Description<textarea id="hotel-info-description" rows="4"></textarea></label><label>Address<textarea id="hotel-info-address" rows="2"></textarea></label><label>Phone<input id="hotel-info-phone" maxlength="80"></label><label>Email<input id="hotel-info-email" type="email" maxlength="254"></label><label>Website<input id="hotel-info-website" type="url" maxlength="500"></label></section><section class="card"><h2>Stay guidance</h2><label>Check-in<input id="hotel-info-checkin" placeholder="3:00 PM"></label><label>Checkout<input id="hotel-info-checkout" placeholder="12:00 PM"></label><label>Breakfast information<textarea id="hotel-info-breakfast" rows="2"></textarea></label><label>Wi-Fi guidance<textarea id="hotel-info-wifi" rows="2"></textarea></label><label>Policies<textarea id="hotel-info-policies" rows="3" placeholder="One policy per line"></textarea></label><div class="dialog-actions"><button class="secondary" id="clear-hotel-information" type="button">Clear Optional Fields</button><button id="save-hotel-information" type="button">Save &amp; Publish</button></div></section></div>
+      </section>
+      <section class="panel" id="rooms"><div class="page-title"><div><p>Property</p><h1>Rooms</h1><span>Property-scoped room types and guest-facing room information. This inventory is independent of any PMS.</span></div></div><div class="two-col"><section class="card"><h2>Room</h2><input id="room-id" type="hidden"><label>Name / type<input id="room-name" maxlength="160"></label><label>Description<textarea id="room-description" rows="3"></textarea></label><label>Capacity<input id="room-capacity" type="number" min="1" max="30" value="2"></label><label>Status<select id="room-status"><option value="available">Available</option><option value="unavailable">Unavailable</option><option value="maintenance">Maintenance</option></select></label><button id="save-room" type="button">Save Room</button></section><section class="card"><h2>Managed rooms</h2><div id="room-list" class="compact-list"></div></section></div></section>
+      <section class="panel" id="facilities"><div class="page-title"><div><p>Property</p><h1>Facilities</h1><span>Manage amenities, locations, hours, and live availability used by guest answers.</span></div></div><div class="two-col"><section class="card"><h2>Facility</h2><input id="facility-id" type="hidden"><label>Name<input id="facility-name" maxlength="160"></label><label>Type<input id="facility-type" placeholder="pool, gym, spa" maxlength="80"></label><label>Location<input id="facility-location" maxlength="240"></label><label>Hours<input id="facility-hours" placeholder="06:00–22:00"></label><label>Status<select id="facility-status"><option value="open">Open</option><option value="closed">Closed</option><option value="temporarily_closed">Temporarily closed</option><option value="maintenance">Maintenance</option><option value="private_event">Private event</option></select></label><label>Description<textarea id="facility-description" rows="3"></textarea></label><button id="save-facility" type="button">Save Facility</button></section><section class="card"><h2>Managed facilities</h2><div id="facility-list" class="compact-list"></div></section></div></section>
+      <section class="panel" id="restaurants"><div class="page-title"><div><p>Property</p><h1>Restaurants</h1><span>Configure dining venues used by guest recommendations and hotel information.</span></div></div><div class="two-col"><section class="card"><h2>Dining venue</h2><input id="restaurant-id" type="hidden"><label>Name<input id="restaurant-name" maxlength="160"></label><label>Location<input id="restaurant-location" maxlength="240"></label><label>Hours<input id="restaurant-hours" placeholder="Breakfast 06:30–10:30"></label><label>Meal periods<input id="restaurant-meals" placeholder="breakfast, lunch, dinner"></label><label>Status<select id="restaurant-status"><option value="open">Open</option><option value="closed">Closed</option><option value="temporarily_closed">Temporarily closed</option><option value="maintenance">Maintenance</option><option value="private_event">Private event</option></select></label><label>Description<textarea id="restaurant-description" rows="3"></textarea></label><label class="check-row"><input id="restaurant-reservations" type="checkbox"> Reservations available</label><button id="save-restaurant" type="button">Save Restaurant</button></section><section class="card"><h2>Managed restaurants</h2><div id="restaurant-list" class="compact-list"></div></section></div></section>
       <section class="panel" id="recommendations">
-        <div class="page-title"><div><p>Property</p><h1>Local recommendations</h1><span>Curated nearby places and trusted guest suggestions.</span></div></div>
+        <div class="page-title"><div><p>Property</p><h1>Local recommendations</h1><span>Curated places shown as guest recommendation cards. Add complete descriptions and a valid map URL so Details and Directions remain useful.</span></div></div>
         <div class="two-col">
           <section class="card">
             <h2>Recommendation</h2>
@@ -514,38 +512,22 @@
           <section class="card"><h2>Managed recommendations</h2><div id="recommendation-list" class="compact-list"></div></section>
         </div>
       </section>
-      <section class="panel placeholder-panel" id="documents"><div class="page-title"><div><p>Knowledge</p><h1>Documents</h1><span>Source documents used by the concierge knowledge layer.</span></div></div><div class="empty-state"><strong>No managed documents</strong><p>Document ingestion will appear here when the knowledge pipeline is enabled.</p></div></section>
-      <section class="panel placeholder-panel" id="faqs"><div class="page-title"><div><p>Knowledge</p><h1>FAQs</h1><span>Structured hotel questions and approved answers.</span></div></div><div class="empty-state"><strong>FAQs are currently seeded from hotel configuration</strong><p>Managed FAQ editing can be enabled without changing the guest experience.</p></div></section>
-      <section class="panel placeholder-panel" id="ai-personality"><div class="page-title"><div><p>AI</p><h1>AI personality</h1><span>Tone, service posture, and property-specific conversational behavior.</span></div></div><div class="empty-state"><strong>Uses the current property concierge profile</strong><p>Advanced personality controls are reserved for a governed configuration release.</p></div></section>
+      <section class="panel" id="documents"><div class="page-title"><div><p>Knowledge</p><h1>Documents</h1><span>Upload trusted text sources. Unsupported formats remain visible with an explicit ingestion error.</span></div></div><section class="card"><label>Document<input id="knowledge-document-upload" type="file" accept=".txt,.md,.csv,.json,.html,text/plain,text/markdown,text/csv,application/json,text/html,application/pdf"></label><p class="field-note">Supported ingestion: TXT, Markdown, CSV, JSON, and HTML up to 8 MB. PDF is reported as unsupported until a trusted extractor is configured.</p><div id="document-list" class="compact-list"></div></section></section>
+      <section class="panel" id="faqs"><div class="page-title"><div><p>Knowledge</p><h1>FAQs</h1><span>Approved questions and answers available to the concierge retrieval layer.</span></div></div><div class="two-col"><section class="card"><h2>FAQ</h2><input id="faq-id" type="hidden"><label>Question<input id="faq-question" maxlength="500"></label><label>Approved answer<textarea id="faq-answer" rows="6" maxlength="12000"></textarea></label><label class="check-row"><input id="faq-enabled" type="checkbox" checked> Available to Concierge AI</label><button id="save-faq" type="button">Save FAQ</button></section><section class="card"><h2>Managed FAQs</h2><div id="faq-list" class="compact-list"></div></section></div></section>
+      <section class="panel" id="ai-personality"><div class="page-title"><div><p>AI</p><h1>AI personality</h1><span>Property-specific response style. System safety rules always take precedence.</span></div></div><section class="card settings-form"><div class="form-grid"><label>Concierge identity<input id="personality-name" maxlength="80"></label><label>Tone<select id="personality-tone"><option value="warm">Warm</option><option value="professional">Professional</option><option value="friendly">Friendly</option><option value="luxury">Luxury</option></select></label><label>Formality<select id="personality-formality"><option value="balanced">Balanced</option><option value="formal">Formal</option><option value="casual">Casual</option></select></label><label>Response length<select id="personality-length"><option value="concise">Concise</option><option value="balanced">Balanced</option><option value="detailed">Detailed</option></select></label><label>Greeting behavior<select id="personality-greeting"><option value="first_message">First message only</option><option value="when_helpful">When helpful</option><option value="never">Never</option></select></label></div><label>Property-specific instructions<textarea id="personality-instructions" rows="5" maxlength="4000"></textarea></label><button id="save-personality" type="button">Save Personality</button></section></section>
       <section class="panel placeholder-panel" id="system-prompt"><div class="page-title"><div><p>AI</p><h1>System prompt</h1><span>Controlled prompt policy and approved hotel context.</span></div></div><div class="empty-state"><strong>System prompts are server-managed</strong><p>This prevents accidental exposure or unsafe browser-side prompt editing.</p></div></section>
-      <section class="panel placeholder-panel" id="guardrails"><div class="page-title"><div><p>AI</p><h1>Guardrails</h1><span>Safety, privacy, escalation, and response boundaries.</span></div></div><div class="empty-state"><strong>Core guardrails are active</strong><p>Provider secrets and operational identifiers are never returned to guests.</p></div></section>
-      <section class="panel placeholder-panel" id="pms"><div class="page-title"><div><p>Integrations</p><h1>PMS</h1><span>Property management system connectivity.</span></div></div><div class="empty-state"><strong>No PMS connected</strong><p>Configure an approved PMS adapter for reservations, rooms, and stay context.</p></div></section>
+      <section class="panel" id="guardrails"><div class="page-title"><div><p>AI</p><h1>Guardrails</h1><span>Governed guest-assistance boundaries without exposing system prompts or secrets.</span></div></div><section class="card settings-form"><div class="form-grid"><label>Unknown answers<select id="guardrail-unknown"><option value="state_unavailable">State that verified information is unavailable</option><option value="escalate">Escalate to hotel staff</option></select></label><label>Escalation behavior<select id="guardrail-escalation"><option value="offer_human">Offer human assistance</option><option value="automatic">Automatically escalate</option><option value="front_desk">Direct to front desk</option></select></label></div><label>Allowed topics<textarea id="guardrail-allowed" rows="3" placeholder="One topic per line"></textarea></label><label>Restricted topics<textarea id="guardrail-restricted" rows="3" placeholder="One topic per line"></textarea></label><label>Sensitive-information handling<textarea id="guardrail-sensitive" rows="3" maxlength="2000"></textarea></label><label>Human escalation rules<textarea id="guardrail-human" rows="3" maxlength="2000"></textarea></label><button id="save-guardrails" type="button">Save Guardrails</button></section></section>
       <section class="panel placeholder-panel" id="api"><div class="page-title"><div><p>Integrations</p><h1>API</h1><span>Secure integration endpoints and access policies.</span></div></div><div class="empty-state"><strong>API administration is restricted</strong><p>Credentials remain server-side and are managed through environment-backed secrets.</p></div></section>
-      <section class="panel placeholder-panel" id="webhooks"><div class="page-title"><div><p>Integrations</p><h1>Webhooks</h1><span>Outbound operational event delivery.</span></div></div><div class="empty-state"><strong>No webhooks configured</strong><p>Signed webhook destinations will appear here when enabled.</p></div></section>
+      <section class="panel" id="webhooks"><div class="page-title"><div><p>Integrations</p><h1>Webhooks</h1><span>Signed, property-scoped operational event delivery with status history.</span></div></div><div class="two-col"><section class="card"><h2>Endpoint</h2><input id="webhook-id" type="hidden"><label>Name<input id="webhook-name" maxlength="120"></label><label>Endpoint URL<input id="webhook-url" type="url" maxlength="1000" placeholder="https://operations.example.com/events"></label><label>Events<select id="webhook-events" multiple size="4"><option value="guest.session.started">Guest session started</option><option value="guest.request.created">Guest request created</option><option value="guest.request.updated">Guest request updated</option><option value="conversation.escalated">Conversation escalated</option></select></label><label>Signing secret<input id="webhook-secret" type="password" autocomplete="new-password" placeholder="Leave blank to keep the saved secret"></label><label class="check-row"><input id="webhook-enabled" type="checkbox" checked> Enabled</label><button id="save-webhook" type="button">Save Webhook</button></section><section class="card"><h2>Configured endpoints</h2><div id="webhook-list" class="compact-list"></div><h2>Recent deliveries</h2><div id="webhook-deliveries" class="compact-list"></div></section></div></section>
       <section class="panel placeholder-panel" id="third-party"><div class="page-title"><div><p>Integrations</p><h1>Third-party services</h1><span>Approved hospitality and operations connections.</span></div></div><div class="empty-state"><strong>No third-party services connected</strong><p>Integrations remain isolated by property.</p></div></section>
       <section class="panel placeholder-panel" id="questions"><div class="page-title"><div><p>Analytics</p><h1>Questions</h1><span>Guest question patterns and knowledge coverage.</span></div></div><div class="empty-state"><strong>Question analytics are collecting</strong><p>Aggregated trends will appear without exposing guest credentials.</p></div></section>
       <section class="panel placeholder-panel" id="request-analytics"><div class="page-title"><div><p>Analytics</p><h1>Request analytics</h1><span>Volume, SLA, completion, and department trends.</span></div></div><div class="empty-state"><strong>Use Guest Requests for live operations</strong><p>Historical operational reporting will appear here.</p></div></section>
-      <section class="panel placeholder-panel" id="ai-usage"><div class="page-title"><div><p>Analytics</p><h1>AI usage</h1><span>Provider activity, latency, and token consumption.</span></div></div><div class="empty-state"><strong>AI usage is recorded server-side</strong><p>Provider-level reporting will be added without exposing credentials.</p></div></section>
-      <section class="panel placeholder-panel" id="system-settings"><div class="page-title"><div><p>System</p><h1>Settings</h1><span>Global platform behavior and environment-backed configuration.</span></div></div><div class="empty-state"><strong>Critical settings remain environment-controlled</strong><p>This protects infrastructure secrets from browser access.</p></div></section>
+      <section class="panel" id="ai-usage"><div class="page-title"><div><p>Analytics</p><h1>AI usage</h1><span>Recorded provider requests, errors, and latency. Cost is omitted because no verified billing data is available.</span></div><select id="ai-usage-period"><option value="1">24 hours</option><option value="7" selected>7 days</option><option value="30">30 days</option></select></div><section class="metrics" id="ai-usage-metrics"></section><section class="card"><h2>Provider and model activity</h2><div id="ai-usage-list" class="compact-list"></div></section></section>
+      <section class="panel" id="system-settings"><div class="page-title"><div><p>System</p><h1>Settings</h1><span>Safe application defaults and protected outbound-email configuration.</span></div></div><div class="two-col"><section class="card"><h2>Property defaults</h2><label>Default language<input id="setting-language" maxlength="12" placeholder="en"></label><label>Time zone<input id="setting-timezone" maxlength="80" placeholder="Asia/Manila"></label><label class="check-row"><input id="setting-maintenance" type="checkbox"> Maintenance banner enabled</label><label>Maintenance message<textarea id="setting-maintenance-message" rows="3" maxlength="500"></textarea></label><button id="save-app-settings" type="button">Save Application Settings</button></section><section class="card"><h2>Password-reset email</h2><label class="check-row"><input id="smtp-enabled" type="checkbox"> Enable outbound email</label><label>SMTP host<input id="smtp-host" maxlength="255"></label><div class="inline-fields"><label>Port<input id="smtp-port" type="number" min="1" max="65535" value="587"></label><label>Security<select id="smtp-security"><option value="starttls">STARTTLS</option><option value="ssl">SSL/TLS</option><option value="none">None</option></select></label></div><label>Username<input id="smtp-username" autocomplete="off"></label><label>Password<input id="smtp-password" type="password" autocomplete="new-password" placeholder="Leave blank to keep saved password"></label><label>From address<input id="smtp-from" type="email"></label><p class="field-note" id="smtp-status">SMTP is not configured.</p><div class="dialog-actions"><button class="secondary" id="test-smtp" type="button">Test Connection</button><button id="save-smtp" type="button">Save Email Settings</button></div></section></div></section>
 
-      <section class="panel" id="deployment">
-        <div class="page-title"><p>Configuration Required</p><h1>Deployment status</h1></div>
-        <section class="card status-list">
-          <div><dt>Canonical guest URL</dt><dd>Not configured</dd></div>
-          <div><dt>HTTPS</dt><dd>Configuration required</dd></div>
-          <div><dt>Network readiness</dt><dd>Configuration required</dd></div>
-        </section>
-      </section>
-
-      <section class="panel" id="license">
-        <div class="page-title"><p>Configuration Required</p><h1>License</h1></div>
-        <section class="license-grid">
-          <article><span>License</span><strong>Not configured</strong></article>
-          <article><span>Rooms</span><strong>Not available</strong></article>
-          <article><span>Nodes</span><strong>Not available</strong></article>
-          <article><span>Maintenance</span><strong>Not available</strong></article>
-        </section>
-      </section>
+      <section class="panel" id="domain"><div class="page-title"><div><p>Deployment</p><h1>Domain</h1><span>Configure the intended guest hostname and verify real DNS resolution.</span></div><button id="verify-deployment" type="button">Verify Domain &amp; SSL</button></div><section class="card"><label>Guest domain<input id="deployment-domain" placeholder="concierge.hotel-example.com"></label><label>Public guest URL<input id="deployment-public-url" type="url" placeholder="https://concierge.hotel-example.com"></label><button id="save-deployment" type="button">Save Deployment Settings</button><dl class="detail-list"><div><dt>Status</dt><dd id="domain-status">Not configured</dd></div><div><dt>Resolved addresses</dt><dd id="domain-addresses">—</dd></div><div><dt>Last checked</dt><dd id="deployment-last-checked">Never</dd></div></dl></section></section>
+      <section class="panel" id="ssl"><div class="page-title"><div><p>Deployment</p><h1>SSL</h1><span>Read-only certificate verification. Private keys are never stored here.</span></div></div><section class="card"><dl class="detail-list"><div><dt>Certificate status</dt><dd id="ssl-status">Not checked</dd></div><div><dt>Issuer</dt><dd id="ssl-issuer">—</dd></div><div><dt>Expiration</dt><dd id="ssl-expiration">—</dd></div><div><dt>Days remaining</dt><dd id="ssl-days">—</dd></div><div><dt>Validation detail</dt><dd id="ssl-error">—</dd></div></dl></section></section>
+      <section class="panel" id="network"><div class="page-title"><div><p>Deployment</p><h1>Network</h1><span>Only Concierge.AI reverse-proxy and HTTPS expectations are configured here.</span></div></div><section class="card settings-form"><label class="check-row"><input id="network-reverse-proxy" type="checkbox"> Deployed behind a reverse proxy</label><label class="check-row"><input id="network-https-required" type="checkbox" checked> Require HTTPS for guest deployment</label><label>Trusted proxy address<input id="network-trusted-proxy" placeholder="10.0.0.10"></label><p class="field-note">Firewall, VLAN, and ANTlabs walled-garden rules remain infrastructure responsibilities.</p><button id="save-network" type="button">Save Network Expectations</button></section></section>
     </main>
   </div>
   <dialog class="admin-dialog" id="user-dialog">
@@ -635,6 +617,6 @@
     </footer>
   </aside>
   <div class="toast" id="toast"></div>
-  <script src="/static/admin.js?v=9"></script>
+  <script src="/static/admin.js?v=11"></script>
 </body>
 </html>

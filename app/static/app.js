@@ -11,6 +11,7 @@ const state = {
   services: [],
   recommendations: [],
   staffMessageIds: new Set(),
+  pendingAttachment: null,
 };
 
 let startupPromise = null;
@@ -395,7 +396,9 @@ async function handleGuestInput(rawMessage) {
     }
   }
 
-  await sendChat(message);
+  const messageForAI = state.pendingAttachment ? `${message}\n\n${state.pendingAttachment}` : message;
+  state.pendingAttachment = null;
+  await sendChat(messageForAI);
 }
 
 async function sendChat(message) {
@@ -500,6 +503,29 @@ function setupComposer() {
     handleGuestInput(input.value);
   });
 
+  $("upload-button").addEventListener("click", () => $("upload-input").click());
+  $("upload-input").addEventListener("change", async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      await ensureStarted();
+      if (file.size > 1_000_000) throw new Error("Guest uploads are limited to 1 MB.");
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let binary = "";
+      for (const byte of bytes) binary += String.fromCharCode(byte);
+      const result = await jsonFetch("/api/guest/uploads", {
+        method: "POST",
+        body: JSON.stringify({ session_id: state.sessionId, filename: file.name, content_type: file.type || "text/plain", content_base64: btoa(binary) }),
+      });
+      addMessage({ role: "user", type: "text", text: `Uploaded ${result.filename}` });
+      state.pendingAttachment = result.message_context;
+      addMessage({ role: "assistant", type: "text", text: `${result.filename} is ready. Ask me a question about the document.` });
+    } catch (error) {
+      showToast(error.message, "error");
+    }
+  });
+
 }
 
 function setupMenu() {
@@ -518,6 +544,13 @@ function setupMenu() {
   for (const button of document.querySelectorAll("[data-menu-action]")) {
     button.addEventListener("click", () => handleMenuAction(button.dataset.menuAction).catch((error) => showToast(error.message, "warning")));
   }
+  $("close-map-button").addEventListener("click", closePropertyMap);
+  $("property-map-modal").addEventListener("click", (event) => {
+    if (event.target === $("property-map-modal")) closePropertyMap();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !$("property-map-modal").hidden) closePropertyMap();
+  });
 }
 
 function closeMenu() {
@@ -536,7 +569,9 @@ async function handleMenuAction(action) {
     showToast("Started a new conversation.");
     return;
   }
-  if (action === "hotel-info") {
+  if (action === "property-map") {
+    await openPropertyMap();
+  } else if (action === "hotel-info") {
     const location = state.hotel?.location?.address || "Address not configured";
     addMessage({ role: "assistant", type: "text", text: `${state.hotel?.name || "Hotel"}\n${state.hotel?.description || "Property description not configured."}\n${location}` });
   } else if (action === "language") {
@@ -557,6 +592,35 @@ async function handleMenuAction(action) {
   }
 }
 
+async function openPropertyMap() {
+  const modal = $("property-map-modal");
+  const markers = $("property-map-markers");
+  markers.innerHTML = "";
+  const data = await jsonFetch(`/api/guest/zones?property_id=${encodeURIComponent(state.hotel?.property_id || "")}`);
+  for (const zone of data.zones || []) {
+    const geometry = zone.geometry || {};
+    if (geometry.type !== "ellipse" || !geometry.sourceCanvas) continue;
+    const marker = document.createElement("button");
+    marker.type = "button";
+    marker.className = "property-map-marker";
+    marker.style.left = `${((geometry.x + geometry.width / 2) / geometry.sourceCanvas.width) * 100}%`;
+    marker.style.top = `${((geometry.y + geometry.height / 2) / geometry.sourceCanvas.height) * 100}%`;
+    marker.textContent = geometry.mapNumber || "•";
+    marker.setAttribute("aria-label", zone.name);
+    marker.title = zone.name;
+    marker.addEventListener("click", () => showToast(zone.name));
+    markers.appendChild(marker);
+  }
+  modal.hidden = false;
+  document.body.classList.add("map-open");
+  $("close-map-button").focus();
+}
+
+function closePropertyMap() {
+  $("property-map-modal").hidden = true;
+  document.body.classList.remove("map-open");
+}
+
 function applyHotelProfile(profile) {
   state.hotel = profile;
   const design = profile.design || {};
@@ -574,7 +638,22 @@ function applyHotelProfile(profile) {
   setText("welcome-headline", welcome.headline || "How can I help with your stay?");
   $("composer-input").placeholder = composer.placeholder || "Ask your concierge...";
   applyDesignTokens(design);
+  renderConfiguredModules(profile.guest_modules || []);
+  const maintenance = $("maintenance-banner");
+  const application = profile.application || {};
+  maintenance.hidden = !application.maintenance_enabled;
+  maintenance.textContent = application.maintenance_message || "Concierge maintenance is in progress. Some requests may take longer than usual.";
   renderWelcomeState();
+}
+
+function renderConfiguredModules(modules) {
+  const list = $("configured-module-list");
+  list.innerHTML = "";
+  for (const module of [...modules].sort((a, b) => Number(a.order || 0) - Number(b.order || 0))) {
+    const button = document.createElement("button"); button.type = "button"; button.textContent = module.name;
+    button.addEventListener("click", () => { closeMenu(); sendChat(module.prompt).catch((error) => showToast(error.message, "warning")); });
+    list.appendChild(button);
+  }
 }
 
 async function maybeShowIntro() {
@@ -623,6 +702,7 @@ function applyDesignTokens(design) {
   root.style.setProperty("--text-primary", theme.textPrimary || "#18181b");
   root.style.setProperty("--text-secondary", theme.textSecondary || "#71717a");
   root.style.setProperty("--accent", theme.accent || "#18181b");
+  root.style.setProperty("--button-color", theme.buttonColor || theme.accent || "#18181b");
   root.style.setProperty("--accent-text", theme.accentText || "#ffffff");
   root.style.setProperty("--border", theme.border || "#e4e4e7");
   root.style.setProperty("--user-message-bg", theme.userMessageBackground || "#eeeeee");
@@ -632,7 +712,7 @@ function applyDesignTokens(design) {
   root.style.setProperty("--composer-max", (layout.composerWidth || 840) + "px");
   root.style.setProperty("--message-width", (layout.messageWidth || 680) + "px");
   root.style.setProperty("--message-spacing", (messages.messageSpacing || layout.messageSpacing || 24) + "px");
-  root.style.setProperty("--message-radius", (messages.radius || 18) + "px");
+  root.style.setProperty("--message-radius", (messages.radius || theme.radius || 18) + "px");
   root.style.setProperty("--composer-radius", (composer.radius || 24) + "px");
   root.style.setProperty("--base-font-size", (typography.baseFontSize || 15) + "px");
   root.style.setProperty("--heading-weight", typography.headingWeight || 600);
@@ -648,6 +728,7 @@ function applyDesignTokens(design) {
   const logoDisplay = design.branding?.logoDisplay || "mark_name";
   document.body.classList.toggle("hotel-logo-hidden", header.showLogo === false || logoDisplay === "name_only");
   document.body.classList.toggle("hotel-name-hidden", header.showHotelName === false || logoDisplay === "logo_only");
+  document.body.classList.toggle("concierge-name-hidden", header.showConciergeName === false);
 }
 
 function fontStack(font) {

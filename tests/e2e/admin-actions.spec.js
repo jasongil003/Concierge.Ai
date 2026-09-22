@@ -248,7 +248,7 @@ test("admin conversation buttons: takeover, staff response, and close", async ({
   await expect(page.locator("#conversation-list")).toContainText("closed");
 });
 
-test("admin AI settings and improvement-loop save buttons persist", async ({ page }, testInfo) => {
+test("admin AI settings and usage reporting work", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium", "The mutation workflow only needs one browser profile.");
   const suffix = Date.now().toString(36);
 
@@ -269,11 +269,7 @@ test("admin AI settings and improvement-loop save buttons persist", async ({ pag
   await expect(page.locator("#toast")).toContainText("Credential removed");
   await page.getByRole("button", { name: "Close", exact: true }).click();
 
-  await openPanel(page, "Improvement Loop");
-  await page.locator("#loop-objective").fill(`Button audit ${suffix}`);
-  await page.locator("#loop-criteria").fill("The configuration saves successfully.");
-  await page.getByRole("button", { name: "Save loop configuration" }).click();
-  await expect(page.locator("#toast")).toContainText("Improvement loop saved");
-  await page.getByRole("button", { name: "Mark satisfied" }).click();
-  await expect(page.locator("#loop-status-badge")).toContainText(/satisfied/i);
+  await openPanel(page, "Usage");
+  await expect(page.locator("#ai-usage-metrics")).toContainText("Requests");
+  await expect(page.locator("#ai-usage-list")).toBeVisible();
 });

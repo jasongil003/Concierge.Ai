@@ -72,6 +72,11 @@ class SessionStore:
                     human_takeover INTEGER NOT NULL DEFAULT 0,
                     updated_at INTEGER NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS conversation_retention (
+                    property_id TEXT PRIMARY KEY,
+                    retention_days INTEGER NOT NULL DEFAULT 30,
+                    updated_at INTEGER NOT NULL
+                );
                 """
             )
 
@@ -200,7 +205,103 @@ class SessionStore:
             "auth_success_rate": round(successes * 100 / total, 1) if total else None,
         }
 
+    def operational_metrics(self, property_id: str, days: int = 7) -> dict[str, Any]:
+        cutoff = int(time.time()) - max(1, min(days, 90)) * 86400
+        with self._connect() as db:
+            rows = db.execute(
+                """SELECT provider,model,COUNT(*) AS requests,
+                COALESCE(AVG(latency_ms),0) AS average_latency_ms,
+                SUM(CASE WHEN error IS NOT NULL AND error!='' THEN 1 ELSE 0 END) AS errors
+                FROM conversation_messages
+                WHERE property_id=? AND role='assistant' AND created_at>=?
+                GROUP BY provider,model ORDER BY requests DESC""",
+                (property_id, cutoff),
+            ).fetchall()
+            activity = db.execute(
+                """SELECT session_id,role,provider,model,latency_ms,error,created_at
+                FROM conversation_messages WHERE property_id=? ORDER BY created_at DESC LIMIT 12""",
+                (property_id,),
+            ).fetchall()
+        providers = [dict(row) for row in rows]
+        return {
+            "days": days,
+            "requests": sum(int(row["requests"] or 0) for row in rows),
+            "errors": sum(int(row["errors"] or 0) for row in rows),
+            "average_latency_ms": round(
+                sum(float(row["average_latency_ms"] or 0) * int(row["requests"] or 0) for row in rows)
+                / max(1, sum(int(row["requests"] or 0) for row in rows))
+            ),
+            "providers": providers,
+            "recent_activity": [dict(row) for row in activity],
+        }
+
+    def sessions(self, property_id: str) -> list[dict[str, Any]]:
+        now = int(time.time())
+        active_cutoff = now - self.ttl_seconds
+        with self._connect() as db:
+            rows = db.execute(
+                """SELECT s.session_id,s.property_id,s.authenticated,s.created_at,s.last_seen_at,
+                COALESCE(cs.status,'open') AS interaction_status,
+                COALESCE(cs.human_takeover,0) AS human_takeover,
+                COUNT(m.message_id) AS message_count,
+                MAX(CASE WHEN m.role='assistant' THEN m.provider END) AS last_provider
+                FROM sessions s
+                LEFT JOIN conversation_state cs ON cs.session_id=s.session_id AND cs.property_id=s.property_id
+                LEFT JOIN conversation_messages m ON m.session_id=s.session_id AND m.property_id=s.property_id
+                WHERE s.property_id=? GROUP BY s.session_id ORDER BY s.last_seen_at DESC""",
+                (property_id,),
+            ).fetchall()
+        return [
+            {
+                **dict(row),
+                "authenticated": bool(row["authenticated"]),
+                "human_takeover": bool(row["human_takeover"]),
+                "session_status": "active" if int(row["last_seen_at"]) >= active_cutoff else "expired",
+            }
+            for row in rows
+        ]
+
+    def retention(self, property_id: str) -> dict[str, Any]:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT retention_days,updated_at FROM conversation_retention WHERE property_id=?",
+                (property_id,),
+            ).fetchone()
+        return {"retention_days": int(row["retention_days"]) if row else 30, "updated_at": row["updated_at"] if row else None}
+
+    def set_retention(self, property_id: str, retention_days: int) -> dict[str, Any]:
+        if retention_days < 1 or retention_days > 365:
+            raise ValueError("Conversation retention must be between 1 and 365 days.")
+        now = int(time.time())
+        with self._connect() as db:
+            db.execute(
+                """INSERT INTO conversation_retention(property_id,retention_days,updated_at) VALUES(?,?,?)
+                ON CONFLICT(property_id) DO UPDATE SET retention_days=excluded.retention_days,updated_at=excluded.updated_at""",
+                (property_id, retention_days, now),
+            )
+        return {"retention_days": retention_days, "updated_at": now}
+
+    def purge_expired_conversations(self, property_id: str) -> int:
+        retention_days = self.retention(property_id)["retention_days"]
+        cutoff = int(time.time()) - retention_days * 86400
+        with self._connect() as db:
+            session_ids = [
+                row[0]
+                for row in db.execute(
+                    "SELECT session_id FROM sessions WHERE property_id=? AND last_seen_at<?",
+                    (property_id, cutoff),
+                ).fetchall()
+            ]
+            if not session_ids:
+                return 0
+            placeholders = ",".join("?" for _ in session_ids)
+            params = (property_id, *session_ids)
+            db.execute(f"DELETE FROM conversation_messages WHERE property_id=? AND session_id IN ({placeholders})", params)
+            db.execute(f"DELETE FROM conversation_state WHERE property_id=? AND session_id IN ({placeholders})", params)
+        return len(session_ids)
+
     def conversations(self, property_id: str) -> list[dict[str, Any]]:
+        self.purge_expired_conversations(property_id)
         with self._connect() as db:
             rows = db.execute(
                 """SELECT s.session_id,s.client_id,s.authenticated,s.created_at,s.last_seen_at,
