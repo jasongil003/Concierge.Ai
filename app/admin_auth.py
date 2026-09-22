@@ -623,6 +623,51 @@ class AdminAuthStore:
             db.execute("UPDATE admin_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL", (now, user_id))
         self.audit(actor, "users.password_reset", "user", user_id, property_id=current["property_id"], metadata={"username": current["username"], "force_change": force_change})
 
+    def create_password_reset(self, username: str, ttl_minutes: int = 30) -> dict[str, Any] | None:
+        try:
+            normalized = normalize_username(username)
+        except ValueError:
+            return None
+        with self._connect() as db:
+            user = db.execute(
+                "SELECT user_id, username, display_name, email, status FROM admin_users WHERE normalized_username = ?",
+                (normalized,),
+            ).fetchone()
+            if user is None or user["status"] != "active" or not user["email"]:
+                return None
+            token = secrets.token_urlsafe(32)
+            now = int(time.time())
+            db.execute(
+                "UPDATE admin_password_resets SET used_at = ? WHERE user_id = ? AND used_at IS NULL",
+                (now, user["user_id"]),
+            )
+            db.execute(
+                "INSERT INTO admin_password_resets(reset_id, user_id, token_hash, expires_at, used_at, created_at) VALUES (?, ?, ?, ?, NULL, ?)",
+                (str(uuid.uuid4()), user["user_id"], self._token_hash(token), now + ttl_minutes * 60, now),
+            )
+        return {"token": token, "email": user["email"], "display_name": user["display_name"], "username": user["username"]}
+
+    def consume_password_reset(self, token: str, new_password: str) -> None:
+        encoded = hash_password(new_password)
+        now = int(time.time())
+        with self._connect() as db:
+            row = db.execute(
+                """
+                SELECT reset_id, user_id FROM admin_password_resets
+                WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?
+                """,
+                (self._token_hash(token), now),
+            ).fetchone()
+            if row is None:
+                raise AuthenticationError("Reset link is invalid or has expired.")
+            db.execute(
+                "UPDATE admin_users SET password_hash = ?, force_password_change = 0, failed_login_count = 0, locked_until = NULL, status = 'active', updated_at = ? WHERE user_id = ?",
+                (encoded, now, row["user_id"]),
+            )
+            db.execute("UPDATE admin_password_resets SET used_at = ? WHERE reset_id = ?", (now, row["reset_id"]))
+            db.execute("UPDATE admin_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL", (now, row["user_id"]))
+        self.audit(None, "auth.password_reset_completed", "user", row["user_id"])
+
     def change_password(self, principal: AdminPrincipal, current_password: str, new_password: str) -> None:
         with self._connect() as db:
             row = db.execute("SELECT password_hash FROM admin_users WHERE user_id = ?", (principal.user_id,)).fetchone()

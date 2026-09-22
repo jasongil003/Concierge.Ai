@@ -1,10 +1,22 @@
 from contextlib import asynccontextmanager
 from collections import defaultdict, deque
+import asyncio
+import base64
+import binascii
+import hashlib
+import hmac
+import json
 from pathlib import Path
 import re
+import smtplib
+import socket
+import ssl
 import time
 from typing import Any
+from email.message import EmailMessage
+from urllib.parse import urlparse
 
+import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -28,6 +40,8 @@ from .guest_identity import GuestIdentityStore
 from .hospitality import HospitalityStore
 from .intro import IntroExperienceStore
 from .location_analytics import LocationAnalyticsStore
+from .lunara_seed import PROPERTY_ID as LUNARA_PROPERTY_ID, seed_lunara_demo
+from .operations import OperationsStore
 from .places import GooglePlaces, format_places_for_ai
 from .properties import PropertyRecord, PropertyStore, validate_design_config
 from .session_store import SessionStore
@@ -66,6 +80,15 @@ admin_request_windows: dict[str, deque[float]] = defaultdict(deque)
 chat_rate_windows: dict[str, deque[float]] = defaultdict(deque)
 places = GooglePlaces()
 antlabs = AntlabsAdapter()
+operations = OperationsStore(settings.db_path)
+if settings.property_id == LUNARA_PROPERTY_ID:
+    seed_lunara_demo(
+        properties,
+        zones,
+        hospitality,
+        operations,
+        STATIC_DIR / "assets" / "lunara-property-map.png",
+    )
 
 
 @asynccontextmanager
@@ -96,6 +119,14 @@ def _required_admin_permission(method: str, path: str) -> str | None:
         return "roles.view"
     if path.startswith("/api/admin/audit"):
         return "audit.view"
+    if path.startswith("/api/admin/system/"):
+        return "system.configure"
+    if "/knowledge" in path:
+        return "knowledge.view" if method == "GET" else "knowledge.edit"
+    if "/webhooks" in path:
+        return "integrations.view" if method == "GET" else "integrations.configure"
+    if "/deployment" in path:
+        return "domains.view" if method == "GET" else "domains.configure"
     if path.endswith("/dashboard"):
         return "dashboard.view"
     if "/conversations" in path:
@@ -163,6 +194,7 @@ async def enforce_admin_security(request: Request, call_next):
         "/admin/login",
         "/api/admin/auth/login",
         "/api/admin/auth/password-reset/request",
+        "/api/admin/auth/password-reset/confirm",
     }
     is_admin_page = path == "/admin"
     is_admin_api = path == "/api/admin" or path.startswith("/api/admin/")
@@ -269,6 +301,11 @@ class PropertyPayload(BaseModel):
     ai_settings: dict[str, Any] = Field(default_factory=dict)
     antlabs_config: dict[str, Any] = Field(default_factory=dict)
     knowledge_sources: list[dict[str, Any]] = Field(default_factory=list)
+    rooms: list[dict[str, Any]] = Field(default_factory=list)
+    guest_modules: list[dict[str, Any]] = Field(default_factory=list)
+    personality: dict[str, Any] = Field(default_factory=dict)
+    guardrails: dict[str, Any] = Field(default_factory=dict)
+    app_settings: dict[str, Any] = Field(default_factory=dict)
     welcome: str = "How can I help?"
 
     def to_record(self) -> PropertyRecord:
@@ -320,6 +357,13 @@ class UploadPayload(BaseModel):
     height: float | None = None
 
 
+class GuestUploadPayload(BaseModel):
+    session_id: str = Field(min_length=1, max_length=200)
+    filename: str = Field(min_length=1, max_length=220)
+    content_type: str = Field(min_length=1, max_length=120)
+    content_base64: str = Field(min_length=1, max_length=1_500_000)
+
+
 class DeviceSessionPayload(BaseModel):
     raw_mac: str = Field(min_length=12, max_length=32)
     concierge_session_id: str | None = None
@@ -369,6 +413,10 @@ class ServiceRequestUpdatePayload(BaseModel):
 class ConversationStatePayload(BaseModel):
     status: str = Field(pattern=r"^(open|closed|escalated)$")
     human_takeover: bool = False
+
+
+class ConversationRetentionPayload(BaseModel):
+    retention_days: int = Field(ge=1, le=365)
 
 
 class StaffReplyPayload(BaseModel):
@@ -438,11 +486,45 @@ class AdminPasswordResetRequestPayload(BaseModel):
     username: str = Field(min_length=3, max_length=64)
 
 
+class AdminPasswordResetConfirmPayload(BaseModel):
+    token: str = Field(min_length=20, max_length=500)
+    new_password: str = Field(min_length=12, max_length=256)
+
+
 class AdminRolePayload(BaseModel):
     name: str = Field(min_length=2, max_length=80)
     description: str = Field(default="", max_length=500)
     property_id: str | None = None
     permissions: list[str] = Field(default_factory=list)
+
+
+class KnowledgePayload(BaseModel):
+    item_id: str | None = None
+    kind: str = Field(default="entry", pattern=r"^(entry|faq)$")
+    title: str = Field(default="", max_length=200)
+    question: str = Field(default="", max_length=500)
+    answer: str = Field(default="", max_length=12000)
+    body: str = Field(default="", max_length=50000)
+    enabled: bool = True
+
+
+class WebhookPayload(BaseModel):
+    webhook_id: str | None = None
+    name: str = Field(min_length=1, max_length=120)
+    endpoint_url: str = Field(min_length=1, max_length=1000)
+    events: list[str] = Field(default_factory=list)
+    enabled: bool = True
+    secret: str = Field(default="", max_length=8000)
+
+
+class EmailSettingsPayload(BaseModel):
+    host: str = Field(default="", max_length=255)
+    port: int = Field(default=587, ge=1, le=65535)
+    username: str = Field(default="", max_length=255)
+    password: str = Field(default="", max_length=8000)
+    from_address: str = Field(default="", max_length=254)
+    security: str = Field(default="starttls", pattern=r"^(starttls|ssl|none)$")
+    enabled: bool = False
 
 
 @app.get("/")
@@ -536,6 +618,35 @@ async def guest_recommendations(property_id: str | None = None) -> dict[str, Any
     return {"recommendations": hospitality.recommendations(requested_property_id, guest=True)}
 
 
+@app.post("/api/guest/uploads")
+async def upload_guest_document(payload: GuestUploadPayload) -> dict[str, Any]:
+    session = store.get(payload.session_id)
+    if session is None:
+        raise HTTPException(status_code=401, detail="Concierge session expired.")
+    if payload.content_type not in {"text/plain", "text/markdown", "text/csv", "application/json", "text/html"}:
+        raise HTTPException(status_code=415, detail="Upload a TXT, Markdown, CSV, JSON, or HTML document.")
+    try:
+        content = base64.b64decode(payload.content_base64, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise HTTPException(status_code=422, detail="Upload content is not valid base64.") from exc
+    if len(content) > 1_000_000:
+        raise HTTPException(status_code=413, detail="Guest uploads are limited to 1 MB.")
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(status_code=422, detail="The uploaded document must be UTF-8 text.") from exc
+    if payload.content_type == "text/html":
+        text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="The uploaded document is empty.")
+    return {
+        "status": "ready",
+        "filename": payload.filename,
+        "message_context": f"The guest uploaded {payload.filename}. Use this document only for this answer:\n{text[:12000]}",
+    }
+
+
 @app.post("/api/guest/service-requests")
 async def create_guest_service_request(payload: GuestServiceRequestPayload) -> dict[str, Any]:
     session = store.get(payload.session_id)
@@ -553,6 +664,7 @@ async def create_guest_service_request(payload: GuestServiceRequestPayload) -> d
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    await _dispatch_webhooks(session.property_id, "guest.request.created", {"request": request_record})
     return {"status": "created", "request": request_record}
 
 
@@ -599,7 +711,24 @@ async def request_admin_password_reset(payload: AdminPasswordResetRequestPayload
         payload.username.casefold(),
         ip_address=request.client.host if request.client else "",
     )
+    smtp_config = operations.get_email_settings(include_secret=True)
+    reset = admin_auth.create_password_reset(payload.username) if smtp_config.get("enabled") else None
+    if reset:
+        reset_url = str(request.url_for("admin_login_page")) + f"?reset_token={reset['token']}"
+        try:
+            await asyncio.to_thread(_send_password_reset_email, smtp_config, reset, reset_url)
+        except Exception:
+            pass
     return {"message": "If recovery is configured for this account, reset instructions will be sent."}
+
+
+@app.post("/api/admin/auth/password-reset/confirm")
+async def confirm_admin_password_reset(payload: AdminPasswordResetConfirmPayload) -> dict[str, str]:
+    try:
+        admin_auth.consume_password_reset(payload.token, payload.new_password)
+    except (AuthenticationError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"status": "password_reset", "message": "Password updated. You can now sign in."}
 
 
 @app.get("/api/admin/auth/me")
@@ -765,6 +894,8 @@ async def list_properties(request: Request) -> dict[str, Any]:
     records = properties.list()
     if not principal.can("properties.all"):
         records = [record for record in records if record.property_id == principal.property_id]
+    else:
+        records.sort(key=lambda record: (record.property_id != settings.property_id, record.hotel_name.lower()))
     return {"properties": [record.to_dict() for record in records]}
 
 
@@ -779,13 +910,36 @@ async def get_property(property_id: str) -> dict[str, Any]:
 @app.get("/api/admin/properties/{property_id}/dashboard")
 async def property_dashboard(property_id: str) -> dict[str, Any]:
     _require_property(property_id)
-    return {**store.metrics(property_id), **hospitality.request_metrics(property_id)}
+    ai_settings = ai_provider_store.get_settings(property_id)
+    ai_providers = ai_provider_store.list_connections(property_id)
+    enabled = [provider for provider in ai_providers if provider.get("enabled")]
+    return {
+        **store.metrics(property_id),
+        **hospitality.request_metrics(property_id),
+        "application": {"name": settings.app_name, "version": app.version, "environment": settings.app_environment},
+        "ai": {
+            "default_provider": ai_settings.get("default_provider"),
+            "enabled_providers": len(enabled),
+            "credentialed_providers": sum(1 for provider in enabled if provider.get("credentials") or provider.get("provider_id") == "local"),
+        },
+        "antlabs": antlabs.configuration_status(),
+        "usage": store.operational_metrics(property_id, 7),
+    }
 
 
 @app.get("/api/admin/properties/{property_id}/conversations")
 async def property_conversations(property_id: str) -> dict[str, Any]:
     _require_property(property_id)
-    return {"conversations": store.conversations(property_id)}
+    return {"conversations": store.conversations(property_id), "retention": store.retention(property_id)}
+
+
+@app.put("/api/admin/properties/{property_id}/conversations/retention")
+async def update_conversation_retention(property_id: str, payload: ConversationRetentionPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return store.set_retention(property_id, payload.retention_days)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.put("/api/admin/properties/{property_id}/conversations/{session_id}")
@@ -821,6 +975,143 @@ async def upsert_property(property_id: str, payload: PropertyPayload) -> dict[st
         record.design_published = existing.design_published
         record.design_versions = existing.design_versions
     return properties.upsert(record).to_dict()
+
+
+@app.get("/api/admin/properties/{property_id}/knowledge")
+async def list_property_knowledge(property_id: str) -> dict[str, Any]:
+    _require_property(property_id)
+    items = operations.list_knowledge(property_id)
+    return {
+        "items": [item for item in items if item["kind"] == "entry"],
+        "documents": [item for item in items if item["kind"] == "document"],
+        "faqs": [item for item in items if item["kind"] == "faq"],
+    }
+
+
+@app.put("/api/admin/properties/{property_id}/knowledge")
+async def save_property_knowledge(property_id: str, payload: KnowledgePayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return operations.save_knowledge(property_id, payload.model_dump(), payload.item_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/knowledge/documents")
+async def upload_knowledge_document(property_id: str, payload: UploadPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return operations.upload_document(property_id, payload.filename, payload.content_type, payload.content_base64)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.delete("/api/admin/properties/{property_id}/knowledge/{item_id}")
+async def delete_property_knowledge(property_id: str, item_id: str) -> dict[str, str]:
+    _require_property(property_id)
+    if not operations.delete_knowledge(property_id, item_id):
+        raise HTTPException(status_code=404, detail="Knowledge item not found.")
+    return {"status": "deleted"}
+
+
+@app.get("/api/admin/properties/{property_id}/webhooks")
+async def list_property_webhooks(property_id: str) -> dict[str, Any]:
+    _require_property(property_id)
+    return {
+        "webhooks": operations.list_webhooks(property_id),
+        "deliveries": operations.list_webhook_deliveries(property_id),
+        "supported_events": [
+            "guest.session.started",
+            "guest.request.created",
+            "guest.request.updated",
+            "conversation.escalated",
+        ],
+    }
+
+
+@app.put("/api/admin/properties/{property_id}/webhooks")
+async def save_property_webhook(property_id: str, payload: WebhookPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return operations.save_webhook(property_id, payload.model_dump(), payload.webhook_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.delete("/api/admin/properties/{property_id}/webhooks/{webhook_id}")
+async def delete_property_webhook(property_id: str, webhook_id: str) -> dict[str, str]:
+    _require_property(property_id)
+    if not operations.delete_webhook(property_id, webhook_id):
+        raise HTTPException(status_code=404, detail="Webhook not found.")
+    return {"status": "deleted"}
+
+
+@app.post("/api/admin/properties/{property_id}/webhooks/{webhook_id}/test")
+async def test_property_webhook(property_id: str, webhook_id: str) -> dict[str, Any]:
+    _require_property(property_id)
+    webhook = operations.get_webhook(property_id, webhook_id, include_secret=True)
+    if webhook is None:
+        raise HTTPException(status_code=404, detail="Webhook not found.")
+    body = json.dumps({"event": "concierge.webhook.test", "property_id": property_id, "timestamp": int(time.time())}).encode("utf-8")
+    headers = {"Content-Type": "application/json", "User-Agent": "Concierge.Ai-Webhooks/1.0"}
+    if webhook.get("secret"):
+        headers["X-Concierge-Signature"] = "sha256=" + hmac.new(webhook["secret"].encode("utf-8"), body, hashlib.sha256).hexdigest()
+    try:
+        async with httpx.AsyncClient(timeout=8, follow_redirects=False) as client:
+            response = await client.post(webhook["endpoint_url"], content=body, headers=headers)
+        status = "delivered" if 200 <= response.status_code < 300 else "failed"
+        error = "" if status == "delivered" else f"Endpoint returned HTTP {response.status_code}."
+        return operations.record_webhook_delivery(property_id, webhook_id, "concierge.webhook.test", status, response.status_code, error)
+    except httpx.HTTPError as exc:
+        return operations.record_webhook_delivery(property_id, webhook_id, "concierge.webhook.test", "failed", error=str(exc))
+
+
+@app.get("/api/admin/properties/{property_id}/deployment/status")
+async def property_deployment_status(property_id: str) -> dict[str, Any]:
+    record = _require_property_record(property_id)
+    return _deployment_status(record)
+
+
+@app.post("/api/admin/properties/{property_id}/deployment/verify")
+async def verify_property_deployment(property_id: str) -> dict[str, Any]:
+    record = _require_property_record(property_id)
+    result = await _verify_deployment(record)
+    app_settings = dict(record.app_settings or {})
+    deployment = dict(app_settings.get("deployment") or {})
+    deployment["last_verification"] = result
+    app_settings["deployment"] = deployment
+    record.app_settings = app_settings
+    properties.upsert(record)
+    return result
+
+
+@app.get("/api/admin/system/email")
+async def get_system_email_settings() -> dict[str, Any]:
+    return operations.get_email_settings()
+
+
+@app.put("/api/admin/system/email")
+async def save_system_email_settings(payload: EmailSettingsPayload) -> dict[str, Any]:
+    try:
+        return operations.save_email_settings(payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/system/email/test")
+async def test_system_email_settings() -> dict[str, Any]:
+    config = operations.get_email_settings(include_secret=True)
+    if not config.get("enabled"):
+        return {"status": "not_configured", "detail": "Enable SMTP and save the required settings first."}
+    try:
+        await asyncio.to_thread(_smtp_probe, config)
+        return {"status": "connected", "detail": "SMTP connection and authentication succeeded."}
+    except Exception as exc:
+        return {"status": "failed", "detail": str(exc)[:500]}
 
 
 @app.get("/api/admin/properties/{property_id}/design")
@@ -1082,7 +1373,29 @@ async def admin_route(property_id: str, from_node_id: str, to_node_id: str) -> d
 @app.get("/api/admin/properties/{property_id}/sessions")
 async def admin_sessions(property_id: str) -> dict[str, Any]:
     _require_property(property_id)
-    return {"stays": guest_identities.list_stays(property_id), "devices": guest_identities.list_devices(property_id)}
+    return {
+        "sessions": store.sessions(property_id),
+        "stays": guest_identities.list_stays(property_id),
+        "devices": guest_identities.list_devices(property_id),
+    }
+
+
+@app.get("/api/admin/properties/{property_id}/ai/usage")
+async def property_ai_usage(property_id: str, days: int = 7) -> dict[str, Any]:
+    _require_property(property_id)
+    return store.operational_metrics(property_id, days)
+
+
+@app.get("/api/admin/properties/{property_id}/antlabs/status")
+async def antlabs_status(property_id: str) -> dict[str, Any]:
+    _require_property(property_id)
+    return antlabs.configuration_status()
+
+
+@app.post("/api/admin/properties/{property_id}/antlabs/test")
+async def test_antlabs_connection(property_id: str) -> dict[str, Any]:
+    _require_property(property_id)
+    return await antlabs.test_connection()
 
 
 @app.post("/api/admin/properties/{property_id}/sessions/reconnect")
@@ -1216,6 +1529,14 @@ async def save_department(property_id: str, payload: GenericPayload) -> dict[str
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@app.delete("/api/admin/properties/{property_id}/departments/{department_id}")
+async def delete_department(property_id: str, department_id: str) -> dict[str, str]:
+    _require_property(property_id)
+    if not hospitality.delete_department(property_id, department_id):
+        raise HTTPException(status_code=404, detail="Department not found.")
+    return {"status": "deleted"}
+
+
 @app.put("/api/admin/properties/{property_id}/service-catalog")
 async def save_catalog_service(property_id: str, payload: GenericPayload) -> dict[str, Any]:
     _require_property(property_id)
@@ -1318,7 +1639,9 @@ async def create_hotel_event(property_id: str, payload: GenericPayload) -> dict[
 async def create_service_request(property_id: str, payload: GenericPayload) -> dict[str, Any]:
     _require_property(property_id)
     try:
-        return hospitality.create_service_request(property_id, payload.data)
+        request_record = hospitality.create_service_request(property_id, payload.data)
+        await _dispatch_webhooks(property_id, "guest.request.created", {"request": request_record})
+        return request_record
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -1327,11 +1650,29 @@ async def create_service_request(property_id: str, payload: GenericPayload) -> d
 async def update_service_request_status(property_id: str, request_id: str, payload: ServiceStatusPayload) -> dict[str, Any]:
     _require_property(property_id)
     try:
-        return hospitality.update_service_status(property_id, request_id, payload.status)
+        request_record = hospitality.update_service_status(property_id, request_id, payload.status)
+        await _dispatch_webhooks(property_id, "guest.request.updated", {"request": request_record})
+        return request_record
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.delete("/api/admin/properties/{property_id}/restaurants/{restaurant_id}")
+async def delete_restaurant(property_id: str, restaurant_id: str) -> dict[str, str]:
+    _require_property(property_id)
+    if not hospitality.delete_restaurant(property_id, restaurant_id):
+        raise HTTPException(status_code=404, detail="Restaurant not found.")
+    return {"status": "deleted"}
+
+
+@app.delete("/api/admin/properties/{property_id}/hospitality/facilities/{facility_id}")
+async def delete_facility_profile(property_id: str, facility_id: str) -> dict[str, str]:
+    _require_property(property_id)
+    if not hospitality.delete_facility_profile(property_id, facility_id):
+        raise HTTPException(status_code=404, detail="Facility not found.")
+    return {"status": "deleted"}
 
 
 @app.put("/api/admin/properties/{property_id}/service-requests/{request_id}")
@@ -1473,6 +1814,11 @@ async def start_session(request: StartSessionRequest) -> dict[str, Any]:
         client_id=request.client_id,
         gateway_context=request.gateway_context,
     )
+    await _dispatch_webhooks(
+        requested_property_id,
+        "guest.session.started",
+        {"session_id": session.session_id, "client_id": request.client_id},
+    )
     return {
         "session_id": session.session_id,
         "expires_after_minutes": settings.session_ttl_minutes,
@@ -1522,7 +1868,7 @@ async def chat(request: ChatRequest) -> dict[str, Any]:
         store.record_message(session.session_id, session.property_id, "assistant", answer, provider="human_queue", model="staff")
         return {"answer": answer, "source": "human_queue", "provider": "human", "model": "staff", "mode": requested_mode, "escalated": True}
 
-    fast_answer = knowledge.exact_fast_answer(request.message)
+    fast_answer = _property_fast_answer(property_record, request.message) or knowledge.exact_fast_answer(request.message)
     if fast_answer and requested_mode != "advanced":
         answer = fast_answer
         if _is_authentication_question(request.message):
@@ -1537,7 +1883,8 @@ async def chat(request: ChatRequest) -> dict[str, Any]:
             "escalated": False,
         }
 
-    context = knowledge.retrieve(request.message)
+    context = operations.search_knowledge(session.property_id, request.message) + knowledge.retrieve(request.message)
+    context.extend(_property_ai_context(property_record))
     if auth_types:
         context.append(
             {
@@ -1557,7 +1904,7 @@ async def chat(request: ChatRequest) -> dict[str, Any]:
         model_result = await ai_models.concierge_chat(
             property_id=session.property_id,
             user_message=request.message,
-            hotel_name=knowledge.data["name"],
+            hotel_name=property_record.hotel_name if property_record else knowledge.data["name"],
             context=context,
             live_context=live_context,
             requested_mode=requested_mode,
@@ -1569,7 +1916,7 @@ async def chat(request: ChatRequest) -> dict[str, Any]:
         try:
             result = await ai.chat(
                 user_message=request.message,
-                hotel_name=knowledge.data["name"],
+                hotel_name=property_record.hotel_name if property_record else knowledge.data["name"],
                 context=context,
                 live_context=live_context,
                 requested_mode=requested_mode,
@@ -1592,6 +1939,12 @@ async def chat(request: ChatRequest) -> dict[str, Any]:
             raise HTTPException(status_code=503, detail="The AI service is temporarily unavailable. Please try again.") from exc
 
     store.record_message(session.session_id, session.property_id, "assistant", answer, provider=provider, model=model, latency_ms=int((time.perf_counter() - started_at) * 1000))
+    if requested_mode == "advanced":
+        await _dispatch_webhooks(
+            session.property_id,
+            "conversation.escalated",
+            {"session_id": session.session_id, "message": request.message},
+        )
     return {
         "answer": answer,
         "source": "ai",
@@ -1610,6 +1963,35 @@ def _is_authentication_question(message: str) -> bool:
     return any(token in normalized for token in ("wi-fi", "wifi", "internet", "connect", "login", "auth"))
 
 
+def _property_fast_answer(property_record: PropertyRecord | None, message: str) -> str | None:
+    if property_record is None:
+        return None
+    lowered = message.lower()
+    contact = property_record.contact_details or {}
+    if "breakfast" in lowered and contact.get("breakfast"):
+        return str(contact["breakfast"])
+    if any(term in lowered for term in ("checkout", "check out", "departure")) and contact.get("checkout"):
+        return f"Standard checkout is {contact['checkout']}."
+    if any(term in lowered for term in ("wifi", "wi-fi", "internet")) and contact.get("wifi_guidance"):
+        return str(contact["wifi_guidance"])
+    facility_terms = ("pool", "gym", "spa", "parking", "business center")
+    if any(term in lowered for term in facility_terms):
+        overview = hospitality.overview(property_record.property_id)
+        for facility in overview.get("facilities", []):
+            haystack = f"{facility.get('name', '')} {facility.get('facility_type', '')}".lower()
+            if any(term in lowered and term in haystack for term in facility_terms):
+                hours = (facility.get("opening_hours") or {}).get("display")
+                status = str(facility.get("live_status") or "open").replace("_", " ")
+                detail = f" Hours: {hours}." if hours else ""
+                return f"{facility['name']} is currently {status}.{detail}"
+    for location in (property_record.app_settings or {}).get("locations", []):
+        if location.get("guest_visible", True) and str(location.get("name", "")).lower() in lowered:
+            description = str(location.get("description") or "").strip()
+            location_type = str(location.get("type") or "location").replace("_", " ")
+            return description or f"{location['name']} is listed as a {location_type}."
+    return None
+
+
 def _authentication_guidance(auth_types: list[dict[str, Any]]) -> str:
     if not auth_types:
         return "No hotel authentication method is currently enabled in the admin settings. Tell the guest to contact the front desk."
@@ -1619,6 +2001,209 @@ def _authentication_guidance(auth_types: list[dict[str, Any]]) -> str:
     )
 
 
+def _property_ai_context(property_record: PropertyRecord | None) -> list[dict[str, str]]:
+    if property_record is None:
+        return []
+    personality = property_record.personality or {}
+    guardrails = property_record.guardrails or {}
+    result: list[dict[str, str]] = []
+    if personality:
+        result.append(
+            {
+                "title": "Approved concierge response style",
+                "answer": ", ".join(
+                    f"{key.replace('_', ' ')}: {value}"
+                    for key, value in personality.items()
+                    if value not in (None, "", [], {})
+                )[:1600],
+            }
+        )
+    if guardrails:
+        safe_fields = {
+            key: value
+            for key, value in guardrails.items()
+            if key in {"allowed_topics", "restricted_topics", "unknown_answer", "escalation_behavior", "sensitive_information", "human_escalation"}
+        }
+        if safe_fields:
+            result.append(
+                {
+                    "title": "Property guardrails",
+                    "answer": ", ".join(f"{key.replace('_', ' ')}: {value}" for key, value in safe_fields.items())[:2000],
+                }
+            )
+    guest_locations = [
+        item for item in (property_record.app_settings or {}).get("locations", [])
+        if item.get("guest_visible", True)
+    ]
+    if guest_locations:
+        result.append(
+            {
+                "title": "Managed hotel locations",
+                "answer": "; ".join(
+                    f"{item.get('name', 'Location')} ({item.get('type', 'location')}): {item.get('description', '')}".strip()
+                    for item in guest_locations
+                )[:2500],
+            }
+        )
+    return result
+
+
 def _require_property(property_id: str) -> None:
     if properties.get(property_id) is None:
         raise HTTPException(status_code=404, detail="Property not found.")
+
+
+def _require_property_record(property_id: str) -> PropertyRecord:
+    record = properties.get(property_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Property not found.")
+    return record
+
+
+def _deployment_status(record: PropertyRecord) -> dict[str, Any]:
+    deployment = dict((record.app_settings or {}).get("deployment") or {})
+    domain = str(record.domain or "").strip().lower()
+    valid_domain = bool(re.fullmatch(r"(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}", domain))
+    verification = deployment.get("last_verification") or {}
+    return {
+        "domain": {
+            "value": domain,
+            "status": "invalid" if domain and not valid_domain else (verification.get("domain_status") or ("pending" if domain else "not_configured")),
+            "valid_format": valid_domain,
+            "resolved_addresses": verification.get("resolved_addresses", []),
+        },
+        "ssl": {
+            "status": verification.get("ssl_status") or "not_checked",
+            "issuer": verification.get("issuer", ""),
+            "expires_at": verification.get("expires_at"),
+            "days_remaining": verification.get("days_remaining"),
+            "error": verification.get("ssl_error", ""),
+        },
+        "network": {
+            "public_base_url": deployment.get("public_base_url", ""),
+            "reverse_proxy": bool(deployment.get("reverse_proxy", False)),
+            "https_required": bool(deployment.get("https_required", True)),
+            "trusted_proxy": deployment.get("trusted_proxy", ""),
+            "status": "configured" if deployment.get("public_base_url") else "configuration_required",
+        },
+        "last_checked_at": verification.get("checked_at"),
+    }
+
+
+async def _verify_deployment(record: PropertyRecord) -> dict[str, Any]:
+    domain = str(record.domain or "").strip().lower()
+    if not domain:
+        return {"domain_status": "not_configured", "ssl_status": "not_checked", "checked_at": int(time.time()), "detail": "Configure a domain before verification."}
+    if not re.fullmatch(r"(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}", domain):
+        return {"domain_status": "invalid", "ssl_status": "not_checked", "checked_at": int(time.time()), "detail": "The configured domain is not valid."}
+
+    result: dict[str, Any] = {"domain_status": "pending", "ssl_status": "not_checked", "checked_at": int(time.time())}
+    try:
+        addresses = await asyncio.to_thread(lambda: sorted({item[4][0] for item in socket.getaddrinfo(domain, 443, type=socket.SOCK_STREAM)}))
+        result["resolved_addresses"] = addresses
+        result["domain_status"] = "verified" if addresses else "pending"
+    except OSError as exc:
+        result["detail"] = f"DNS lookup failed: {exc}"
+        return result
+
+    def inspect_certificate() -> dict[str, Any]:
+        context = ssl.create_default_context()
+        with socket.create_connection((domain, 443), timeout=7) as raw_socket:
+            with context.wrap_socket(raw_socket, server_hostname=domain) as tls_socket:
+                certificate = tls_socket.getpeercert()
+        expires = ssl.cert_time_to_seconds(certificate["notAfter"])
+        issuer = ", ".join("=".join(part) for group in certificate.get("issuer", []) for part in group)
+        return {
+            "ssl_status": "valid" if expires > time.time() else "expired",
+            "issuer": issuer,
+            "expires_at": int(expires),
+            "days_remaining": max(0, int((expires - time.time()) // 86400)),
+        }
+
+    try:
+        result.update(await asyncio.to_thread(inspect_certificate))
+    except (OSError, ssl.SSLError, KeyError, ValueError) as exc:
+        result.update({"ssl_status": "invalid", "ssl_error": str(exc)[:500]})
+    return result
+
+
+def _smtp_probe(config: dict[str, Any]) -> None:
+    host = str(config.get("host", ""))
+    port = int(config.get("port", 587))
+    security = config.get("security", "starttls")
+    smtp: smtplib.SMTP
+    if security == "ssl":
+        smtp = smtplib.SMTP_SSL(host, port, timeout=8, context=ssl.create_default_context())
+    else:
+        smtp = smtplib.SMTP(host, port, timeout=8)
+    try:
+        smtp.ehlo()
+        if security == "starttls":
+            smtp.starttls(context=ssl.create_default_context())
+            smtp.ehlo()
+        if config.get("username"):
+            smtp.login(str(config["username"]), str(config.get("password", "")))
+    finally:
+        try:
+            smtp.quit()
+        except smtplib.SMTPException:
+            smtp.close()
+
+
+def _send_password_reset_email(config: dict[str, Any], reset: dict[str, Any], reset_url: str) -> None:
+    message = EmailMessage()
+    message["Subject"] = "Concierge.AI administrator password reset"
+    message["From"] = str(config["from_address"])
+    message["To"] = str(reset["email"])
+    message.set_content(
+        f"Hello {reset['display_name']},\n\n"
+        "A password reset was requested for your Concierge.AI administrator account. "
+        "This link expires in 30 minutes:\n\n"
+        f"{reset_url}\n\n"
+        "If you did not request this reset, you can ignore this message."
+    )
+    host = str(config["host"])
+    port = int(config["port"])
+    security = config.get("security", "starttls")
+    if security == "ssl":
+        smtp: smtplib.SMTP = smtplib.SMTP_SSL(host, port, timeout=10, context=ssl.create_default_context())
+    else:
+        smtp = smtplib.SMTP(host, port, timeout=10)
+    try:
+        smtp.ehlo()
+        if security == "starttls":
+            smtp.starttls(context=ssl.create_default_context())
+            smtp.ehlo()
+        if config.get("username"):
+            smtp.login(str(config["username"]), str(config.get("password", "")))
+        smtp.send_message(message)
+    finally:
+        try:
+            smtp.quit()
+        except smtplib.SMTPException:
+            smtp.close()
+
+
+async def _dispatch_webhooks(property_id: str, event_name: str, payload: dict[str, Any]) -> None:
+    webhooks = [
+        item for item in operations.list_webhooks(property_id)
+        if item.get("enabled") and event_name in item.get("events", [])
+    ]
+    if not webhooks:
+        return
+    body = json.dumps({"event": event_name, "property_id": property_id, "timestamp": int(time.time()), **payload}, default=str).encode("utf-8")
+    async with httpx.AsyncClient(timeout=8, follow_redirects=False) as client:
+        for item in webhooks:
+            webhook = operations.get_webhook(property_id, item["webhook_id"], include_secret=True)
+            if webhook is None:
+                continue
+            headers = {"Content-Type": "application/json", "User-Agent": "Concierge.Ai-Webhooks/1.0"}
+            if webhook.get("secret"):
+                headers["X-Concierge-Signature"] = "sha256=" + hmac.new(webhook["secret"].encode("utf-8"), body, hashlib.sha256).hexdigest()
+            try:
+                response = await client.post(webhook["endpoint_url"], content=body, headers=headers)
+                status = "delivered" if 200 <= response.status_code < 300 else "failed"
+                error = "" if status == "delivered" else f"Endpoint returned HTTP {response.status_code}."
+                operations.record_webhook_delivery(property_id, webhook["webhook_id"], event_name, status, response.status_code, error)
+            except httpx.HTTPError as exc:
+                operations.record_webhook_delivery(property_id, webhook["webhook_id"], event_name, "failed", error=str(exc))

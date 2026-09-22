@@ -1,0 +1,36 @@
+{
+  "name": "Lunara Grand Hotel & Residences",
+  "concierge_name": "Luna",
+  "welcome": "Welcome to Lunara. I can help with dining, facilities, directions, hotel services, and your stay.",
+  "quick_actions": [
+    {"label": "Property map", "prompt": "Show me the property map and help me find a facility."},
+    {"label": "Dining", "prompt": "What dining options are available at Lunara?"},
+    {"label": "Pool & wellness", "prompt": "What are the pool, gym, and spa hours?"},
+    {"label": "Guest services", "prompt": "I need a hotel service."},
+    {"label": "Checkout", "prompt": "What time is checkout?"}
+  ],
+  "knowledge": [
+    {"title": "Hotel profile", "keywords": ["hotel", "address", "property", "lunara"], "answer": "Lunara Grand Hotel & Residences is a five-star urban lifestyle hotel at 88 Meridian Drive, Aurora Bay District, Metro Manila, Philippines. The property has 228 rooms and suites.", "fast_path": true},
+    {"title": "Check-in and checkout", "keywords": ["check in", "check-in", "checkout", "check out"], "answer": "Standard check-in is 3:00 PM and checkout is 12:00 PM. Early arrival and late checkout are subject to availability and confirmation.", "fast_path": true},
+    {"title": "Pool", "keywords": ["pool", "swimming", "children's pool"], "answer": "The Infinity Pool, children's pool, and pool deck are on Level 3 and are open from 6:00 AM to 10:00 PM.", "fast_path": true},
+    {"title": "Fitness Center", "keywords": ["gym", "fitness", "workout"], "answer": "The Fitness Center is on Level 3 and is open 24 hours for registered guests.", "fast_path": true},
+    {"title": "Lunara Spa", "keywords": ["spa", "massage", "sauna", "steam"], "answer": "Lunara Spa is on Level 3 and is open from 10:00 AM to 10:00 PM. Treatments require confirmation.", "fast_path": true},
+    {"title": "Dining", "keywords": ["restaurant", "dining", "breakfast", "cafe", "bar"], "answer": "Lunara dining includes Solace Kitchen and Drift Cafe on the Ground Floor, plus Halo Rooftop Bar and the Executive Lounge on Level 16.", "fast_path": true},
+    {"title": "Hotel services", "keywords": ["housekeeping", "towels", "amenities", "maintenance", "concierge"], "answer": "The Front Desk is available 24 hours, Concierge from 6:00 AM to 11:00 PM, and room service 24 hours. I can prepare a service request for your confirmation.", "fast_path": false},
+    {"title": "Emergency assistance", "keywords": ["emergency", "fire", "medical", "police", "danger"], "answer": "For an emergency, contact local emergency services and hotel staff immediately. The concierge will escalate the matter without delay.", "fast_path": true}
+  ],
+  "location": {
+    "latitude": 14.5995,
+    "longitude": 120.9842,
+    "label": "88 Meridian Drive, Aurora Bay District, Metro Manila, Philippines"
+  },
+  "ai": {
+    "guest_mode_switch": true,
+    "default_mode": "auto",
+    "modes": [
+      {"id": "fast", "label": "Fast", "description": "Quick answers from verified Lunara information."},
+      {"id": "auto", "label": "Auto", "description": "Automatically routes service, approval, and escalation requests."},
+      {"id": "advanced", "label": "Advanced", "description": "More reasoning for complex planning requests."}
+    ]
+  }
+}

@@ -1,6 +1,14 @@
 const form = document.getElementById("login-form");
 const message = document.getElementById("login-message");
 const password = document.getElementById("password");
+const resetToken = new URLSearchParams(window.location.search).get("reset_token");
+
+if (resetToken) {
+  form.hidden = true;
+  document.getElementById("reset-form").hidden = false;
+  document.getElementById("login-title").textContent = "Choose a new password";
+  document.querySelector(".login-copy p").textContent = "This secure reset link expires 30 minutes after it is requested.";
+}
 
 document.getElementById("toggle-password").addEventListener("click", (event) => {
   const visible = password.type === "text";
@@ -60,5 +68,37 @@ document.getElementById("recovery-form").addEventListener("submit", async (event
   } catch (error) {
     recoveryMessage.textContent = error.message;
     recoveryMessage.className = "form-message error";
+  }
+});
+
+document.getElementById("reset-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const resetMessage = document.getElementById("reset-message");
+  const newPassword = document.getElementById("reset-password").value;
+  const confirmation = document.getElementById("reset-password-confirm").value;
+  if (newPassword !== confirmation) {
+    resetMessage.textContent = "Passwords do not match.";
+    resetMessage.className = "form-message error";
+    return;
+  }
+  const button = document.getElementById("complete-reset");
+  button.disabled = true;
+  try {
+    const response = await fetch("/api/admin/auth/password-reset/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: resetToken, new_password: newPassword }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Unable to reset the password.");
+    resetMessage.textContent = data.message;
+    resetMessage.className = "form-message success";
+    button.hidden = true;
+    window.history.replaceState({}, "", "/admin/login");
+  } catch (error) {
+    resetMessage.textContent = error.message;
+    resetMessage.className = "form-message error";
+  } finally {
+    button.disabled = false;
   }
 });

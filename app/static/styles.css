@@ -534,7 +534,7 @@ body[data-density="compact"] .welcome-state {
 
 .composer {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 40px;
+  grid-template-columns: 40px minmax(0, 1fr) 40px;
   align-items: end;
   gap: 8px;
   width: min(var(--composer-max), 100%);
@@ -1385,7 +1385,7 @@ body[data-assistant-message-style="bubble"] .message-row.assistant .message-text
 }
 
 .composer {
-  grid-template-columns: minmax(0, 1fr) 42px;
+  grid-template-columns: 42px minmax(0, 1fr) 42px;
   gap: 9px;
   padding: 8px;
   border-color: color-mix(in srgb, var(--text-primary) 12%, transparent);
@@ -1417,9 +1417,11 @@ body[data-assistant-message-style="bubble"] .message-row.assistant .message-text
 }
 
 .send-button {
-  background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 84%, white), var(--accent));
-  box-shadow: 0 7px 18px color-mix(in srgb, var(--accent) 22%, transparent), inset 0 1px rgba(255,255,255,.2);
+  background: linear-gradient(145deg, color-mix(in srgb, var(--button-color, var(--accent)) 84%, white), var(--button-color, var(--accent)));
+  box-shadow: 0 7px 18px color-mix(in srgb, var(--button-color, var(--accent)) 22%, transparent), inset 0 1px rgba(255,255,255,.2);
 }
+
+body.concierge-name-hidden .identity-copy span { display: none; }
 
 .send-button svg {
   width: 18px;
@@ -1473,15 +1475,108 @@ body[data-assistant-message-style="bubble"] .message-row.assistant .message-text
   margin: 0 10px 8px;
 }
 
-.menu-panel > button:not(.icon-button) {
+.menu-panel > button:not(.icon-button),
+#configured-module-list > button {
   min-height: 50px;
   padding: 0 12px;
   border-radius: 11px;
 }
 
+.maintenance-banner {
+  position: relative;
+  z-index: 3;
+  padding: 9px 16px;
+  border-bottom: 1px solid #ead797;
+  color: #5b451c;
+  background: #fff4cf;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: center;
+}
+
+#configured-module-list { display: grid; }
+#configured-module-list > button { border: 0; color: inherit; background: transparent; text-align: left; }
+#configured-module-list > button:hover { background: color-mix(in srgb, var(--text-primary) 5%, transparent); }
+
 .toast {
   padding: 12px 15px;
   border-radius: 12px;
+}
+
+.property-map-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  background: rgba(5, 20, 34, .76);
+  backdrop-filter: blur(8px);
+}
+
+.property-map-modal[hidden] { display: none; }
+
+.property-map-panel {
+  width: min(1180px, 100%);
+  max-height: calc(100dvh - 44px);
+  overflow: auto;
+  border: 1px solid rgba(255,255,255,.22);
+  border-radius: 18px;
+  background: #f7f2e9;
+  box-shadow: 0 30px 90px rgba(0,0,0,.34);
+}
+
+.property-map-panel > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px 13px;
+  color: #f7f2e9;
+  background: #0b2a45;
+}
+
+.property-map-panel header span {
+  color: #d9bd86;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+
+.property-map-panel h2 { margin: 2px 0 0; font-size: 22px; }
+.property-map-panel .icon-button { color: #fff; }
+
+.property-map-canvas { position: relative; line-height: 0; }
+.property-map-canvas > img { display: block; width: 100%; height: auto; }
+#property-map-markers { position: absolute; inset: 0; pointer-events: none; }
+
+.property-map-marker {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: clamp(20px, 2.25vw, 31px);
+  height: clamp(20px, 2.25vw, 31px);
+  transform: translate(-50%, -50%);
+  border: 2px solid #fff;
+  border-radius: 50%;
+  color: #fff;
+  background: #0b2a45;
+  box-shadow: 0 3px 10px rgba(0,0,0,.34);
+  font-size: clamp(9px, 1vw, 13px);
+  font-weight: 750;
+  line-height: 1;
+  pointer-events: auto;
+}
+
+.property-map-marker:hover,
+.property-map-marker:focus-visible { background: #c89b52; transform: translate(-50%, -50%) scale(1.12); }
+
+.property-map-note {
+  margin: 0;
+  padding: 11px 18px 14px;
+  color: #526273;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 @media (min-width: 1120px) {
@@ -1499,6 +1594,8 @@ body[data-assistant-message-style="bubble"] .message-row.assistant .message-text
 }
 
 @media (max-width: 720px) {
+  .property-map-modal { padding: 8px; }
+  .property-map-panel { max-height: calc(100dvh - 16px); border-radius: 13px; }
   .conversation-column {
     padding: 26px 16px 22px;
   }
@@ -1582,6 +1679,15 @@ body[data-assistant-message-style="bubble"] .message-row.assistant .message-text
   .composer {
     border-radius: 16px;
   }
+
+  .menu-panel {
+    width: min(100vw - 12px, 360px);
+    padding-inline: 12px;
+  }
+
+  .hotel-identity { min-width: 0; }
+  .hotel-identity > div:last-child { min-width: 0; }
+  .hotel-identity strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
 
 @media (prefers-color-scheme: dark) {

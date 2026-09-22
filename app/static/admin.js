@@ -23,6 +23,12 @@ const state = {
   recommendations: [],
   conversations: [],
   selectedConversation: null,
+  hospitality: null,
+  mapBackgrounds: new Map(),
+  freeformDraft: null,
+  knowledge: { items: [], documents: [], faqs: [] },
+  webhooks: { webhooks: [], deliveries: [] },
+  deployment: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -51,7 +57,7 @@ const NAV_SECTIONS = [
   {
     title: "Core",
     items: [
-      { id: "dashboard", label: "Dashboard", panel: "overview", permission: "dashboard.view", status: "partial", icon: "⌂" },
+      { id: "dashboard", label: "Dashboard", panel: "overview", permission: "dashboard.view", status: "live", icon: "⌂" },
     ],
   },
   {
@@ -59,30 +65,30 @@ const NAV_SECTIONS = [
     open: true,
     items: [
       { id: "conversations", label: "Conversations", panel: "conversations", permission: "conversations.view", status: "live", icon: "◫" },
-      { id: "guest-requests", label: "Guest Requests", panel: "requests", permission: "requests.view", status: "partial", icon: "☷" },
-      { id: "guest-sessions", label: "Guest Sessions", panel: "sessions", permission: "conversations.view", status: "partial", icon: "◉" },
-      { id: "guest-preview", label: "Preview", panel: "guest", permission: "concierge.view", status: "partial", icon: "◐" },
+      { id: "guest-requests", label: "Guest Requests", panel: "requests", permission: "requests.view", status: "live", icon: "☷" },
+      { id: "guest-sessions", label: "Guest Sessions", panel: "sessions", permission: "conversations.view", status: "live", icon: "◉" },
+      { id: "guest-preview", label: "Preview", panel: "guest", permission: "concierge.view", status: "live", icon: "◐" },
     ],
   },
   {
     title: "Property",
     open: true,
     items: [
-      { id: "hotel-information", label: "Hotel Information", panel: "hotel-information", permission: "properties.view", status: "partial", icon: "□", description: "Dedicated editor is scheduled in Issue #22. Current editable property basics remain in Dashboard until that backend split lands." },
-      { id: "rooms", label: "Rooms", panel: "rooms", permission: "properties.view", status: "configuration_required", icon: "▤" },
-      { id: "facilities", label: "Facilities", panel: "facilities", permission: "properties.view", status: "coming_soon", icon: "◇", superAdminOnly: true, description: "Canonical facility management is tracked in Issue #24." },
-      { id: "restaurants", label: "Restaurants", panel: "restaurants", permission: "properties.view", status: "coming_soon", icon: "○", superAdminOnly: true },
+      { id: "hotel-information", label: "Hotel Information", panel: "hotel-information", permission: "properties.view", status: "live", icon: "□" },
+      { id: "rooms", label: "Rooms", panel: "rooms", permission: "properties.view", status: "live", icon: "▤" },
+      { id: "facilities", label: "Facilities", panel: "facilities", permission: "properties.view", status: "live", icon: "◇" },
+      { id: "restaurants", label: "Restaurants", panel: "restaurants", permission: "properties.view", status: "live", icon: "○" },
       { id: "service-catalog", label: "Service Catalog", panel: "service-catalog", permission: "requests.view", status: "live", icon: "＋" },
       { id: "recommendations", label: "Recommendations", panel: "recommendations", permission: "properties.view", status: "live", icon: "⌖" },
-      { id: "zones-maps", label: "Zones & Maps", panel: "zones", permission: "properties.view", status: "partial", icon: "⌗" },
+      { id: "zones-maps", label: "Zones & Maps", panel: "zones", permission: "properties.view", status: "live", icon: "⌗" },
     ],
   },
   {
     title: "Knowledge",
     items: [
-      { id: "knowledge-overview", label: "Overview", panel: "knowledge", permission: "knowledge.view", status: "configuration_required", icon: "▣" },
-      { id: "documents", label: "Documents", panel: "documents", permission: "knowledge.view", status: "coming_soon", icon: "▧", superAdminOnly: true },
-      { id: "faqs", label: "FAQs", panel: "faqs", permission: "knowledge.view", status: "coming_soon", icon: "?", superAdminOnly: true },
+      { id: "knowledge-overview", label: "Overview", panel: "knowledge", permission: "knowledge.view", status: "live", icon: "▣" },
+      { id: "documents", label: "Documents", panel: "documents", permission: "knowledge.view", status: "live", icon: "▧" },
+      { id: "faqs", label: "FAQs", panel: "faqs", permission: "knowledge.view", status: "live", icon: "?" },
     ],
   },
   {
@@ -90,25 +96,23 @@ const NAV_SECTIONS = [
     open: true,
     items: [
       { id: "models-providers", label: "Models & Providers", panel: "ai", permission: "ai.view", status: "live", icon: "◈" },
-      { id: "ai-personality", label: "Personality", panel: "ai-personality", permission: "ai.view", status: "coming_soon", icon: "✦", superAdminOnly: true },
-      { id: "guardrails", label: "Guardrails", panel: "guardrails", permission: "ai.view", status: "coming_soon", icon: "⊡", superAdminOnly: true },
-      { id: "improvement-loop", label: "Improvement Loop", panel: "improvement-loop", permission: "ai.configure", status: "partial", icon: "↻" },
-      { id: "ai-usage", label: "Usage", panel: "ai-usage", permission: "analytics.view", status: "coming_soon", icon: "◫", superAdminOnly: true },
+      { id: "ai-personality", label: "Personality", panel: "ai-personality", permission: "ai.view", status: "live", icon: "✦" },
+      { id: "guardrails", label: "Guardrails", panel: "guardrails", permission: "ai.view", status: "live", icon: "⊡" },
+      { id: "ai-usage", label: "Usage", panel: "ai-usage", permission: "analytics.view", status: "live", icon: "◫" },
     ],
   },
   {
     title: "Integrations",
     items: [
-      { id: "pms", label: "PMS", panel: "pms", permission: "integrations.view", status: "configuration_required", icon: "▦" },
-      { id: "antlabs-wifi", label: "ANTlabs / Wi-Fi", panel: "wifi", permission: "integrations.view", status: "configuration_required", icon: "⌁" },
-      { id: "webhooks", label: "Webhooks", panel: "webhooks", permission: "integrations.view", status: "coming_soon", icon: "↗", superAdminOnly: true },
+      { id: "antlabs-wifi", label: "ANTlabs / Wi-Fi", panel: "wifi", permission: "integrations.view", status: "live", icon: "⌁" },
+      { id: "webhooks", label: "Webhooks", panel: "webhooks", permission: "integrations.view", status: "live", icon: "↗" },
     ],
   },
   {
     title: "Appearance",
     items: [
       { id: "design", label: "Design", panel: "appearance", permission: "concierge.view", status: "live", icon: "◐" },
-      { id: "branding-intro", label: "Branding / Intro", panel: "intro", permission: "concierge.view", status: "partial", icon: "A" },
+      { id: "branding-intro", label: "Branding / Intro", panel: "intro", permission: "concierge.view", status: "live", icon: "A" },
     ],
   },
   {
@@ -117,8 +121,8 @@ const NAV_SECTIONS = [
       { id: "guest-usage", label: "Guest Usage", panel: "guest-usage", permission: "analytics.view", status: "coming_soon", icon: "◎", superAdminOnly: true, description: "Guest usage analytics are tracked in Issue #28." },
       { id: "questions", label: "Questions", panel: "questions", permission: "analytics.view", status: "coming_soon", icon: "?", superAdminOnly: true },
       { id: "requests-analytics", label: "Requests", panel: "request-analytics", permission: "analytics.view", status: "coming_soon", icon: "▥", superAdminOnly: true },
-      { id: "location", label: "Location", panel: "location", permission: "analytics.view", status: "partial", icon: "⌖" },
-      { id: "analytics-ai-usage", label: "AI Usage", panel: "ai-usage", permission: "analytics.view", status: "coming_soon", icon: "◫", superAdminOnly: true },
+      { id: "location", label: "Location", panel: "location", permission: "analytics.view", status: "live", icon: "⌖" },
+      { id: "analytics-ai-usage", label: "AI Usage", panel: "ai-usage", permission: "analytics.view", status: "live", icon: "◫" },
     ],
   },
   {
@@ -133,18 +137,17 @@ const NAV_SECTIONS = [
   {
     title: "Deployment",
     items: [
-      { id: "domain", label: "Domain", panel: "domain", permission: "domains.view", status: "configuration_required", icon: "◌", description: "Domain status is not wired to a live deployment backend yet." },
-      { id: "ssl", label: "SSL", panel: "ssl", permission: "domains.view", status: "configuration_required", icon: "⌑", description: "Certificate status is not wired to a live deployment backend yet." },
-      { id: "network", label: "Network", panel: "network", permission: "domains.view", status: "configuration_required", icon: "⌁", description: "Network diagnostics must stay read-only until governed runtime checks are implemented." },
+      { id: "domain", label: "Domain", panel: "domain", permission: "domains.view", status: "live", icon: "◌" },
+      { id: "ssl", label: "SSL", panel: "ssl", permission: "domains.view", status: "live", icon: "⌑" },
+      { id: "network", label: "Network", panel: "network", permission: "domains.view", status: "live", icon: "⌁" },
     ],
   },
   {
     title: "System",
     items: [
       { id: "audit", label: "Audit", panel: "audit", permission: "audit.view", status: "live", icon: "☷" },
-      { id: "security", label: "Security", panel: "security", permission: "security.view", status: "partial", icon: "⊡" },
-      { id: "settings", label: "Settings", panel: "system-settings", permission: "system.configure", status: "coming_soon", icon: "⌘", superAdminOnly: true },
-      { id: "license", label: "License", panel: "license", permission: "system.configure", status: "configuration_required", icon: "▱" },
+      { id: "security", label: "Security", panel: "security", permission: "security.view", status: "live", icon: "⊡" },
+      { id: "settings", label: "Settings", panel: "system-settings", permission: "system.configure", status: "live", icon: "⌘", superAdminOnly: true },
     ],
   },
 ];
@@ -245,7 +248,10 @@ function createNavButton(item) {
     <span class="nav-label">${escapeHTML(item.label)}</span>
     <span class="nav-status ${status.className}" aria-label="${status.label}" title="${status.label}">${escapeHTML(status.label)}</span>
   `;
-  button.addEventListener("click", () => activatePanel(item.panel, item.id));
+  button.addEventListener("click", () => {
+    activatePanel(item.panel, item.id);
+    document.querySelector(".platform-shell")?.classList.remove("mobile-nav-open");
+  });
   return button;
 }
 
@@ -330,6 +336,17 @@ function activatePanel(panelId, navId = null) {
   if (panelId === "conversations" && currentPropertyId()) loadConversations().catch((error) => showToast(error.message, "error"));
   if (panelId === "service-catalog" && currentPropertyId()) loadServiceCatalog().catch((error) => showToast(error.message, "error"));
   if (panelId === "recommendations" && currentPropertyId()) loadRecommendations().catch((error) => showToast(error.message, "error"));
+  if (panelId === "hotel-information" && currentPropertyId()) loadHotelInformation();
+  if (panelId === "rooms" && currentPropertyId()) renderRooms();
+  if (panelId === "guest" && currentPropertyId()) renderGuestModules();
+  if (["facilities", "restaurants"].includes(panelId) && currentPropertyId()) loadHospitalityManagement().catch((error) => showToast(error.message, "error"));
+  if (panelId === "ai-usage" && currentPropertyId()) loadAIUsage().catch((error) => showToast(error.message, "error"));
+  if (panelId === "wifi" && currentPropertyId()) loadAntlabsStatus().catch((error) => showToast(error.message, "error"));
+  if (["knowledge", "documents", "faqs"].includes(panelId) && currentPropertyId()) loadKnowledge().catch((error) => showToast(error.message, "error"));
+  if (["ai-personality", "guardrails"].includes(panelId) && currentPropertyId()) loadAIPolicy();
+  if (panelId === "webhooks" && currentPropertyId()) loadWebhooks().catch((error) => showToast(error.message, "error"));
+  if (["domain", "ssl", "network"].includes(panelId) && currentPropertyId()) loadDeployment().catch((error) => showToast(error.message, "error"));
+  if (panelId === "system-settings") loadSystemSettings().catch((error) => showToast(error.message, "error"));
   if (panelId === "users") loadUsers().catch((error) => showToast(error.message, "error"));
   if (panelId === "roles") loadRoles().catch((error) => showToast(error.message, "error"));
   if (panelId === "permissions") loadPermissions().catch((error) => showToast(error.message, "error"));
@@ -348,6 +365,344 @@ async function loadDashboard() {
   $("metric-overdue-requests").textContent = `${metrics.overdue_requests} overdue`;
   $("metric-auth-success").textContent = metrics.auth_success_rate === null ? "No attempts" : `${metrics.auth_success_rate}%`;
   $("metric-auth-attempts").textContent = `${metrics.auth_attempts_today} attempts today`;
+  $("dashboard-ai-status").textContent = `${metrics.ai.default_provider || "None"} · ${metrics.ai.credentialed_providers}/${metrics.ai.enabled_providers} ready`;
+  $("dashboard-antlabs-status").textContent = metrics.antlabs.status.replaceAll("_", " ");
+  $("dashboard-session-status").textContent = `${metrics.active_guests} active`;
+  $("dashboard-request-status").textContent = `${metrics.open_requests} open · ${metrics.overdue_requests} overdue`;
+  $("dashboard-version").textContent = metrics.application.version;
+  $("dashboard-environment").textContent = metrics.application.environment;
+  const healthy = metrics.overdue_requests === 0 && metrics.usage.errors === 0;
+  $("dashboard-health-chip").textContent = healthy ? "Healthy" : "Attention";
+  $("dashboard-health-chip").classList.toggle("healthy", healthy);
+  const activity = $("dashboard-activity");
+  activity.innerHTML = metrics.usage.recent_activity.map((item) => `<div class="compact-row"><strong>${escapeHTML(item.role)} · ${escapeHTML(item.provider || "application")}</strong><span>${escapeHTML(formatDate(item.created_at))}${item.error ? ` · ${escapeHTML(item.error)}` : ""}</span></div>`).join("");
+  if (!activity.children.length) activity.textContent = "No operational activity has been recorded yet.";
+}
+
+function loadHotelInformation() {
+  const property = state.property;
+  $("hotel-info-name").value = property.hotel_name || "";
+  $("hotel-info-description").value = property.description || "";
+  $("hotel-info-address").value = property.address || "";
+  $("hotel-info-phone").value = property.contact_details?.phone || "";
+  $("hotel-info-email").value = property.contact_details?.email || "";
+  $("hotel-info-website").value = property.contact_details?.website || "";
+  $("hotel-info-checkin").value = property.contact_details?.check_in || "";
+  $("hotel-info-checkout").value = property.contact_details?.checkout || "";
+  $("hotel-info-breakfast").value = property.contact_details?.breakfast || "";
+  $("hotel-info-wifi").value = property.contact_details?.wifi_guidance || "";
+  $("hotel-info-policies").value = (property.policies || []).map((item) => typeof item === "string" ? item : item.text || item.name || "").filter(Boolean).join("\n");
+}
+
+async function saveHotelInformation() {
+  const name = $("hotel-info-name").value.trim();
+  if (!name) throw new Error("Hotel name is required.");
+  state.property = {
+    ...state.property,
+    hotel_name: name,
+    description: $("hotel-info-description").value.trim(),
+    address: $("hotel-info-address").value.trim(),
+    contact_details: {
+      ...(state.property.contact_details || {}),
+      phone: $("hotel-info-phone").value.trim(), email: $("hotel-info-email").value.trim(), website: $("hotel-info-website").value.trim(),
+      check_in: $("hotel-info-checkin").value.trim(), checkout: $("hotel-info-checkout").value.trim(),
+      breakfast: $("hotel-info-breakfast").value.trim(), wifi_guidance: $("hotel-info-wifi").value.trim(),
+    },
+    policies: $("hotel-info-policies").value.split("\n").map((text) => text.trim()).filter(Boolean).map((text) => ({ text })),
+  };
+  $("hotel-name-input").value = name;
+  await savePropertyBasics();
+  showToast("Hotel information saved and published to the guest profile.");
+}
+
+function renderRooms() {
+  const list = $("room-list");
+  list.innerHTML = "";
+  for (const room of state.property.rooms || []) {
+    const row = document.createElement("div"); row.className = "compact-row";
+    row.innerHTML = `<strong>${escapeHTML(room.name)}</strong><span>${escapeHTML(room.status)} · capacity ${Number(room.capacity || 1)}</span><span>${escapeHTML(room.description || "")}</span>`;
+    const edit = document.createElement("button"); edit.type = "button"; edit.textContent = "Edit"; edit.addEventListener("click", () => {
+      $("room-id").value = room.id; $("room-name").value = room.name; $("room-description").value = room.description || ""; $("room-capacity").value = room.capacity || 1; $("room-status").value = room.status || "available";
+    });
+    const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "Delete"; remove.addEventListener("click", () => deleteRoom(room.id).catch((error) => showToast(error.message, "error")));
+    row.append(edit, remove); list.appendChild(row);
+  }
+  if (!list.children.length) list.textContent = "No rooms configured.";
+}
+
+async function saveRoom() {
+  const name = $("room-name").value.trim();
+  if (!name) throw new Error("Room name or type is required.");
+  const id = $("room-id").value || `room_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
+  const rooms = [...(state.property.rooms || [])];
+  const record = { id, name, description: $("room-description").value.trim(), capacity: Number($("room-capacity").value || 1), status: $("room-status").value };
+  const index = rooms.findIndex((item) => item.id === id);
+  if (index >= 0) rooms[index] = record; else rooms.push(record);
+  state.property.rooms = rooms;
+  await savePropertyBasics();
+  $("room-id").value = ""; $("room-name").value = ""; $("room-description").value = "";
+  renderRooms(); showToast("Room saved.");
+}
+
+async function deleteRoom(id) {
+  state.property.rooms = (state.property.rooms || []).filter((item) => item.id !== id);
+  await savePropertyBasics(); renderRooms(); showToast("Room deleted.");
+}
+
+function renderGuestModules() {
+  const list = $("guest-module-list"); list.innerHTML = "";
+  const modules = [...(state.property.guest_modules || [])].sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+  for (const module of modules) {
+    const row = document.createElement("div"); row.className = "compact-row"; row.innerHTML = `<strong>${escapeHTML(module.name)}</strong><span>${module.enabled ? "Enabled" : "Disabled"} · order ${Number(module.order || 0)}</span><span>${escapeHTML(module.prompt || "")}</span>`;
+    const edit = document.createElement("button"); edit.type = "button"; edit.textContent = "Edit"; edit.addEventListener("click", () => { $("guest-module-id").value = module.id; $("guest-module-name").value = module.name; $("guest-module-prompt").value = module.prompt || ""; $("guest-module-order").value = module.order || 0; $("guest-module-enabled").checked = module.enabled !== false; });
+    const toggle = document.createElement("button"); toggle.type = "button"; toggle.textContent = module.enabled ? "Disable" : "Enable"; toggle.addEventListener("click", () => toggleGuestModule(module.id).catch((error) => showToast(error.message, "error")));
+    const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "Delete"; remove.addEventListener("click", () => deleteGuestModule(module.id).catch((error) => showToast(error.message, "error")));
+    row.append(edit, toggle, remove); list.appendChild(row);
+  }
+  if (!list.children.length) list.textContent = "No guest modules configured.";
+}
+
+async function saveGuestModule() {
+  const name = $("guest-module-name").value.trim(); const prompt = $("guest-module-prompt").value.trim();
+  if (!name || !prompt) throw new Error("Module name and guest prompt are required.");
+  const id = $("guest-module-id").value || `module_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
+  const modules = [...(state.property.guest_modules || [])]; const record = { id, name, prompt, order: Number($("guest-module-order").value || 0), enabled: $("guest-module-enabled").checked };
+  const index = modules.findIndex((item) => item.id === id); if (index >= 0) modules[index] = record; else modules.push(record);
+  state.property.guest_modules = modules; await savePropertyBasics(); $("guest-module-id").value = ""; $("guest-module-name").value = ""; $("guest-module-prompt").value = ""; renderGuestModules(); showToast("Guest module published.");
+}
+
+async function toggleGuestModule(id) { state.property.guest_modules = (state.property.guest_modules || []).map((item) => item.id === id ? { ...item, enabled: !item.enabled } : item); await savePropertyBasics(); renderGuestModules(); showToast("Guest module updated."); }
+async function deleteGuestModule(id) { state.property.guest_modules = (state.property.guest_modules || []).filter((item) => item.id !== id); await savePropertyBasics(); renderGuestModules(); showToast("Guest module deleted."); }
+
+async function loadHospitalityManagement() {
+  state.hospitality = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/hospitality`);
+  renderFacilities(); renderRestaurants();
+}
+
+function renderFacilities() {
+  const list = $("facility-list"); if (!list) return; list.innerHTML = "";
+  for (const item of state.hospitality?.facilities || []) {
+    const row = document.createElement("div"); row.className = "compact-row"; row.innerHTML = `<strong>${escapeHTML(item.name)}</strong><span>${escapeHTML(item.facility_type)} · ${escapeHTML(item.live_status)}</span><span>${escapeHTML(item.description || "")}</span>`;
+    const edit = document.createElement("button"); edit.type = "button"; edit.textContent = "Edit"; edit.addEventListener("click", () => editFacility(item));
+    const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "Delete"; remove.addEventListener("click", () => deleteFacility(item.facility_id).catch((error) => showToast(error.message, "error")));
+    row.append(edit, remove); list.appendChild(row);
+  }
+  if (!list.children.length) list.textContent = "No facilities configured.";
+}
+
+function editFacility(item) {
+  $("facility-id").value = item.facility_id; $("facility-name").value = item.name; $("facility-type").value = item.facility_type; $("facility-location").value = item.status_note || ""; $("facility-hours").value = item.opening_hours?.display || ""; $("facility-status").value = item.live_status; $("facility-description").value = item.description || "";
+}
+
+async function saveFacility() {
+  const name = $("facility-name").value.trim(); if (!name) throw new Error("Facility name is required.");
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/hospitality/facilities`, { method: "PUT", body: JSON.stringify({ data: { facility_id: $("facility-id").value || undefined, name, facility_type: $("facility-type").value.trim() || "amenity", opening_hours: { display: $("facility-hours").value.trim() }, description: $("facility-description").value.trim(), live_status: $("facility-status").value, status_note: $("facility-location").value.trim() } }) });
+  $("facility-id").value = ""; $("facility-name").value = ""; await loadHospitalityManagement(); showToast("Facility saved.");
+}
+
+async function deleteFacility(id) { await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/hospitality/facilities/${encodeURIComponent(id)}`, { method: "DELETE" }); await loadHospitalityManagement(); showToast("Facility deleted."); }
+
+function renderRestaurants() {
+  const list = $("restaurant-list"); if (!list) return; list.innerHTML = "";
+  for (const item of state.hospitality?.restaurants || []) {
+    const row = document.createElement("div"); row.className = "compact-row"; row.innerHTML = `<strong>${escapeHTML(item.name)}</strong><span>${escapeHTML(item.location || "No location")} · ${escapeHTML(item.status)}</span><span>${escapeHTML(item.description || "")}</span>`;
+    const edit = document.createElement("button"); edit.type = "button"; edit.textContent = "Edit"; edit.addEventListener("click", () => editRestaurant(item));
+    const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "Delete"; remove.addEventListener("click", () => deleteRestaurant(item.restaurant_id).catch((error) => showToast(error.message, "error")));
+    row.append(edit, remove); list.appendChild(row);
+  }
+  if (!list.children.length) list.textContent = "No restaurants configured.";
+}
+
+function editRestaurant(item) {
+  $("restaurant-id").value = item.restaurant_id; $("restaurant-name").value = item.name; $("restaurant-location").value = item.location || ""; $("restaurant-hours").value = item.opening_hours?.display || ""; $("restaurant-meals").value = (item.meal_periods || []).join(", "); $("restaurant-status").value = item.status; $("restaurant-description").value = item.description || ""; $("restaurant-reservations").checked = item.reservation_available;
+}
+
+async function saveRestaurant() {
+  const name = $("restaurant-name").value.trim(); if (!name) throw new Error("Restaurant name is required.");
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/restaurants`, { method: "POST", body: JSON.stringify({ data: { restaurant_id: $("restaurant-id").value || undefined, name, location: $("restaurant-location").value.trim(), opening_hours: { display: $("restaurant-hours").value.trim() }, meal_periods: $("restaurant-meals").value.split(",").map((item) => item.trim()).filter(Boolean), status: $("restaurant-status").value, description: $("restaurant-description").value.trim(), reservation_available: $("restaurant-reservations").checked } }) });
+  $("restaurant-id").value = ""; $("restaurant-name").value = ""; await loadHospitalityManagement(); showToast("Restaurant saved.");
+}
+
+async function deleteRestaurant(id) { await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/restaurants/${encodeURIComponent(id)}`, { method: "DELETE" }); await loadHospitalityManagement(); showToast("Restaurant deleted."); }
+
+async function loadKnowledge() {
+  state.knowledge = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge`);
+  renderKnowledge();
+}
+
+function makeActionButton(label, handler, secondary = false) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = label;
+  if (secondary) button.className = "secondary";
+  button.addEventListener("click", () => Promise.resolve(handler()).catch((error) => showToast(error.message, "error")));
+  return button;
+}
+
+function renderKnowledge() {
+  const entryList = $("knowledge-list"); entryList.innerHTML = "";
+  for (const item of state.knowledge.items || []) {
+    const row = document.createElement("div"); row.className = "compact-row";
+    row.innerHTML = `<strong>${escapeHTML(item.title)}</strong><span>${item.enabled ? "Available to AI" : "Disabled"} · ${escapeHTML(formatDate(item.updated_at))}</span><span>${escapeHTML((item.body || "").slice(0, 180))}</span>`;
+    row.append(
+      makeActionButton("Edit", () => { $("knowledge-id").value = item.item_id; $("knowledge-title").value = item.title; $("knowledge-body").value = item.body; $("knowledge-enabled").checked = item.enabled; }),
+      makeActionButton("Delete", () => deleteKnowledgeItem(item.item_id), true),
+    );
+    entryList.appendChild(row);
+  }
+  if (!entryList.children.length) entryList.textContent = "No managed knowledge entries.";
+
+  const documentList = $("document-list"); documentList.innerHTML = "";
+  for (const item of state.knowledge.documents || []) {
+    const row = document.createElement("div"); row.className = "compact-row";
+    row.innerHTML = `<strong>${escapeHTML(item.source_name || item.title)}</strong><span>${escapeHTML(item.status)} · ${escapeHTML(item.content_type || "unknown type")}</span><span>${escapeHTML(item.error || "Ready for verified retrieval")}</span>`;
+    row.append(makeActionButton("Delete", () => deleteKnowledgeItem(item.item_id), true)); documentList.appendChild(row);
+  }
+  if (!documentList.children.length) documentList.textContent = "No documents uploaded.";
+
+  const faqList = $("faq-list"); faqList.innerHTML = "";
+  for (const item of state.knowledge.faqs || []) {
+    const row = document.createElement("div"); row.className = "compact-row";
+    row.innerHTML = `<strong>${escapeHTML(item.question)}</strong><span>${item.enabled ? "Available to AI" : "Disabled"}</span><span>${escapeHTML(item.answer)}</span>`;
+    row.append(
+      makeActionButton("Edit", () => { $("faq-id").value = item.item_id; $("faq-question").value = item.question; $("faq-answer").value = item.answer; $("faq-enabled").checked = item.enabled; }),
+      makeActionButton("Delete", () => deleteKnowledgeItem(item.item_id), true),
+    );
+    faqList.appendChild(row);
+  }
+  if (!faqList.children.length) faqList.textContent = "No managed FAQs.";
+}
+
+async function saveKnowledgeEntry() {
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge`, { method: "PUT", body: JSON.stringify({ item_id: $("knowledge-id").value || null, kind: "entry", title: $("knowledge-title").value.trim(), body: $("knowledge-body").value.trim(), enabled: $("knowledge-enabled").checked }) });
+  $("knowledge-id").value = ""; $("knowledge-title").value = ""; $("knowledge-body").value = ""; await loadKnowledge(); showToast("Knowledge entry saved.");
+}
+
+async function saveFAQ() {
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge`, { method: "PUT", body: JSON.stringify({ item_id: $("faq-id").value || null, kind: "faq", question: $("faq-question").value.trim(), answer: $("faq-answer").value.trim(), enabled: $("faq-enabled").checked }) });
+  $("faq-id").value = ""; $("faq-question").value = ""; $("faq-answer").value = ""; await loadKnowledge(); showToast("FAQ saved.");
+}
+
+async function uploadKnowledgeDocument(file) {
+  if (!file) return;
+  const content = new Uint8Array(await file.arrayBuffer()); let binary = "";
+  for (const byte of content) binary += String.fromCharCode(byte);
+  const item = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge/documents`, { method: "POST", body: JSON.stringify({ filename: file.name, content_type: file.type || "application/octet-stream", content_base64: btoa(binary) }) });
+  await loadKnowledge(); showToast(item.status === "ready" ? "Document ingested." : item.error, item.status === "ready" ? "default" : "error");
+}
+
+async function deleteKnowledgeItem(itemId) { await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge/${encodeURIComponent(itemId)}`, { method: "DELETE" }); await loadKnowledge(); showToast("Knowledge item deleted."); }
+
+function loadAIPolicy() {
+  const personality = state.property.personality || {};
+  $("personality-name").value = personality.name || state.property.concierge_name || "Concierge";
+  $("personality-tone").value = personality.tone || "warm";
+  $("personality-formality").value = personality.formality || "balanced";
+  $("personality-length").value = personality.response_length || "concise";
+  $("personality-greeting").value = personality.greeting_behavior || "first_message";
+  $("personality-instructions").value = personality.property_instructions || "";
+  const guardrails = state.property.guardrails || {};
+  $("guardrail-unknown").value = guardrails.unknown_answer || "state_unavailable";
+  $("guardrail-escalation").value = guardrails.escalation_behavior || "offer_human";
+  $("guardrail-allowed").value = (guardrails.allowed_topics || []).join("\n");
+  $("guardrail-restricted").value = (guardrails.restricted_topics || []).join("\n");
+  $("guardrail-sensitive").value = guardrails.sensitive_information || "Never expose credentials, payment data, private guest records, or infrastructure identifiers.";
+  $("guardrail-human").value = guardrails.human_escalation || "Offer hotel staff assistance when a request cannot be completed safely or from verified data.";
+}
+
+const readLines = (id) => $(id).value.split("\n").map((value) => value.trim()).filter(Boolean);
+
+async function savePersonality() {
+  state.property.personality = { name: $("personality-name").value.trim(), tone: $("personality-tone").value, formality: $("personality-formality").value, response_length: $("personality-length").value, greeting_behavior: $("personality-greeting").value, property_instructions: $("personality-instructions").value.trim() };
+  state.property.concierge_name = state.property.personality.name || state.property.concierge_name; $("concierge-name-input").value = state.property.concierge_name;
+  await savePropertyBasics(); showToast("AI personality saved.");
+}
+
+async function saveGuardrails() {
+  state.property.guardrails = { allowed_topics: readLines("guardrail-allowed"), restricted_topics: readLines("guardrail-restricted"), unknown_answer: $("guardrail-unknown").value, escalation_behavior: $("guardrail-escalation").value, sensitive_information: $("guardrail-sensitive").value.trim(), human_escalation: $("guardrail-human").value.trim() };
+  await savePropertyBasics(); showToast("Guardrails saved.");
+}
+
+async function loadWebhooks() { state.webhooks = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/webhooks`); renderWebhooks(); }
+
+function renderWebhooks() {
+  const list = $("webhook-list"); list.innerHTML = "";
+  for (const item of state.webhooks.webhooks || []) {
+    const row = document.createElement("div"); row.className = "compact-row";
+    row.innerHTML = `<strong>${escapeHTML(item.name)}</strong><span>${item.enabled ? "Enabled" : "Disabled"} · ${escapeHTML(item.last_status.replaceAll("_", " "))}</span><span>${escapeHTML(item.endpoint_url)}${item.last_error ? ` · ${escapeHTML(item.last_error)}` : ""}</span>`;
+    row.append(
+      makeActionButton("Edit", () => { $("webhook-id").value = item.webhook_id; $("webhook-name").value = item.name; $("webhook-url").value = item.endpoint_url; $("webhook-enabled").checked = item.enabled; for (const option of $("webhook-events").options) option.selected = item.events.includes(option.value); $("webhook-secret").placeholder = item.secret_configured ? "Saved securely; leave blank to keep" : "Optional signing secret"; }),
+      makeActionButton("Test", () => testWebhook(item.webhook_id)),
+      makeActionButton("Delete", () => deleteWebhook(item.webhook_id), true),
+    ); list.appendChild(row);
+  }
+  if (!list.children.length) list.textContent = "No webhook endpoints configured.";
+  $("webhook-deliveries").innerHTML = (state.webhooks.deliveries || []).slice(0, 20).map((item) => `<div class="compact-row"><strong>${escapeHTML(item.event_name)}</strong><span>${escapeHTML(item.status)} · ${escapeHTML(formatDate(item.attempted_at))}</span><span>${escapeHTML(item.error || (item.response_status ? `HTTP ${item.response_status}` : ""))}</span></div>`).join("") || "No delivery attempts recorded.";
+}
+
+async function saveWebhook() {
+  const events = [...$("webhook-events").selectedOptions].map((option) => option.value);
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/webhooks`, { method: "PUT", body: JSON.stringify({ webhook_id: $("webhook-id").value || null, name: $("webhook-name").value.trim(), endpoint_url: $("webhook-url").value.trim(), events, enabled: $("webhook-enabled").checked, secret: $("webhook-secret").value }) });
+  $("webhook-id").value = ""; $("webhook-name").value = ""; $("webhook-url").value = ""; $("webhook-secret").value = ""; await loadWebhooks(); showToast("Webhook saved.");
+}
+async function testWebhook(id) { const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/webhooks/${encodeURIComponent(id)}/test`, { method: "POST" }); await loadWebhooks(); showToast(result.status === "delivered" ? "Webhook delivered." : result.error, result.status === "delivered" ? "default" : "error"); }
+async function deleteWebhook(id) { await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/webhooks/${encodeURIComponent(id)}`, { method: "DELETE" }); await loadWebhooks(); showToast("Webhook deleted."); }
+
+function renderManagedLocations() {
+  const list = $("managed-location-list"); list.innerHTML = "";
+  for (const item of state.property.app_settings?.locations || []) {
+    const row = document.createElement("div"); row.className = "compact-row"; row.innerHTML = `<strong>${escapeHTML(item.name)}</strong><span>${escapeHTML(item.type || "location")} · ${item.guest_visible ? "Guest visible" : "Operations only"}</span><span>${escapeHTML(item.description || "")}</span>`;
+    row.append(makeActionButton("Edit", () => { $("location-id").value = item.id; $("location-name").value = item.name; $("location-type").value = item.type || ""; $("location-description").value = item.description || ""; $("location-latitude").value = item.latitude ?? ""; $("location-longitude").value = item.longitude ?? ""; $("location-visible").checked = item.guest_visible !== false; }), makeActionButton("Delete", () => deleteManagedLocation(item.id), true)); list.appendChild(row);
+  }
+  if (!list.children.length) list.textContent = "No managed locations.";
+}
+
+async function saveManagedLocation() {
+  const name = $("location-name").value.trim(); if (!name) throw new Error("Location name is required.");
+  const appSettings = { ...(state.property.app_settings || {}) }; const locations = [...(appSettings.locations || [])]; const id = $("location-id").value || `location_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
+  const record = { id, name, type: $("location-type").value.trim(), description: $("location-description").value.trim(), latitude: $("location-latitude").value === "" ? null : Number($("location-latitude").value), longitude: $("location-longitude").value === "" ? null : Number($("location-longitude").value), guest_visible: $("location-visible").checked };
+  const index = locations.findIndex((item) => item.id === id); if (index >= 0) locations[index] = record; else locations.push(record); appSettings.locations = locations; state.property.app_settings = appSettings; await savePropertyBasics(); $("location-id").value = ""; $("location-name").value = ""; $("location-description").value = ""; renderManagedLocations(); showToast("Location saved.");
+}
+async function deleteManagedLocation(id) { state.property.app_settings = { ...(state.property.app_settings || {}), locations: (state.property.app_settings?.locations || []).filter((item) => item.id !== id) }; await savePropertyBasics(); renderManagedLocations(); showToast("Location deleted."); }
+
+async function loadDeployment() {
+  state.deployment = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/deployment/status`);
+  const deployment = state.property.app_settings?.deployment || {};
+  $("deployment-domain").value = state.property.domain || ""; $("deployment-public-url").value = deployment.public_base_url || ""; $("network-reverse-proxy").checked = Boolean(deployment.reverse_proxy); $("network-https-required").checked = deployment.https_required !== false; $("network-trusted-proxy").value = deployment.trusted_proxy || "";
+  $("domain-status").textContent = state.deployment.domain.status.replaceAll("_", " "); $("domain-addresses").textContent = state.deployment.domain.resolved_addresses.join(", ") || "—"; $("deployment-last-checked").textContent = state.deployment.last_checked_at ? formatDate(state.deployment.last_checked_at) : "Never";
+  $("ssl-status").textContent = state.deployment.ssl.status.replaceAll("_", " "); $("ssl-issuer").textContent = state.deployment.ssl.issuer || "—"; $("ssl-expiration").textContent = state.deployment.ssl.expires_at ? formatDate(state.deployment.ssl.expires_at) : "—"; $("ssl-days").textContent = state.deployment.ssl.days_remaining ?? "—"; $("ssl-error").textContent = state.deployment.ssl.error || "—";
+}
+
+async function saveDeploymentSettings() { state.property.domain = $("deployment-domain").value.trim().toLowerCase(); $("domain-input").value = state.property.domain; state.property.app_settings = { ...(state.property.app_settings || {}), deployment: { ...(state.property.app_settings?.deployment || {}), public_base_url: $("deployment-public-url").value.trim(), reverse_proxy: $("network-reverse-proxy").checked, https_required: $("network-https-required").checked, trusted_proxy: $("network-trusted-proxy").value.trim() } }; await savePropertyBasics(); await loadDeployment(); showToast("Deployment settings saved."); }
+async function verifyDeployment() { const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/deployment/verify`, { method: "POST" }); await loadDeployment(); showToast(result.domain_status === "verified" ? "Domain verification completed." : result.detail || "Verification remains pending.", result.domain_status === "verified" ? "default" : "error"); }
+
+async function loadSystemSettings() {
+  const application = state.property.app_settings?.application || {};
+  $("setting-language").value = application.default_language || state.property.languages?.[0] || "en"; $("setting-timezone").value = application.timezone || state.property.timezone || "UTC"; $("setting-maintenance").checked = Boolean(application.maintenance_enabled); $("setting-maintenance-message").value = application.maintenance_message || "";
+  const smtp = await jsonFetch("/api/admin/system/email"); $("smtp-enabled").checked = smtp.enabled; $("smtp-host").value = smtp.host; $("smtp-port").value = smtp.port; $("smtp-security").value = smtp.security; $("smtp-username").value = smtp.username; $("smtp-from").value = smtp.from_address; $("smtp-password").value = ""; $("smtp-password").placeholder = smtp.password_configured ? `Saved securely (${smtp.password_masked})` : "Not configured"; $("smtp-status").textContent = smtp.enabled ? "SMTP enabled. Use Test Connection to verify reachability." : "SMTP is disabled; password-reset requests remain generic and do not send email.";
+}
+async function saveApplicationSettings() { const application = { default_language: $("setting-language").value.trim() || "en", timezone: $("setting-timezone").value.trim() || "UTC", maintenance_enabled: $("setting-maintenance").checked, maintenance_message: $("setting-maintenance-message").value.trim() }; state.property.languages = [application.default_language]; state.property.timezone = application.timezone; state.property.app_settings = { ...(state.property.app_settings || {}), application }; await savePropertyBasics(); showToast("Application settings saved."); }
+async function saveSMTPSettings() { await jsonFetch("/api/admin/system/email", { method: "PUT", body: JSON.stringify({ enabled: $("smtp-enabled").checked, host: $("smtp-host").value.trim(), port: Number($("smtp-port").value || 587), security: $("smtp-security").value, username: $("smtp-username").value.trim(), password: $("smtp-password").value, from_address: $("smtp-from").value.trim() }) }); await loadSystemSettings(); showToast("Email settings saved securely."); }
+async function testSMTP() { const result = await jsonFetch("/api/admin/system/email/test", { method: "POST" }); $("smtp-status").textContent = result.detail; showToast(result.detail, result.status === "connected" ? "default" : "error"); }
+
+async function loadAIUsage() {
+  const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/ai/usage?days=${encodeURIComponent($("ai-usage-period").value)}`);
+  $("ai-usage-metrics").innerHTML = `<article><span>Requests</span><strong>${data.requests}</strong></article><article><span>Errors</span><strong>${data.errors}</strong></article><article><span>Average latency</span><strong>${data.average_latency_ms} ms</strong></article><article><span>Time range</span><strong>${data.days} days</strong></article>`;
+  $("ai-usage-list").innerHTML = data.providers.map((item) => `<div class="compact-row"><strong>${escapeHTML(item.provider || "unknown")} · ${escapeHTML(item.model || "unknown")}</strong><span>${item.requests} requests · ${Math.round(item.average_latency_ms || 0)} ms · ${item.errors} errors</span></div>`).join("") || "No AI usage recorded for this range.";
+}
+
+async function loadAntlabsStatus() {
+  const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/antlabs/status`);
+  renderAntlabsStatus(data);
+}
+
+function renderAntlabsStatus(data) {
+  $("antlabs-configured").textContent = data.configured ? "Configured" : "Not configured"; $("antlabs-mode").textContent = data.mode; $("antlabs-status").textContent = data.status.replaceAll("_", " "); $("antlabs-endpoint").textContent = data.endpoint || "Not configured";
+  if (data.detail) $("antlabs-detail").textContent = data.detail;
+}
+
+async function testAntlabs() {
+  const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/antlabs/test`, { method: "POST" }); renderAntlabsStatus(data); $("antlabs-last-check").textContent = new Date().toLocaleString(); showToast(data.detail, data.ok ? "default" : "error");
 }
 
 function setPublishState(text) {
@@ -363,6 +718,8 @@ function hydrateProperty(property) {
   $("domain-input").value = property.domain || "";
   $("deployment-mode").value = property.deployment_mode || "on-prem";
   renderAuthTypes(property.antlabs_config?.authentication_types || {});
+  loadAIPolicy();
+  renderManagedLocations();
 }
 
 function renderAuthTypes(config = {}) {
@@ -900,17 +1257,25 @@ function fillDesignForm(config) {
   $("secondary-text-color-input").value = normalizeColor(config.theme?.textSecondary || "#71717a");
   $("accent-input").value = normalizeColor(config.theme?.accent || "#18181b");
   $("user-message-input").value = normalizeColor(config.theme?.userMessageBackground || "#eeeeee");
+  $("button-color-input").value = normalizeColor(config.theme?.buttonColor || config.theme?.accent || "#18181b");
+  $("composer-background-input").value = normalizeColor(config.composer?.background || config.theme?.composerBackground || "#ffffff");
   $("background-image-url-input").value = config.theme?.backgroundImageUrl || "";
   $("background-overlay-input").value = config.theme?.backgroundOverlay ?? 0;
   $("font-input").value = config.typography?.fontFamily || "Geist";
   $("density-input").value = config.theme?.density || "comfortable";
   $("content-width-input").value = config.layout?.contentWidth || 840;
   $("message-width-input").value = config.layout?.messageWidth || 680;
+  $("composer-width-input").value = config.layout?.composerWidth || 840;
+  $("base-font-size-input").value = config.typography?.baseFontSize || 15;
+  $("message-spacing-input").value = config.layout?.messageSpacing || config.messages?.messageSpacing || 24;
+  $("radius-input").value = config.theme?.radius ?? 14;
+  $("suggestion-layout-input").value = config.layout?.suggestionLayout || "stack";
   $("user-style-input").value = config.messages?.userStyle || "bubble";
   $("assistant-style-input").value = config.messages?.assistantStyle || "minimal";
   $("header-enabled-input").checked = config.header?.enabled !== false;
   $("show-logo-input").checked = config.header?.showLogo !== false;
   $("show-name-input").checked = config.header?.showHotelName !== false;
+  $("show-concierge-input").checked = config.header?.showConciergeName !== false;
   renderPrompts(config.suggestions || []);
 }
 
@@ -936,9 +1301,9 @@ function designPayload() {
     userMessageBackground: $("user-message-input").value,
     userMessageText: base.theme?.userMessageText || "#18181b",
     assistantText: base.theme?.assistantText || "#18181b",
-    composerBackground: $("surface-input").value,
-    buttonColor: $("accent-input").value,
-    radius: Number(base.theme?.radius || 14),
+    composerBackground: $("composer-background-input").value,
+    buttonColor: $("button-color-input").value,
+    radius: Number($("radius-input").value || 0),
     density: $("density-input").value,
     backgroundImageUrl: $("background-image-url-input").value,
     backgroundOverlay: Number($("background-overlay-input").value || 0),
@@ -946,17 +1311,22 @@ function designPayload() {
   base.typography = {
     ...(base.typography || {}),
     fontFamily: $("font-input").value,
+    baseFontSize: Number($("base-font-size-input").value || 15),
   };
   base.layout = {
     ...(base.layout || {}),
     contentWidth: Number($("content-width-input").value || 840),
     messageWidth: Number($("message-width-input").value || 680),
+    composerWidth: Number($("composer-width-input").value || 840),
+    messageSpacing: Number($("message-spacing-input").value || 24),
+    suggestionLayout: $("suggestion-layout-input").value,
   };
   base.header = {
     ...(base.header || {}),
     enabled: $("header-enabled-input").checked,
     showLogo: $("show-logo-input").checked,
     showHotelName: $("show-name-input").checked,
+    showConciergeName: $("show-concierge-input").checked,
   };
   base.welcome = {
     ...(base.welcome || {}),
@@ -966,12 +1336,13 @@ function designPayload() {
   base.composer = {
     ...(base.composer || {}),
     placeholder: $("composer-placeholder-input").value.trim() || "Ask your concierge...",
-    background: $("surface-input").value,
+    background: $("composer-background-input").value,
   };
   base.messages = {
     ...(base.messages || {}),
     userStyle: $("user-style-input").value,
     assistantStyle: $("assistant-style-input").value,
+    messageSpacing: Number($("message-spacing-input").value || 24),
   };
   base.suggestions = readPrompts();
   return base;
@@ -1015,6 +1386,11 @@ function propertyPayload() {
     ai_settings: property.ai_settings || {},
     antlabs_config: antlabsConfig,
     knowledge_sources: property.knowledge_sources || [],
+    rooms: property.rooms || [],
+    guest_modules: property.guest_modules || [],
+    personality: property.personality || {},
+    guardrails: property.guardrails || {},
+    app_settings: property.app_settings || {},
     welcome: $("welcome-input").value,
   };
 }
@@ -1140,6 +1516,12 @@ function updatePreview() {
   $("chat-preview").style.setProperty("--preview-bg-image", config.theme.backgroundImageUrl ? `url("${config.theme.backgroundImageUrl}")` : "none");
   $("chat-preview").style.setProperty("--preview-overlay", (config.theme.backgroundOverlay || 0) / 100);
   $("chat-preview").style.setProperty("--preview-font", previewFontStack(config.typography.fontFamily || config.theme.font || "Geist"));
+  $("chat-preview").style.setProperty("--preview-button", config.theme.buttonColor || accent);
+  $("chat-preview").style.setProperty("--preview-composer", config.composer.background || config.theme.composerBackground || config.theme.surface);
+  $("chat-preview").style.setProperty("--preview-radius", `${config.theme.radius ?? 14}px`);
+  $("chat-preview").style.setProperty("--preview-font-size", `${config.typography.baseFontSize || 15}px`);
+  $("chat-preview").style.setProperty("--preview-message-spacing", `${config.layout.messageSpacing || 24}px`);
+  $("chat-preview").style.setProperty("--preview-content-width", `${config.layout.contentWidth || 840}px`);
   document.documentElement.style.setProperty("--accent", accent);
   renderPreviewPrompts();
 }
@@ -1271,6 +1653,9 @@ async function switchProperty(propertyId) {
   state.improvementLoop = null;
   state.catalog = { departments: [], services: [] };
   state.recommendations = [];
+  state.knowledge = { items: [], documents: [], faqs: [] };
+  state.webhooks = { webhooks: [], deliveries: [] };
+  state.deployment = null;
   const tasks = [];
   if (can("concierge.view")) tasks.push(loadDesign());
   if (can("ai.view")) tasks.push(loadAI());
@@ -1346,6 +1731,23 @@ function renderMapCanvas() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = "#fbfbfa";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const layers = Object.fromEntries([...document.querySelectorAll(".layer-toggle")].map((input) => [input.dataset.layer, input.checked]));
+  const floorId = $("zone-floor-select")?.value;
+  const floorMap = state.zones?.maps?.find((item) => item.floor_id === floorId);
+  if (layers.floor_plan && floorMap) {
+    if (floorMap.content_type === "application/pdf") {
+      ctx.fillStyle = "#f4f4f5"; ctx.fillRect(0, 0, canvas.width, canvas.height); ctx.fillStyle = "#52525b"; ctx.font = "16px system-ui"; ctx.fillText("PDF floor plan uploaded. Use PNG, JPEG, or SVG for an editable canvas background.", 28, 42);
+    } else {
+      let image = state.mapBackgrounds.get(floorMap.map_id);
+      if (!image) {
+        image = new Image();
+        image.addEventListener("load", renderMapCanvas, { once: true });
+        image.src = floorMap.url;
+        state.mapBackgrounds.set(floorMap.map_id, image);
+      }
+      if (image.complete && image.naturalWidth) ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+    }
+  }
   ctx.strokeStyle = "#d4d4d8";
   ctx.lineWidth = 1;
   for (let x = 0; x < canvas.width; x += 40) {
@@ -1354,7 +1756,6 @@ function renderMapCanvas() {
   for (let y = 0; y < canvas.height; y += 40) {
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
   }
-  const layers = Object.fromEntries([...document.querySelectorAll(".layer-toggle")].map((input) => [input.dataset.layer, input.checked]));
   if (layers.zones) {
     for (const zone of state.zones?.zones || []) drawGeometry(ctx, zone.geometry, zone === state.selectedMapObject ? "#0f766e" : "#2563eb", zone.name);
   }
@@ -1457,9 +1858,13 @@ function handleCanvasPointer(event) {
   const rect = canvas.getBoundingClientRect();
   const x = Math.round((event.clientX - rect.left) * (canvas.width / rect.width));
   const y = Math.round((event.clientY - rect.top) * (canvas.height / rect.height));
-  if (!["rectangle", "ellipse", "polygon"].includes(state.mapTool)) return;
+  if (!["rectangle", "ellipse", "polygon", "freeform"].includes(state.mapTool)) return;
   state.mapHistory.push(structuredClone(state.mapObjects));
   const snap = (value) => Math.round(value / 10) * 10;
+  if (state.mapTool === "freeform") {
+    const object = { name: $("map-object-name").value || "Draft", geometry: { type: "polygon", points: [[x, y]] } };
+    state.mapObjects.push(object); state.freeformDraft = object; canvas.setPointerCapture?.(event.pointerId); state.mapRedo = []; renderMapCanvas(); return;
+  }
   const geometry = state.mapTool === "ellipse"
     ? { type: "ellipse", cx: snap(x), cy: snap(y), rx: 80, ry: 50 }
     : state.mapTool === "polygon"
@@ -1468,6 +1873,19 @@ function handleCanvasPointer(event) {
   state.mapObjects.push({ name: $("map-object-name").value || "Draft", geometry });
   state.mapRedo = [];
   renderMapCanvas();
+}
+
+function handleCanvasPointerMove(event) {
+  if (!state.freeformDraft) return;
+  const canvas = $("floor-map-canvas"); const rect = canvas.getBoundingClientRect();
+  const point = [Math.round((event.clientX - rect.left) * (canvas.width / rect.width)), Math.round((event.clientY - rect.top) * (canvas.height / rect.height))];
+  const points = state.freeformDraft.geometry.points; const last = points.at(-1);
+  if (!last || Math.hypot(point[0] - last[0], point[1] - last[1]) >= 6) { points.push(point); renderMapCanvas(); }
+}
+
+function finishFreeform() {
+  if (state.freeformDraft?.geometry.points.length < 3) state.mapObjects = state.mapObjects.filter((item) => item !== state.freeformDraft);
+  state.freeformDraft = null; renderMapCanvas();
 }
 
 async function uploadFloorMap(file) {
@@ -1489,17 +1907,22 @@ async function loadSessions() {
   const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/sessions`);
   const list = $("session-list");
   list.innerHTML = "";
+  for (const session of data.sessions || []) {
+    const row = document.createElement("div"); row.className = "compact-row";
+    row.innerHTML = `<strong>${escapeHTML(session.session_id)}</strong><span>${escapeHTML(session.session_status)} · ${session.authenticated ? "authenticated" : "not authenticated"} · ${escapeHTML(session.interaction_status)} · ${session.message_count} messages</span><span>Started ${escapeHTML(formatDate(session.created_at))} · last activity ${escapeHTML(formatDate(session.last_seen_at))}${session.last_provider ? ` · ${escapeHTML(session.last_provider)}` : ""}</span>`;
+    list.appendChild(row);
+  }
   for (const stay of data.stays) {
     const row = document.createElement("div");
     row.className = "compact-row";
-    row.innerHTML = `<strong>${stay.stay_id}</strong><span>${stay.status} · ${stay.device_id} · room ${stay.room || "none"}</span>`;
+    row.innerHTML = `<strong>Stay ${escapeHTML(stay.stay_id)}</strong><span>${escapeHTML(stay.status)} · room ${escapeHTML(stay.room || "none")} · memory ${stay.memory_summary ? "stored" : "empty"}</span>`;
     row.addEventListener("click", () => {
       $("memory-stay-id").value = stay.stay_id;
       $("memory-summary").value = stay.memory_summary?.conversation_summary || "";
     });
     list.appendChild(row);
   }
-  if (!data.stays.length) list.textContent = "No stay sessions yet.";
+  if (!list.children.length) list.textContent = "No guest sessions or stays yet.";
 }
 
 async function createStaySession() {
@@ -1522,6 +1945,7 @@ async function saveStayMemory() {
 }
 
 async function loadLocationLive() {
+  renderManagedLocations();
   const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/location/live`);
   $("location-live-metrics").innerHTML = `
     <article><span>Detected devices</span><strong>${data.currently_detected}</strong></article>
@@ -1612,11 +2036,18 @@ async function uploadIntroAsset(file) {
 async function loadConversations() {
   const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations`);
   state.conversations = data.conversations;
+  $("conversation-retention-days").value = data.retention?.retention_days || 30;
   renderConversations();
   if (state.selectedConversation) {
     state.selectedConversation = state.conversations.find((item) => item.session_id === state.selectedConversation.session_id) || null;
     renderConversationMessages();
   }
+}
+
+async function saveConversationRetention() {
+  const retentionDays = Number($("conversation-retention-days").value);
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations/retention`, { method: "PUT", body: JSON.stringify({ retention_days: retentionDays }) });
+  await loadConversations(); showToast("Conversation retention updated.");
 }
 
 function renderConversations() {
@@ -1667,10 +2098,13 @@ async function loadServiceCatalog() {
   state.catalog = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/service-catalog`);
   const departmentSelect = $("catalog-service-department");
   const requestSelect = $("service-type");
+  const requestDepartment = $("service-department");
   departmentSelect.innerHTML = '<option value="">Unassigned</option>';
   requestSelect.innerHTML = '<option value="">Select a configured service</option>';
+  requestDepartment.innerHTML = '<option value="">Select a department</option>';
   for (const department of state.catalog.departments) {
     departmentSelect.appendChild(new Option(department.name, department.department_id));
+    requestDepartment.appendChild(new Option(department.name, department.name));
   }
   for (const service of state.catalog.services.filter((item) => item.enabled && !item.archived)) {
     requestSelect.appendChild(new Option(service.name, service.service_id));
@@ -1698,9 +2132,18 @@ function renderDepartments() {
       $("department-enabled").checked = department.enabled;
     });
     row.appendChild(edit);
+    const remove = document.createElement("button");
+    remove.type = "button"; remove.textContent = "Delete";
+    remove.addEventListener("click", () => deleteDepartment(department.department_id).catch((error) => showToast(error.message, "error")));
+    row.appendChild(remove);
     list.appendChild(row);
   }
   if (!list.children.length) list.textContent = "No departments configured.";
+}
+
+async function deleteDepartment(departmentId) {
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/departments/${encodeURIComponent(departmentId)}`, { method: "DELETE" });
+  await loadServiceCatalog(); showToast("Department deleted. Existing services are now unassigned.");
 }
 
 function renderCatalogServices() {
@@ -1860,16 +2303,28 @@ async function loadServiceRequests() {
       <span>${request.status} · ${request.sla_state} · ${request.department} · ${request.priority}</span>
       <span>${request.description}</span>
     `;
-    if (next) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = `Mark ${next.replaceAll("_", " ")}`;
-      button.addEventListener("click", () => updateServiceStatus(request.request_id, next));
-      row.appendChild(button);
-    }
+    const controls = document.createElement("div"); controls.className = "request-controls";
+    const department = document.createElement("select"); department.setAttribute("aria-label", `Department for ${request.request_id}`);
+    department.appendChild(new Option("Unassigned", ""));
+    for (const item of state.catalog.departments) department.appendChild(new Option(item.name, item.name));
+    department.value = request.department || "";
+    const assigned = document.createElement("input"); assigned.placeholder = "Assign to"; assigned.setAttribute("aria-label", `Assignee for ${request.request_id}`); assigned.value = request.assigned_to || "";
+    const priority = document.createElement("select"); priority.setAttribute("aria-label", `Priority for ${request.request_id}`);
+    for (const value of ["low", "normal", "high", "urgent"]) priority.appendChild(new Option(value[0].toUpperCase() + value.slice(1), value)); priority.value = request.priority;
+    const note = document.createElement("input"); note.placeholder = "Add operational note"; note.setAttribute("aria-label", `Note for ${request.request_id}`);
+    const save = document.createElement("button"); save.type = "button"; save.textContent = "Save"; save.addEventListener("click", () => updateServiceRequest(request.request_id, { department: department.value, assigned_to: assigned.value, priority: priority.value, note: note.value }).catch((error) => showToast(error.message, "error")));
+    controls.append(department, assigned, priority, note, save);
+    if (next) { const advance = document.createElement("button"); advance.type = "button"; advance.textContent = `Mark ${next.replaceAll("_", " ")}`; advance.addEventListener("click", () => updateServiceStatus(request.request_id, next)); controls.appendChild(advance); }
+    if (request.status !== "completed") { const close = document.createElement("button"); close.type = "button"; close.textContent = "Close"; close.addEventListener("click", () => updateServiceStatus(request.request_id, "completed")); controls.appendChild(close); }
+    row.appendChild(controls);
     list.appendChild(row);
   }
   if (!list.children.length) list.textContent = "No service requests yet.";
+}
+
+async function updateServiceRequest(requestId, payload) {
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/service-requests/${encodeURIComponent(requestId)}`, { method: "PUT", body: JSON.stringify(payload) });
+  await loadServiceRequests(); showToast("Service request details saved.");
 }
 
 function nextServiceStatus(status) {
@@ -2245,14 +2700,20 @@ function setup() {
   for (const item of document.querySelectorAll(".nav-item")) {
     item.addEventListener("click", () => activatePanel(item.dataset.panel));
   }
-  if (localStorage.getItem("concierge.admin.sidebar") === "collapsed") {
+  if (!window.matchMedia("(max-width: 620px)").matches && localStorage.getItem("concierge.admin.sidebar") === "collapsed") {
     document.querySelector(".platform-shell").classList.add("sidebar-collapsed");
   }
   $("sidebar-toggle").addEventListener("click", () => {
+    if (window.matchMedia("(max-width: 620px)").matches) {
+      const open = document.querySelector(".platform-shell").classList.toggle("mobile-nav-open");
+      $("sidebar-toggle").setAttribute("aria-label", open ? "Close navigation" : "Open navigation");
+      return;
+    }
     const collapsed = document.querySelector(".platform-shell").classList.toggle("sidebar-collapsed");
     localStorage.setItem("concierge.admin.sidebar", collapsed ? "collapsed" : "expanded");
     $("sidebar-toggle").setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
   });
+  for (const target of document.querySelectorAll("[data-dashboard-panel]")) target.addEventListener("click", () => activatePanel(target.dataset.dashboardPanel));
   $("property-switcher").addEventListener("change", (event) => switchProperty(event.target.value).catch((error) => showToast(error.message, "error")));
   $("profile-button").addEventListener("click", () => {
     const menu = $("profile-menu");
@@ -2304,16 +2765,24 @@ function setup() {
     "secondary-text-color-input",
     "accent-input",
     "user-message-input",
+    "button-color-input",
+    "composer-background-input",
     "background-overlay-input",
     "font-input",
+    "base-font-size-input",
     "density-input",
     "content-width-input",
     "message-width-input",
+    "composer-width-input",
+    "message-spacing-input",
+    "radius-input",
+    "suggestion-layout-input",
     "user-style-input",
     "assistant-style-input",
     "header-enabled-input",
     "show-logo-input",
     "show-name-input",
+    "show-concierge-input",
   ];
   for (const id of liveInputs) {
     $(id).addEventListener("input", updatePreview);
@@ -2388,6 +2857,9 @@ function setup() {
     });
   }
   $("floor-map-canvas").addEventListener("pointerdown", handleCanvasPointer);
+  $("floor-map-canvas").addEventListener("pointermove", handleCanvasPointerMove);
+  $("floor-map-canvas").addEventListener("pointerup", finishFreeform);
+  $("floor-map-canvas").addEventListener("pointercancel", finishFreeform);
   $("save-map-object").addEventListener("click", () => saveMapObject().catch((error) => showToast(error.message, "error")));
   $("delete-map-object").addEventListener("click", () => {
     state.mapHistory.push(structuredClone(state.mapObjects));
@@ -2429,6 +2901,7 @@ function setup() {
   $("save-catalog-service").addEventListener("click", () => saveCatalogService().catch((error) => showToast(error.message, "error")));
   $("save-recommendation").addEventListener("click", () => saveRecommendation().catch((error) => showToast(error.message, "error")));
   $("refresh-conversations").addEventListener("click", () => loadConversations().catch((error) => showToast(error.message, "error")));
+  $("save-conversation-retention").addEventListener("click", () => saveConversationRetention().catch((error) => showToast(error.message, "error")));
   $("conversation-search").addEventListener("input", renderConversations);
   $("conversation-status-filter").addEventListener("change", renderConversations);
   $("toggle-takeover").addEventListener("click", () => setConversationState("open", !state.selectedConversation?.human_takeover).catch((error) => showToast(error.message, "error")));
@@ -2440,6 +2913,27 @@ function setup() {
   }
   $("save-intro").addEventListener("click", () => saveIntro().catch((error) => showToast(error.message, "error")));
   $("intro-upload").addEventListener("change", (event) => uploadIntroAsset(event.target.files?.[0]).catch((error) => showToast(error.message, "error")));
+  $("save-hotel-information").addEventListener("click", () => saveHotelInformation().catch((error) => showToast(error.message, "error")));
+  $("clear-hotel-information").addEventListener("click", () => { for (const id of ["hotel-info-description", "hotel-info-address", "hotel-info-phone", "hotel-info-email", "hotel-info-website", "hotel-info-checkin", "hotel-info-checkout", "hotel-info-breakfast", "hotel-info-wifi", "hotel-info-policies"]) $(id).value = ""; });
+  $("save-room").addEventListener("click", () => saveRoom().catch((error) => showToast(error.message, "error")));
+  $("save-guest-module").addEventListener("click", () => saveGuestModule().catch((error) => showToast(error.message, "error")));
+  $("save-facility").addEventListener("click", () => saveFacility().catch((error) => showToast(error.message, "error")));
+  $("save-restaurant").addEventListener("click", () => saveRestaurant().catch((error) => showToast(error.message, "error")));
+  $("ai-usage-period").addEventListener("change", () => loadAIUsage().catch((error) => showToast(error.message, "error")));
+  $("test-antlabs").addEventListener("click", () => testAntlabs().catch((error) => showToast(error.message, "error")));
+  $("save-knowledge").addEventListener("click", () => saveKnowledgeEntry().catch((error) => showToast(error.message, "error")));
+  $("save-faq").addEventListener("click", () => saveFAQ().catch((error) => showToast(error.message, "error")));
+  $("knowledge-document-upload").addEventListener("change", (event) => uploadKnowledgeDocument(event.target.files?.[0]).catch((error) => showToast(error.message, "error")));
+  $("save-personality").addEventListener("click", () => savePersonality().catch((error) => showToast(error.message, "error")));
+  $("save-guardrails").addEventListener("click", () => saveGuardrails().catch((error) => showToast(error.message, "error")));
+  $("save-webhook").addEventListener("click", () => saveWebhook().catch((error) => showToast(error.message, "error")));
+  $("save-location").addEventListener("click", () => saveManagedLocation().catch((error) => showToast(error.message, "error")));
+  $("save-deployment").addEventListener("click", () => saveDeploymentSettings().catch((error) => showToast(error.message, "error")));
+  $("save-network").addEventListener("click", () => saveDeploymentSettings().catch((error) => showToast(error.message, "error")));
+  $("verify-deployment").addEventListener("click", () => verifyDeployment().catch((error) => showToast(error.message, "error")));
+  $("save-app-settings").addEventListener("click", () => saveApplicationSettings().catch((error) => showToast(error.message, "error")));
+  $("save-smtp").addEventListener("click", () => saveSMTPSettings().catch((error) => showToast(error.message, "error")));
+  $("test-smtp").addEventListener("click", () => testSMTP().catch((error) => showToast(error.message, "error")));
 
   for (const button of document.querySelectorAll(".preview-size")) {
     button.addEventListener("click", () => {
