@@ -34,6 +34,10 @@ PERMISSIONS: dict[str, str] = {
     "requests.view": "View guest requests",
     "requests.manage": "Manage guest requests",
     "analytics.view": "View analytics",
+    "assistant.use": "Use the operations assistant",
+    "diagnostics.view": "Run property diagnostics",
+    "infrastructure.view": "View host and database telemetry",
+    "reports.export": "Export operational reports",
     "ai.view": "View AI configuration",
     "ai.configure": "Configure AI providers and behavior",
     "integrations.view": "View integrations",
@@ -63,8 +67,17 @@ DEFAULT_ROLES: dict[str, dict[str, Any]] = {
         "permissions": [
             "dashboard.view", "properties.view", "properties.edit", "knowledge.view", "knowledge.edit",
             "concierge.view", "concierge.edit", "conversations.view", "conversations.reply",
-            "requests.view", "requests.manage", "analytics.view", "ai.view", "integrations.view",
+            "requests.view", "requests.manage", "analytics.view", "assistant.use", "diagnostics.view",
+            "reports.export", "ai.view", "integrations.view",
             "domains.view",
+        ],
+    },
+    "department-manager": {
+        "name": "Department Manager",
+        "description": "Operational reporting and request management for one assigned hotel department.",
+        "permissions": [
+            "dashboard.view", "properties.view", "requests.view", "requests.manage", "analytics.view",
+            "assistant.use", "diagnostics.view", "reports.export",
         ],
     },
     "concierge-front-desk": {
@@ -72,7 +85,7 @@ DEFAULT_ROLES: dict[str, dict[str, Any]] = {
         "description": "Guest conversations and request operations without system configuration.",
         "permissions": [
             "dashboard.view", "properties.view", "knowledge.view", "concierge.view",
-            "conversations.view", "conversations.reply", "requests.view", "requests.manage",
+            "conversations.view", "conversations.reply", "requests.view", "requests.manage", "assistant.use",
         ],
     },
     "content-manager": {
@@ -80,7 +93,7 @@ DEFAULT_ROLES: dict[str, dict[str, Any]] = {
         "description": "Hotel content, knowledge, facilities, dining, and concierge responses.",
         "permissions": [
             "dashboard.view", "properties.view", "properties.edit", "knowledge.view", "knowledge.edit",
-            "concierge.view", "concierge.edit", "analytics.view",
+            "concierge.view", "concierge.edit", "analytics.view", "assistant.use", "reports.export",
         ],
     },
     "viewer-auditor": {
@@ -90,6 +103,7 @@ DEFAULT_ROLES: dict[str, dict[str, Any]] = {
             "dashboard.view", "properties.view", "knowledge.view", "concierge.view",
             "conversations.view", "requests.view", "analytics.view", "ai.view", "integrations.view",
             "domains.view", "security.view", "audit.view", "roles.view", "users.view",
+            "assistant.use", "diagnostics.view", "reports.export",
         ],
     },
 }
@@ -113,6 +127,7 @@ class AdminPrincipal:
     role_name: str
     role_slug: str
     property_id: str | None
+    department_id: str | None
     status: str
     permissions: frozenset[str]
     session_id: str
@@ -134,6 +149,7 @@ class AdminPrincipal:
             "email": self.email,
             "role": {"id": self.role_id, "name": self.role_name, "slug": self.role_slug},
             "property_id": self.property_id,
+            "department_id": self.department_id,
             "status": self.status,
             "permissions": sorted(self.permissions),
             "csrf_token": self.csrf_token,
@@ -247,6 +263,7 @@ class AdminAuthStore:
                     password_hash TEXT NOT NULL,
                     role_id TEXT NOT NULL,
                     property_id TEXT,
+                    department_id TEXT,
                     status TEXT NOT NULL DEFAULT 'active',
                     failed_login_count INTEGER NOT NULL DEFAULT 0,
                     locked_until INTEGER,
@@ -324,6 +341,9 @@ class AdminAuthStore:
                 "INSERT OR IGNORE INTO admin_schema_migrations (version, name, applied_at) VALUES (1, 'username_auth_rbac', ?)",
                 (int(time.time()),),
             )
+            columns = {row[1] for row in db.execute("PRAGMA table_info(admin_users)").fetchall()}
+            if "department_id" not in columns:
+                db.execute("ALTER TABLE admin_users ADD COLUMN department_id TEXT")
             db.execute(
                 """
                 INSERT OR IGNORE INTO admin_user_identities (identity_id, user_id, provider, provider_subject, created_at)
@@ -444,7 +464,7 @@ class AdminAuthStore:
         with self._connect() as db:
             row = db.execute(
                 """
-                SELECT s.*, u.username, u.display_name, u.email, u.role_id, u.property_id, u.status,
+                SELECT s.*, u.username, u.display_name, u.email, u.role_id, u.property_id, u.department_id, u.status,
                        u.force_password_change, r.name AS role_name, r.slug AS role_slug
                 FROM admin_sessions s
                 JOIN admin_users u ON u.user_id = s.user_id
@@ -472,6 +492,7 @@ class AdminAuthStore:
             role_name=row["role_name"],
             role_slug=row["role_slug"],
             property_id=row["property_id"],
+            department_id=row["department_id"],
             status=row["status"],
             permissions=frozenset(permissions),
             session_id=row["session_id"],
@@ -522,6 +543,7 @@ class AdminAuthStore:
         if role is None:
             raise ValueError("Choose a valid role.")
         property_id = str(payload.get("property_id") or "").strip() or None
+        department_id = str(payload.get("department_id") or "").strip() or None
         if actor and not actor.can("properties.all"):
             if property_id != actor.property_id:
                 raise PermissionError("You can create users only for your assigned property.")
@@ -529,6 +551,10 @@ class AdminAuthStore:
                 raise PermissionError("Only a Super Admin can assign the Super Admin role.")
         if role["slug"] != "super-admin" and not property_id:
             raise ValueError("A property is required for this role.")
+        if role["slug"] == "department-manager" and not department_id:
+            raise ValueError("A department is required for the Department Manager role.")
+        if role["slug"] != "department-manager":
+            department_id = None
         status = str(payload.get("status", "active")).strip().lower()
         if status not in {"active", "disabled"}:
             raise ValueError("Status must be active or disabled.")
@@ -541,12 +567,12 @@ class AdminAuthStore:
                     """
                     INSERT INTO admin_users
                     (user_id, username, normalized_username, display_name, email, password_hash, role_id,
-                     property_id, status, force_password_change, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     property_id, department_id, status, force_password_change, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         user_id, username, normalized, display_name, email, password_hash, role["role_id"],
-                        property_id, status, 1 if payload.get("force_password_change") else 0, now, now,
+                        property_id, department_id, status, 1 if payload.get("force_password_change") else 0, now, now,
                     ),
                 )
                 db.execute(
@@ -572,9 +598,14 @@ class AdminAuthStore:
         if role is None:
             raise ValueError("Choose a valid role.")
         property_id = str(payload.get("property_id", current["property_id"]) or "").strip() or None
+        department_id = str(payload.get("department_id", current.get("department_id")) or "").strip() or None
         if not actor.can("properties.all"):
             if property_id != actor.property_id or role["slug"] == "super-admin":
                 raise PermissionError("You cannot assign this property or role.")
+        if role["slug"] == "department-manager" and not department_id:
+            raise ValueError("A department is required for the Department Manager role.")
+        if role["slug"] != "department-manager":
+            department_id = None
         status = str(payload.get("status", current["status"])).lower()
         if status not in {"active", "disabled", "locked"}:
             raise ValueError("Unsupported account status.")
@@ -582,10 +613,10 @@ class AdminAuthStore:
         with self._connect() as db:
             db.execute(
                 """
-                UPDATE admin_users SET display_name = ?, email = ?, role_id = ?, property_id = ?, status = ?, updated_at = ?
+                UPDATE admin_users SET display_name = ?, email = ?, role_id = ?, property_id = ?, department_id = ?, status = ?, updated_at = ?
                 WHERE user_id = ?
                 """,
-                (display_name, email, role_id, property_id, status, now, user_id),
+                (display_name, email, role_id, property_id, department_id, status, now, user_id),
             )
             if status == "active":
                 db.execute("UPDATE admin_users SET locked_until = NULL, failed_login_count = 0 WHERE user_id = ?", (user_id,))
@@ -920,7 +951,9 @@ class AdminAuthStore:
         payload = {
             "id": row["user_id"], "username": row["username"], "display_name": row["display_name"],
             "email": row["email"], "role_id": row["role_id"], "role": row["role_name"],
-            "role_slug": row["role_slug"], "property_id": row["property_id"], "status": row["status"],
+            "role_slug": row["role_slug"], "property_id": row["property_id"],
+            "department_id": row["department_id"] if "department_id" in row.keys() else None,
+            "status": row["status"],
             "failed_login_count": row["failed_login_count"], "locked_until": row["locked_until"],
             "force_password_change": bool(row["force_password_change"]), "last_login": row["last_login_at"],
             "created": row["created_at"], "updated": row["updated_at"],

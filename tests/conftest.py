@@ -1,7 +1,10 @@
+import os
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+
+os.environ.setdefault("ALLOW_BODY_PROPERTY_SELECTION", "true")
 
 import app.main as main_module
 from app.admin_auth import AdminAuthStore

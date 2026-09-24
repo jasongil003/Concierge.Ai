@@ -23,7 +23,7 @@ export default defineConfig({
   },
   webServer: {
     command: serverCommand,
-    env: { ...process.env, DB_PATH: e2eDatabase },
+    env: { ...process.env, DB_PATH: e2eDatabase, ALLOW_BODY_PROPERTY_SELECTION: "true" },
     url: "http://127.0.0.1:8092/health",
     reuseExistingServer: !process.env.CI,
     timeout: 20_000,

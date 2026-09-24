@@ -29,6 +29,9 @@ class Settings:
     admin_bootstrap_username: str = os.getenv("ADMIN_BOOTSTRAP_USERNAME", "admin").strip()
     admin_bootstrap_password: str = os.getenv("ADMIN_BOOTSTRAP_PASSWORD", "ChangeMe123!")
     admin_cookie_secure: bool = _bool("ADMIN_COOKIE_SECURE", False)
+    app_debug: bool = _bool("APP_DEBUG", False)
+    allow_body_property_selection: bool = _bool("ALLOW_BODY_PROPERTY_SELECTION", False)
+    allow_demo_settings: bool = _bool("ALLOW_DEMO_SETTINGS", False)
 
     ai_provider_mode: str = os.getenv("AI_PROVIDER_MODE", "auto").strip().lower()
     ai_guest_mode_switch: bool = _bool("AI_GUEST_MODE_SWITCH", True)
@@ -72,7 +75,44 @@ class Settings:
     )
 
 
+DEFAULT_ENCRYPTION_SECRETS = {
+    "",
+    "change-me",
+    "changeme",
+    "default",
+    "replace-me",
+    "your-secret-here",
+}
+
+
+def validate_production_settings(value: Settings, *, check_filesystem: bool = True) -> None:
+    """Fail closed before any production database or account initialization occurs."""
+    if value.app_environment != "production":
+        return
+    errors: list[str] = []
+    if value.admin_bootstrap_password == "ChangeMe123!" or len(value.admin_bootstrap_password) < 12:
+        errors.append("ADMIN_BOOTSTRAP_PASSWORD must be changed to a strong value")
+    encryption_secret = value.credential_encryption_secret.strip()
+    if encryption_secret.casefold() in DEFAULT_ENCRYPTION_SECRETS or len(encryption_secret) < 32:
+        errors.append("CREDENTIAL_ENCRYPTION_SECRET must be a non-default value of at least 32 characters")
+    if not value.admin_cookie_secure:
+        errors.append("ADMIN_COOKIE_SECURE must be enabled")
+    if value.app_debug:
+        errors.append("APP_DEBUG must be disabled")
+    if value.allow_body_property_selection:
+        errors.append("ALLOW_BODY_PROPERTY_SELECTION must be disabled")
+    if not value.allow_demo_settings and (value.property_id == "demo-hotel" or value.antlabs_mode == "mock"):
+        errors.append("demo property and mock guest authentication settings are not allowed")
+    if check_filesystem:
+        parent = value.db_path.expanduser().resolve().parent
+        if not parent.is_dir() or not os.access(parent, os.W_OK):
+            errors.append("DB_PATH parent directory must exist and be writable")
+    if errors:
+        raise RuntimeError("Unsafe production configuration: " + "; ".join(errors) + ".")
+
+
 settings = Settings()
+validate_production_settings(settings)
 settings.db_path.parent.mkdir(parents=True, exist_ok=True)
 if not settings.upload_root.parts:
     object.__setattr__(settings, "upload_root", settings.db_path.parent / "uploads")

@@ -100,7 +100,7 @@ def test_session_expiration(auth_store: AdminAuthStore):
 def test_default_roles_have_expected_permission_boundaries(auth_store: AdminAuthStore):
     assert set(DEFAULT_ROLES) == {
         "super-admin", "property-administrator", "property-manager", "concierge-front-desk",
-        "content-manager", "viewer-auditor",
+        "content-manager", "viewer-auditor", "department-manager",
     }
     super_admin = auth_store.get_role("role-super-admin")
     assert set(super_admin["permissions"]) == set(PERMISSIONS)
@@ -109,6 +109,10 @@ def test_default_roles_have_expected_permission_boundaries(auth_store: AdminAuth
     assert "requests.manage" in auth_store.get_role("role-concierge-front-desk")["permissions"]
     assert "knowledge.edit" in auth_store.get_role("role-content-manager")["permissions"]
     assert "properties.edit" not in auth_store.get_role("role-viewer-auditor")["permissions"]
+    department_permissions = set(auth_store.get_role("role-department-manager")["permissions"])
+    assert {"requests.view", "analytics.view", "assistant.use", "reports.export"} <= department_permissions
+    assert "properties.all" not in department_permissions
+    assert "infrastructure.view" not in department_permissions
 
 
 def test_user_custom_role_and_password_management(auth_client: TestClient):
@@ -184,6 +188,30 @@ def test_property_role_cannot_cross_tenant(auth_store: AdminAuthStore, monkeypat
         headers={"X-CSRF-Token": csrf},
         json={"property_id": "another-hotel", "hotel_name": "Other Hotel"},
     ).status_code == 403
+
+
+def test_staff_cannot_export_or_run_infrastructure_tools(auth_store: AdminAuthStore, auth_client: TestClient):
+    auth_store.create_user(
+        {
+            "username": "frontdesk",
+            "display_name": "Front Desk",
+            "password": "FrontDeskPass123!",
+            "role_id": "role-concierge-front-desk",
+            "property_id": "demo-hotel",
+            "status": "active",
+        },
+        actor=None,
+    )
+    csrf = login(auth_client, "frontdesk", "FrontDeskPass123!")
+
+    assert auth_client.get("/api/admin/properties/demo-hotel/reports/export.xlsx").status_code == 403
+    diagnostic = auth_client.post(
+        "/api/admin/properties/demo-hotel/assistant/query",
+        headers={"X-CSRF-Token": csrf},
+        json={"question": "Check the database", "period": "24h", "current_page": "overview"},
+    )
+    assert diagnostic.status_code == 403
+    assert "infrastructure.view" in diagnostic.json()["detail"]
 
 
 def test_audit_records_administrative_actions(auth_client: TestClient):

@@ -1,0 +1,7 @@
+services:
+  concierge:
+    environment:
+      APP_ENVIRONMENT: development
+      ADMIN_COOKIE_SECURE: "false"
+      ALLOW_BODY_PROPERTY_SELECTION: "true"
+      ALLOW_DEMO_SETTINGS: "true"

@@ -256,7 +256,7 @@ test("guest: configured service request shows confirmation card", async ({ page,
   await page.getByLabel("Ask your concierge").fill("Send two towels to my room");
   await page.getByRole("button", { name: "Send message" }).click();
 
-  await expect(page.getByText(/Please confirm before I send it/)).toBeVisible();
+  await expect(page.getByText(/Please confirm.*send it/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Confirm request" })).toBeVisible();
 });
 
@@ -275,7 +275,7 @@ test("guest: facility-hours question answers instead of creating a booking", asy
   await page.goto("/");
   await page.getByLabel("Ask your concierge").fill("What are the pool, gym, and spa hours?");
   await page.getByRole("button", { name: "Send message" }).click();
-  await expect(page.getByText(/Infinity Pool.*06:00-22:00.*Fitness Center.*24 hours.*Lunara Spa.*10:00-22:00/)).toBeVisible();
+  await expect(page.getByText(/Infinity Pool.*6:00 AM-10:00 PM.*Fitness Center.*24 hours.*Lunara Spa.*10:00 AM-10:00 PM/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Confirm request" })).toHaveCount(0);
 });
 
@@ -298,8 +298,16 @@ test("guest: options button opens the same working menu", async ({ page }) => {
   await expect(page.locator("#hotel-menu")).not.toHaveClass(/open/);
 });
 
+test("guest: hotel information menu action responds with configured property details", async ({ page, request }) => {
+  const hotel = await (await request.get("/api/hotel")).json();
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open hotel menu" }).click();
+  await page.getByRole("button", { name: "Hotel information", exact: true }).click();
+  await expect(page.locator(".message-row.assistant").last()).toContainText(hotel.description || hotel.name);
+  await expect(page.locator("#hotel-menu")).not.toHaveClass(/open/);
+});
+
 for (const [label, expectedText] of [
-  ["Hotel information", "Property description"],
   ["Language", "Language preference set"],
   ["Accessibility", "Accessibility display mode"],
   ["Privacy", "session is temporary"],

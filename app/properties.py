@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .guardrails import public_guardrails
+
 
 SAFE_FONTS = {
     "Geist",
@@ -334,8 +336,8 @@ class PropertyRecord:
     created_at: int = 0
     updated_at: int = 0
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
+    def to_dict(self, include_secrets: bool = False) -> dict[str, Any]:
+        payload = {
             "property_id": self.property_id,
             "hotel_name": self.hotel_name,
             "description": self.description,
@@ -377,6 +379,9 @@ class PropertyRecord:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
+        if not include_secrets:
+            payload["guardrails"] = public_guardrails(self.guardrails)
+        return payload
 
     @property
     def public_profile(self) -> dict[str, Any]:
@@ -690,7 +695,7 @@ class PropertyStore:
         return self.upsert(record)
 
     def _serialize_record(self, record: PropertyRecord) -> dict[str, Any]:
-        data = record.to_dict()
+        data = record.to_dict(include_secrets=True)
         for column in self.JSON_COLUMNS:
             data[column] = json.dumps(data[column], separators=(",", ":"))
         return data
