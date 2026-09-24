@@ -288,7 +288,7 @@ function renderConfirmationCard(message) {
     try {
       const result = await jsonFetch("/api/guest/service-requests", {
         method: "POST",
-        body: JSON.stringify({ session_id: state.sessionId, service_id: message.service.service_id, description: message.description, room: state.room, client_request_id: message.clientRequestId }),
+        body: JSON.stringify({ session_id: state.sessionId, service_id: message.service.service_id, description: message.description, room: state.room, client_request_id: message.clientRequestId, confirmed: true }),
       });
       message.submitting = false;
       message.confirmed = true;

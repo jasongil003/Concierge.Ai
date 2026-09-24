@@ -1,0 +1,12 @@
+.git
+.github
+.venv
+node_modules
+state
+test-results
+playwright-report
+outputs
+*.db
+__pycache__
+.pytest_cache
+.env

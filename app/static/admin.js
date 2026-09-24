@@ -29,6 +29,10 @@ const state = {
   knowledge: { items: [], documents: [], faqs: [] },
   webhooks: { webhooks: [], deliveries: [] },
   deployment: null,
+  operations: null,
+  operationsPeriod: "24h",
+  operationsStart: null,
+  operationsEnd: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -55,9 +59,11 @@ const FEATURE_STATUS = {
 
 const NAV_SECTIONS = [
   {
-    title: "Core",
+    title: "Overview",
     items: [
       { id: "dashboard", label: "Dashboard", panel: "overview", permission: "dashboard.view", status: "live", icon: "⌂" },
+      { id: "system-health", label: "System Health", panel: "system-health", permission: "dashboard.view", status: "live", icon: "◉" },
+      { id: "alerts", label: "Alerts", panel: "alerts", permission: "dashboard.view", status: "live", icon: "!" },
     ],
   },
   {
@@ -66,13 +72,12 @@ const NAV_SECTIONS = [
     items: [
       { id: "conversations", label: "Conversations", panel: "conversations", permission: "conversations.view", status: "live", icon: "◫" },
       { id: "guest-requests", label: "Guest Requests", panel: "requests", permission: "requests.view", status: "live", icon: "☷" },
-      { id: "guest-sessions", label: "Guest Sessions", panel: "sessions", permission: "conversations.view", status: "live", icon: "◉" },
-      { id: "guest-preview", label: "Preview", panel: "guest", permission: "concierge.view", status: "live", icon: "◐" },
+      { id: "guest-sessions", label: "Guest Sessions", panel: "sessions", permission: "conversations.view", status: "live", icon: "◎" },
+      { id: "guest-preview", label: "Guest Preview", panel: "guest", permission: "concierge.view", status: "live", icon: "◐" },
     ],
   },
   {
     title: "Property",
-    open: true,
     items: [
       { id: "hotel-information", label: "Hotel Information", panel: "hotel-information", permission: "properties.view", status: "live", icon: "□" },
       { id: "rooms", label: "Rooms", panel: "rooms", permission: "properties.view", status: "live", icon: "▤" },
@@ -81,71 +86,48 @@ const NAV_SECTIONS = [
       { id: "service-catalog", label: "Service Catalog", panel: "service-catalog", permission: "requests.view", status: "live", icon: "＋" },
       { id: "recommendations", label: "Recommendations", panel: "recommendations", permission: "properties.view", status: "live", icon: "⌖" },
       { id: "zones-maps", label: "Zones & Maps", panel: "zones", permission: "properties.view", status: "live", icon: "⌗" },
-    ],
-  },
-  {
-    title: "Knowledge",
-    items: [
-      { id: "knowledge-overview", label: "Overview", panel: "knowledge", permission: "knowledge.view", status: "live", icon: "▣" },
-      { id: "documents", label: "Documents", panel: "documents", permission: "knowledge.view", status: "live", icon: "▧" },
-      { id: "faqs", label: "FAQs", panel: "faqs", permission: "knowledge.view", status: "live", icon: "?" },
+      { id: "appearance", label: "Design", panel: "appearance", permission: "concierge.view", status: "live", icon: "◐" },
+      { id: "branding-intro", label: "Branding / Intro", panel: "intro", permission: "concierge.view", status: "live", icon: "A" },
     ],
   },
   {
     title: "AI",
     open: true,
     items: [
+      { id: "ai-assistant", label: "AI Assistant", panel: "ai-assistant", permission: "assistant.use", status: "live", icon: "✦" },
       { id: "models-providers", label: "Models & Providers", panel: "ai", permission: "ai.view", status: "live", icon: "◈" },
-      { id: "ai-personality", label: "Personality", panel: "ai-personality", permission: "ai.view", status: "live", icon: "✦" },
-      { id: "guardrails", label: "Guardrails", panel: "guardrails", permission: "ai.view", status: "live", icon: "⊡" },
+      { id: "knowledge", label: "Knowledge", panel: "knowledge", permission: "knowledge.view", status: "live", icon: "▣" },
+      { id: "knowledge-overview", label: "Overview", panel: "knowledge", permission: "knowledge.view", status: "live", icon: "▣" },
+      { id: "documents", label: "Documents", panel: "documents", permission: "knowledge.view", status: "live", icon: "▧" },
+      { id: "faqs", label: "FAQs", panel: "faqs", permission: "knowledge.view", status: "live", icon: "?" },
+      { id: "personality", label: "Personality", panel: "ai-personality", permission: "ai.view", status: "live", icon: "A" },
+      { id: "guardrails", label: "Guardrails", panel: "guardrails", permission: "security.view", status: "live", icon: "⊡" },
       { id: "ai-usage", label: "Usage", panel: "ai-usage", permission: "analytics.view", status: "live", icon: "◫" },
-    ],
-  },
-  {
-    title: "Integrations",
-    items: [
-      { id: "antlabs-wifi", label: "ANTlabs / Wi-Fi", panel: "wifi", permission: "integrations.view", status: "live", icon: "⌁" },
-      { id: "webhooks", label: "Webhooks", panel: "webhooks", permission: "integrations.view", status: "live", icon: "↗" },
-    ],
-  },
-  {
-    title: "Appearance",
-    items: [
-      { id: "design", label: "Design", panel: "appearance", permission: "concierge.view", status: "live", icon: "◐" },
-      { id: "branding-intro", label: "Branding / Intro", panel: "intro", permission: "concierge.view", status: "live", icon: "A" },
     ],
   },
   {
     title: "Analytics",
     items: [
-      { id: "guest-usage", label: "Guest Usage", panel: "guest-usage", permission: "analytics.view", status: "coming_soon", icon: "◎", superAdminOnly: true, description: "Guest usage analytics are tracked in Issue #28." },
-      { id: "questions", label: "Questions", panel: "questions", permission: "analytics.view", status: "coming_soon", icon: "?", superAdminOnly: true },
-      { id: "requests-analytics", label: "Requests", panel: "request-analytics", permission: "analytics.view", status: "coming_soon", icon: "▥", superAdminOnly: true },
+      { id: "analytics", label: "Analytics", panel: "analytics", permission: "analytics.view", status: "live", icon: "▥" },
+      { id: "reports", label: "Reports", panel: "reports", permission: "reports.export", status: "live", icon: "▧" },
+      { id: "exports", label: "Exports", panel: "exports", permission: "reports.export", status: "live", icon: "↧" },
       { id: "location", label: "Location", panel: "location", permission: "analytics.view", status: "live", icon: "⌖" },
-      { id: "analytics-ai-usage", label: "AI Usage", panel: "ai-usage", permission: "analytics.view", status: "live", icon: "◫" },
-    ],
-  },
-  {
-    title: "Users & Access",
-    open: true,
-    items: [
-      { id: "users", label: "Users", panel: "users", permission: "users.view", status: "live", icon: "◎" },
-      { id: "roles", label: "Roles", panel: "roles", permission: "roles.view", status: "live", icon: "◇" },
-      { id: "permissions", label: "Permissions", panel: "permissions", permission: "roles.view", status: "live", icon: "✓" },
-    ],
-  },
-  {
-    title: "Deployment",
-    items: [
-      { id: "domain", label: "Domain", panel: "domain", permission: "domains.view", status: "live", icon: "◌" },
-      { id: "ssl", label: "SSL", panel: "ssl", permission: "domains.view", status: "live", icon: "⌑" },
-      { id: "network", label: "Network", panel: "network", permission: "domains.view", status: "live", icon: "⌁" },
     ],
   },
   {
     title: "System",
     items: [
-      { id: "audit", label: "Audit", panel: "audit", permission: "audit.view", status: "live", icon: "☷" },
+      { id: "integrations", label: "Integrations", panel: "wifi", permission: "integrations.view", status: "live", icon: "⌁" },
+      { id: "antlabs-wifi", label: "ANTlabs / Wi-Fi", panel: "wifi", permission: "integrations.view", status: "live", icon: "⌁" },
+      { id: "auth-types", label: "Authentication Types", panel: "auth-types", permission: "integrations.view", status: "live", icon: "✓" },
+      { id: "webhooks", label: "Webhooks", panel: "webhooks", permission: "integrations.view", status: "live", icon: "↗" },
+      { id: "domain", label: "Domain", panel: "domain", permission: "domains.view", status: "live", icon: "◌" },
+      { id: "ssl", label: "SSL", panel: "ssl", permission: "domains.view", status: "live", icon: "⌑" },
+      { id: "network", label: "Network", panel: "network", permission: "domains.view", status: "live", icon: "⌁" },
+      { id: "audit", label: "Audit Logs", panel: "audit", permission: "audit.view", status: "live", icon: "☷" },
+      { id: "users", label: "Users", panel: "users", permission: "users.view", status: "live", icon: "◎" },
+      { id: "roles", label: "Roles", panel: "roles", permission: "roles.view", status: "live", icon: "◇" },
+      { id: "permissions", label: "Permissions", panel: "permissions", permission: "roles.view", status: "live", icon: "✓" },
       { id: "security", label: "Security", panel: "security", permission: "security.view", status: "live", icon: "⊡" },
       { id: "settings", label: "Settings", panel: "system-settings", permission: "system.configure", status: "live", icon: "⌘", superAdminOnly: true },
     ],
@@ -219,7 +201,7 @@ function renderNavigation() {
       return !item.superAdminOnly || isSuperAdmin();
     });
     if (!visibleItems.length) continue;
-    if (section.title === "Core") {
+    if (section.title === "Overview") {
       for (const item of visibleItems) nav.appendChild(createNavButton(item));
       continue;
     }
@@ -322,6 +304,9 @@ function activatePanel(panelId, navId = null) {
     item.classList.toggle("active", item.dataset.navId === state.activeNavId);
   }
   if (panelId === "overview" && currentPropertyId()) loadDashboard().catch((error) => showToast(error.message, "error"));
+  if (["system-health", "alerts", "analytics", "reports", "exports"].includes(panelId) && currentPropertyId()) {
+    loadDashboard().catch((error) => showToast(error.message, "error"));
+  }
   if (panelId === "ai" && currentPropertyId()) {
     loadAI().catch((error) => showToast(error.message, "error"));
   }
@@ -344,6 +329,7 @@ function activatePanel(panelId, navId = null) {
   if (panelId === "wifi" && currentPropertyId()) loadAntlabsStatus().catch((error) => showToast(error.message, "error"));
   if (["knowledge", "documents", "faqs"].includes(panelId) && currentPropertyId()) loadKnowledge().catch((error) => showToast(error.message, "error"));
   if (["ai-personality", "guardrails"].includes(panelId) && currentPropertyId()) loadAIPolicy();
+  if (panelId === "guardrails" && currentPropertyId()) loadGuardrailDiagnostics().catch((error) => showToast(error.message, "error"));
   if (panelId === "webhooks" && currentPropertyId()) loadWebhooks().catch((error) => showToast(error.message, "error"));
   if (["domain", "ssl", "network"].includes(panelId) && currentPropertyId()) loadDeployment().catch((error) => showToast(error.message, "error"));
   if (panelId === "system-settings") loadSystemSettings().catch((error) => showToast(error.message, "error"));
@@ -358,25 +344,123 @@ function currentPropertyId() {
 }
 
 async function loadDashboard() {
-  const metrics = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/dashboard`);
-  $("metric-active-guests").textContent = metrics.active_guests;
-  $("metric-ai-requests").textContent = metrics.ai_requests_today;
-  $("metric-open-requests").textContent = metrics.open_requests;
-  $("metric-overdue-requests").textContent = `${metrics.overdue_requests} overdue`;
-  $("metric-auth-success").textContent = metrics.auth_success_rate === null ? "No attempts" : `${metrics.auth_success_rate}%`;
-  $("metric-auth-attempts").textContent = `${metrics.auth_attempts_today} attempts today`;
-  $("dashboard-ai-status").textContent = `${metrics.ai.default_provider || "None"} · ${metrics.ai.credentialed_providers}/${metrics.ai.enabled_providers} ready`;
-  $("dashboard-antlabs-status").textContent = metrics.antlabs.status.replaceAll("_", " ");
-  $("dashboard-session-status").textContent = `${metrics.active_guests} active`;
-  $("dashboard-request-status").textContent = `${metrics.open_requests} open · ${metrics.overdue_requests} overdue`;
-  $("dashboard-version").textContent = metrics.application.version;
-  $("dashboard-environment").textContent = metrics.application.environment;
-  const healthy = metrics.overdue_requests === 0 && metrics.usage.errors === 0;
-  $("dashboard-health-chip").textContent = healthy ? "Healthy" : "Attention";
-  $("dashboard-health-chip").classList.toggle("healthy", healthy);
-  const activity = $("dashboard-activity");
-  activity.innerHTML = metrics.usage.recent_activity.map((item) => `<div class="compact-row"><strong>${escapeHTML(item.role)} · ${escapeHTML(item.provider || "application")}</strong><span>${escapeHTML(formatDate(item.created_at))}${item.error ? ` · ${escapeHTML(item.error)}` : ""}</span></div>`).join("");
-  if (!activity.children.length) activity.textContent = "No operational activity has been recorded yet.";
+  const period = state.operationsPeriod || "24h";
+  const range = period === "custom" && state.operationsStart && state.operationsEnd
+    ? `&start_at=${encodeURIComponent(state.operationsStart)}&end_at=${encodeURIComponent(state.operationsEnd)}` : "";
+  state.operations = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/operations/dashboard?period=${encodeURIComponent(period)}${range}`);
+  renderOperationsDashboard();
+}
+
+function metricCard(label, value, detail, stateName = "") {
+  const display = value === null || value === undefined ? "Unavailable" : value;
+  return `<article class="operations-metric ${escapeHTML(stateName)}"><span>${escapeHTML(label)}</span><strong>${escapeHTML(display)}</strong><small>${escapeHTML(detail)}</small></article>`;
+}
+
+function lineChart(title, series, formatter = (value) => value) {
+  const available = (series || []).filter((item) => item.value !== null && Number.isFinite(Number(item.value)));
+  if (available.length < 2) {
+    return `<article class="chart-card"><header><div><span>Historical telemetry</span><h2>${escapeHTML(title)}</h2></div></header><div class="chart-empty"><strong>Not enough history</strong><p>Real samples will appear as this environment records them.</p></div></article>`;
+  }
+  const values = available.map((item) => Number(item.value));
+  const minimum = Math.min(...values);
+  const maximum = Math.max(...values);
+  const span = Math.max(1, maximum - minimum);
+  const points = available.map((item, index) => `${12 + index * (276 / Math.max(1, available.length - 1))},${100 - ((Number(item.value) - minimum) / span) * 74}`).join(" ");
+  const latest = formatter(values.at(-1));
+  return `<article class="chart-card"><header><div><span>Historical telemetry</span><h2>${escapeHTML(title)}</h2></div><strong>${escapeHTML(latest)}</strong></header><svg viewBox="0 0 300 112" role="img" aria-label="${escapeHTML(title)} trend"><path d="M12 100H288" class="chart-axis"/><polyline points="${points}" class="chart-line"/></svg><footer><span>${escapeHTML(formatDate(available[0].timestamp))}</span><span>${escapeHTML(formatDate(available.at(-1).timestamp))}</span></footer></article>`;
+}
+
+function listRows(items, emptyText) {
+  if (!items?.length) return `<div class="empty-inline">${escapeHTML(emptyText)}</div>`;
+  return items.map((item) => `<div class="operations-row"><div><strong>${escapeHTML(item.name || item.title || item.question)}</strong>${item.evidence ? `<p>${escapeHTML(item.evidence)}</p>` : ""}</div><span>${escapeHTML(item.value ?? item.count ?? "")}</span></div>`).join("");
+}
+
+function renderOperationsDashboard() {
+  const data = state.operations;
+  if (!data) return;
+  const summary = data.analytics.summary;
+  const profileCopy = {
+    platform: "Platform-wide technical health and operational signals for this property.",
+    property_operations: "Property health, integrations, guest operations, and service demand.",
+    management: "Management performance across guest engagement, service delivery, and AI outcomes.",
+    department: "Department-scoped service demand, SLA performance, and trends.",
+    service_operations: "Live guest and service-request operations for front-line teams.",
+    content_operations: "Knowledge coverage and guest-question trends for content operations.",
+    read_only: "Read-only operational reporting and audit visibility.",
+  };
+  $("operations-profile-label").textContent = `${data.role.name} workspace`;
+  $("operations-role-copy").textContent = profileCopy[data.profile] || profileCopy.read_only;
+  const banner = $("operations-health-banner");
+  const attention = data.health.components.filter((item) => !["healthy", "simulation"].includes(item.state)).length;
+  banner.className = `health-banner ${data.health.state}`;
+  banner.querySelector(".health-dot").className = `health-dot ${data.health.state}`;
+  banner.querySelector("strong").textContent = data.health.state === "healthy" ? "All monitored components healthy" : `${attention} component${attention === 1 ? "" : "s"} need review`;
+  banner.querySelector("p").textContent = `Updated ${new Date(data.generated_at * 1000).toLocaleTimeString()} · ${data.period} view · no synthetic telemetry`;
+
+  const cards = data.profile === "platform" ? [
+    ["CPU utilization", data.system.cpu_utilization?.value === null ? null : `${data.system.cpu_utilization?.value}%`, "Current host sample"],
+    ["Memory utilization", data.system.memory_utilization?.value === null ? null : `${data.system.memory_utilization?.value}%`, "Current host sample"],
+    ["Database latency", data.database.latency_ms === null ? null : `${data.database.latency_ms} ms`, data.database.evidence],
+    ["Request queue", summary.open_requests, `${summary.overdue_requests} overdue`],
+  ] : [
+    ["Guests assisted", summary.guests_assisted, `${summary.ai_conversations} AI conversations`],
+    ["Service requests", summary.service_requests, summary.request_change_percent === null ? "No prior-period baseline" : `${summary.request_change_percent}% vs prior period`],
+    ["SLA performance", `${summary.sla_performance_percent}%`, `${summary.overdue_requests} overdue`],
+    ["AI resolution", `${summary.ai_resolution_rate_percent}%`, `${summary.fallback_rate_percent}% fallback`],
+  ];
+  $("operations-metrics").innerHTML = cards.map((item) => metricCard(...item)).join("");
+  $("overview-charts").innerHTML = [
+    lineChart("Service requests", data.analytics.request_volume),
+    lineChart("AI requests", data.analytics.ai.request_volume),
+    lineChart("AI latency", data.histories.ai_latency_ms, (value) => `${value} ms`),
+    lineChart("API latency", data.histories.api_latency_ms, (value) => `${value} ms`),
+    lineChart("HTTP / application errors", data.histories.http_errors),
+    lineChart("Guest auth success", data.histories.guest_auth_success_rate, (value) => `${value}%`),
+  ].join("");
+  $("overview-alerts").innerHTML = data.alerts.length ? data.alerts.map((alert) => `<div class="alert-row ${escapeHTML(alert.severity)}"><div><span>${escapeHTML(alert.component.replaceAll("_", " "))}</span><strong>${escapeHTML(alert.title)}</strong><p>${escapeHTML(alert.evidence)}</p></div><button class="secondary investigate-alert" type="button" data-question="Investigate ${escapeHTML(alert.title)}">Investigate</button></div>`).join("") : `<div class="empty-inline">No active threshold-based alerts.</div>`;
+  $("overview-departments").innerHTML = listRows(data.analytics.requests_by_department, "No department request activity in this period.");
+  renderHealthPanel();
+  renderAlertsPanel();
+  renderAnalyticsPanel();
+  bindInvestigateButtons();
+}
+
+function renderHealthPanel() {
+  const data = state.operations;
+  if (!data || !$("health-components")) return;
+  $("health-components").innerHTML = data.health.components.map((item) => `<article class="component-card"><div><span class="health-dot ${escapeHTML(item.state)}"></span><strong>${escapeHTML(item.name)}</strong></div><span class="state-label ${escapeHTML(item.state)}">${escapeHTML(item.state.replaceAll("_", " "))}</span><p>${escapeHTML(item.evidence)}</p>${!["healthy", "simulation"].includes(item.state) ? `<footer><button class="secondary" type="button" data-dashboard-panel="system-health">Metrics</button>${can("audit.view") ? `<button class="secondary" type="button" data-dashboard-panel="audit">Logs</button>` : ""}<button class="secondary investigate-alert" type="button" data-question="Investigate ${escapeHTML(item.name)}">Ask AI</button></footer>` : ""}</article>`).join("");
+  $("system-charts").innerHTML = [
+    lineChart("CPU utilization", data.histories.cpu_utilization, (value) => `${value}%`),
+    lineChart("Memory utilization", data.histories.memory_utilization, (value) => `${value}%`),
+    lineChart("Disk utilization", data.histories.disk_utilization, (value) => `${value}%`),
+    lineChart("Request queue depth", data.histories.request_queue_depth),
+    lineChart("Network receive", data.histories.network_rx_bytes, (value) => `${Math.round(value / 1024 / 1024)} MB`),
+    lineChart("Network transmit", data.histories.network_tx_bytes, (value) => `${Math.round(value / 1024 / 1024)} MB`),
+    lineChart("Active guest sessions", data.histories.active_sessions),
+    lineChart("Application errors", data.histories.http_errors),
+  ].join("");
+  bindInvestigateButtons();
+}
+
+function renderAlertsPanel() {
+  if (!state.operations || !$("alerts-list")) return;
+  $("alerts-list").innerHTML = state.operations.alerts.length ? state.operations.alerts.map((alert) => `<article class="alert-card ${escapeHTML(alert.severity)}"><div><span>${escapeHTML(alert.severity)} · ${escapeHTML(alert.component.replaceAll("_", " "))}</span><h2>${escapeHTML(alert.title)}</h2><p>${escapeHTML(alert.evidence)}</p><small>Last observed ${escapeHTML(formatDate(alert.last_seen_at))}</small></div><div><button class="secondary" type="button" data-dashboard-panel="system-health">View metrics</button><button type="button" class="investigate-alert" data-question="Investigate ${escapeHTML(alert.title)}">Investigate with AI</button></div></article>`).join("") : `<div class="empty-state"><strong>No active alerts</strong><p>No configured threshold is currently breached for this property.</p></div>`;
+  bindInvestigateButtons();
+}
+
+function renderAnalyticsPanel() {
+  if (!state.operations || !$("analytics-metrics")) return;
+  const data = state.operations.analytics;
+  const summary = data.summary;
+  $("analytics-metrics").innerHTML = [
+    metricCard("Guests assisted", summary.guests_assisted, `${summary.ai_conversations} AI conversations`),
+    metricCard("Avg. resolution", summary.average_resolution_seconds === null ? null : `${Math.round(summary.average_resolution_seconds / 60)} min`, "Completed requests"),
+    metricCard("Fallback rate", `${summary.fallback_rate_percent}%`, "Verified fallback responses"),
+    metricCard("Human escalation", `${summary.human_escalation_rate_percent}%`, "Assistant responses escalated"),
+  ].join("");
+  $("analytics-charts").innerHTML = [lineChart("Request volume", data.request_volume), lineChart("AI errors", state.operations.histories.ai_errors)].join("");
+  $("analytics-services").innerHTML = listRows(data.top_services, "No service requests in this period.");
+  $("analytics-questions").innerHTML = listRows(data.top_questions, "No guest questions in this period.");
 }
 
 function loadHotelInformation() {
@@ -608,6 +692,26 @@ function loadAIPolicy() {
   $("guardrail-restricted").value = (guardrails.restricted_topics || []).join("\n");
   $("guardrail-sensitive").value = guardrails.sensitive_information || "Never expose credentials, payment data, private guest records, or infrastructure identifiers.";
   $("guardrail-human").value = guardrails.human_escalation || "Offer hotel staff assistance when a request cannot be completed safely or from verified data.";
+  $("guardrail-network-only").checked = guardrails.guest_network_only !== false;
+  $("guardrail-cidrs").value = (guardrails.allowed_cidrs || ["127.0.0.0/8", "::1/128"]).join("\n");
+  $("guardrail-proxies").value = (guardrails.trusted_proxy_ranges || []).join("\n");
+  $("guardrail-revalidation").value = guardrails.session_network_revalidation || "suspend";
+  $("guardrail-timeout").value = guardrails.guest_session_timeout || 30;
+  $("guardrail-antlabs").checked = Boolean(guardrails.antlabs_gateway_enabled);
+  $("guardrail-antlabs-ranges").value = (guardrails.antlabs_gateway_ranges || []).join("\n");
+  $("guardrail-antlabs-secret").value = "";
+  $("guardrail-antlabs-secret").placeholder = guardrails.antlabs_signature_configured ? "Saved securely; leave blank to keep" : "Not configured";
+  $("guardrail-internet").checked = guardrails.internet_search_enabled !== false;
+  $("guardrail-directions").checked = guardrails.directions_enabled !== false;
+  $("guardrail-restaurants").checked = guardrails.restaurant_search_enabled !== false;
+  $("guardrail-attractions").checked = guardrails.attractions_enabled !== false;
+  $("guardrail-weather").checked = guardrails.weather_enabled !== false;
+  $("guardrail-services").checked = guardrails.service_requests_enabled !== false;
+  $("guardrail-reservations").checked = Boolean(guardrails.reservations_enabled);
+  $("guardrail-financial").checked = Boolean(guardrails.financial_actions_enabled);
+  $("guardrail-location").checked = Boolean(guardrails.location_access_enabled);
+  $("guardrail-human-enabled").checked = guardrails.human_escalation_enabled !== false;
+  $("guardrail-audit").checked = guardrails.audit_logging_enabled !== false;
 }
 
 const readLines = (id) => $(id).value.split("\n").map((value) => value.trim()).filter(Boolean);
@@ -619,8 +723,22 @@ async function savePersonality() {
 }
 
 async function saveGuardrails() {
-  state.property.guardrails = { allowed_topics: readLines("guardrail-allowed"), restricted_topics: readLines("guardrail-restricted"), unknown_answer: $("guardrail-unknown").value, escalation_behavior: $("guardrail-escalation").value, sensitive_information: $("guardrail-sensitive").value.trim(), human_escalation: $("guardrail-human").value.trim() };
-  await savePropertyBasics(); showToast("Guardrails saved.");
+  const config = { ...state.property.guardrails, allowed_topics: readLines("guardrail-allowed"), restricted_topics: readLines("guardrail-restricted"), unknown_answer: $("guardrail-unknown").value, escalation_behavior: $("guardrail-escalation").value, sensitive_information: $("guardrail-sensitive").value.trim(), human_escalation: $("guardrail-human").value.trim(), guest_network_only: $("guardrail-network-only").checked, allowed_cidrs: readLines("guardrail-cidrs"), trusted_proxy_ranges: readLines("guardrail-proxies"), session_network_revalidation: $("guardrail-revalidation").value, guest_session_timeout: Number($("guardrail-timeout").value || 30), antlabs_gateway_enabled: $("guardrail-antlabs").checked, antlabs_gateway_ranges: readLines("guardrail-antlabs-ranges"), internet_search_enabled: $("guardrail-internet").checked, directions_enabled: $("guardrail-directions").checked, restaurant_search_enabled: $("guardrail-restaurants").checked, attractions_enabled: $("guardrail-attractions").checked, weather_enabled: $("guardrail-weather").checked, service_requests_enabled: $("guardrail-services").checked, reservations_enabled: $("guardrail-reservations").checked, financial_actions_enabled: $("guardrail-financial").checked, location_access_enabled: $("guardrail-location").checked, human_escalation_enabled: $("guardrail-human-enabled").checked, audit_logging_enabled: $("guardrail-audit").checked };
+  const signingSecret = $("guardrail-antlabs-secret").value;
+  if (signingSecret) config.antlabs_signature_secret = signingSecret;
+  delete config.antlabs_signature_configured;
+  const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/guardrails`, { method: "PUT", body: JSON.stringify({ config }) });
+  state.property.guardrails = result.config; loadAIPolicy(); await loadGuardrailDiagnostics(); showToast("Guardrails saved and enforced.");
+}
+
+async function loadGuardrailDiagnostics() {
+  const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/guardrails/diagnostics`);
+  $("guardrail-diagnostic-ip").textContent = result.detected_client_ip || "Unavailable";
+  $("guardrail-diagnostic-network").textContent = result.matched_network || "No match";
+  $("guardrail-diagnostic-property").textContent = result.property_id;
+  $("guardrail-diagnostic-proxy").textContent = result.trusted_proxy ? "Trusted forwarded address" : "Direct source address";
+  $("guardrail-diagnostic-result").textContent = result.network_policy_result;
+  $("guardrail-diagnostic-sessions").textContent = result.active_guest_sessions;
 }
 
 async function loadWebhooks() { state.webhooks = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/webhooks`); renderWebhooks(); }
@@ -845,13 +963,13 @@ function renderProviderCards() {
       <div class="provider-name-cell">
         <span class="provider-icon">${providerLabel(provider)}</span>
         <div>
-          <h3>${provider.name}</h3>
-          <p>${provider.auth_method.replaceAll("_", " ")}</p>
+          <h3>${escapeHTML(provider.name)}</h3>
+          <p>${escapeHTML(provider.auth_method.replaceAll("_", " "))}</p>
         </div>
       </div>
       <div class="provider-status ${statusType}">
         <span class="status-dot ${statusType}"></span>
-        <span class="status-text">${statusLabel(provider.status)}</span>
+        <span class="status-text">${escapeHTML(statusLabel(provider.status))}</span>
       </div>
       <div class="provider-actions">
         <button type="button" data-action="configure" class="configure-btn">${provider.unavailable ? "Details" : "Configure"}</button>
@@ -1710,7 +1828,7 @@ function renderZoneTree() {
   for (const zone of state.zones.zones) {
     const row = document.createElement("div");
     row.className = "compact-row";
-    row.innerHTML = `<strong>${zone.name}</strong><span>${zone.category || "common"} · ${zone.guest_visible ? "guest visible" : "operations only"}</span>`;
+    row.innerHTML = `<strong>${escapeHTML(zone.name)}</strong><span>${escapeHTML(zone.category || "common")} · ${zone.guest_visible ? "guest visible" : "operations only"}</span>`;
     row.addEventListener("click", () => {
       state.selectedMapObject = { ...zone, objectType: "zone" };
       $("map-object-name").value = zone.name;
@@ -1948,7 +2066,7 @@ async function loadLocationLive() {
   $("location-live-metrics").innerHTML = `
     <article><span>Detected devices</span><strong>${data.currently_detected}</strong></article>
     <article><span>Active stays</span><strong>${data.active_sessions}</strong></article>
-    <article><span>Busiest zone</span><strong>${data.busiest_zone_id || "-"}</strong></article>
+    <article><span>Busiest zone</span><strong>${escapeHTML(data.busiest_zone_id || "-")}</strong></article>
     <article><span>Zones occupied</span><strong>${Object.keys(data.occupancy_by_zone || {}).length}</strong></article>
   `;
 }
@@ -1974,8 +2092,8 @@ async function loadLocationReport() {
   });
   $("location-report").innerHTML = `
     <div class="compact-row"><strong>${report.total_visits} visits · ${report.unique_visits} unique devices</strong><span>Zone occupancy heatmap uses aggregate AP-associated zones.</span></div>
-    ${Object.entries(report.area_metrics).map(([zone, metric]) => `<div class="compact-row"><strong>${zone}</strong><span>${metric.total_visits} visits · ${metric.average_dwell_seconds}s avg dwell · ${metric.repeat_visits} repeat visits</span></div>`).join("")}
-    ${report.movement_patterns.map((item) => `<div class="compact-row"><strong>${item.source_zone_id} -> ${item.destination_zone_id}</strong><span>${item.count} transitions · ${item.percentage}%</span></div>`).join("")}
+    ${Object.entries(report.area_metrics).map(([zone, metric]) => `<div class="compact-row"><strong>${escapeHTML(zone)}</strong><span>${metric.total_visits} visits · ${metric.average_dwell_seconds}s avg dwell · ${metric.repeat_visits} repeat visits</span></div>`).join("")}
+    ${report.movement_patterns.map((item) => `<div class="compact-row"><strong>${escapeHTML(item.source_zone_id)} -> ${escapeHTML(item.destination_zone_id)}</strong><span>${item.count} transitions · ${item.percentage}%</span></div>`).join("")}
   `;
 }
 
@@ -2297,9 +2415,9 @@ async function loadServiceRequests() {
     row.className = "compact-row";
     const next = nextServiceStatus(request.status);
     row.innerHTML = `
-      <strong>${request.request_type} · ${request.room || "no room"}</strong>
-      <span>${request.status} · ${request.sla_state} · ${request.department} · ${request.priority}</span>
-      <span>${request.description}</span>
+      <strong>${escapeHTML(request.request_type)} · ${escapeHTML(request.room || "no room")}</strong>
+      <span>${escapeHTML(request.status)} · ${escapeHTML(request.sla_state)} · ${escapeHTML(request.department)} · ${escapeHTML(request.priority)}</span>
+      <span>${escapeHTML(request.description)}</span>
     `;
     const controls = document.createElement("div"); controls.className = "request-controls";
     const department = document.createElement("select"); department.setAttribute("aria-label", `Department for ${request.request_id}`);
@@ -2512,6 +2630,7 @@ async function openUserDialog(user = null) {
   $("admin-display-name").value = user?.display_name || "";
   $("admin-property").value = user?.property_id || state.auth?.property_id || state.properties[0]?.property_id || "";
   $("admin-role").value = user?.role_id || state.roles.find((role) => role.slug === "viewer-auditor")?.role_id || state.roles[0]?.role_id || "";
+  $("admin-department").value = user?.department_id || "";
   $("admin-email").value = user?.email || "";
   $("admin-status").value = user?.status || "active";
   $("admin-status").querySelector('option[value="locked"]').hidden = creating;
@@ -2532,6 +2651,7 @@ async function saveUser(event) {
   const payload = {
     display_name: $("admin-display-name").value.trim(),
     property_id: $("admin-property").value || null,
+    department_id: $("admin-department").value.trim() || null,
     role_id: $("admin-role").value,
     email: $("admin-email").value.trim() || null,
     status: $("admin-status").value,
@@ -2689,6 +2809,79 @@ async function logout() {
   window.location.assign("/admin/login");
 }
 
+function openAssistant(question = "") {
+  if (!can("assistant.use")) return;
+  const drawer = $("assistant-drawer");
+  drawer.hidden = false;
+  $("assistant-drawer-backdrop").hidden = false;
+  requestAnimationFrame(() => drawer.classList.add("open"));
+  if (question) $("assistant-drawer-input").value = question;
+  $("assistant-drawer-input").focus();
+}
+
+function closeAssistant() {
+  const drawer = $("assistant-drawer");
+  drawer.classList.remove("open");
+  window.setTimeout(() => {
+    drawer.hidden = true;
+    $("assistant-drawer-backdrop").hidden = true;
+  }, 220);
+}
+
+function bindInvestigateButtons() {
+  for (const button of document.querySelectorAll(".investigate-alert:not([data-bound])")) {
+    button.dataset.bound = "true";
+    button.addEventListener("click", () => openAssistant(button.dataset.question || "Investigate this alert"));
+  }
+  for (const button of document.querySelectorAll("[data-dashboard-panel]:not([data-bound])")) {
+    button.dataset.bound = "true";
+    button.addEventListener("click", () => activatePanel(button.dataset.dashboardPanel));
+  }
+}
+
+function renderAssistantAnswer(container, payload) {
+  container.querySelector(".assistant-empty")?.remove();
+  const question = document.createElement("article");
+  question.className = "assistant-message user";
+  question.textContent = payload.question;
+  const answer = document.createElement("article");
+  answer.className = "assistant-message answer";
+  answer.innerHTML = `<span>${escapeHTML(payload.component.replaceAll("_", " "))} · ${escapeHTML(payload.timeframe)}</span><h3>${escapeHTML(payload.finding)}</h3><p><strong>Evidence</strong></p><pre>${escapeHTML(JSON.stringify(payload.evidence, null, 2))}</pre>${payload.likely_cause ? `<p><strong>Likely cause</strong><br>${escapeHTML(payload.likely_cause)}</p>` : ""}${payload.confirmation_required ? `<p class="confirmation-note">${escapeHTML(payload.action_status)}</p>` : ""}<p><strong>Recommended next step</strong></p><ul>${payload.recommendations.map((item) => `<li>${escapeHTML(item)}</li>`).join("")}</ul><div class="assistant-links">${payload.links.map((item) => `<button class="secondary" type="button" data-assistant-panel="${escapeHTML(item.panel)}">${escapeHTML(item.label)}</button>`).join("")}</div><small>Diagnostic tool: ${escapeHTML(payload.tool)} · Request ${escapeHTML(payload.request_id)}</small>`;
+  container.append(question, answer);
+  for (const button of answer.querySelectorAll("[data-assistant-panel]")) button.addEventListener("click", () => {
+    closeAssistant();
+    activatePanel(button.dataset.assistantPanel);
+  });
+  container.scrollTop = container.scrollHeight;
+}
+
+async function submitAssistant(event, inputId, messagesId) {
+  event.preventDefault();
+  const input = $(inputId);
+  const question = input.value.trim();
+  if (!question) return;
+  const button = event.currentTarget.querySelector("button[type='submit']");
+  button.disabled = true;
+  button.textContent = "Investigating…";
+  try {
+    const payload = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/assistant/query`, {
+      method: "POST",
+      body: JSON.stringify({ question, period: state.operationsPeriod === "custom" ? "30d" : state.operationsPeriod, current_page: state.activeNavId || "overview" }),
+    });
+    renderAssistantAnswer($(messagesId), payload);
+    input.value = "";
+  } finally {
+    button.disabled = false;
+    button.textContent = inputId.includes("drawer") ? "Ask" : "Investigate";
+  }
+}
+
+function downloadReport(format) {
+  const period = $("export-period")?.value || state.operationsPeriod || "7d";
+  const url = `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/reports/export.${format}?period=${encodeURIComponent(period)}`;
+  window.location.assign(url);
+}
+
 function normalizeColor(value) {
   return /^#[0-9a-f]{6}$/i.test(value) ? value : "#18181b";
 }
@@ -2711,7 +2904,40 @@ function setup() {
     localStorage.setItem("concierge.admin.sidebar", collapsed ? "collapsed" : "expanded");
     $("sidebar-toggle").setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
   });
-  for (const target of document.querySelectorAll("[data-dashboard-panel]")) target.addEventListener("click", () => activatePanel(target.dataset.dashboardPanel));
+  for (const target of document.querySelectorAll("[data-dashboard-panel]")) {
+    target.dataset.bound = "true";
+    target.addEventListener("click", () => activatePanel(target.dataset.dashboardPanel));
+  }
+  for (const trigger of document.querySelectorAll(".ask-ai-trigger")) trigger.addEventListener("click", () => openAssistant());
+  $("close-assistant-drawer").addEventListener("click", closeAssistant);
+  $("assistant-drawer-backdrop").addEventListener("click", closeAssistant);
+  $("assistant-drawer-form").addEventListener("submit", (event) => submitAssistant(event, "assistant-drawer-input", "assistant-drawer-messages").catch((error) => showToast(error.message, "error")));
+  $("assistant-page-form").addEventListener("submit", (event) => submitAssistant(event, "assistant-page-input", "assistant-page-messages").catch((error) => showToast(error.message, "error")));
+  for (const select of document.querySelectorAll(".operations-period")) select.addEventListener("change", async (event) => {
+    state.operationsPeriod = event.target.value;
+    for (const candidate of document.querySelectorAll(".operations-period")) candidate.value = state.operationsPeriod;
+    try { await loadDashboard(); } catch (error) { showToast(error.message, "error"); }
+  });
+  $("manager-period").addEventListener("change", (event) => {
+    const custom = event.target.value === "custom";
+    for (const field of document.querySelectorAll(".custom-date")) field.hidden = !custom;
+  });
+  $("apply-manager-period").addEventListener("click", async () => {
+    const period = $("manager-period").value;
+    if (period === "custom") {
+      const start = $("manager-start").value;
+      const end = $("manager-end").value;
+      if (!start || !end) return showToast("Choose a custom start and end date.", "error");
+      state.operationsStart = Math.floor(new Date(`${start}T00:00:00`).getTime() / 1000);
+      state.operationsEnd = Math.floor(new Date(`${end}T23:59:59`).getTime() / 1000);
+    } else {
+      state.operationsStart = null;
+      state.operationsEnd = null;
+    }
+    state.operationsPeriod = period;
+    try { await loadDashboard(); } catch (error) { showToast(error.message, "error"); }
+  });
+  for (const button of document.querySelectorAll("[data-export]")) button.addEventListener("click", () => downloadReport(button.dataset.export));
   $("property-switcher").addEventListener("change", (event) => switchProperty(event.target.value).catch((error) => showToast(error.message, "error")));
   $("profile-button").addEventListener("click", () => {
     const menu = $("profile-menu");
@@ -2924,6 +3150,7 @@ function setup() {
   $("knowledge-document-upload").addEventListener("change", (event) => uploadKnowledgeDocument(event.target.files?.[0]).catch((error) => showToast(error.message, "error")));
   $("save-personality").addEventListener("click", () => savePersonality().catch((error) => showToast(error.message, "error")));
   $("save-guardrails").addEventListener("click", () => saveGuardrails().catch((error) => showToast(error.message, "error")));
+  $("refresh-guardrail-diagnostics").addEventListener("click", () => loadGuardrailDiagnostics().catch((error) => showToast(error.message, "error")));
   $("save-webhook").addEventListener("click", () => saveWebhook().catch((error) => showToast(error.message, "error")));
   $("save-location").addEventListener("click", () => saveManagedLocation().catch((error) => showToast(error.message, "error")));
   $("save-deployment").addEventListener("click", () => saveDeploymentSettings().catch((error) => showToast(error.message, "error")));

@@ -12,7 +12,7 @@ from .properties import PropertyStore, default_design_config, validate_design_co
 from .zones import ZoneStore
 
 PROPERTY_ID = "lunara-mnl-001"
-SEED_VERSION = 2
+SEED_VERSION = 3
 MAP_FILENAME = "lunara-property-map.png"
 
 
@@ -111,7 +111,13 @@ def seed_lunara_demo(
     record.description = "A five-star urban lifestyle hotel with 228 rooms and suites in Aurora Bay District, Metro Manila."
     record.timezone = "Asia/Manila"
     record.address = "88 Meridian Drive, Aurora Bay District, Metro Manila, Philippines"
-    record.contact_details = {"front_desk": "24 hours", "concierge": "06:00-23:00", "room_service": "24 hours"}
+    record.contact_details = {
+        "front_desk": "24 hours",
+        "concierge": "06:00-23:00",
+        "room_service": "24 hours",
+        "breakfast": "Breakfast is served from 6:30 AM to 10:00 AM at Solace Kitchen on the Ground Floor.",
+        "checkout": "12:00 PM",
+    }
     record.concierge_name = "Luna"
     record.primary_color = "#0B2A45"
     record.secondary_color = "#F7F2E9"

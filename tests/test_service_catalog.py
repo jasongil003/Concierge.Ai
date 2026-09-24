@@ -52,7 +52,7 @@ def test_guest_confirmation_creates_trackable_request(admin_client, tmp_path: Pa
     session = admin_client.post("/api/session/start", json={"client_id": "guest-device"}).json()
     created = admin_client.post(
         "/api/guest/service-requests",
-        json={"session_id": session["session_id"], "service_id": service.json()["service_id"], "description": "Please send a crib", "room": "412"},
+        json={"session_id": session["session_id"], "service_id": service.json()["service_id"], "description": "Please send a crib", "room": "412", "confirmed": True},
     )
     assert created.status_code == 200, created.text
     request_record = created.json()["request"]
@@ -79,6 +79,7 @@ def test_guest_service_request_is_idempotent(admin_client, tmp_path: Path, monke
         "service_id": service["service_id"],
         "description": "Please book a spa treatment",
         "client_request_id": "spa-request-12345",
+        "confirmed": True,
     }
     first = admin_client.post("/api/guest/service-requests", json=payload)
     second = admin_client.post("/api/guest/service-requests", json=payload)
@@ -100,9 +101,9 @@ def test_facility_hours_answer_combines_every_requested_facility(monkeypatch):
     )
     answer = main_module._property_fast_answer(record, "What are the pool, gym, and spa hours?")
     assert answer == (
-        "Infinity Pool: Level 3; 06:00-22:00. "
+        "Infinity Pool: Level 3; 6:00 AM-10:00 PM. "
         "Fitness Center: Level 3; 24 hours. "
-        "Lunara Spa: Level 3; 10:00-22:00."
+        "Lunara Spa: Level 3; 10:00 AM-10:00 PM."
     )
 
 
@@ -127,7 +128,7 @@ def test_disabled_service_cannot_be_requested(admin_client, tmp_path: Path, monk
     session = admin_client.post("/api/session/start", json={"client_id": "guest-device-2"}).json()
     response = admin_client.post(
         "/api/guest/service-requests",
-        json={"session_id": session["session_id"], "service_id": service["service_id"], "description": "Try it"},
+        json={"session_id": session["session_id"], "service_id": service["service_id"], "description": "Try it", "confirmed": True},
     )
     assert response.status_code == 422
     assert response.json()["detail"] == "The selected service is not available."
@@ -194,7 +195,7 @@ def test_service_request_cross_property_access_rejected(admin_client, tmp_path: 
     session = admin_client.post("/api/session/start", json={"client_id": "guest-cross", "property_id": "hotel-b"}).json()
     response = admin_client.post(
         "/api/guest/service-requests",
-        json={"session_id": session["session_id"], "service_id": service_a["service_id"], "description": "Send towels"},
+        json={"session_id": session["session_id"], "service_id": service_a["service_id"], "description": "Send towels", "confirmed": True},
     )
     assert response.status_code == 422
     assert "not available" in response.json()["detail"].lower()

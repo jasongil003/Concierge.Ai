@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Concierge.Ai Platform</title>
-  <link rel="stylesheet" href="/static/admin.css?v=16">
+  <link rel="stylesheet" href="/static/admin.css?v=17">
 </head>
 <body>
   <div class="platform-shell">
@@ -23,6 +23,7 @@
       </div>
       <div class="topbar-status">
         <span class="publish-state"><i aria-hidden="true"></i><span id="publish-state">Loading...</span></span>
+        <button class="secondary ask-ai-trigger" type="button" data-permission="assistant.use">Ask AI</button>
         <a href="/" target="_blank" rel="noopener">Open guest app</a>
         <button class="secondary" id="discard-design" type="button" data-permission="concierge.edit">Discard</button>
         <button class="secondary" id="save-draft" type="button" data-permission="concierge.edit">Save Draft</button>
@@ -56,42 +57,53 @@
 
     <main class="platform-main">
       <section class="panel active" id="overview">
-        <div class="page-title">
-          <div><p>Property overview</p><h1 id="overview-title">Demo Hotel</h1></div>
-          <span class="live-badge"><i aria-hidden="true"></i> Live operations</span>
+        <div class="page-title operations-title">
+          <div><p id="operations-profile-label">Operations overview</p><h1 id="overview-title">Demo Hotel</h1><span id="operations-role-copy">Loading the operational view for your role.</span></div>
+          <div class="operations-actions"><label>Timeframe<select class="operations-period" aria-label="Dashboard timeframe"><option value="1h">1 hour</option><option value="6h">6 hours</option><option value="24h" selected>24 hours</option><option value="7d">7 days</option><option value="30d">30 days</option></select></label><button class="secondary ask-ai-trigger" type="button" data-permission="assistant.use">Ask AI</button></div>
         </div>
-        <div class="metrics">
-          <article><div class="metric-top"><span>Active guests</span><span class="metric-icon"><svg viewBox="0 0 24 24"><path d="M16 20v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M9.5 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM16 6h5M18.5 3.5v5"/></svg></span></div><strong id="metric-active-guests">0</strong><small>Active concierge sessions</small></article>
-          <article><div class="metric-top"><span>AI requests today</span><span class="metric-icon"><svg viewBox="0 0 24 24"><path d="M12 3 10 8.5 4.5 10.5 10 13l2 5.5 2-5.5 5.5-2.5L14 8.5 12 3Z"/></svg></span></div><strong id="metric-ai-requests">0</strong><small>Recorded assistant responses</small></article>
-          <article><div class="metric-top"><span>Open requests</span><span class="metric-icon"><svg viewBox="0 0 24 24"><path d="M5 20h14M7 20a5 5 0 0 1 10 0M12 10V7M10 7h4"/></svg></span></div><strong id="metric-open-requests">0</strong><small id="metric-overdue-requests">0 overdue</small></article>
-          <article><div class="metric-top"><span>Auth success</span><span class="metric-icon"><svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.3 2.8 7.9 7 10 4.2-2.1 7-5.7 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-5"/></svg></span></div><strong id="metric-auth-success">No attempts</strong><small id="metric-auth-attempts">0 attempts today</small></article>
+        <section class="health-banner" id="operations-health-banner"><div><span class="health-dot unavailable"></span><div><strong>Checking operational health</strong><p>Verifying application data and configured dependencies.</p></div></div><button class="secondary" type="button" data-dashboard-panel="system-health">Open system health</button></section>
+        <div class="operations-metrics" id="operations-metrics"></div>
+        <div class="chart-grid" id="overview-charts"></div>
+        <div class="two-col operations-lower">
+          <section class="card"><div class="card-heading"><div><span>Active alerts</span><h2>Needs attention</h2></div><button class="secondary" type="button" data-dashboard-panel="alerts">View all</button></div><div id="overview-alerts" class="operations-list"></div></section>
+          <section class="card"><div class="card-heading"><div><span>Property operations</span><h2>Department demand</h2></div><button class="secondary" type="button" data-dashboard-panel="analytics">Analyze</button></div><div id="overview-departments" class="operations-list"></div></section>
         </div>
-        <div class="two-col">
-          <section class="card">
-            <div class="card-heading"><div><span>System health</span><h2>Service readiness</h2></div><span class="card-chip" id="dashboard-health-chip">Checking</span></div>
-            <dl class="status-list">
-              <div data-dashboard-panel="ai"><dt>AI provider</dt><dd id="dashboard-ai-status">Checking</dd></div>
-              <div data-dashboard-panel="wifi"><dt>ANTlabs</dt><dd id="dashboard-antlabs-status">Checking</dd></div>
-              <div data-dashboard-panel="sessions"><dt>Guest sessions</dt><dd id="dashboard-session-status">Checking</dd></div>
-              <div data-dashboard-panel="requests"><dt>Request queue</dt><dd id="dashboard-request-status">Checking</dd></div>
-            </dl>
-          </section>
-          <section class="card">
-            <div class="card-heading"><div><span>Runtime</span><h2>Application status</h2></div><span class="card-chip healthy" id="dashboard-runtime-chip">Healthy</span></div>
-            <dl class="status-list">
-              <div><dt><i class="status-indicator good"></i>Version</dt><dd id="dashboard-version">—</dd></div>
-              <div><dt>Environment</dt><dd id="dashboard-environment">—</dd></div>
-              <div><dt><i class="status-indicator good"></i>Database</dt><dd>SQLite connected</dd></div>
-              <div><dt>Guest URL</dt><dd><a href="/" target="_blank" rel="noopener">/</a></dd></div>
-            </dl>
-          </section>
-        </div>
-        <section class="card table-card"><div class="card-heading"><div><span>Recent operations</span><h2>Activity</h2></div><button class="secondary" type="button" data-dashboard-panel="conversations">View conversations</button></div><div id="dashboard-activity" class="compact-list"></div></section>
         <input id="property-id" type="hidden">
         <input id="hotel-name-input" type="hidden">
         <input id="concierge-name-input" type="hidden">
         <input id="domain-input" type="hidden">
         <select id="deployment-mode" hidden><option>on-prem</option><option>cloud</option><option>hybrid</option><option>edge</option></select>
+      </section>
+
+      <section class="panel" id="system-health">
+        <div class="page-title operations-title"><div><p>Technical observability</p><h1>System health</h1><span>Application, dependency, and host telemetry with explicit data availability.</span></div><label>Timeframe<select class="operations-period"><option value="1h">1 hour</option><option value="6h">6 hours</option><option value="24h" selected>24 hours</option><option value="7d">7 days</option><option value="30d">30 days</option></select></label></div>
+        <div class="component-grid" id="health-components"></div>
+        <div class="chart-grid" id="system-charts"></div>
+      </section>
+
+      <section class="panel" id="alerts">
+        <div class="page-title"><div><p>Operations</p><h1>Alerts</h1><span>Threshold-based alerts backed by recorded data.</span></div></div>
+        <div class="operations-list alerts-list" id="alerts-list"></div>
+      </section>
+
+      <section class="panel" id="ai-assistant">
+        <div class="page-title"><div><p>AI operations</p><h1>Operations Assistant</h1><span>Read-only diagnostics using permission-checked server tools.</span></div></div>
+        <section class="assistant-page"><div class="assistant-messages" id="assistant-page-messages"><div class="assistant-empty"><strong>Ask about this property</strong><p>Try “Why are service requests delayed?”, “Check all AI providers”, or “Compare requests with the previous period”.</p></div></div><form class="assistant-composer" id="assistant-page-form"><textarea id="assistant-page-input" rows="2" maxlength="1200" placeholder="Ask about operations, health, or trends"></textarea><button type="submit">Investigate</button></form></section>
+      </section>
+
+      <section class="panel" id="analytics">
+        <div class="page-title operations-title"><div><p>Analytics</p><h1>Operations analytics</h1><span>Guest engagement, service delivery, department performance, and AI outcomes.</span></div><div class="manager-date-controls"><label>Date range<select id="manager-period"><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="7d" selected>7 days</option><option value="30d">30 days</option><option value="custom">Custom</option></select></label><label class="custom-date" hidden>Start<input id="manager-start" type="date"></label><label class="custom-date" hidden>End<input id="manager-end" type="date"></label><button class="secondary" id="apply-manager-period" type="button">Apply</button></div></div>
+        <div class="operations-metrics" id="analytics-metrics"></div><div class="chart-grid" id="analytics-charts"></div><div class="two-col"><section class="card"><h2>Top services</h2><div id="analytics-services" class="operations-list"></div></section><section class="card"><h2>Top guest questions</h2><div id="analytics-questions" class="operations-list"></div></section></div>
+      </section>
+
+      <section class="panel" id="reports">
+        <div class="page-title"><div><p>Analytics &amp; Reports</p><h1>Management reports</h1><span>Property- and department-scoped operational exports.</span></div></div>
+        <div class="report-grid"><article class="card"><span>XLSX</span><h2>Detailed operations workbook</h2><p>Eight sheets covering the executive summary, guest activity, AI, requests, departments, questions, recommendations, and raw data.</p><button type="button" data-export="xlsx">Download workbook</button></article><article class="card"><span>PDF</span><h2>Management summary</h2><p>A concise multi-page report covering engagement, service performance, AI performance, issues, and recommendations.</p><button type="button" data-export="pdf">Download PDF</button></article></div>
+      </section>
+
+      <section class="panel" id="exports">
+        <div class="page-title"><div><p>Analytics &amp; Reports</p><h1>Exports</h1><span>Generate a fresh export from the selected property and timeframe.</span></div></div>
+        <section class="card export-toolbar"><label>Timeframe<select id="export-period"><option value="24h">24 hours</option><option value="7d" selected>7 days</option><option value="30d">30 days</option></select></label><button type="button" data-export="xlsx">Export XLSX</button><button class="secondary" type="button" data-export="pdf">Export PDF</button></section>
       </section>
 
       <section class="panel" id="appearance">
@@ -516,7 +528,7 @@
       <section class="panel" id="faqs"><div class="page-title"><div><p>Knowledge</p><h1>FAQs</h1><span>Approved questions and answers available to the concierge retrieval layer.</span></div></div><div class="two-col"><section class="card"><h2>FAQ</h2><input id="faq-id" type="hidden"><label>Question<input id="faq-question" maxlength="500"></label><label>Approved answer<textarea id="faq-answer" rows="6" maxlength="12000"></textarea></label><label class="check-row"><input id="faq-enabled" type="checkbox" checked> Available to Concierge AI</label><button id="save-faq" type="button">Save FAQ</button></section><section class="card"><h2>Managed FAQs</h2><div id="faq-list" class="compact-list"></div></section></div></section>
       <section class="panel" id="ai-personality"><div class="page-title"><div><p>AI</p><h1>AI personality</h1><span>Property-specific response style. System safety rules always take precedence.</span></div></div><section class="card settings-form"><div class="form-grid"><label>Concierge identity<input id="personality-name" maxlength="80"></label><label>Tone<select id="personality-tone"><option value="warm">Warm</option><option value="professional">Professional</option><option value="friendly">Friendly</option><option value="luxury">Luxury</option></select></label><label>Formality<select id="personality-formality"><option value="balanced">Balanced</option><option value="formal">Formal</option><option value="casual">Casual</option></select></label><label>Response length<select id="personality-length"><option value="concise">Concise</option><option value="balanced">Balanced</option><option value="detailed">Detailed</option></select></label><label>Greeting behavior<select id="personality-greeting"><option value="first_message">First message only</option><option value="when_helpful">When helpful</option><option value="never">Never</option></select></label></div><label>Property-specific instructions<textarea id="personality-instructions" rows="5" maxlength="4000"></textarea></label><button id="save-personality" type="button">Save Personality</button></section></section>
       <section class="panel placeholder-panel" id="system-prompt"><div class="page-title"><div><p>AI</p><h1>System prompt</h1><span>Controlled prompt policy and approved hotel context.</span></div></div><div class="empty-state"><strong>System prompts are server-managed</strong><p>This prevents accidental exposure or unsafe browser-side prompt editing.</p></div></section>
-      <section class="panel" id="guardrails"><div class="page-title"><div><p>AI</p><h1>Guardrails</h1><span>Governed guest-assistance boundaries without exposing system prompts or secrets.</span></div></div><section class="card settings-form"><div class="form-grid"><label>Unknown answers<select id="guardrail-unknown"><option value="state_unavailable">State that verified information is unavailable</option><option value="escalate">Escalate to hotel staff</option></select></label><label>Escalation behavior<select id="guardrail-escalation"><option value="offer_human">Offer human assistance</option><option value="automatic">Automatically escalate</option><option value="front_desk">Direct to front desk</option></select></label></div><label>Allowed topics<textarea id="guardrail-allowed" rows="3" placeholder="One topic per line"></textarea></label><label>Restricted topics<textarea id="guardrail-restricted" rows="3" placeholder="One topic per line"></textarea></label><label>Sensitive-information handling<textarea id="guardrail-sensitive" rows="3" maxlength="2000"></textarea></label><label>Human escalation rules<textarea id="guardrail-human" rows="3" maxlength="2000"></textarea></label><button id="save-guardrails" type="button">Save Guardrails</button></section></section>
+      <section class="panel" id="guardrails"><div class="page-title"><div><p>Security</p><h1>Guardrails</h1><span>Property-scoped protections enforced by the backend on every guest workflow.</span></div></div><div class="two-col"><section class="card settings-form"><h2>Network Access</h2><label class="check-row"><input id="guardrail-network-only" type="checkbox"> Require approved hotel network</label><label>Approved subnets (CIDR)<textarea id="guardrail-cidrs" rows="4" placeholder="10.20.0.0/16&#10;192.168.20.0/24"></textarea></label><label>Trusted proxy ranges (CIDR)<textarea id="guardrail-proxies" rows="3" placeholder="10.0.0.10/32"></textarea></label><div class="form-grid"><label>Failed revalidation<select id="guardrail-revalidation"><option value="suspend">Suspend until reconnected</option><option value="expire">Expire session</option></select></label><label>Session timeout (minutes)<input id="guardrail-timeout" type="number" min="5" max="1440"></label></div><label class="check-row"><input id="guardrail-antlabs" type="checkbox"> Validate signed ANTlabs gateway context</label><label>Approved ANTlabs gateway ranges<textarea id="guardrail-antlabs-ranges" rows="2" placeholder="10.20.0.1/32"></textarea></label><label>ANTlabs signing secret<input id="guardrail-antlabs-secret" type="password" autocomplete="new-password" placeholder="Leave blank to keep the saved secret"></label></section><section class="card settings-form"><h2>Internet Access</h2><label class="check-row"><input id="guardrail-internet" type="checkbox"> Controlled internet search</label><label class="check-row"><input id="guardrail-directions" type="checkbox"> Directions</label><label class="check-row"><input id="guardrail-restaurants" type="checkbox"> Restaurant search</label><label class="check-row"><input id="guardrail-attractions" type="checkbox"> Attraction search</label><label class="check-row"><input id="guardrail-weather" type="checkbox"> Weather</label><h2>Actions</h2><label class="check-row"><input id="guardrail-services" type="checkbox"> Service requests with confirmation</label><label class="check-row"><input id="guardrail-reservations" type="checkbox"> Reservations with confirmation</label><label class="check-row"><input id="guardrail-financial" type="checkbox"> Financial actions with confirmation</label><label class="check-row"><input id="guardrail-location" type="checkbox"> Permission-based device location</label></section><section class="card settings-form"><h2>Guest Privacy and AI Safety</h2><div class="form-grid"><label>Unknown answers<select id="guardrail-unknown"><option value="state_unavailable">State that verified information is unavailable</option><option value="escalate">Escalate to hotel staff</option></select></label><label>Escalation behavior<select id="guardrail-escalation"><option value="offer_human">Offer human assistance</option><option value="automatic">Automatically escalate</option><option value="front_desk">Direct to front desk</option></select></label></div><label>Allowed topics<textarea id="guardrail-allowed" rows="3" placeholder="One topic per line"></textarea></label><label>Restricted topics<textarea id="guardrail-restricted" rows="3" placeholder="One topic per line"></textarea></label><label>Sensitive-information handling<textarea id="guardrail-sensitive" rows="3" maxlength="2000"></textarea></label><label>Human escalation rules<textarea id="guardrail-human" rows="3" maxlength="2000"></textarea></label><label class="check-row"><input id="guardrail-human-enabled" type="checkbox"> Human escalation enabled</label><label class="check-row"><input id="guardrail-audit" type="checkbox"> Security audit logging enabled</label><button id="save-guardrails" type="button">Save Guardrails</button></section><section class="card"><div class="page-title"><div><h2>Network Status Diagnostics</h2><span>Visible only to authorized administrators.</span></div><button class="secondary" id="refresh-guardrail-diagnostics" type="button">Refresh</button></div><dl class="detail-list"><div><dt>Detected client IP</dt><dd id="guardrail-diagnostic-ip">—</dd></div><div><dt>Matched network</dt><dd id="guardrail-diagnostic-network">—</dd></div><div><dt>Property</dt><dd id="guardrail-diagnostic-property">—</dd></div><div><dt>Trusted proxy</dt><dd id="guardrail-diagnostic-proxy">—</dd></div><div><dt>Network policy</dt><dd id="guardrail-diagnostic-result">—</dd></div><div><dt>Active guest sessions</dt><dd id="guardrail-diagnostic-sessions">—</dd></div></dl></section></div></section>
       <section class="panel placeholder-panel" id="api"><div class="page-title"><div><p>Integrations</p><h1>API</h1><span>Secure integration endpoints and access policies.</span></div></div><div class="empty-state"><strong>API administration is restricted</strong><p>Credentials remain server-side and are managed through environment-backed secrets.</p></div></section>
       <section class="panel" id="webhooks"><div class="page-title"><div><p>Integrations</p><h1>Webhooks</h1><span>Signed, property-scoped operational event delivery with status history.</span></div></div><div class="two-col"><section class="card"><h2>Endpoint</h2><input id="webhook-id" type="hidden"><label>Name<input id="webhook-name" maxlength="120"></label><label>Endpoint URL<input id="webhook-url" type="url" maxlength="1000" placeholder="https://operations.example.com/events"></label><label>Events<select id="webhook-events" multiple size="4"><option value="guest.session.started">Guest session started</option><option value="guest.request.created">Guest request created</option><option value="guest.request.updated">Guest request updated</option><option value="conversation.escalated">Conversation escalated</option></select></label><label>Signing secret<input id="webhook-secret" type="password" autocomplete="new-password" placeholder="Leave blank to keep the saved secret"></label><label class="check-row"><input id="webhook-enabled" type="checkbox" checked> Enabled</label><button id="save-webhook" type="button">Save Webhook</button></section><section class="card"><h2>Configured endpoints</h2><div id="webhook-list" class="compact-list"></div><h2>Recent deliveries</h2><div id="webhook-deliveries" class="compact-list"></div></section></div></section>
       <section class="panel placeholder-panel" id="third-party"><div class="page-title"><div><p>Integrations</p><h1>Third-party services</h1><span>Approved hospitality and operations connections.</span></div></div><div class="empty-state"><strong>No third-party services connected</strong><p>Integrations remain isolated by property.</p></div></section>
@@ -539,6 +551,7 @@
         <label>Display Name<input id="admin-display-name" placeholder="Front Desk" required></label>
         <label>Property<select id="admin-property" required></select></label>
         <label>Role<select id="admin-role" required></select></label>
+        <label>Department ID<input id="admin-department" placeholder="Required for Department Manager"></label>
         <label>Optional Email<input id="admin-email" type="email" placeholder="name@hotel.com"></label>
         <label>Status<select id="admin-status"><option value="active">Active</option><option value="disabled">Disabled</option><option value="locked">Locked</option></select></label>
         <label class="create-password-field">Temporary Password<input id="admin-password" type="password" autocomplete="new-password" placeholder="At least 12 characters"></label>
@@ -615,7 +628,13 @@
       <button id="save-provider" type="button">Save</button>
     </footer>
   </aside>
+  <div class="drawer-backdrop" id="assistant-drawer-backdrop" hidden></div>
+  <aside class="assistant-drawer" id="assistant-drawer" hidden aria-label="AI operations assistant">
+    <header><div><p>AI operations</p><h2>Ask AI</h2></div><button class="secondary" id="close-assistant-drawer" type="button">Close</button></header>
+    <div class="assistant-messages" id="assistant-drawer-messages"><div class="assistant-empty"><strong>Investigate with evidence</strong><p>Answers cite the component, timeframe, and data returned by server-side diagnostic tools.</p></div></div>
+    <form class="assistant-composer" id="assistant-drawer-form"><textarea id="assistant-drawer-input" rows="2" maxlength="1200" placeholder="Why are requests delayed?"></textarea><button type="submit">Ask</button></form>
+  </aside>
   <div class="toast" id="toast"></div>
-  <script src="/static/admin.js?v=12"></script>
+  <script src="/static/admin.js?v=13"></script>
 </body>
 </html>

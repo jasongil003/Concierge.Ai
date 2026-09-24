@@ -258,7 +258,7 @@ test("admin AI settings and usage reporting work", async ({ page }, testInfo) =>
   await expect(page.locator("#toast")).toContainText("AI settings saved");
   await page.locator("article.provider-row [data-action='configure']").first().click();
   await page.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(page.locator("#toast")).toContainText("saved");
+  await expect(page.locator("#toast")).toContainText("Google Gemini saved");
   await page.locator("#drawer-secret").fill("");
   await page.getByRole("button", { name: "Add / Replace" }).click();
   await expect(page.locator("#toast")).toContainText("Paste a credential first");

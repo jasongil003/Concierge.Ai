@@ -19,11 +19,22 @@ function csrfHeaders(api) {
 
 async function openPanel(page, label) {
   await page.locator('body[data-admin-ready="true"]').waitFor();
+  if ((page.viewportSize()?.width || 1440) <= 620) {
+    const shell = page.locator(".platform-shell");
+    if (!(await shell.evaluate((element) => element.classList.contains("mobile-nav-open")))) {
+      await page.locator("#sidebar-toggle").click();
+      await expect(shell).toHaveClass(/mobile-nav-open/);
+    }
+    await page.locator("details.nav-group").evaluateAll((groups) => {
+      for (const group of groups) group.open = false;
+    });
+  }
   const button = page.locator(".nav-item").filter({ hasText: label }).first();
   await button.evaluate((element) => {
     const group = element.closest("details");
     if (group) group.open = true;
   });
+  await button.scrollIntoViewIfNeeded();
   await button.click();
 }
 
@@ -70,10 +81,17 @@ test("topbar: sidebar and profile buttons perform their actions", async ({ page 
 
   const shell = page.locator(".platform-shell");
   await page.locator("#sidebar-toggle").click();
-  await expect(shell).toHaveClass(/sidebar-collapsed/);
-  await expect(page.locator("#sidebar-toggle")).toHaveAttribute("aria-label", "Expand sidebar");
-  await page.locator("#sidebar-toggle").click();
-  await expect(shell).not.toHaveClass(/sidebar-collapsed/);
+  if ((page.viewportSize()?.width || 1440) <= 620) {
+    await expect(shell).toHaveClass(/mobile-nav-open/);
+    await expect(page.locator("#sidebar-toggle")).toHaveAttribute("aria-label", "Close navigation");
+    await page.locator("#sidebar-toggle").click();
+    await expect(shell).not.toHaveClass(/mobile-nav-open/);
+  } else {
+    await expect(shell).toHaveClass(/sidebar-collapsed/);
+    await expect(page.locator("#sidebar-toggle")).toHaveAttribute("aria-label", "Expand sidebar");
+    await page.locator("#sidebar-toggle").click();
+    await expect(shell).not.toHaveClass(/sidebar-collapsed/);
+  }
 
   await page.locator("#profile-button").click();
   await expect(page.locator("#profile-menu")).toBeVisible();
@@ -95,16 +113,16 @@ test("sidebar: all navigation items are visible and clickable", async ({ page })
     ["Dashboard", "overview"],
     ["Guest Requests", "requests"],
     ["Guest Sessions", "sessions"],
-    ["Preview", "guest"],
+    ["Guest Preview", "guest"],
     ["Hotel Information", "hotel-information"],
     ["Rooms", "rooms"],
     ["Facilities", "facilities"],
     ["Restaurants", "restaurants"],
     ["Zones & Maps", "zones"],
-    ["Overview", "knowledge"],
+    ["Knowledge", "knowledge"],
     ["Models & Providers", "ai"],
     ["Usage", "ai-usage"],
-    ["ANTlabs / Wi-Fi", "wifi"],
+    ["Integrations", "wifi"],
     ["Design", "appearance"],
     ["Branding / Intro", "intro"],
     ["Location", "location"],
@@ -143,12 +161,23 @@ test("sidebar: each visible navigation item has a feature status", async ({ page
   }
 });
 
+test("guardrails panel exposes enforced network policy and diagnostics", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "The security configuration workflow needs one browser profile.");
+  await page.goto("/admin");
+  await openPanel(page, "Guardrails");
+
+  await expect(page.getByLabel("Require approved hotel network")).toBeVisible();
+  await expect(page.getByLabel("Approved subnets (CIDR)")).toHaveValue(/127\.0\.0\.0\/8/);
+  await expect(page.locator("#guardrail-diagnostic-property")).not.toHaveText("—");
+  await expect(page.locator("#guardrail-antlabs-secret")).toHaveAttribute("type", "password");
+});
+
 test("overview panel: operational health is visible and configuration moved out", async ({ page }) => {
   await page.goto("/admin");
   await expect(page.locator("#overview-title")).not.toBeEmpty();
-  await expect(page.locator("#dashboard-ai-status")).not.toHaveText("Checking");
-  await expect(page.locator("#dashboard-antlabs-status")).not.toHaveText("Checking");
-  await expect(page.locator("#dashboard-version")).not.toHaveText("—");
+  await expect(page.locator("#operations-health-banner")).toBeVisible();
+  await expect(page.locator("#operations-metrics .operations-metric")).toHaveCount(4);
+  await expect(page.locator("#overview-charts .chart-card")).toHaveCount(6);
   await openPanel(page, "Hotel Information");
   await expect(page.locator("#hotel-info-name")).toBeEnabled();
   await expect(page.getByRole("button", { name: "Save & Publish" })).toBeEnabled();
@@ -270,11 +299,12 @@ test("obsolete product sections are removed from navigation", async ({ page }) =
   await expect(page.locator('.nav-item .nav-label', { hasText: "License" })).toHaveCount(0);
 });
 
-test("knowledge panel: upload zone disabled with POC note", async ({ page }) => {
+test("knowledge panel exposes managed source controls", async ({ page }) => {
   await page.goto("/admin");
   await openPanel(page, "Overview");
-  await expect(page.locator("#knowledge .poc-note")).toBeVisible();
-  await expect(page.locator(".upload-zone")).toHaveAttribute("aria-disabled", "true");
+  await expect(page.locator("#knowledge-title")).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Save Knowledge" })).toBeEnabled();
+  await expect(page.locator("#knowledge-list")).toBeVisible();
 });
 
 test("wifi panel: truthful status and manual test are available", async ({ page }) => {
@@ -286,7 +316,7 @@ test("wifi panel: truthful status and manual test are available", async ({ page 
 
 test("authentication type panel: toggles are available", async ({ page }) => {
   await page.goto("/admin");
-  await page.evaluate(() => window.activatePanel?.("auth-types"));
+  await openPanel(page, "Authentication Types");
   await expect(page.locator("#auth-types .poc-note")).toBeVisible();
   await expect(page.locator(".auth-type-row")).toHaveCount(10);
   await expect(page.getByText("PMS / Room Login")).toBeVisible();
@@ -305,7 +335,8 @@ test("requests panel: service request controls are available", async ({ page }) 
 test("deployment panel: status info displayed", async ({ page }) => {
   await page.goto("/admin");
   await openPanel(page, "Domain");
-  await expect(page.locator("#domain .feature-status")).toHaveText("Configuration Required");
+  await expect(page.locator("#domain-status")).not.toHaveText("");
+  await expect(page.getByRole("button", { name: "Verify Domain & SSL" })).toBeEnabled();
 });
 
 test("users and access panels expose username-first management", async ({ page }) => {
@@ -485,7 +516,7 @@ test.describe("config workflow (serial)", () => {
     }
   });
 
-  test("overview save: hotel name persists via API", async ({ page, request }, testInfo) => {
+  test("property save: hotel name persists via API", async ({ page, request }, testInfo) => {
     test.skip(testInfo.project.name !== "chromium", "Property save only needs one browser.");
 
     const propertyId = await getFirstPropertyId(request);
@@ -496,10 +527,10 @@ test.describe("config workflow (serial)", () => {
     try {
       await page.goto("/admin");
       await page.locator('body[data-admin-ready="true"]').waitFor();
-      await page.locator("#hotel-name-input").fill(newName);
-      await page.locator("#hotel-name-input").press("Tab");
-      await page.getByRole("button", { name: "Save Draft" }).click();
-      await expect(page.getByText("Draft saved.")).toBeVisible();
+      await openPanel(page, "Hotel Information");
+      await page.locator("#hotel-info-name").fill(newName);
+      await page.getByRole("button", { name: "Save & Publish" }).click();
+      await expect(page.getByText("Hotel information saved and published to the guest profile.")).toBeVisible();
 
       const res = await request.get(`/api/admin/properties/${propertyId}`);
       expect((await res.json()).hotel_name).toBe(newName);

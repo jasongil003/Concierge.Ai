@@ -16,6 +16,8 @@ class SessionRecord:
     authenticated: bool
     created_at: int
     last_seen_at: int
+    network_status: str = "active"
+    network_failure_at: int | None = None
 
 
 class SessionStore:
@@ -40,10 +42,17 @@ class SessionStore:
                     gateway_context TEXT NOT NULL,
                     authenticated INTEGER NOT NULL DEFAULT 0,
                     created_at INTEGER NOT NULL,
-                    last_seen_at INTEGER NOT NULL
+                    last_seen_at INTEGER NOT NULL,
+                    network_status TEXT NOT NULL DEFAULT 'active',
+                    network_failure_at INTEGER
                 )
                 """
             )
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(sessions)").fetchall()}
+            if "network_status" not in columns:
+                db.execute("ALTER TABLE sessions ADD COLUMN network_status TEXT NOT NULL DEFAULT 'active'")
+            if "network_failure_at" not in columns:
+                db.execute("ALTER TABLE sessions ADD COLUMN network_failure_at INTEGER")
             db.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS authentication_attempts (
@@ -100,8 +109,8 @@ class SessionStore:
             db.execute(
                 """
                 INSERT INTO sessions
-                (session_id, property_id, client_id, gateway_context, authenticated, created_at, last_seen_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (session_id, property_id, client_id, gateway_context, authenticated, created_at, last_seen_at, network_status, network_failure_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'active', NULL)
                 """,
                 (
                     session.session_id,
@@ -137,7 +146,35 @@ class SessionStore:
             authenticated=bool(row["authenticated"]),
             created_at=row["created_at"],
             last_seen_at=now,
+            network_status=row["network_status"],
+            network_failure_at=row["network_failure_at"],
         )
+
+    def peek(self, session_id: str) -> SessionRecord | None:
+        self.cleanup_expired()
+        with self._connect() as db:
+            row = db.execute("SELECT * FROM sessions WHERE session_id = ?", (session_id,)).fetchone()
+        if row is None:
+            return None
+        return SessionRecord(
+            session_id=row["session_id"], property_id=row["property_id"], client_id=row["client_id"],
+            gateway_context=json.loads(row["gateway_context"]), authenticated=bool(row["authenticated"]),
+            created_at=row["created_at"], last_seen_at=row["last_seen_at"],
+            network_status=row["network_status"], network_failure_at=row["network_failure_at"],
+        )
+
+    def mark_network_status(self, session_id: str, status: str) -> None:
+        if status not in {"active", "suspended"}:
+            raise ValueError("Invalid network session status.")
+        with self._connect() as db:
+            db.execute(
+                "UPDATE sessions SET network_status=?,network_failure_at=? WHERE session_id=?",
+                (status, int(time.time()) if status == "suspended" else None, session_id),
+            )
+
+    def delete(self, session_id: str) -> None:
+        with self._connect() as db:
+            db.execute("DELETE FROM sessions WHERE session_id=?", (session_id,))
 
     def mark_authenticated(self, session_id: str) -> None:
         with self._connect() as db:

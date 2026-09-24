@@ -88,6 +88,37 @@ def test_operational_endpoints_return_truthful_status(admin_client: TestClient):
     assert antlabs.json()["status"] in {"simulation", "connected", "not_configured", "unreachable", "authentication_failure", "unsupported_mode"}
 
 
+def test_operations_console_assistant_and_exports(admin_client: TestClient):
+    property_id = admin_client.get("/api/admin/properties").json()["properties"][0]["property_id"]
+
+    dashboard = admin_client.get(f"/api/admin/properties/{property_id}/operations/dashboard?period=24h")
+    assert dashboard.status_code == 200, dashboard.text
+    payload = dashboard.json()
+    assert payload["profile"] == "platform"
+    assert payload["health"]["components"]
+    assert "api_latency_ms" in payload["histories"]
+    assert "raw_requests" not in payload["analytics"]
+    assert payload["analytics"]["ai"]["estimated_cost"] is None
+
+    assistant = admin_client.post(
+        f"/api/admin/properties/{property_id}/assistant/query",
+        json={"question": "Restart the database", "period": "24h", "current_page": "system-health"},
+    )
+    assert assistant.status_code == 200, assistant.text
+    assert assistant.json()["tool"] == "check_database"
+    assert assistant.json()["confirmation_required"] is True
+    assert assistant.json()["action_status"].startswith("No change was made")
+
+    workbook = admin_client.get(f"/api/admin/properties/{property_id}/reports/export.xlsx?period=7d")
+    assert workbook.status_code == 200
+    assert workbook.content.startswith(b"PK")
+    assert "spreadsheetml" in workbook.headers["content-type"]
+
+    report = admin_client.get(f"/api/admin/properties/{property_id}/reports/export.pdf?period=7d")
+    assert report.status_code == 200
+    assert report.content.startswith(b"%PDF-1.4")
+
+
 def test_new_operational_admin_and_guest_upload_endpoints(
     admin_client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

@@ -1,5 +1,4 @@
 from contextlib import asynccontextmanager
-from collections import defaultdict, deque
 import asyncio
 import base64
 import binascii
@@ -10,8 +9,10 @@ from pathlib import Path
 import re
 import smtplib
 import socket
+import sqlite3
 import ssl
 import time
+import uuid
 from typing import Any
 from email.message import EmailMessage
 from urllib.parse import urlparse
@@ -37,13 +38,32 @@ from .config import settings
 from .hotel import HotelKnowledge
 from .improvement_loop import ImprovementLoopManager, ImprovementLoopStore
 from .guest_identity import GuestIdentityStore
+from .guardrails import (
+    AIInputSanitizer,
+    AIOutputValidator,
+    ActionGuard,
+    GuardrailDecision,
+    GuardrailDenied,
+    GatewayGuard,
+    InternetGuard,
+    NetworkGuard,
+    PrivacyGuard,
+    PropertyGuard,
+    SQLiteRateLimiter,
+    SecurityAuditLogger,
+    normalize_guardrails,
+    public_guardrails,
+)
 from .hospitality import HospitalityStore
 from .intro import IntroExperienceStore
 from .location_analytics import LocationAnalyticsStore
 from .lunara_seed import PROPERTY_ID as LUNARA_PROPERTY_ID, seed_lunara_demo
 from .operations import OperationsStore
+from .observability import DiagnosticContext, DiagnosticToolRegistry, ObservabilityStore, PERIODS
+from .outbound_http import OutboundRequestBroker, OutboundRequestError
 from .places import GooglePlaces, format_places_for_ai
 from .properties import PropertyRecord, PropertyStore, validate_design_config
+from .reporting import ReportService
 from .session_store import SessionStore
 from .zones import ZoneStore
 
@@ -70,17 +90,20 @@ admin_auth = AdminAuthStore(
     lockout_attempts=settings.admin_lockout_attempts,
     lockout_minutes=settings.admin_lockout_minutes,
 )
-if settings.app_environment in ("production", "staging") and settings.admin_bootstrap_password == "ChangeMe123!":
-    raise RuntimeError("Set ADMIN_BOOTSTRAP_PASSWORD before starting Concierge.Ai in production/staging.")
 admin_auth.ensure_bootstrap_admin(
     settings.admin_bootstrap_username,
     settings.admin_bootstrap_password,
 )
-admin_request_windows: dict[str, deque[float]] = defaultdict(deque)
-chat_rate_windows: dict[str, deque[float]] = defaultdict(deque)
 places = GooglePlaces()
 antlabs = AntlabsAdapter()
 operations = OperationsStore(settings.db_path)
+observability = ObservabilityStore(settings.db_path)
+diagnostic_tools = DiagnosticToolRegistry()
+report_service = ReportService()
+network_guard = NetworkGuard()
+action_guard = ActionGuard()
+rate_limiter = SQLiteRateLimiter(settings.db_path)
+security_audit = SecurityAuditLogger(settings.db_path)
 if settings.property_id == LUNARA_PROPERTY_ID:
     seed_lunara_demo(
         properties,
@@ -102,6 +125,12 @@ app = FastAPI(title=settings.app_name, version="0.2.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
+@app.exception_handler(GuardrailDenied)
+async def guardrail_denied_handler(request: Request, exc: GuardrailDenied) -> JSONResponse:
+    del request
+    return JSONResponse(exc.decision.payload(guest_safe=True), status_code=exc.status_code)
+
+
 def _required_admin_permission(method: str, path: str) -> str | None:
     if path.startswith("/api/admin/auth/"):
         return None
@@ -121,6 +150,16 @@ def _required_admin_permission(method: str, path: str) -> str | None:
         return "audit.view"
     if path.startswith("/api/admin/system/"):
         return "system.configure"
+    if "/assistant/" in path:
+        return "assistant.use"
+    if "/reports/" in path:
+        return "reports.export"
+    if "/operations/alerts" in path:
+        return "dashboard.view"
+    if "/operations/" in path:
+        return "dashboard.view"
+    if "/guardrails" in path:
+        return "security.view" if method == "GET" else "security.configure"
     if "/knowledge" in path:
         return "knowledge.view" if method == "GET" else "knowledge.edit"
     if "/webhooks" in path:
@@ -154,37 +193,51 @@ def _path_property_id(path: str) -> str | None:
 
 
 def _admin_rate_limited(session_id: str) -> bool:
-    import time
-
-    now = time.monotonic()
-    window = admin_request_windows[session_id]
-    while window and window[0] < now - 60:
-        window.popleft()
-    if len(window) >= 300:
-        return True
-    window.append(now)
-    return False
+    return not rate_limiter.allow(f"admin-api:{session_id}", 300, 60)
 
 
 def _chat_rate_limited(session_id: str) -> bool:
-    now = time.monotonic()
-    window = chat_rate_windows[session_id]
-    while window and window[0] < now - 60:
-        window.popleft()
-    if len(window) >= 20:
-        return True
-    window.append(now)
-    return False
+    return not rate_limiter.allow(f"guest-chat:{session_id}", 20, 60)
 
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "geolocation=(self), camera=(), microphone=()"
+    response.headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    response.headers["X-Request-ID"] = getattr(request.state, "request_id", "")
     if settings.app_environment in ("production", "staging"):
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
+
+
+@app.middleware("http")
+async def attach_request_id(request: Request, call_next):
+    supplied = request.headers.get("X-Request-ID", "")
+    request.state.request_id = supplied if re.fullmatch(r"[A-Za-z0-9._:-]{8,120}", supplied) else uuid.uuid4().hex
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def collect_request_telemetry(request: Request, call_next):
+    observability.request_started()
+    started = time.perf_counter()
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        return response
+    finally:
+        property_id = _path_property_id(request.url.path)
+        observability.record_request(
+            property_id,
+            round((time.perf_counter() - started) * 1000, 2),
+            status_code,
+            observability.request_finished(),
+        )
 
 
 @app.middleware("http")
@@ -251,6 +304,73 @@ def _admin_principal(request: Request) -> AdminPrincipal:
     if principal is None:
         raise HTTPException(status_code=401, detail="Administrator authentication required.")
     return principal
+
+
+def _request_id(request: Request) -> str:
+    return getattr(request.state, "request_id", uuid.uuid4().hex)
+
+
+def _outbound_broker(property_id: str, request_id: str = "system") -> OutboundRequestBroker:
+    def audit(event: str, metadata: dict[str, Any]) -> None:
+        security_audit.record(request_id, property_id, event, "blocked" if event.endswith("blocked") else "recorded", resource="outbound_http", metadata=metadata)
+
+    return OutboundRequestBroker(audit=audit)
+
+
+def _guest_property(request: Request, supplied_property_id: str | None = None) -> PropertyRecord:
+    try:
+        return PropertyGuard.resolve(
+            properties.list(),
+            settings.property_id,
+            request.headers.get("host", ""),
+            supplied_property_id,
+            allow_body_selection=settings.allow_body_property_selection,
+        )
+    except PermissionError as exc:
+        decision = GuardrailDecision(False, "The requested property is not available from this guest address.", "property_isolation", supplied_property_id, 4, False, False, _request_id(request))
+        security_audit.record(decision.request_id, supplied_property_id, "property_access_violation", "denied", request.client.host if request.client else "")
+        raise GuardrailDenied(decision) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Property not found.") from exc
+
+
+def _enforce_guest_network(request: Request, property_record: PropertyRecord, action_level: int = 1) -> GuardrailDecision:
+    direct_ip = request.client.host if request.client else ""
+    decision = network_guard.evaluate(property_record.property_id, property_record.guardrails, direct_ip, request.headers, _request_id(request), action_level)
+    request.state.guardrail_decision = decision
+    if not decision.allowed:
+        security_audit.record(decision.request_id, property_record.property_id, "network_access_denied", "denied", decision.client_ip, metadata={"path": request.url.path})
+        raise GuardrailDenied(decision)
+    return decision
+
+
+def _guest_session(request: Request, session_id: str, action_level: int = 1):
+    session = store.peek(session_id)
+    if session is None:
+        decision = GuardrailDecision(False, "Concierge session expired.", "session_validation", None, action_level, False, False, _request_id(request))
+        raise GuardrailDenied(decision, status_code=401)
+    property_record = _guest_property(request, session.property_id)
+    policy_config = normalize_guardrails(property_record.guardrails)
+    if session.last_seen_at < int(time.time()) - int(policy_config["guest_session_timeout"]) * 60:
+        store.delete(session.session_id)
+        decision = GuardrailDecision(False, "Concierge session expired.", "session_validation", property_record.property_id, action_level, False, False, _request_id(request))
+        raise GuardrailDenied(decision, status_code=401)
+    try:
+        _enforce_guest_network(request, property_record, action_level)
+    except GuardrailDenied:
+        policy = policy_config.get("session_network_revalidation")
+        if policy == "expire":
+            store.delete(session.session_id)
+        else:
+            store.mark_network_status(session.session_id, "suspended")
+        raise
+    if session.network_status != "active":
+        store.mark_network_status(session.session_id, "active")
+    refreshed = store.get(session.session_id)
+    if refreshed is None or refreshed.property_id != property_record.property_id:
+        decision = GuardrailDecision(False, "Concierge session expired.", "session_validation", property_record.property_id, action_level, False, False, _request_id(request))
+        raise GuardrailDenied(decision, status_code=401)
+    return refreshed, property_record
 
 
 class StartSessionRequest(BaseModel):
@@ -349,6 +469,10 @@ class GenericPayload(BaseModel):
     data: dict[str, Any] = Field(default_factory=dict)
 
 
+class GuardrailConfigPayload(BaseModel):
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
 class UploadPayload(BaseModel):
     filename: str = Field(min_length=1, max_length=220)
     content_type: str = Field(min_length=1, max_length=120)
@@ -402,6 +526,7 @@ class GuestServiceRequestPayload(BaseModel):
     description: str = Field(min_length=1, max_length=1000)
     room: str | None = Field(default=None, max_length=80)
     client_request_id: str | None = Field(default=None, min_length=8, max_length=120)
+    confirmed: bool = False
 
 
 class ServiceRequestUpdatePayload(BaseModel):
@@ -459,6 +584,7 @@ class AdminUserCreatePayload(BaseModel):
     display_name: str = Field(min_length=1, max_length=120)
     password: str = Field(min_length=12, max_length=256)
     property_id: str | None = None
+    department_id: str | None = None
     role_id: str
     email: str | None = Field(default=None, max_length=254)
     status: str = Field(default="active", pattern=r"^(active|disabled)$")
@@ -468,6 +594,7 @@ class AdminUserCreatePayload(BaseModel):
 class AdminUserUpdatePayload(BaseModel):
     display_name: str | None = Field(default=None, min_length=1, max_length=120)
     property_id: str | None = None
+    department_id: str | None = None
     role_id: str | None = None
     email: str | None = Field(default=None, max_length=254)
     status: str | None = Field(default=None, pattern=r"^(active|disabled|locked)$")
@@ -497,6 +624,12 @@ class AdminRolePayload(BaseModel):
     description: str = Field(default="", max_length=500)
     property_id: str | None = None
     permissions: list[str] = Field(default_factory=list)
+
+
+class AssistantQueryPayload(BaseModel):
+    question: str = Field(min_length=2, max_length=1200)
+    period: str = Field(default="24h", pattern=r"^(1h|6h|24h|7d|30d|today|yesterday)$")
+    current_page: str = Field(default="overview", max_length=80)
 
 
 class KnowledgePayload(BaseModel):
@@ -529,7 +662,12 @@ class EmailSettingsPayload(BaseModel):
 
 
 @app.get("/")
-async def index() -> FileResponse:
+async def index(request: Request) -> Response:
+    try:
+        record = _guest_property(request)
+        _enforce_guest_network(request, record)
+    except GuardrailDenied as exc:
+        return FileResponse(STATIC_DIR / "access-restricted.html", status_code=exc.status_code)
     return FileResponse(STATIC_DIR / "index.html")
 
 
@@ -545,6 +683,21 @@ async def admin() -> FileResponse:
 
 @app.get("/health")
 async def health() -> dict[str, Any]:
+    return await health_ready()
+
+
+@app.get("/health/live")
+async def health_live() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.get("/health/ready")
+async def health_ready() -> dict[str, Any]:
+    try:
+        with sqlite3.connect(settings.db_path, timeout=2) as db:
+            db.execute("SELECT 1").fetchone()
+    except sqlite3.Error as exc:
+        raise HTTPException(status_code=503, detail="Database is not ready.") from exc
     return {
         "status": "ok",
         "app": settings.app_name,
@@ -555,9 +708,23 @@ async def health() -> dict[str, Any]:
     }
 
 
+@app.get("/health/details")
+async def health_details(request: Request) -> dict[str, Any]:
+    principal = admin_auth.authenticate(request.cookies.get(SESSION_COOKIE))
+    if principal is None or not principal.can("diagnostics.view"):
+        raise HTTPException(status_code=401 if principal is None else 403, detail="Administrator diagnostics permission required.")
+    database = observability.database_health()
+    return {
+        "status": "ok" if database.get("state") == "healthy" else "degraded",
+        "database": database,
+        "queued_requests": observability.queue_depth,
+    }
+
+
 @app.get("/api/hotel")
-async def hotel() -> dict[str, Any]:
-    property_record = properties.get(settings.property_id)
+async def hotel(request: Request) -> dict[str, Any]:
+    property_record = _guest_property(request)
+    _enforce_guest_network(request, property_record)
     profile = property_record.public_profile if property_record else knowledge.public_profile
     if not profile.get("ai"):
         profile["ai"] = {
@@ -569,61 +736,55 @@ async def hotel() -> dict[str, Any]:
 
 
 @app.get("/api/guest/zones")
-async def guest_zones(property_id: str | None = None) -> dict[str, Any]:
-    requested_property_id = property_id or settings.property_id
-    if properties.get(requested_property_id) is None:
-        raise HTTPException(status_code=404, detail="Property not found.")
-    return zones.overview(requested_property_id, guest=True)
+async def guest_zones(request: Request, property_id: str | None = None) -> dict[str, Any]:
+    record = _guest_property(request, property_id)
+    _enforce_guest_network(request, record)
+    return zones.overview(record.property_id, guest=True)
 
 
 @app.get("/api/guest/intro")
-async def guest_intro(property_id: str | None = None) -> dict[str, Any]:
-    requested_property_id = property_id or settings.property_id
-    if properties.get(requested_property_id) is None:
-        raise HTTPException(status_code=404, detail="Property not found.")
-    return intro_experiences.get(requested_property_id)
+async def guest_intro(request: Request, property_id: str | None = None) -> dict[str, Any]:
+    record = _guest_property(request, property_id)
+    _enforce_guest_network(request, record)
+    return intro_experiences.get(record.property_id)
 
 
 @app.get("/api/guest/navigation/route")
-async def guest_route(from_node_id: str, to_node_id: str, property_id: str | None = None) -> dict[str, Any]:
-    requested_property_id = property_id or settings.property_id
-    if properties.get(requested_property_id) is None:
-        raise HTTPException(status_code=404, detail="Property not found.")
+async def guest_route(request: Request, from_node_id: str, to_node_id: str, property_id: str | None = None) -> dict[str, Any]:
+    record = _guest_property(request, property_id)
+    _enforce_guest_network(request, record)
+    if not normalize_guardrails(record.guardrails)["directions_enabled"]:
+        raise GuardrailDenied(GuardrailDecision(False, "Directions are not enabled for this property.", "internet_access", record.property_id, 1, False, False, _request_id(request)))
     try:
-        return zones.route(requested_property_id, from_node_id, to_node_id, guest=True)
+        return zones.route(record.property_id, from_node_id, to_node_id, guest=True)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.get("/api/guest/facilities")
-async def guest_facilities(property_id: str | None = None) -> dict[str, Any]:
-    requested_property_id = property_id or settings.property_id
-    if properties.get(requested_property_id) is None:
-        raise HTTPException(status_code=404, detail="Property not found.")
-    return hospitality.guest_facilities(requested_property_id)
+async def guest_facilities(request: Request, property_id: str | None = None) -> dict[str, Any]:
+    record = _guest_property(request, property_id)
+    _enforce_guest_network(request, record)
+    return hospitality.guest_facilities(record.property_id)
 
 
 @app.get("/api/guest/service-catalog")
-async def guest_service_catalog(property_id: str | None = None) -> dict[str, Any]:
-    requested_property_id = property_id or settings.property_id
-    if properties.get(requested_property_id) is None:
-        raise HTTPException(status_code=404, detail="Property not found.")
-    return hospitality.catalog(requested_property_id, guest=True)
+async def guest_service_catalog(request: Request, property_id: str | None = None) -> dict[str, Any]:
+    record = _guest_property(request, property_id)
+    _enforce_guest_network(request, record)
+    return hospitality.catalog(record.property_id, guest=True)
 
 
 @app.get("/api/guest/recommendations")
-async def guest_recommendations(property_id: str | None = None) -> dict[str, Any]:
-    requested_property_id = property_id or settings.property_id
-    if properties.get(requested_property_id) is None:
-        raise HTTPException(status_code=404, detail="Property not found.")
-    return {"recommendations": hospitality.recommendations(requested_property_id, guest=True)}
+async def guest_recommendations(request: Request, property_id: str | None = None) -> dict[str, Any]:
+    record = _guest_property(request, property_id)
+    _enforce_guest_network(request, record)
+    return {"recommendations": hospitality.recommendations(record.property_id, guest=True)}
 
 
 @app.post("/api/guest/uploads")
-async def upload_guest_document(payload: GuestUploadPayload) -> dict[str, Any]:
-    session = store.get(payload.session_id)
-    if session is None:
-        raise HTTPException(status_code=401, detail="Concierge session expired.")
+async def upload_guest_document(payload: GuestUploadPayload, request: Request) -> dict[str, Any]:
+    session, _ = _guest_session(request, payload.session_id)
     if payload.content_type not in {"text/plain", "text/markdown", "text/csv", "application/json", "text/html"}:
         raise HTTPException(status_code=415, detail="Upload a TXT, Markdown, CSV, JSON, or HTML document.")
     try:
@@ -649,10 +810,14 @@ async def upload_guest_document(payload: GuestUploadPayload) -> dict[str, Any]:
 
 
 @app.post("/api/guest/service-requests")
-async def create_guest_service_request(payload: GuestServiceRequestPayload) -> dict[str, Any]:
-    session = store.get(payload.session_id)
-    if session is None:
-        raise HTTPException(status_code=401, detail="Concierge session expired.")
+async def create_guest_service_request(payload: GuestServiceRequestPayload, request: Request) -> dict[str, Any]:
+    session, property_record = _guest_session(request, payload.session_id, action_level=2)
+    decision = action_guard.decide("service_request", session.property_id, property_record.guardrails, _request_id(request), payload.confirmed)
+    if not decision.allowed:
+        security_audit.record(decision.request_id, session.property_id, "service_request_blocked", "denied", getattr(request.state, "guardrail_decision", decision).client_ip)
+        raise GuardrailDenied(decision, status_code=409 if decision.confirmation_required else 403)
+    if not rate_limiter.allow(f"service:{session.property_id}:{session.session_id}", 10, 300):
+        raise HTTPException(status_code=429, detail="Too many service requests. Please wait before trying again.")
     try:
         request_record = hospitality.create_service_request(
             session.property_id,
@@ -673,10 +838,8 @@ async def create_guest_service_request(payload: GuestServiceRequestPayload) -> d
 
 
 @app.get("/api/guest/conversations/{session_id}/staff-messages")
-async def guest_staff_messages(session_id: str) -> dict[str, Any]:
-    session = store.get(session_id)
-    if session is None:
-        raise HTTPException(status_code=401, detail="Concierge session expired.")
+async def guest_staff_messages(session_id: str, request: Request) -> dict[str, Any]:
+    session, _ = _guest_session(request, session_id)
     return {"messages": store.staff_messages(session_id, session.property_id)}
 
 
@@ -931,6 +1094,303 @@ async def property_dashboard(property_id: str) -> dict[str, Any]:
     }
 
 
+def _dashboard_profile(principal: AdminPrincipal) -> str:
+    return {
+        "super-admin": "platform",
+        "property-administrator": "property_operations",
+        "property-manager": "management",
+        "department-manager": "department",
+        "concierge-front-desk": "service_operations",
+        "content-manager": "content_operations",
+        "viewer-auditor": "read_only",
+    }.get(principal.role_slug, "read_only")
+
+
+def _analytics_for_principal(property_id: str, period: str, principal: AdminPrincipal, start_at: int | None = None, end_at: int | None = None) -> dict[str, Any]:
+    department_id = principal.department_id if principal.role_slug == "department-manager" else None
+    try:
+        return observability.property_analytics(property_id, period, department_id, start_at, end_at)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _component_state(states: list[str]) -> str:
+    ranking = {"healthy": 0, "simulation": 0, "warning": 1, "unavailable": 2, "critical": 3}
+    return max(states or ["unavailable"], key=lambda item: ranking.get(item, 2))
+
+
+def _build_operations_dashboard(property_id: str, period: str, principal: AdminPrincipal, start_at: int | None = None, end_at: int | None = None) -> dict[str, Any]:
+    if period not in PERIODS and period != "custom":
+        raise HTTPException(status_code=422, detail="Unsupported reporting period.")
+    record = _require_property_record(property_id)
+    analytics_full = _analytics_for_principal(property_id, period, principal, start_at, end_at)
+    summary = analytics_full["summary"]
+    ai_summary = analytics_full["ai"]
+    session_metrics = store.metrics(property_id)
+    for metric, value, unit in (
+        ("service_requests", summary["service_requests"], "request"),
+        ("overdue_requests", summary["overdue_requests"], "request"),
+        ("ai_errors", ai_summary["errors"], "error"),
+        ("ai_latency_ms", ai_summary["average_latency_ms"], "ms"),
+        ("guest_auth_success_rate", analytics_full["guest_auth"]["success_rate"], "%"),
+        ("active_sessions", session_metrics.get("active_guests", 0), "session"),
+    ):
+        observability.record(property_id, metric, value, unit, "available" if value is not None else "unavailable", "application")
+
+    infrastructure_allowed = principal.can("infrastructure.view")
+    system_metrics = observability.collect_system(property_id) if infrastructure_allowed else {
+        metric: {"value": None, "unit": "", "availability": "restricted"}
+        for metric in ("cpu_utilization", "memory_utilization", "disk_utilization", "network_rx_bytes", "network_tx_bytes", "application_uptime_seconds")
+    }
+    database = observability.database_health() if infrastructure_allowed else {
+        "state": "unavailable", "latency_ms": None, "size_bytes": None,
+        "evidence": "Infrastructure telemetry is not available to this role.",
+    }
+    ai_settings = ai_provider_store.get_settings(property_id)
+    providers = ai_provider_store.list_connections(property_id)
+    enabled_providers = [item for item in providers if item.get("enabled")]
+    configured_providers = [item for item in enabled_providers if item.get("provider_id") == "local" or item.get("credentials")]
+    provider_states = []
+    provider_health = []
+    for provider in enabled_providers:
+        last_test = provider.get("last_test") or {}
+        if last_test.get("ok") is True or provider.get("provider_id") == "local":
+            state = "healthy"
+            evidence = "Local provider is enabled." if provider.get("provider_id") == "local" else "Most recent connection test succeeded."
+        elif provider.get("status") in {"connected", "configured"}:
+            state = "warning"
+            evidence = "Provider is configured but has no verified successful connection test."
+        else:
+            state = "unavailable"
+            evidence = "Provider is enabled but credentials or a verified connection are unavailable."
+        provider_states.append(state)
+        provider_health.append({"id": provider["provider_id"], "name": provider["name"], "state": state, "evidence": evidence, "last_test": last_test.get("tested_at")})
+    ai_state = _component_state(provider_states) if enabled_providers else "unavailable"
+    antlabs_status = antlabs.configuration_status()
+    antlabs_state = "simulation" if antlabs_status["status"] == "simulation" else ("healthy" if antlabs_status["configured"] else "unavailable")
+    request_state = "warning" if summary["overdue_requests"] else "healthy"
+    auth_rate = analytics_full["guest_auth"]["success_rate"]
+    auth_state = "unavailable" if auth_rate is None else ("warning" if auth_rate < 90 else "healthy")
+    knowledge_count = len(operations.list_knowledge(property_id))
+    recent_errors = observability.recent_errors(property_id, period)
+    application_state = "warning" if recent_errors else "healthy"
+    components = [
+        {"id": "application", "name": "Application", "state": application_state, "evidence": f"The API is responding; {len(recent_errors)} recorded integration or AI error(s) were found in this period."},
+        {"id": "database", "name": "Database", "state": database["state"], "evidence": database["evidence"]},
+        {"id": "ai_providers", "name": "AI providers", "state": ai_state, "evidence": f"{len(configured_providers)} of {len(enabled_providers)} enabled providers have credentials or local execution."},
+        {"id": "antlabs", "name": "ANTlabs gateway", "state": antlabs_state, "evidence": f"Mode: {antlabs_status['mode']}; status: {antlabs_status['status']}."},
+        {"id": "guest_auth", "name": "Guest authentication", "state": auth_state, "evidence": "No authentication attempts in this period." if auth_rate is None else f"{auth_rate}% of attempts succeeded."},
+        {"id": "request_queue", "name": "Service request queue", "state": request_state, "evidence": f"{summary['open_requests']} open; {summary['overdue_requests']} overdue."},
+        {"id": "knowledge", "name": "Knowledge index", "state": "healthy" if knowledge_count else "warning", "evidence": f"{knowledge_count} indexed knowledge item(s)."},
+    ]
+    overall = _component_state([item["state"] for item in components])
+    analytics = {key: value for key, value in analytics_full.items() if key != "raw_requests"}
+    selected_provider = next((item for item in providers if item["provider_id"] == ai_settings.get("default_provider")), None)
+    analytics["summary"]["active_sessions"] = session_metrics.get("active_guests", 0)
+    analytics["ai"]["selected_provider"] = ai_settings.get("default_provider")
+    analytics["ai"]["selected_model"] = selected_provider.get("selected_model") if selected_provider else None
+    histories = {
+        metric: observability.history(property_id, metric, period, start_at, end_at)
+        for metric in ("api_latency_ms", "http_errors", "request_queue_depth", "active_sessions", "service_requests", "overdue_requests", "ai_latency_ms", "ai_errors", "guest_auth_success_rate", "cpu_utilization", "memory_utilization", "disk_utilization", "network_rx_bytes", "network_tx_bytes")
+    }
+    infrastructure_metrics = {"cpu_utilization", "memory_utilization", "disk_utilization", "network_rx_bytes", "network_tx_bytes", "request_queue_depth", "http_errors", "api_latency_ms"}
+    history_availability = {metric: "available" for metric in histories}
+    if not infrastructure_allowed:
+        for metric in infrastructure_metrics:
+            histories[metric] = []
+            history_availability[metric] = "restricted"
+    deployment = _deployment_status(record) if principal.can("domains.view") else {"availability": "restricted"}
+    deliveries = operations.list_webhook_deliveries(property_id) if principal.can("integrations.view") else []
+    payload_integrations = {
+        "antlabs": antlabs_status,
+        "external_api_connectivity": {"configured_webhooks": len(operations.list_webhooks(property_id)) if principal.can("integrations.view") else None, "failed_deliveries": sum(1 for item in deliveries if item.get("status") != "delivered") if principal.can("integrations.view") else None, "availability": "available" if principal.can("integrations.view") else "restricted"},
+        "deployment": deployment,
+    }
+    payload = {
+        "property": {"id": property_id, "name": record.hotel_name},
+        "period": period,
+        "profile": _dashboard_profile(principal),
+        "role": {"name": principal.role_name, "slug": principal.role_slug, "department_id": principal.department_id},
+        "health": {"state": overall, "components": components, "providers": provider_health},
+        "system": system_metrics,
+        "database": database,
+        "integrations": payload_integrations,
+        "analytics": analytics,
+        "histories": histories,
+        "history_availability": history_availability,
+        "generated_at": int(time.time()),
+        "data_notes": [
+            "Charts contain recorded application telemetry only; missing history is shown as unavailable.",
+            "Estimated AI cost is unavailable until verified billable usage and provider pricing are configured.",
+        ],
+    }
+    payload["alerts"] = observability.evaluate_alerts(property_id, payload)
+    return payload
+
+
+def _recommendations(analytics: dict[str, Any], alerts: list[dict[str, Any]]) -> list[str]:
+    recommendations: list[str] = []
+    summary = analytics["summary"]
+    if summary["overdue_requests"]:
+        recommendations.append(f"Review the {summary['overdue_requests']} overdue request(s) and rebalance the busiest department queue.")
+    if analytics["ai"]["requests"] and analytics["ai"]["errors"]:
+        recommendations.append("Review failed AI provider calls before changing routing or fallback configuration.")
+    if summary["fallback_rate_percent"] > 10:
+        recommendations.append("Review top unanswered guest questions and add verified knowledge for recurring gaps.")
+    if not recommendations and not alerts:
+        recommendations.append("No evidence-backed corrective action is required; continue monitoring the selected period.")
+    return recommendations
+
+
+@app.get("/api/admin/properties/{property_id}/operations/dashboard")
+async def operations_dashboard(property_id: str, request: Request, period: str = "24h", start_at: int | None = None, end_at: int | None = None) -> dict[str, Any]:
+    return _build_operations_dashboard(property_id, period, _admin_principal(request), start_at, end_at)
+
+
+@app.get("/api/admin/properties/{property_id}/operations/alerts")
+async def operations_alerts(property_id: str, request: Request, period: str = "24h", start_at: int | None = None, end_at: int | None = None) -> dict[str, Any]:
+    dashboard = _build_operations_dashboard(property_id, period, _admin_principal(request), start_at, end_at)
+    return {"period": period, "alerts": dashboard["alerts"], "generated_at": dashboard["generated_at"]}
+
+
+def _diagnostic_result(tool: str, context: DiagnosticContext, dashboard: dict[str, Any], record: PropertyRecord, period: str) -> dict[str, Any]:
+    analytics = dashboard["analytics"]
+    if tool == "get_system_health":
+        return {"component": "system", "state": dashboard["health"]["state"], "evidence": dashboard["health"]["components"], "timeframe": period}
+    if tool == "query_metrics":
+        permitted = {key: value for key, value in dashboard["histories"].items() if dashboard["history_availability"].get(key) != "restricted"}
+        return {"component": "metrics", "state": "available" if permitted else "unavailable", "evidence": permitted, "timeframe": period}
+    if tool == "query_logs":
+        errors = observability.recent_errors(context.property_id, period)
+        return {"component": "logs", "state": "warning" if errors else "healthy", "evidence": errors, "timeframe": period}
+    if tool == "get_recent_errors":
+        return {"component": "errors", "state": "warning" if observability.recent_errors(context.property_id, period) else "healthy", "evidence": observability.recent_errors(context.property_id, period), "timeframe": period}
+    if tool == "check_database":
+        return {"component": "database", **dashboard["database"], "timeframe": "current probe"}
+    if tool == "check_ai_provider":
+        return {"component": "ai_providers", "state": next(item["state"] for item in dashboard["health"]["components"] if item["id"] == "ai_providers"), "evidence": dashboard["health"]["providers"], "timeframe": period}
+    if tool == "check_antlabs_gateway":
+        component = next(item for item in dashboard["health"]["components"] if item["id"] == "antlabs")
+        return {"component": "antlabs", "state": component["state"], "evidence": component["evidence"], "timeframe": "configuration state"}
+    if tool in {"check_dns", "check_ssl"}:
+        deployment = _deployment_status(record)
+        key = "domain" if tool == "check_dns" else "ssl"
+        return {"component": key, "state": deployment[key]["status"], "evidence": deployment[key], "timeframe": deployment.get("last_checked_at") or "not yet verified"}
+    if tool == "check_request_queue":
+        overdue = analytics["summary"]["overdue_requests"]
+        return {"component": "request_queue", "state": "warning" if overdue else "healthy", "evidence": {key: analytics["summary"][key] for key in ("service_requests", "open_requests", "overdue_requests", "sla_performance_percent")}, "likely_cause": "Open requests have passed their configured SLA due time." if overdue else None, "timeframe": period}
+    if tool == "check_guest_auth":
+        return {"component": "guest_auth", "state": "unavailable" if analytics["guest_auth"]["success_rate"] is None else "healthy", "evidence": analytics["guest_auth"], "timeframe": period}
+    if tool == "check_knowledge_index":
+        items = operations.list_knowledge(context.property_id)
+        return {"component": "knowledge", "state": "healthy" if items else "warning", "evidence": {"indexed_items": len(items)}, "timeframe": "current index"}
+    if tool == "compare_time_periods":
+        return {"component": "operations", "state": "available", "evidence": {"current_requests": analytics["summary"]["service_requests"], "change_percent": analytics["summary"]["request_change_percent"]}, "timeframe": f"{period} versus previous {period}"}
+    if tool == "analyze_business_operations":
+        return {"component": "business_analytics", "state": "available", "evidence": {"summary": analytics["summary"], "departments": analytics["requests_by_department"], "top_services": analytics["top_services"], "top_questions": analytics["top_questions"], "busiest_periods": analytics["busiest_periods"]}, "timeframe": period}
+    if tool == "prepare_management_report":
+        return {"component": "reporting", "state": "available", "evidence": {"property_id": context.property_id, "period": period, "department_scope": analytics.get("department_scope"), "formats": ["xlsx", "pdf"]}, "timeframe": period}
+    raise KeyError("Unknown diagnostic tool.")
+
+
+for _tool_name, _tool_permission in {
+    "get_system_health": "dashboard.view", "query_metrics": "dashboard.view", "query_logs": "audit.view", "get_recent_errors": "audit.view",
+    "check_database": "infrastructure.view", "check_ai_provider": "ai.view",
+    "check_antlabs_gateway": "integrations.view", "check_dns": "domains.view", "check_ssl": "domains.view",
+    "check_request_queue": "requests.view", "check_guest_auth": "analytics.view",
+    "check_knowledge_index": "knowledge.view", "compare_time_periods": "analytics.view",
+    "analyze_business_operations": "analytics.view", "prepare_management_report": "reports.export",
+}.items():
+    diagnostic_tools.register(_tool_name, _tool_permission, lambda context, tool=_tool_name, **kwargs: _diagnostic_result(tool, context, **kwargs))
+
+
+def _choose_diagnostic_tool(question: str) -> str:
+    lowered = question.casefold()
+    choices = [
+        (("database", "sqlite"), "check_database"), (("provider", "model", "ai "), "check_ai_provider"),
+        (("antlabs", "gateway"), "check_antlabs_gateway"), (("dns", "domain"), "check_dns"),
+        (("ssl", "certificate", "https"), "check_ssl"),
+        (("report", "export"), "prepare_management_report"), (("department", "guests asking", "guest question", "resolution time", "busiest", "most requested"), "analyze_business_operations"),
+        (("queue", "request", "sla", "delay"), "check_request_queue"),
+        (("guest auth", "authentication", "login"), "check_guest_auth"), (("knowledge", "index", "answer"), "check_knowledge_index"),
+        (("compare", "versus", "trend"), "compare_time_periods"), (("log",), "query_logs"), (("error", "failure"), "get_recent_errors"),
+        (("latency", "metric", "utilization", "uptime", "network"), "query_metrics"),
+    ]
+    return next((tool for words, tool in choices if any(word in lowered for word in words)), "get_system_health")
+
+
+@app.post("/api/admin/properties/{property_id}/assistant/query")
+async def operations_assistant(property_id: str, payload: AssistantQueryPayload, request: Request) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    dashboard = _build_operations_dashboard(property_id, payload.period, principal)
+    record = _require_property_record(property_id)
+    destructive = bool(re.search(r"\b(restart|delete|disable|enable|change|rotate|reset|deploy|update|remove)\b", payload.question, re.I))
+    tool = _choose_diagnostic_tool(payload.question)
+    context = DiagnosticContext(property_id, principal.role_slug, principal.department_id, principal.permissions, _request_id(request))
+    try:
+        result = diagnostic_tools.run(tool, context, dashboard=dashboard, record=record, period=payload.period)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    state = str(result.get("state", "unavailable"))
+    finding = f"{result['component'].replace('_', ' ').title()} is {state}."
+    recommendations = _recommendations(_analytics_for_principal(property_id, payload.period, principal), dashboard["alerts"])
+    links = [{"label": "Open system health", "panel": "system-health"}, {"label": "View alerts", "panel": "alerts"}]
+    if tool == "prepare_management_report":
+        links = [{"label": "Open reports", "panel": "reports"}, {"label": "Choose export format", "panel": "exports"}]
+    elif tool in {"analyze_business_operations", "compare_time_periods"}:
+        links = [{"label": "Open analytics", "panel": "analytics"}, {"label": "Open reports", "panel": "reports"}]
+    response = {
+        "question": payload.question, "tool": tool, "finding": finding,
+        "component": result["component"], "timeframe": result.get("timeframe", payload.period),
+        "evidence": result.get("evidence"), "likely_cause": result.get("likely_cause"),
+        "recommendations": recommendations,
+        "links": links,
+        "confirmation_required": destructive,
+        "action_status": "No change was made. Explicit confirmation in the relevant configuration screen is required." if destructive else "read_only",
+        "request_id": context.request_id,
+    }
+    observability.log_diagnostic(context.request_id, property_id, principal.user_id, tool, payload.period, finding)
+    admin_auth.audit(principal, "assistant.diagnostic", "diagnostic", tool, property_id=property_id, metadata={"period": payload.period, "component": result["component"], "confirmation_required": destructive})
+    return response
+
+
+@app.middleware("http")
+async def enforce_guest_origin(request: Request, call_next):
+    path = request.url.path
+    guest_mutation = request.method not in {"GET", "HEAD", "OPTIONS"} and (
+        path.startswith("/api/guest/") or path in {"/api/session/start", "/api/authenticate", "/api/chat"}
+    )
+    origin = request.headers.get("origin")
+    if guest_mutation and origin:
+        parsed = urlparse(origin)
+        origin_host = (parsed.hostname or "").casefold().rstrip(".")
+        request_host = request.headers.get("host", "").split(":", 1)[0].casefold().rstrip(".")
+        if parsed.scheme not in {"http", "https"} or not origin_host or origin_host != request_host:
+            security_audit.record(_request_id(request), None, "guest_origin_blocked", "denied", request.client.host if request.client else "", metadata={"path": path})
+            return JSONResponse({"detail": "Cross-origin guest mutation denied."}, status_code=403)
+    return await call_next(request)
+
+
+@app.get("/api/admin/properties/{property_id}/reports/export.xlsx")
+async def export_operations_xlsx(property_id: str, request: Request, period: str = "7d") -> Response:
+    principal = _admin_principal(request)
+    record = _require_property_record(property_id)
+    analytics = _analytics_for_principal(property_id, period, principal)
+    dashboard = _build_operations_dashboard(property_id, period, principal)
+    content = report_service.workbook(record.hotel_name, analytics, _recommendations(analytics, dashboard["alerts"]))
+    return Response(content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f'attachment; filename="{property_id}-{period}-operations.xlsx"'})
+
+
+@app.get("/api/admin/properties/{property_id}/reports/export.pdf")
+async def export_operations_pdf(property_id: str, request: Request, period: str = "7d") -> Response:
+    principal = _admin_principal(request)
+    record = _require_property_record(property_id)
+    analytics = _analytics_for_principal(property_id, period, principal)
+    dashboard = _build_operations_dashboard(property_id, period, principal)
+    content = report_service.management_pdf(record.hotel_name, analytics, dashboard["alerts"], _recommendations(analytics, dashboard["alerts"]))
+    return Response(content, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{property_id}-{period}-management.pdf"'})
+
+
 @app.get("/api/admin/properties/{property_id}/conversations")
 async def property_conversations(property_id: str) -> dict[str, Any]:
     _require_property(property_id)
@@ -974,11 +1434,56 @@ async def upsert_property(property_id: str, payload: PropertyPayload) -> dict[st
         raise HTTPException(status_code=400, detail="Property ID must match the request path.")
     record = payload.to_record()
     existing = properties.get(property_id)
+    if existing and not record.guardrails.get("antlabs_signature_secret"):
+        record.guardrails["antlabs_signature_secret"] = (existing.guardrails or {}).get("antlabs_signature_secret", "")
+    try:
+        record.guardrails = normalize_guardrails(record.guardrails)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if existing:
         record.design_draft = existing.design_draft
         record.design_published = existing.design_published
         record.design_versions = existing.design_versions
     return properties.upsert(record).to_dict()
+
+
+@app.get("/api/admin/properties/{property_id}/guardrails")
+async def get_property_guardrails(property_id: str) -> dict[str, Any]:
+    record = _require_property_record(property_id)
+    return {"config": public_guardrails(record.guardrails)}
+
+
+@app.put("/api/admin/properties/{property_id}/guardrails")
+async def update_property_guardrails(property_id: str, payload: GuardrailConfigPayload, request: Request) -> dict[str, Any]:
+    record = _require_property_record(property_id)
+    secret = str((record.guardrails or {}).get("antlabs_signature_secret") or "")
+    incoming = dict(payload.config)
+    if not incoming.get("antlabs_signature_secret"):
+        incoming["antlabs_signature_secret"] = secret
+    try:
+        record.guardrails = normalize_guardrails(incoming)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    properties.upsert(record)
+    principal = _admin_principal(request)
+    security_audit.record(_request_id(request), property_id, "network_policy_changed", "success", request.client.host if request.client else "", actor=principal.username)
+    return {"config": public_guardrails(record.guardrails)}
+
+
+@app.get("/api/admin/properties/{property_id}/guardrails/diagnostics")
+async def property_guardrail_diagnostics(property_id: str, request: Request) -> dict[str, Any]:
+    record = _require_property_record(property_id)
+    decision = network_guard.evaluate(property_id, record.guardrails, request.client.host if request.client else "", request.headers, _request_id(request))
+    active = sum(1 for item in store.sessions(property_id) if item["session_status"] == "active")
+    return {
+        "detected_client_ip": decision.client_ip,
+        "matched_network": decision.matched_network or None,
+        "property_id": property_id,
+        "trusted_proxy": decision.trusted_proxy,
+        "network_policy_result": "allowed" if decision.allowed else "denied",
+        "active_guest_sessions": active,
+        "recent_security_events": security_audit.list(property_id, 20),
+    }
 
 
 @app.get("/api/admin/properties/{property_id}/knowledge")
@@ -1039,7 +1544,9 @@ async def list_property_webhooks(property_id: str) -> dict[str, Any]:
 async def save_property_webhook(property_id: str, payload: WebhookPayload) -> dict[str, Any]:
     _require_property(property_id)
     try:
-        return operations.save_webhook(property_id, payload.model_dump(), payload.webhook_id)
+        clean = payload.model_dump()
+        clean["endpoint_url"] = InternetGuard.validate_url(payload.endpoint_url)
+        return operations.save_webhook(property_id, clean, payload.webhook_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -1055,22 +1562,26 @@ async def delete_property_webhook(property_id: str, webhook_id: str) -> dict[str
 
 
 @app.post("/api/admin/properties/{property_id}/webhooks/{webhook_id}/test")
-async def test_property_webhook(property_id: str, webhook_id: str) -> dict[str, Any]:
+async def test_property_webhook(property_id: str, webhook_id: str, request: Request) -> dict[str, Any]:
     _require_property(property_id)
     webhook = operations.get_webhook(property_id, webhook_id, include_secret=True)
     if webhook is None:
         raise HTTPException(status_code=404, detail="Webhook not found.")
+    try:
+        endpoint_url = InternetGuard.validate_url(webhook["endpoint_url"])
+    except ValueError as exc:
+        security_audit.record(_request_id(request), property_id, "ssrf_blocked", "denied", request.client.host if request.client else "", resource="webhook")
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     body = json.dumps({"event": "concierge.webhook.test", "property_id": property_id, "timestamp": int(time.time())}).encode("utf-8")
     headers = {"Content-Type": "application/json", "User-Agent": "Concierge.Ai-Webhooks/1.0"}
     if webhook.get("secret"):
         headers["X-Concierge-Signature"] = "sha256=" + hmac.new(webhook["secret"].encode("utf-8"), body, hashlib.sha256).hexdigest()
     try:
-        async with httpx.AsyncClient(timeout=8, follow_redirects=False) as client:
-            response = await client.post(webhook["endpoint_url"], content=body, headers=headers)
+        response = await _outbound_broker(property_id, _request_id(request)).post(endpoint_url, content=body, headers=headers)
         status = "delivered" if 200 <= response.status_code < 300 else "failed"
         error = "" if status == "delivered" else f"Endpoint returned HTTP {response.status_code}."
         return operations.record_webhook_delivery(property_id, webhook_id, "concierge.webhook.test", status, response.status_code, error)
-    except httpx.HTTPError as exc:
+    except OutboundRequestError as exc:
         return operations.record_webhook_delivery(property_id, webhook_id, "concierge.webhook.test", "failed", error=str(exc))
 
 
@@ -1810,35 +2321,48 @@ async def decide_improvement_loop(property_id: str, payload: ImprovementLoopDeci
 
 
 @app.post("/api/session/start")
-async def start_session(request: StartSessionRequest) -> dict[str, Any]:
-    requested_property_id = request.property_id or settings.property_id
-    if properties.get(requested_property_id) is None:
-        raise HTTPException(status_code=404, detail="Property not found.")
+async def start_session(payload: StartSessionRequest, request: Request) -> dict[str, Any]:
+    property_record = _guest_property(request, payload.property_id)
+    network = _enforce_guest_network(request, property_record)
+    policy = normalize_guardrails(property_record.guardrails)
+    gateway_context: dict[str, Any] = {}
+    if policy["antlabs_gateway_enabled"]:
+        raw_body = await request.body()
+        if not GatewayGuard.validate(request.headers, raw_body, request.client.host if request.client else "", property_record.guardrails):
+            decision = GuardrailDecision(False, "Hotel gateway validation failed.", "antlabs_gateway", property_record.property_id, 1, False, False, _request_id(request))
+            security_audit.record(decision.request_id, property_record.property_id, "antlabs_validation_failed", "denied", network.client_ip)
+            raise GuardrailDenied(decision)
+        gateway_context = {
+            key: value for key, value in payload.gateway_context.items()
+            if key in {"property_id", "authenticated_guest", "gateway_id", "guest_session_id", "client_ip", "guest_vlan", "session_state"}
+        }
+    ip_rate_key = f"session-ip:{property_record.property_id}:{network.client_ip}"
+    client_rate_key = f"session-client:{property_record.property_id}:{network.client_ip}:{payload.client_id}"
+    if not rate_limiter.allow(ip_rate_key, 240, 300) or not rate_limiter.allow(client_rate_key, 10, 300):
+        raise HTTPException(status_code=429, detail="Too many session attempts. Please wait before trying again.")
     session = store.create(
-        property_id=requested_property_id,
-        client_id=request.client_id,
-        gateway_context=request.gateway_context,
+        property_id=property_record.property_id,
+        client_id=payload.client_id,
+        gateway_context=gateway_context,
     )
     await _dispatch_webhooks(
-        requested_property_id,
+        property_record.property_id,
         "guest.session.started",
-        {"session_id": session.session_id, "client_id": request.client_id},
+        {"session_id": session.session_id, "client_id": payload.client_id},
     )
     return {
         "session_id": session.session_id,
-        "expires_after_minutes": settings.session_ttl_minutes,
+        "expires_after_minutes": policy["guest_session_timeout"],
     }
 
 
 @app.post("/api/authenticate")
-async def authenticate(request: AuthRequest) -> dict[str, Any]:
-    session = store.get(request.session_id)
-    if session is None:
-        raise HTTPException(status_code=401, detail="Concierge session expired.")
+async def authenticate(payload: AuthRequest, request: Request) -> dict[str, Any]:
+    session, _ = _guest_session(request, payload.session_id)
 
     result = antlabs.authenticate(
-        room=request.room,
-        last_name=request.last_name,
+        room=payload.room,
+        last_name=payload.last_name,
         concierge_session_id=session.session_id,
         gateway_context=session.gateway_context,
     )
@@ -1855,19 +2379,17 @@ async def authenticate(request: AuthRequest) -> dict[str, Any]:
 
 
 @app.post("/api/chat")
-async def chat(request: ChatRequest) -> dict[str, Any]:
-    session = store.get(request.session_id)
-    if session is None:
-        raise HTTPException(status_code=401, detail="Concierge session expired.")
-    if _chat_rate_limited(request.session_id):
+async def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
+    session, property_record = _guest_session(request, payload.session_id)
+    if _chat_rate_limited(payload.session_id):
         raise HTTPException(status_code=429, detail="Too many messages. Please wait a moment.")
 
-    requested_mode = request.mode if settings.ai_guest_mode_switch else settings.ai_default_mode
-    property_record = properties.get(session.property_id)
+    requested_mode = payload.mode if settings.ai_guest_mode_switch else settings.ai_default_mode
     auth_types = property_record.public_profile.get("authentication", {}).get("enabled_types", []) if property_record else []
     conversation_history = store.recent_messages(session.session_id, session.property_id, limit=10)
-    contextual_query = _contextual_query(request.message, conversation_history)
-    store.record_message(session.session_id, session.property_id, "guest", request.message)
+    sanitized_message = AIInputSanitizer.sanitize_text(payload.message)
+    contextual_query = _contextual_query(sanitized_message, conversation_history)
+    store.record_message(session.session_id, session.property_id, "guest", sanitized_message)
     started_at = time.perf_counter()
     conversation_state = store.conversation_state(session.session_id, session.property_id)
     if conversation_state["human_takeover"]:
@@ -1875,10 +2397,13 @@ async def chat(request: ChatRequest) -> dict[str, Any]:
         store.record_message(session.session_id, session.property_id, "assistant", answer, provider="human_queue", model="staff")
         return {"answer": answer, "source": "human_queue", "provider": "human", "model": "staff", "mode": requested_mode, "escalated": True}
 
-    fast_answer = _safety_fast_answer(request.message) or _property_fast_answer(property_record, contextual_query) or knowledge.exact_fast_answer(contextual_query)
-    if fast_answer and requested_mode != "advanced":
+    safety_reason = PrivacyGuard.classify(sanitized_message)
+    if safety_reason:
+        security_audit.record(_request_id(request), session.property_id, safety_reason, "blocked", getattr(request.state, "guardrail_decision").client_ip)
+    fast_answer = (PrivacyGuard.safe_response(safety_reason) if safety_reason else None) or _safety_fast_answer(sanitized_message) or _property_fast_answer(property_record, contextual_query) or knowledge.exact_fast_answer(contextual_query)
+    if fast_answer and (safety_reason or requested_mode != "advanced"):
         answer = fast_answer
-        if _is_authentication_question(request.message):
+        if _is_authentication_question(sanitized_message):
             answer = f"{answer}\n\n{_authentication_guidance(auth_types)}"
         store.record_message(session.session_id, session.property_id, "assistant", answer, provider="fast_path", model="none", latency_ms=int((time.perf_counter() - started_at) * 1000))
         return {
@@ -1899,18 +2424,18 @@ async def chat(request: ChatRequest) -> dict[str, Any]:
                 "answer": _authentication_guidance(auth_types),
             }
         )
-    location = knowledge.data.get("location", {})
-    place_results = await places.search(
-        request.message,
-        location.get("latitude"),
-        location.get("longitude"),
-    )
+    context = AIInputSanitizer.sanitize_context(context)
+    policy = normalize_guardrails(property_record.guardrails)
+    location = {"latitude": property_record.latitude, "longitude": property_record.longitude}
+    place_results = []
+    if policy["internet_search_enabled"] and any(policy[key] for key in ("restaurant_search_enabled", "attractions_enabled")):
+        place_results = await places.search(sanitized_message, location.get("latitude"), location.get("longitude"))
     live_context = format_places_for_ai(place_results)
 
     try:
         model_result = await ai_models.concierge_chat(
             property_id=session.property_id,
-            user_message=request.message,
+            user_message=sanitized_message,
             hotel_name=property_record.hotel_name if property_record else knowledge.data["name"],
             context=context,
             live_context=live_context,
@@ -1923,7 +2448,7 @@ async def chat(request: ChatRequest) -> dict[str, Any]:
     except Exception as exc:
         try:
             result = await ai.chat(
-                user_message=request.message,
+                user_message=sanitized_message,
                 hotel_name=property_record.hotel_name if property_record else knowledge.data["name"],
                 context=context,
                 live_context=live_context,
@@ -1934,7 +2459,7 @@ async def chat(request: ChatRequest) -> dict[str, Any]:
             answer = result.answer
         except Exception:
             if context:
-                answer = context[0].get("answer")
+                answer = AIOutputValidator.validate(context[0].get("answer") or "")
                 store.record_message(session.session_id, session.property_id, "assistant", answer or "", provider="verified_fallback", model="none", latency_ms=int((time.perf_counter() - started_at) * 1000))
                 return {
                     "answer": answer,
@@ -1946,12 +2471,13 @@ async def chat(request: ChatRequest) -> dict[str, Any]:
                 }
             raise HTTPException(status_code=503, detail="The AI service is temporarily unavailable. Please try again.") from exc
 
+    answer = AIOutputValidator.validate(answer)
     store.record_message(session.session_id, session.property_id, "assistant", answer, provider=provider, model=model, latency_ms=int((time.perf_counter() - started_at) * 1000))
     if requested_mode == "advanced":
         await _dispatch_webhooks(
             session.property_id,
             "conversation.escalated",
-            {"session_id": session.session_id, "message": request.message},
+            {"session_id": session.session_id, "message": sanitized_message},
         )
     return {
         "answer": answer,
@@ -2019,7 +2545,7 @@ def _property_fast_answer(property_record: PropertyRecord | None, message: str) 
         for facility in requested_facilities:
             name = str(facility.get("name") or "Facility")
             location = str(facility.get("location") or "").strip()
-            hours = str(facility.get("hours") or "").strip()
+            hours = _display_hours(str(facility.get("hours") or "").strip())
             facts = [value for value in (location, hours) if value]
             details.append(f"{name}: {'; '.join(facts)}." if facts else f"{name} information is available from the concierge.")
         return " ".join(details)
@@ -2043,6 +2569,17 @@ def _property_fast_answer(property_record: PropertyRecord | None, message: str) 
             location_type = str(location.get("type") or "location").replace("_", " ")
             return description or f"{location['name']} is listed as a {location_type}."
     return None
+
+
+def _display_hours(value: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        hour = int(match.group(1))
+        minute = match.group(2)
+        suffix = "AM" if hour < 12 else "PM"
+        display_hour = hour % 12 or 12
+        return f"{display_hour}:{minute} {suffix}"
+
+    return re.sub(r"(?<!\d)([01]?\d|2[0-3]):([0-5]\d)(?!\d)", replace, value)
 
 
 def _authentication_guidance(auth_types: list[dict[str, Any]]) -> str:
@@ -2284,18 +2821,18 @@ async def _dispatch_webhooks(property_id: str, event_name: str, payload: dict[st
     if not webhooks:
         return
     body = json.dumps({"event": event_name, "property_id": property_id, "timestamp": int(time.time()), **payload}, default=str).encode("utf-8")
-    async with httpx.AsyncClient(timeout=8, follow_redirects=False) as client:
-        for item in webhooks:
-            webhook = operations.get_webhook(property_id, item["webhook_id"], include_secret=True)
-            if webhook is None:
-                continue
-            headers = {"Content-Type": "application/json", "User-Agent": "Concierge.Ai-Webhooks/1.0"}
-            if webhook.get("secret"):
-                headers["X-Concierge-Signature"] = "sha256=" + hmac.new(webhook["secret"].encode("utf-8"), body, hashlib.sha256).hexdigest()
-            try:
-                response = await client.post(webhook["endpoint_url"], content=body, headers=headers)
-                status = "delivered" if 200 <= response.status_code < 300 else "failed"
-                error = "" if status == "delivered" else f"Endpoint returned HTTP {response.status_code}."
-                operations.record_webhook_delivery(property_id, webhook["webhook_id"], event_name, status, response.status_code, error)
-            except httpx.HTTPError as exc:
-                operations.record_webhook_delivery(property_id, webhook["webhook_id"], event_name, "failed", error=str(exc))
+    broker = _outbound_broker(property_id)
+    for item in webhooks:
+        webhook = operations.get_webhook(property_id, item["webhook_id"], include_secret=True)
+        if webhook is None:
+            continue
+        headers = {"Content-Type": "application/json"}
+        if webhook.get("secret"):
+            headers["X-Concierge-Signature"] = "sha256=" + hmac.new(webhook["secret"].encode("utf-8"), body, hashlib.sha256).hexdigest()
+        try:
+            response = await broker.post(webhook["endpoint_url"], content=body, headers=headers)
+            status = "delivered" if 200 <= response.status_code < 300 else "failed"
+            error = "" if status == "delivered" else f"Endpoint returned HTTP {response.status_code}."
+            operations.record_webhook_delivery(property_id, webhook["webhook_id"], event_name, status, response.status_code, error)
+        except OutboundRequestError as exc:
+            operations.record_webhook_delivery(property_id, webhook["webhook_id"], event_name, "failed", error=str(exc))
