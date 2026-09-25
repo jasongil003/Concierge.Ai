@@ -6,6 +6,19 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+SUPPORTED_ANTLABS_MODES = frozenset({"mock", "browser_handoff"})
+
+
+def validate_antlabs_mode(mode: str) -> str:
+    normalized = str(mode or "").strip().lower()
+    if normalized not in SUPPORTED_ANTLABS_MODES:
+        raise ValueError(
+            f"Unsupported ANTLABS_MODE '{mode}'. Supported modes are: "
+            + ", ".join(sorted(SUPPORTED_ANTLABS_MODES))
+            + "."
+        )
+    return normalized
+
 
 def _bool(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
@@ -95,6 +108,12 @@ def validate_production_settings(value: Settings, *, check_filesystem: bool = Tr
     if value.app_environment != "production":
         return
     errors: list[str] = []
+    try:
+        validate_antlabs_mode(value.antlabs_mode)
+    except ValueError as exc:
+        errors.append(str(exc))
+    if value.antlabs_mode == "browser_handoff" and not value.antlabs_auth_url:
+        errors.append("ANTLABS_AUTH_URL must be configured for browser_handoff mode")
     if value.admin_bootstrap_password == "ChangeMe123!" or len(value.admin_bootstrap_password) < 12:
         errors.append("ADMIN_BOOTSTRAP_PASSWORD must be changed to a strong value")
     encryption_secret = value.credential_encryption_secret.strip()
@@ -117,6 +136,7 @@ def validate_production_settings(value: Settings, *, check_filesystem: bool = Tr
 
 
 settings = Settings()
+settings = Settings(antlabs_mode=validate_antlabs_mode(settings.antlabs_mode))
 validate_production_settings(settings)
 settings.db_path.parent.mkdir(parents=True, exist_ok=True)
 if not settings.upload_root.parts:

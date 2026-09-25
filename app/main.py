@@ -179,6 +179,30 @@ def _required_admin_permission(method: str, path: str) -> str | None:
         return "dashboard.view"
     if "/guardrails" in path:
         return "security.view" if method == "GET" else "security.configure"
+    if "/promotions" in path:
+        if path.endswith(("/approve", "/publish")):
+            return "restaurant.promotions.approve"
+        return "restaurant.promotions.view" if method == "GET" else "restaurant.promotions.edit"
+    if "/menu-items/" in path:
+        return "restaurant.menu.view" if method == "GET" else "restaurant.menu.edit"
+    if "/menus" in path:
+        if path.endswith(("/approve", "/publish")):
+            return "restaurant.menu.approve"
+        return "restaurant.menu.view" if method == "GET" else "restaurant.menu.edit"
+    if path.endswith("/analytics") and "/restaurants/" in path:
+        return "restaurant.analytics.view"
+    if path.endswith("/hours") and "/restaurants/" in path:
+        return "restaurant.hours.edit"
+    if "/restaurants" in path or path.endswith("/hospitality"):
+        return "restaurant.view" if method == "GET" else "restaurant.manage"
+    if "/conversations/" in path and path.endswith("/accept"):
+        return "conversations.takeover"
+    if "/conversations/" in path and path.endswith("/assign"):
+        return "conversations.assign"
+    if "/conversations/" in path and path.endswith("/resolve"):
+        return "conversations.resolve"
+    if "/conversations/" in path and path.endswith("/return-to-ai"):
+        return "conversations.return_to_ai"
     if "/knowledge" in path:
         if method == "DELETE":
             return "knowledge.delete"
@@ -191,6 +215,8 @@ def _required_admin_permission(method: str, path: str) -> str | None:
         return "domains.view" if method == "GET" else "domains.configure"
     if path.endswith("/dashboard"):
         return "dashboard.view"
+    if "/sessions" in path or "/stays/" in path:
+        return "guest_sessions.view" if method == "GET" and path.endswith("/sessions") else "guest_sessions.manage"
     if "/conversations" in path:
         return "conversations.view" if method == "GET" else "conversations.reply"
     if "/service-catalog" in path or "/departments" in path:
@@ -203,11 +229,9 @@ def _required_admin_permission(method: str, path: str) -> str | None:
         return "requests.view" if method == "GET" else "requests.manage"
     if "/antlabs/" in path:
         return "integrations.view"
-    if "/sessions" in path or "/stays/" in path:
-        return "conversations.view" if method == "GET" else "conversations.reply"
     if "/location/" in path:
         return "analytics.view" if method == "GET" else "properties.edit"
-    if any(token in path for token in ("/zones", "/buildings", "/floors", "/floor-maps", "/facilities", "/restaurants", "/menus", "/events", "/navigation/", "/access-points")):
+    if any(token in path for token in ("/zones", "/buildings", "/floors", "/floor-maps", "/facilities", "/events", "/navigation/", "/access-points")):
         return "properties.view" if method == "GET" else "properties.edit"
     return "properties.view" if method == "GET" else "properties.edit"
 
@@ -608,6 +632,15 @@ class ConversationStatePayload(BaseModel):
     human_takeover: bool = False
 
 
+class RestaurantEscalationPayload(BaseModel):
+    restaurant_id: str = Field(min_length=1, max_length=80)
+    reason: str = Field(default="", max_length=500)
+
+
+class ConversationAssignPayload(BaseModel):
+    user_id: str = Field(min_length=1, max_length=80)
+
+
 class ConversationRetentionPayload(BaseModel):
     retention_days: int = Field(ge=1, le=365)
 
@@ -654,8 +687,9 @@ class AdminUserCreatePayload(BaseModel):
     department_id: str | None = None
     role_id: str
     email: str | None = Field(default=None, max_length=254)
-    status: str = Field(default="active", pattern=r"^(active|disabled)$")
+    status: str = Field(default="active", pattern=r"^(active|disabled|locked)$")
     force_password_change: bool = True
+    restaurant_ids: list[str] = Field(default_factory=list, max_length=100)
 
 
 class AdminUserUpdatePayload(BaseModel):
@@ -665,6 +699,7 @@ class AdminUserUpdatePayload(BaseModel):
     role_id: str | None = None
     email: str | None = Field(default=None, max_length=254)
     status: str | None = Field(default=None, pattern=r"^(active|disabled|locked)$")
+    restaurant_ids: list[str] | None = Field(default=None, max_length=100)
 
 
 class AdminPasswordResetPayload(BaseModel):
@@ -808,6 +843,7 @@ async def hotel(request: Request) -> dict[str, Any]:
             "default_mode": settings.ai_default_mode,
             "modes": [],
         }
+    profile["property_id"] = property_record.property_id
     return profile
 
 
@@ -962,6 +998,30 @@ async def create_guest_service_request(payload: GuestServiceRequestPayload, requ
 async def guest_staff_messages(session_id: str, request: Request) -> dict[str, Any]:
     session, _ = _guest_session(request, session_id)
     return {"messages": store.staff_messages(session_id, session.property_id)}
+
+
+@app.post("/api/guest/conversations/{session_id}/escalate")
+async def guest_escalate_conversation(session_id: str, payload: RestaurantEscalationPayload, request: Request) -> dict[str, Any]:
+    session, property_record = _guest_session(request, session_id, action_level=2)
+    client_ip = getattr(request.state, "guardrail_decision").client_ip
+    if (
+        not rate_limiter.allow(f"restaurant-escalation:session:{session.property_id}:{session.session_id}", 5, 900)
+        or not rate_limiter.allow(f"restaurant-escalation:ip:{client_ip}", 30, 900)
+    ):
+        raise HTTPException(status_code=429, detail="Too many staff requests. Please wait before requesting help again.")
+    if not normalize_guardrails(property_record.guardrails)["human_escalation_enabled"]:
+        raise HTTPException(status_code=403, detail="Human escalation is not enabled for this property.")
+    restaurant = hospitality.get_restaurant(session.property_id, payload.restaurant_id, guest=True)
+    if not restaurant or restaurant["archived"] or restaurant["status"] in {"disabled", "archived"}:
+        raise HTTPException(status_code=404, detail="Restaurant not found.")
+    try:
+        state = store.escalate_conversation(session_id, session.property_id, payload.restaurant_id, payload.reason)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    security_audit.record(_request_id(request), session.property_id, "conversation_escalated", "recorded", client_ip, resource="restaurant_conversation", metadata={"restaurant_id": payload.restaurant_id, "reason_category": "guest_request"})
+    return {"status": state["state"], "restaurant_id": state["restaurant_id"]}
 
 
 @app.post("/api/admin/auth/login")
@@ -1196,15 +1256,15 @@ async def list_properties(request: Request) -> dict[str, Any]:
         records = [record for record in records if record.property_id == principal.property_id]
     else:
         records.sort(key=lambda record: (record.property_id != settings.property_id, record.hotel_name.lower()))
-    return {"properties": [record.to_dict() for record in records]}
+    return {"properties": [_property_admin_payload(record, principal) for record in records]}
 
 
 @app.get("/api/admin/properties/{property_id}")
-async def get_property(property_id: str) -> dict[str, Any]:
+async def get_property(property_id: str, request: Request) -> dict[str, Any]:
     record = properties.get(property_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Property not found.")
-    return record.to_dict()
+    return _property_admin_payload(record, _admin_principal(request))
 
 
 @app.get("/api/admin/properties/{property_id}/dashboard")
@@ -1629,9 +1689,18 @@ async def export_operations_pdf(property_id: str, request: Request, period: str 
 
 
 @app.get("/api/admin/properties/{property_id}/conversations")
-async def property_conversations(property_id: str) -> dict[str, Any]:
+async def property_conversations(property_id: str, request: Request) -> dict[str, Any]:
     _require_property(property_id)
-    return {"conversations": store.conversations(property_id), "retention": store.retention(property_id)}
+    principal = _admin_principal(request)
+    restaurant_ids = None if principal.can("properties.all") or principal.can("properties.edit") else _assigned_restaurant_ids(principal, property_id)
+    conversations = store.conversations(property_id, restaurant_ids)
+    for conversation in conversations:
+        restaurant_id = conversation.get("restaurant_id")
+        restaurant = hospitality.get_restaurant(property_id, restaurant_id) if restaurant_id else None
+        conversation["restaurant_name"] = restaurant["name"] if restaurant else "Hotel team"
+        assigned = admin_auth.get_user(conversation["assigned_user_id"]) if conversation.get("assigned_user_id") else None
+        conversation["assigned_user_name"] = assigned["display_name"] if assigned else ""
+    return {"conversations": conversations, "retention": store.retention(property_id)}
 
 
 @app.get("/api/admin/properties/{property_id}/personalization")
@@ -1650,8 +1719,10 @@ async def save_personalization_policy(property_id: str, payload: GenericPayload)
 
 
 @app.put("/api/admin/properties/{property_id}/conversations/retention")
-async def update_conversation_retention(property_id: str, payload: ConversationRetentionPayload) -> dict[str, Any]:
+async def update_conversation_retention(property_id: str, payload: ConversationRetentionPayload, request: Request) -> dict[str, Any]:
     _require_property(property_id)
+    if not _admin_principal(request).can("properties.edit"):
+        raise HTTPException(status_code=403, detail="Only property administrators can change conversation retention.")
     try:
         return store.set_retention(property_id, payload.retention_days)
     except ValueError as exc:
@@ -1659,10 +1730,41 @@ async def update_conversation_retention(property_id: str, payload: ConversationR
 
 
 @app.put("/api/admin/properties/{property_id}/conversations/{session_id}")
-async def update_conversation_state(property_id: str, session_id: str, payload: ConversationStatePayload) -> dict[str, Any]:
+async def update_conversation_state(property_id: str, session_id: str, payload: ConversationStatePayload, request: Request) -> dict[str, Any]:
     _require_property(property_id)
+    principal = _admin_principal(request)
+    state = store.conversation_state(session_id, property_id)
+    if state["restaurant_id"]:
+        permission = (
+            "conversations.takeover" if payload.human_takeover else
+            "conversations.resolve" if payload.status == "closed" else
+            "conversations.return_to_ai"
+        )
+        _require_restaurant_access(principal, property_id, state["restaurant_id"], permission, allow_archived=True)
+        try:
+            if payload.human_takeover:
+                if principal.can("properties.all") or principal.can("properties.edit"):
+                    return store.set_conversation_state(session_id, property_id, payload.status, True, actor_user_id=principal.user_id)
+                return store.accept_conversation(session_id, property_id, principal.user_id)
+            if payload.status == "closed":
+                return store.resolve_conversation(
+                    session_id, property_id, principal.user_id,
+                    allow_unassigned=principal.can("properties.all") or principal.can("properties.edit") or principal.can("conversations.assign"),
+                )
+            return store.return_conversation_to_ai(
+                session_id, property_id, principal.user_id,
+                allow_unassigned=principal.can("properties.all") or principal.can("properties.edit") or principal.can("conversations.assign"),
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not (principal.can("properties.all") or principal.can("properties.edit")):
+        raise HTTPException(status_code=404, detail="Conversation not found.")
     try:
-        return store.set_conversation_state(session_id, property_id, payload.status, payload.human_takeover)
+        return store.set_conversation_state(session_id, property_id, payload.status, payload.human_takeover, actor_user_id=principal.user_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -1670,14 +1772,100 @@ async def update_conversation_state(property_id: str, session_id: str, payload: 
 
 
 @app.post("/api/admin/properties/{property_id}/conversations/{session_id}/messages")
-async def staff_conversation_reply(property_id: str, session_id: str, payload: StaffReplyPayload) -> dict[str, Any]:
+async def staff_conversation_reply(property_id: str, session_id: str, payload: StaffReplyPayload, request: Request) -> dict[str, Any]:
+    principal = _admin_principal(request)
     _require_property(property_id)
     session = store.get(session_id)
     if session is None or session.property_id != property_id:
         raise HTTPException(status_code=404, detail="Conversation not found.")
-    store.record_message(session_id, property_id, "staff", payload.message, provider="human", model="staff")
-    store.set_conversation_state(session_id, property_id, "open", True)
-    return {"status": "sent"}
+    state = store.conversation_state(session_id, property_id)
+    if state["restaurant_id"]:
+        _require_restaurant_access(principal, property_id, state["restaurant_id"], "conversations.reply", allow_archived=True)
+    elif not (principal.can("properties.all") or principal.can("properties.edit")):
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    try:
+        return store.reply_to_conversation(
+            session_id, property_id, principal.user_id, payload.message,
+            allow_unassigned=principal.can("properties.all") or principal.can("properties.edit") or principal.can("conversations.assign"),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/conversations/{session_id}/accept")
+async def accept_restaurant_conversation(property_id: str, session_id: str, request: Request) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    state = store.conversation_state(session_id, property_id)
+    if not state["restaurant_id"]:
+        raise HTTPException(status_code=404, detail="Restaurant conversation not found.")
+    _require_restaurant_access(principal, property_id, state["restaurant_id"], "conversations.takeover")
+    try:
+        return store.accept_conversation(session_id, property_id, principal.user_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/conversations/{session_id}/assign")
+async def assign_restaurant_conversation(property_id: str, session_id: str, payload: ConversationAssignPayload, request: Request) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    state = store.conversation_state(session_id, property_id)
+    restaurant_id = state["restaurant_id"]
+    if not restaurant_id:
+        raise HTTPException(status_code=404, detail="Restaurant conversation not found.")
+    _require_restaurant_access(principal, property_id, restaurant_id, "conversations.assign")
+    user = admin_auth.get_user(payload.user_id)
+    role = admin_auth.get_role(user["role_id"]) if user else None
+    if (
+        not user or user["status"] != "active" or user["property_id"] != property_id or not role
+        or "conversations.takeover" not in role["permissions"] or restaurant_id not in user["restaurant_ids"]
+    ):
+        raise HTTPException(status_code=422, detail="The selected staff member is not assigned to this restaurant.")
+    try:
+        return store.assign_conversation(session_id, property_id, payload.user_id, principal.user_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/conversations/{session_id}/resolve")
+async def resolve_restaurant_conversation(property_id: str, session_id: str, request: Request) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    state = store.conversation_state(session_id, property_id)
+    if not state["restaurant_id"]:
+        raise HTTPException(status_code=404, detail="Restaurant conversation not found.")
+    _require_restaurant_access(principal, property_id, state["restaurant_id"], "conversations.resolve", allow_archived=True)
+    try:
+        return store.resolve_conversation(
+            session_id, property_id, principal.user_id,
+            allow_unassigned=principal.can("properties.all") or principal.can("properties.edit") or principal.can("conversations.assign"),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/conversations/{session_id}/return-to-ai")
+async def return_restaurant_conversation_to_ai(property_id: str, session_id: str, request: Request) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    state = store.conversation_state(session_id, property_id)
+    if not state["restaurant_id"]:
+        raise HTTPException(status_code=404, detail="Restaurant conversation not found.")
+    _require_restaurant_access(principal, property_id, state["restaurant_id"], "conversations.return_to_ai", allow_archived=True)
+    try:
+        return store.return_conversation_to_ai(
+            session_id, property_id, principal.user_id,
+            allow_unassigned=principal.can("properties.all") or principal.can("properties.edit") or principal.can("conversations.assign"),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 @app.put("/api/admin/properties/{property_id}")
@@ -2500,8 +2688,21 @@ async def intro_asset(property_id: str, filename: str) -> FileResponse:
 @app.get("/api/admin/properties/{property_id}/hospitality")
 async def hospitality_overview(property_id: str, request: Request) -> dict[str, Any]:
     _require_property(property_id)
-    overview = hospitality.overview(property_id)
     principal = _admin_principal(request)
+    all_restaurants = principal.can("properties.all") or principal.can("properties.edit")
+    assigned_ids = None if all_restaurants else _assigned_restaurant_ids(principal, property_id)
+    overview = hospitality.overview(property_id, assigned_ids)
+    if not all_restaurants:
+        allowed_facilities = {item.get("facility_id") for item in overview.get("restaurants", []) if item.get("facility_id")}
+        facilities = [item for item in overview.get("facilities", []) if item.get("facility_id") in allowed_facilities]
+        for restaurant in overview.get("restaurants", []):
+            restaurant.pop("internal_notes", None)
+        overview = {
+            "facilities": facilities,
+            "restaurants": overview.get("restaurants", []),
+            "menus": overview.get("menus", {}),
+            "promotions": overview.get("promotions", []),
+        }
     if not principal.can("requests.view"):
         overview.pop("service_requests", None)
         overview.pop("notification_rules", None)
@@ -2589,20 +2790,114 @@ async def upsert_facility_profile(property_id: str, payload: GenericPayload) -> 
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-@app.post("/api/admin/properties/{property_id}/restaurants")
-async def create_restaurant(property_id: str, payload: GenericPayload) -> dict[str, Any]:
+@app.get("/api/admin/properties/{property_id}/restaurants")
+async def list_restaurants(property_id: str, request: Request) -> dict[str, Any]:
     _require_property(property_id)
+    principal = _admin_principal(request)
+    restaurant_ids = None if principal.can("properties.all") or principal.can("properties.edit") else _assigned_restaurant_ids(principal, property_id)
+    overview = hospitality.overview(property_id, restaurant_ids)
+    if restaurant_ids is not None:
+        for item in overview["restaurants"]:
+            item.pop("internal_notes", None)
+    return {"restaurants": overview["restaurants"]}
+
+
+@app.get("/api/admin/properties/{property_id}/restaurants/{restaurant_id}")
+async def get_restaurant(property_id: str, restaurant_id: str, request: Request) -> dict[str, Any]:
+    return _require_restaurant_access(_admin_principal(request), property_id, restaurant_id)
+
+
+@app.put("/api/admin/properties/{property_id}/restaurants/{restaurant_id}/hours")
+async def update_restaurant_hours(property_id: str, restaurant_id: str, payload: GenericPayload, request: Request) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    _require_restaurant_access(principal, property_id, restaurant_id, "restaurant.hours.edit")
+    updates = {key: payload.data[key] for key in ("opening_hours", "meal_periods") if key in payload.data}
     try:
-        return hospitality.create_restaurant(property_id, payload.data)
+        return hospitality.update_restaurant(property_id, restaurant_id, updates, principal.user_id)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-@app.post("/api/admin/properties/{property_id}/restaurants/{restaurant_id}/menus")
-async def create_menu(property_id: str, restaurant_id: str, payload: GenericPayload) -> dict[str, Any]:
+@app.post("/api/admin/properties/{property_id}/restaurants")
+async def create_restaurant(property_id: str, payload: GenericPayload, request: Request) -> dict[str, Any]:
     _require_property(property_id)
+    principal = _admin_principal(request)
+    if not principal.can("properties.edit"):
+        raise HTTPException(status_code=403, detail="Only property administrators can create restaurants.")
     try:
-        return hospitality.create_menu(property_id, restaurant_id, payload.data)
+        return hospitality.create_restaurant(property_id, payload.data, actor_user_id=principal.user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.put("/api/admin/properties/{property_id}/restaurants/{restaurant_id}")
+async def update_restaurant(property_id: str, restaurant_id: str, payload: GenericPayload, request: Request) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    _require_restaurant_access(principal, property_id, restaurant_id, "restaurant.manage")
+    if payload.data.get("status") == "archived" and not principal.can("properties.edit"):
+        raise HTTPException(status_code=403, detail="Only property administrators can archive restaurants.")
+    try:
+        return hospitality.update_restaurant(property_id, restaurant_id, payload.data, principal.user_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/admin/properties/{property_id}/restaurants/{restaurant_id}/menus")
+async def list_restaurant_menus(property_id: str, restaurant_id: str, request: Request) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    _require_restaurant_access(principal, property_id, restaurant_id, "restaurant.menu.view")
+    return {"menus": hospitality.restaurant_menus(property_id, restaurant_id, guest=not principal.can("restaurant.menu.edit"))}
+
+
+@app.get("/api/admin/properties/{property_id}/restaurants/{restaurant_id}/staff")
+async def list_restaurant_staff(property_id: str, restaurant_id: str, request: Request) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    _require_restaurant_access(principal, property_id, restaurant_id, "conversations.assign")
+    with admin_auth._connect() as db:
+        rows = db.execute(
+            """SELECT DISTINCT u.user_id,u.display_name,u.username
+            FROM admin_users u
+            JOIN user_restaurants ur ON ur.user_id=u.user_id AND ur.property_id=u.property_id
+            JOIN admin_role_permissions rp ON rp.role_id=u.role_id AND rp.permission='conversations.takeover'
+            WHERE u.property_id=? AND ur.restaurant_id=? AND u.status='active'
+            ORDER BY u.display_name""",
+            (property_id, restaurant_id),
+        ).fetchall()
+    return {"staff": [dict(row) for row in rows]}
+
+
+@app.get("/api/admin/properties/{property_id}/restaurants/{restaurant_id}/analytics")
+async def restaurant_analytics(property_id: str, restaurant_id: str, request: Request) -> dict[str, Any]:
+    _require_restaurant_access(_admin_principal(request), property_id, restaurant_id, "restaurant.analytics.view")
+    return hospitality.restaurant_analytics(property_id, restaurant_id)
+
+
+@app.post("/api/admin/properties/{property_id}/restaurants/{restaurant_id}/menus")
+async def create_menu(property_id: str, restaurant_id: str, payload: GenericPayload, request: Request) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    _require_restaurant_access(principal, property_id, restaurant_id, "restaurant.menu.edit")
+    try:
+        return hospitality.create_menu(
+            property_id, restaurant_id, payload.data,
+            actor_user_id=principal.user_id,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.put("/api/admin/properties/{property_id}/menus/{menu_id}")
+async def update_restaurant_menu(property_id: str, menu_id: str, payload: GenericPayload, request: Request) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    restaurant_id = hospitality.restaurant_id_for_menu(property_id, menu_id)
+    if not restaurant_id:
+        raise HTTPException(status_code=404, detail="Menu not found.")
+    _require_restaurant_access(principal, property_id, restaurant_id, "restaurant.menu.edit")
+    try:
+        return hospitality.update_menu(property_id, menu_id, payload.data, actor_user_id=principal.user_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -2610,12 +2905,120 @@ async def create_menu(property_id: str, restaurant_id: str, payload: GenericPayl
 
 
 @app.post("/api/admin/properties/{property_id}/menus/{menu_id}/items")
-async def create_menu_item(property_id: str, menu_id: str, payload: GenericPayload) -> dict[str, Any]:
-    _require_property(property_id)
+async def create_menu_item(property_id: str, menu_id: str, payload: GenericPayload, request: Request) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    restaurant_id = hospitality.restaurant_id_for_menu(property_id, menu_id)
+    if not restaurant_id:
+        raise HTTPException(status_code=404, detail="Menu not found.")
+    _require_restaurant_access(principal, property_id, restaurant_id, "restaurant.menu.edit")
     try:
-        return hospitality.create_menu_item(property_id, menu_id, payload.data)
+        return hospitality.create_menu_item(
+            property_id, menu_id, payload.data,
+            actor_user_id=principal.user_id,
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.put("/api/admin/properties/{property_id}/menu-items/{item_id}")
+async def update_menu_item(property_id: str, item_id: str, payload: GenericPayload, request: Request) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    restaurant_id = hospitality.restaurant_id_for_menu_item(property_id, item_id)
+    if not restaurant_id:
+        raise HTTPException(status_code=404, detail="Menu item not found.")
+    _require_restaurant_access(principal, property_id, restaurant_id, "restaurant.menu.edit")
+    try:
+        return hospitality.update_menu_item(property_id, item_id, payload.data, actor_user_id=principal.user_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/menus/{menu_id}/approve")
+async def approve_restaurant_menu(property_id: str, menu_id: str, request: Request) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    restaurant_id = hospitality.restaurant_id_for_menu(property_id, menu_id)
+    if not restaurant_id:
+        raise HTTPException(status_code=404, detail="Menu not found.")
+    _require_restaurant_access(principal, property_id, restaurant_id, "restaurant.menu.approve")
+    try:
+        return hospitality.approve_menu(property_id, menu_id, principal.user_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/menus/{menu_id}/publish")
+async def publish_restaurant_menu(property_id: str, menu_id: str, request: Request) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    restaurant_id = hospitality.restaurant_id_for_menu(property_id, menu_id)
+    if not restaurant_id:
+        raise HTTPException(status_code=404, detail="Menu not found.")
+    _require_restaurant_access(principal, property_id, restaurant_id, "restaurant.menu.approve")
+    try:
+        return hospitality.publish_menu(property_id, menu_id, principal.user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/admin/properties/{property_id}/restaurants/{restaurant_id}/promotions")
+async def list_restaurant_promotions(property_id: str, restaurant_id: str, request: Request) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    _require_restaurant_access(principal, property_id, restaurant_id, "restaurant.promotions.view")
+    return {"promotions": hospitality.restaurant_promotions(property_id, restaurant_id, guest=not principal.can("restaurant.promotions.edit"))}
+
+
+@app.post("/api/admin/properties/{property_id}/restaurants/{restaurant_id}/promotions")
+async def create_restaurant_promotion(property_id: str, restaurant_id: str, payload: GenericPayload, request: Request) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    _require_restaurant_access(principal, property_id, restaurant_id, "restaurant.promotions.edit")
+    try:
+        return hospitality.create_promotion(property_id, restaurant_id, payload.data, actor_user_id=principal.user_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.put("/api/admin/properties/{property_id}/promotions/{promotion_id}")
+async def update_restaurant_promotion(property_id: str, promotion_id: str, payload: GenericPayload, request: Request) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    restaurant_id = hospitality.restaurant_id_for_promotion(property_id, promotion_id)
+    if not restaurant_id:
+        raise HTTPException(status_code=404, detail="Promotion not found.")
+    _require_restaurant_access(principal, property_id, restaurant_id, "restaurant.promotions.edit")
+    try:
+        return hospitality.update_promotion(property_id, promotion_id, payload.data, actor_user_id=principal.user_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/promotions/{promotion_id}/approve")
+async def approve_restaurant_promotion(property_id: str, promotion_id: str, request: Request) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    restaurant_id = hospitality.restaurant_id_for_promotion(property_id, promotion_id)
+    if not restaurant_id:
+        raise HTTPException(status_code=404, detail="Promotion not found.")
+    _require_restaurant_access(principal, property_id, restaurant_id, "restaurant.promotions.approve")
+    try:
+        return hospitality.approve_promotion(property_id, promotion_id, principal.user_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/promotions/{promotion_id}/publish")
+async def publish_restaurant_promotion(property_id: str, promotion_id: str, request: Request) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    restaurant_id = hospitality.restaurant_id_for_promotion(property_id, promotion_id)
+    if not restaurant_id:
+        raise HTTPException(status_code=404, detail="Promotion not found.")
+    _require_restaurant_access(principal, property_id, restaurant_id, "restaurant.promotions.approve")
+    try:
+        return hospitality.publish_promotion(property_id, promotion_id, principal.user_id)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -2654,11 +3057,14 @@ async def update_service_request_status(property_id: str, request_id: str, paylo
 
 
 @app.delete("/api/admin/properties/{property_id}/restaurants/{restaurant_id}")
-async def delete_restaurant(property_id: str, restaurant_id: str) -> dict[str, str]:
-    _require_property(property_id)
-    if not hospitality.delete_restaurant(property_id, restaurant_id):
+async def delete_restaurant(property_id: str, restaurant_id: str, request: Request) -> dict[str, str]:
+    principal = _admin_principal(request)
+    _require_restaurant_access(principal, property_id, restaurant_id, "restaurant.manage")
+    if not principal.can("properties.edit"):
+        raise HTTPException(status_code=403, detail="Only property administrators can archive restaurants.")
+    if not hospitality.archive_restaurant(property_id, restaurant_id, principal.user_id):
         raise HTTPException(status_code=404, detail="Restaurant not found.")
-    return {"status": "deleted"}
+    return {"status": "archived"}
 
 
 @app.delete("/api/admin/properties/{property_id}/hospitality/facilities/{facility_id}")
@@ -2806,7 +3212,14 @@ async def start_session(payload: StartSessionRequest, request: Request) -> dict[
     gateway_context: dict[str, Any] = {}
     if policy["antlabs_gateway_enabled"]:
         raw_body = await request.body()
-        if not GatewayGuard.validate(request.headers, raw_body, request.client.host if request.client else "", property_record.guardrails):
+        if not GatewayGuard.validate(
+            request.headers,
+            raw_body,
+            request.client.host if request.client else "",
+            property_record.guardrails,
+            property_id=property_record.property_id,
+            nonce_consumer=store.consume_gateway_nonce,
+        ):
             decision = GuardrailDecision(False, "Hotel gateway validation failed.", "antlabs_gateway", property_record.property_id, 1, False, False, _request_id(request))
             security_audit.record(decision.request_id, property_record.property_id, "antlabs_validation_failed", "denied", network.client_ip)
             raise GuardrailDenied(decision)
@@ -2896,6 +3309,23 @@ async def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
     sanitized_message = AIInputSanitizer.sanitize_text(payload.message)
     contextual_query = _contextual_query(sanitized_message, conversation_history)
     store.record_message(session.session_id, session.property_id, "guest", sanitized_message)
+    conversation_state = store.conversation_state(session.session_id, session.property_id)
+
+    def paused_result() -> dict[str, Any]:
+        latest = store.conversation_state(session.session_id, session.property_id)
+        return {
+            "answer": "",
+            "source": "human_queue" if latest["state"] == "human_active" else "conversation_resolved",
+            "provider": "human" if latest["state"] == "human_active" else "none",
+            "model": "staff" if latest["state"] == "human_active" else "none",
+            "mode": requested_mode,
+            "escalated": latest["state"] == "human_active",
+            "human_takeover": latest["state"] == "human_active",
+            "ai_paused": True,
+        }
+
+    if conversation_state["state"] in {"human_active", "resolved"}:
+        return paused_result()
     personalization.cleanup_expired()
     personalization_policy = personalization.policy(session.property_id)
     command, command_detail = preference_commands(sanitized_message)
@@ -2950,7 +3380,8 @@ async def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
                 answer = "I couldn't update personalization just now."
         except ValueError as exc:
             answer = str(exc)
-        store.record_message(session.session_id, session.property_id, "assistant", answer, provider="personalization", model="memory-controls")
+        if not store.record_ai_message_if_active(session.session_id, session.property_id, answer, provider="personalization", model="memory-controls"):
+            return paused_result()
         return {"answer": answer, "source": "personalization", "provider": "none", "model": "memory-controls", "mode": "fast", "escalated": False}
 
     if personalization_policy["enabled"] and personalization_policy["allow_preference_learning"]:
@@ -2978,12 +3409,6 @@ async def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
         for item in personalization_context["preferences"]
     )
     started_at = time.perf_counter()
-    conversation_state = store.conversation_state(session.session_id, session.property_id)
-    if conversation_state["human_takeover"]:
-        answer = "Your message was added to the staff conversation. A hotel team member can reply here."
-        store.record_message(session.session_id, session.property_id, "assistant", answer, provider="human_queue", model="staff")
-        return {"answer": answer, "source": "human_queue", "provider": "human", "model": "staff", "mode": requested_mode, "escalated": True}
-
     safety_reason = PrivacyGuard.classify(sanitized_message)
     if safety_reason:
         security_audit.record(_request_id(request), session.property_id, safety_reason, "blocked", getattr(request.state, "guardrail_decision").client_ip)
@@ -2994,7 +3419,11 @@ async def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
         answer = fast_answer
         if _is_authentication_question(sanitized_message):
             answer = f"{answer}\n\n{_authentication_guidance(auth_types)}"
-        store.record_message(session.session_id, session.property_id, "assistant", answer, provider="fast_path", model="none", latency_ms=int((time.perf_counter() - started_at) * 1000))
+        if not store.record_ai_message_if_active(
+            session.session_id, session.property_id, answer, provider="fast_path", model="none",
+            latency_ms=int((time.perf_counter() - started_at) * 1000),
+        ):
+            return paused_result()
         return {
             "answer": answer,
             "source": "fast_path",
@@ -3094,7 +3523,11 @@ async def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=503, detail="The AI service is temporarily unavailable. Please try again.") from exc
 
     answer = AIOutputValidator.validate(answer)
-    store.record_message(session.session_id, session.property_id, "assistant", answer, provider=provider, model=model, latency_ms=int((time.perf_counter() - started_at) * 1000))
+    if not store.record_ai_message_if_active(
+        session.session_id, session.property_id, answer, provider=provider, model=model,
+        latency_ms=int((time.perf_counter() - started_at) * 1000),
+    ):
+        return paused_result()
     if requested_mode == "advanced":
         await _dispatch_webhooks(
             session.property_id,
@@ -3343,9 +3776,71 @@ def _property_ai_context(property_record: PropertyRecord | None) -> list[dict[st
     return result
 
 
+def _assigned_restaurant_ids(principal: AdminPrincipal, property_id: str) -> set[str]:
+    if principal.can("properties.all") or principal.can("properties.edit"):
+        with admin_auth._connect() as db:
+            return {
+                row["restaurant_id"]
+                for row in db.execute(
+                    "SELECT restaurant_id FROM restaurants WHERE property_id=?",
+                    (property_id,),
+                ).fetchall()
+            }
+    if not principal.can_access_property(property_id):
+        return set()
+    try:
+        with admin_auth._connect() as db:
+            rows = db.execute(
+                "SELECT restaurant_id FROM user_restaurants WHERE user_id=? AND property_id=?",
+                (principal.user_id, property_id),
+            ).fetchall()
+    except sqlite3.Error:
+        return set()
+    return {row["restaurant_id"] for row in rows}
+
+
+def _require_restaurant_access(
+    principal: AdminPrincipal,
+    property_id: str,
+    restaurant_id: str,
+    permission: str = "restaurant.view",
+    *,
+    allow_archived: bool = False,
+) -> dict[str, Any]:
+    _require_property(property_id)
+    if not principal.can(permission):
+        raise HTTPException(status_code=403, detail=f"Permission required: {permission}")
+    if not (principal.can("properties.all") or principal.can("properties.edit")):
+        with admin_auth._connect() as db:
+            row = db.execute(
+                """SELECT 1 FROM user_restaurants
+                WHERE user_id=? AND property_id=? AND restaurant_id=?""",
+                (principal.user_id, property_id, restaurant_id),
+            ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Restaurant not found.")
+    restaurant = hospitality.get_restaurant(property_id, restaurant_id)
+    if not restaurant or (
+        not allow_archived and (restaurant["archived"] or restaurant["status"] in {"disabled", "archived"})
+    ):
+        raise HTTPException(status_code=404, detail="Restaurant not found.")
+    if not (principal.can("properties.all") or principal.can("properties.edit")):
+        restaurant.pop("internal_notes", None)
+    return restaurant
+
+
 def _require_property(property_id: str) -> None:
     if properties.get(property_id) is None:
         raise HTTPException(status_code=404, detail="Property not found.")
+
+
+def _property_admin_payload(record: PropertyRecord, principal: AdminPrincipal) -> dict[str, Any]:
+    payload = record.to_dict()
+    if principal.can("properties.all") or principal.can("properties.edit"):
+        return payload
+    for key in ("ai_settings", "antlabs_config", "knowledge_sources", "personality", "guardrails", "app_settings", "design_draft", "design_versions"):
+        payload.pop(key, None)
+    return payload
 
 
 def _require_property_record(property_id: str) -> PropertyRecord:

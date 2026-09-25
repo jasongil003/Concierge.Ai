@@ -91,6 +91,7 @@
         </div>
         <p class="menu-section-label">Concierge</p>
         <button type="button" data-menu-action="new-chat">New conversation</button>
+        <button type="button" data-menu-action="restaurant-staff">Talk to Restaurant Staff</button>
         <button type="button" data-menu-action="property-map">Property map</button>
         <button type="button" data-menu-action="hotel-info">Hotel information</button>
         <button type="button" data-menu-action="language">Language</button>
@@ -157,6 +158,19 @@
         <p class="property-map-note">Select a numbered marker for its verified project label. Hotel knowledge-base details take precedence over text embedded in the visual.</p>
       </div>
     </section>
+
+    <dialog class="staff-request-dialog" id="restaurant-staff-dialog">
+      <form id="restaurant-staff-request-form">
+        <header>
+          <div><span>Guest support</span><h2>Talk to Restaurant Staff</h2></div>
+          <button class="icon-button" id="close-restaurant-staff-dialog" type="button" aria-label="Close">×</button>
+        </header>
+        <label>Restaurant<select id="restaurant-staff-select" required></select></label>
+        <label>What can the team help with?<textarea id="restaurant-staff-reason" rows="3" maxlength="500" placeholder="Optional"></textarea></label>
+        <p id="restaurant-staff-status" role="status"></p>
+        <div class="dialog-actions"><button class="secondary" id="cancel-restaurant-staff-dialog" type="button">Cancel</button><button type="submit">Request staff</button></div>
+      </form>
+    </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </main>

@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 import app.main as main_module
 from app.admin_auth import AdminAuthStore
-from app.config import Settings, validate_production_settings
+from app.config import Settings, validate_antlabs_mode, validate_production_settings
 from app.guardrails import PropertyGuard
 from app.main import app
 from app.properties import PropertyRecord, PropertyStore
@@ -21,7 +21,8 @@ def _production_settings(tmp_path: Path, **overrides) -> Settings:
         admin_bootstrap_password="ProductionOnly123!",
         admin_cookie_secure=True,
         credential_encryption_secret="a" * 32,
-        antlabs_mode="live",
+        antlabs_mode="browser_handoff",
+        antlabs_auth_url="https://gateway.example.test/auth",
     )
     return replace(safe, **overrides)
 
@@ -45,6 +46,17 @@ def test_production_requires_secure_cookie(tmp_path: Path):
         validate_production_settings(
             _production_settings(tmp_path, admin_cookie_secure=False)
         )
+
+
+def test_antlabs_mode_is_explicitly_validated(tmp_path: Path):
+    assert validate_antlabs_mode("mock") == "mock"
+    assert validate_antlabs_mode("browser_handoff") == "browser_handoff"
+    with pytest.raises(ValueError, match="Unsupported ANTLABS_MODE"):
+        validate_antlabs_mode("live")
+    with pytest.raises(RuntimeError, match="ANTLABS_MODE"):
+        validate_production_settings(_production_settings(tmp_path, antlabs_mode="live"), check_filesystem=False)
+    with pytest.raises(RuntimeError, match="ANTLABS_AUTH_URL"):
+        validate_production_settings(_production_settings(tmp_path, antlabs_auth_url=""), check_filesystem=False)
 
 
 def test_development_can_use_explicit_demo_settings(tmp_path: Path):

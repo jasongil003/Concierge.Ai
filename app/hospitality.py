@@ -4,9 +4,11 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 
 FACILITY_STATUSES = {"open", "closed", "temporarily_closed", "full", "maintenance", "private_event"}
+RESTAURANT_STATUSES = FACILITY_STATUSES | {"disabled", "archived"}
 SERVICE_STATUSES = ("new", "assigned", "accepted", "in_progress", "delivered", "completed")
 NOTIFICATION_CATEGORIES = {"operational", "assistance", "experience", "promotional"}
 
@@ -39,6 +41,7 @@ class HospitalityStore:
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path)
         connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
         return connection
 
     def _init_db(self) -> None:
@@ -74,8 +77,19 @@ class HospitalityStore:
                     reservation_available INTEGER NOT NULL DEFAULT 0,
                     description TEXT NOT NULL DEFAULT '',
                     status TEXT NOT NULL DEFAULT 'open',
+                    cuisine TEXT NOT NULL DEFAULT '',
+                    dress_code TEXT NOT NULL DEFAULT '',
+                    capacity INTEGER,
+                    phone_extension TEXT NOT NULL DEFAULT '',
+                    external_reservation_url TEXT NOT NULL DEFAULT '',
+                    contact_details TEXT NOT NULL DEFAULT '{}',
+                    images TEXT NOT NULL DEFAULT '[]',
+                    internal_notes TEXT NOT NULL DEFAULT '',
+                    guest_notes TEXT NOT NULL DEFAULT '',
+                    archived INTEGER NOT NULL DEFAULT 0,
                     updated_at INTEGER NOT NULL,
-                    created_at INTEGER NOT NULL
+                    created_at INTEGER NOT NULL,
+                    UNIQUE(property_id, restaurant_id)
                 );
                 CREATE TABLE IF NOT EXISTS menus (
                     menu_id TEXT PRIMARY KEY,
@@ -84,8 +98,18 @@ class HospitalityStore:
                     name TEXT NOT NULL,
                     meal_period TEXT NOT NULL,
                     active INTEGER NOT NULL DEFAULT 1,
+                    workflow_status TEXT NOT NULL DEFAULT 'published',
+                    created_by TEXT,
+                    updated_by TEXT,
+                    approved_by TEXT,
+                    published_by TEXT,
+                    approved_at INTEGER,
+                    published_at INTEGER,
                     created_at INTEGER NOT NULL,
-                    updated_at INTEGER NOT NULL
+                    updated_at INTEGER NOT NULL,
+                    UNIQUE(property_id, menu_id),
+                    FOREIGN KEY(property_id, restaurant_id)
+                        REFERENCES restaurants(property_id, restaurant_id) ON DELETE RESTRICT
                 );
                 CREATE TABLE IF NOT EXISTS menu_items (
                     item_id TEXT PRIMARY KEY,
@@ -100,7 +124,29 @@ class HospitalityStore:
                     dietary_tags TEXT NOT NULL DEFAULT '[]',
                     available INTEGER NOT NULL DEFAULT 1,
                     created_at INTEGER NOT NULL,
-                    updated_at INTEGER NOT NULL
+                    updated_at INTEGER NOT NULL,
+                    FOREIGN KEY(property_id, menu_id)
+                        REFERENCES menus(property_id, menu_id) ON DELETE RESTRICT
+                );
+                CREATE TABLE IF NOT EXISTS restaurant_promotions (
+                    promotion_id TEXT PRIMARY KEY,
+                    property_id TEXT NOT NULL,
+                    restaurant_id TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    starts_at INTEGER,
+                    ends_at INTEGER,
+                    status TEXT NOT NULL DEFAULT 'draft',
+                    created_by TEXT,
+                    updated_by TEXT,
+                    approved_by TEXT,
+                    published_by TEXT,
+                    approved_at INTEGER,
+                    published_at INTEGER,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    FOREIGN KEY(property_id, restaurant_id)
+                        REFERENCES restaurants(property_id, restaurant_id) ON DELETE CASCADE
                 );
                 CREATE TABLE IF NOT EXISTS hotel_events (
                     event_id TEXT PRIMARY KEY,
@@ -251,6 +297,48 @@ class HospitalityStore:
             self._ensure_column(db, "service_requests", "assigned_to", "TEXT")
             self._ensure_column(db, "service_requests", "notes", "TEXT NOT NULL DEFAULT '[]'")
             self._ensure_column(db, "service_requests", "client_request_id", "TEXT")
+            for name, definition in (
+                ("cuisine", "TEXT NOT NULL DEFAULT ''"),
+                ("dress_code", "TEXT NOT NULL DEFAULT ''"),
+                ("capacity", "INTEGER"),
+                ("phone_extension", "TEXT NOT NULL DEFAULT ''"),
+                ("external_reservation_url", "TEXT NOT NULL DEFAULT ''"),
+                ("contact_details", "TEXT NOT NULL DEFAULT '{}'"),
+                ("images", "TEXT NOT NULL DEFAULT '[]'"),
+                ("internal_notes", "TEXT NOT NULL DEFAULT ''"),
+                ("guest_notes", "TEXT NOT NULL DEFAULT ''"),
+                ("archived", "INTEGER NOT NULL DEFAULT 0"),
+            ):
+                self._ensure_column(db, "restaurants", name, definition)
+            for name, definition in (
+                ("workflow_status", "TEXT NOT NULL DEFAULT 'published'"),
+                ("created_by", "TEXT"),
+                ("updated_by", "TEXT"),
+                ("approved_by", "TEXT"),
+                ("published_by", "TEXT"),
+                ("approved_at", "INTEGER"),
+                ("published_at", "INTEGER"),
+            ):
+                self._ensure_column(db, "menus", name, definition)
+            db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_restaurants_property_restaurant ON restaurants(property_id,restaurant_id)")
+            db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_menus_property_menu ON menus(property_id,menu_id)")
+            db.execute("CREATE INDEX IF NOT EXISTS idx_menus_property_restaurant ON menus(property_id,restaurant_id)")
+            db.execute("CREATE INDEX IF NOT EXISTS idx_menu_items_property_menu ON menu_items(property_id,menu_id)")
+            db.execute("CREATE INDEX IF NOT EXISTS idx_restaurant_promotions_property_restaurant ON restaurant_promotions(property_id,restaurant_id)")
+            db.execute(
+                """CREATE TABLE IF NOT EXISTS restaurant_audit_events (
+                    event_id TEXT PRIMARY KEY,
+                    property_id TEXT NOT NULL,
+                    restaurant_id TEXT,
+                    actor_user_id TEXT,
+                    resource_type TEXT NOT NULL,
+                    resource_id TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    metadata TEXT NOT NULL DEFAULT '{}',
+                    created_at INTEGER NOT NULL
+                )"""
+            )
+            db.execute("CREATE INDEX IF NOT EXISTS idx_restaurant_audit_property_time ON restaurant_audit_events(property_id,created_at DESC)")
             db.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_service_request_idempotency ON service_requests(property_id, stay_id, client_request_id) WHERE client_request_id IS NOT NULL"
             )
@@ -455,15 +543,31 @@ class HospitalityStore:
             )
         return cursor.rowcount > 0
 
-    def create_restaurant(self, property_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def create_restaurant(
+        self,
+        property_id: str,
+        payload: dict[str, Any],
+        *,
+        actor_user_id: str | None = None,
+        restaurant_id: str | None = None,
+    ) -> dict[str, Any]:
         now = _now()
         status = str(payload.get("status") or "open")
-        if status not in FACILITY_STATUSES:
+        if status not in RESTAURANT_STATUSES:
             raise ValueError("Invalid restaurant status.")
+        if payload.get("restaurant_id"):
+            raise ValueError("Restaurant IDs are generated by the server.")
+        facility_id = str(payload.get("facility_id") or "").strip() or None
+        if facility_id:
+            self._require_owned("facility_profiles", "facility_id", facility_id, property_id)
+        capacity = payload.get("capacity")
+        if capacity is not None and (not isinstance(capacity, int) or not 1 <= capacity <= 100000):
+            raise ValueError("Restaurant capacity must be between 1 and 100000.")
+        external_url = self._external_reservation_url(payload.get("external_reservation_url"))
         record = {
-            "restaurant_id": str(payload.get("restaurant_id") or _id("rest")),
+            "restaurant_id": restaurant_id or _id("rest"),
             "property_id": property_id,
-            "facility_id": payload.get("facility_id"),
+            "facility_id": facility_id,
             "name": _clean(payload.get("name"), 160),
             "location": _clean(payload.get("location"), 240),
             "opening_hours": _json(payload.get("opening_hours") or {}),
@@ -471,53 +575,203 @@ class HospitalityStore:
             "reservation_available": 1 if payload.get("reservation_available") else 0,
             "description": _clean(payload.get("description"), 1000),
             "status": status,
+            "cuisine": _clean(payload.get("cuisine"), 120),
+            "dress_code": _clean(payload.get("dress_code"), 120),
+            "capacity": capacity,
+            "phone_extension": _clean(payload.get("phone_extension"), 80),
+            "external_reservation_url": external_url,
+            "contact_details": _json(self._contact_details(payload.get("contact_details"))),
+            "images": _json(self._image_urls(payload.get("images"))),
+            "internal_notes": _clean(payload.get("internal_notes"), 2000),
+            "guest_notes": _clean(payload.get("guest_notes"), 1000),
+            "archived": 1 if status == "archived" else 0,
             "updated_at": now,
             "created_at": now,
         }
         if not record["name"]:
             raise ValueError("Restaurant name is required.")
         with self._connect() as db:
-            existing = db.execute(
-                "SELECT created_at FROM restaurants WHERE property_id=? AND restaurant_id=?",
-                (property_id, record["restaurant_id"]),
-            ).fetchone()
-            if existing:
-                record["created_at"] = existing["created_at"]
-                db.execute(
-                    """UPDATE restaurants SET facility_id=:facility_id,name=:name,location=:location,
-                    opening_hours=:opening_hours,meal_periods=:meal_periods,reservation_available=:reservation_available,
-                    description=:description,status=:status,updated_at=:updated_at
-                    WHERE property_id=:property_id AND restaurant_id=:restaurant_id""",
-                    record,
-                )
-            else:
-                db.execute(
-                    """INSERT INTO restaurants VALUES
-                    (:restaurant_id,:property_id,:facility_id,:name,:location,:opening_hours,:meal_periods,
-                    :reservation_available,:description,:status,:updated_at,:created_at)""",
-                    record,
-                )
+            db.execute(
+                """INSERT INTO restaurants
+                (restaurant_id,property_id,facility_id,name,location,opening_hours,meal_periods,
+                 reservation_available,description,status,cuisine,dress_code,capacity,phone_extension,
+                 external_reservation_url,contact_details,images,internal_notes,guest_notes,archived,updated_at,created_at)
+                VALUES
+                (:restaurant_id,:property_id,:facility_id,:name,:location,:opening_hours,:meal_periods,
+                 :reservation_available,:description,:status,:cuisine,:dress_code,:capacity,:phone_extension,
+                 :external_reservation_url,:contact_details,:images,:internal_notes,:guest_notes,:archived,:updated_at,:created_at)""",
+                record,
+            )
+            self._record_restaurant_audit(db, property_id, record["restaurant_id"], actor_user_id, "restaurant", record["restaurant_id"], "created")
         return self._restaurant_dict(record)
 
-    def delete_restaurant(self, property_id: str, restaurant_id: str) -> bool:
+    def update_restaurant(self, property_id: str, restaurant_id: str, payload: dict[str, Any], actor_user_id: str | None = None) -> dict[str, Any]:
+        existing = self.get_restaurant(property_id, restaurant_id)
+        if not existing:
+            raise KeyError("Restaurant not found.")
+        data = {**existing, **payload}
+        hours_changed = (
+            existing.get("opening_hours") != (data.get("opening_hours") or {})
+            or existing.get("meal_periods") != list(data.get("meal_periods") or [])
+        )
+        status = str(data.get("status") or "open")
+        if status not in RESTAURANT_STATUSES:
+            raise ValueError("Invalid restaurant status.")
+        facility_id = str(data.get("facility_id") or "").strip() or None
+        if facility_id:
+            self._require_owned("facility_profiles", "facility_id", facility_id, property_id)
+        capacity = data.get("capacity")
+        if capacity is not None and (not isinstance(capacity, int) or not 1 <= capacity <= 100000):
+            raise ValueError("Restaurant capacity must be between 1 and 100000.")
+        record = {
+            "property_id": property_id,
+            "restaurant_id": restaurant_id,
+            "facility_id": facility_id,
+            "name": _clean(data.get("name"), 160),
+            "location": _clean(data.get("location"), 240),
+            "opening_hours": _json(data.get("opening_hours") or {}),
+            "meal_periods": _json(list(data.get("meal_periods") or [])[:12]),
+            "reservation_available": 1 if data.get("reservation_available") else 0,
+            "description": _clean(data.get("description"), 1000),
+            "status": status,
+            "cuisine": _clean(data.get("cuisine"), 120),
+            "dress_code": _clean(data.get("dress_code"), 120),
+            "capacity": capacity,
+            "phone_extension": _clean(data.get("phone_extension"), 80),
+            "external_reservation_url": self._external_reservation_url(data.get("external_reservation_url")),
+            "contact_details": _json(self._contact_details(data.get("contact_details"))),
+            "images": _json(self._image_urls(data.get("images"))),
+            "internal_notes": _clean(data.get("internal_notes"), 2000),
+            "guest_notes": _clean(data.get("guest_notes"), 1000),
+            "archived": 1 if status == "archived" else 0,
+            "updated_at": _now(),
+        }
+        if not record["name"]:
+            raise ValueError("Restaurant name is required.")
         with self._connect() as db:
-            menu_ids = [row[0] for row in db.execute(
-                "SELECT menu_id FROM menus WHERE property_id=? AND restaurant_id=?",
+            db.execute(
+                """UPDATE restaurants SET facility_id=:facility_id,name=:name,location=:location,
+                opening_hours=:opening_hours,meal_periods=:meal_periods,reservation_available=:reservation_available,
+                description=:description,status=:status,cuisine=:cuisine,dress_code=:dress_code,capacity=:capacity,
+                phone_extension=:phone_extension,external_reservation_url=:external_reservation_url,
+                contact_details=:contact_details,images=:images,internal_notes=:internal_notes,guest_notes=:guest_notes,
+                archived=:archived,updated_at=:updated_at
+                WHERE property_id=:property_id AND restaurant_id=:restaurant_id""",
+                record,
+            )
+            self._record_restaurant_audit(db, property_id, restaurant_id, actor_user_id, "restaurant", restaurant_id, "updated")
+            if hours_changed:
+                self._record_restaurant_audit(db, property_id, restaurant_id, actor_user_id, "restaurant", restaurant_id, "hours_changed")
+        return self.get_restaurant(property_id, restaurant_id) or {}
+
+    def get_restaurant(self, property_id: str, restaurant_id: str, *, guest: bool = False) -> dict[str, Any] | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM restaurants WHERE property_id=? AND restaurant_id=?",
                 (property_id, restaurant_id),
-            ).fetchall()]
-            if menu_ids:
-                placeholders = ",".join("?" for _ in menu_ids)
-                db.execute(
-                    f"DELETE FROM menu_items WHERE property_id=? AND menu_id IN ({placeholders})",
-                    (property_id, *menu_ids),
-                )
-            db.execute("DELETE FROM menus WHERE property_id=? AND restaurant_id=?", (property_id, restaurant_id))
-            cursor = db.execute("DELETE FROM restaurants WHERE property_id=? AND restaurant_id=?", (property_id, restaurant_id))
+            ).fetchone()
+        return self._restaurant_dict(row, guest=guest) if row else None
+
+    def delete_restaurant(self, property_id: str, restaurant_id: str) -> bool:
+        return self.archive_restaurant(property_id, restaurant_id)
+
+    def archive_restaurant(self, property_id: str, restaurant_id: str, actor_user_id: str | None = None) -> bool:
+        with self._connect() as db:
+            cursor = db.execute(
+                "UPDATE restaurants SET status='archived',archived=1,updated_at=? WHERE property_id=? AND restaurant_id=? AND archived=0",
+                (_now(), property_id, restaurant_id),
+            )
+            if cursor.rowcount:
+                self._record_restaurant_audit(db, property_id, restaurant_id, actor_user_id, "restaurant", restaurant_id, "archived")
         return cursor.rowcount > 0
 
-    def create_menu(self, property_id: str, restaurant_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        self._require_owned("restaurants", "restaurant_id", restaurant_id, property_id)
+    @staticmethod
+    def _external_reservation_url(value: Any) -> str:
+        url = _clean(value, 500)
+        if not url:
+            return ""
+        try:
+            parsed = urlsplit(url)
+        except ValueError as exc:
+            raise ValueError("Reservation URL must be a valid HTTPS URL.") from exc
+        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+            raise ValueError("Reservation URL must be a valid HTTPS URL.")
+        return url
+
+    @staticmethod
+    def _image_urls(values: Any) -> list[str]:
+        if values is None:
+            return []
+        if not isinstance(values, list):
+            raise ValueError("Restaurant images must be a list of URLs.")
+        result: list[str] = []
+        for value in values[:20]:
+            url = _clean(value, 500)
+            if not url:
+                continue
+            if url.startswith("/") and not url.startswith("//"):
+                result.append(url)
+                continue
+            try:
+                parsed = urlsplit(url)
+            except ValueError as exc:
+                raise ValueError("Restaurant images must use HTTPS URLs or same-origin paths.") from exc
+            if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+                raise ValueError("Restaurant images must use HTTPS URLs or same-origin paths.")
+            result.append(url)
+        return result
+
+    @staticmethod
+    def _image_url(value: Any) -> str:
+        url = _clean(value, 500)
+        if not url:
+            return ""
+        return HospitalityStore._image_urls([url])[0]
+
+    @staticmethod
+    def _contact_details(value: Any) -> dict[str, str]:
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise ValueError("Restaurant contact details must be an object.")
+        email = _clean(value.get("email"), 254).lower()
+        if email and ("@" not in email or email.startswith("@") or email.endswith("@")):
+            raise ValueError("Restaurant contact email is invalid.")
+        website = HospitalityStore._external_reservation_url(value.get("website"))
+        phone = _clean(value.get("phone"), 80)
+        return {key: item for key, item in {"email": email, "phone": phone, "website": website}.items() if item}
+
+    @staticmethod
+    def _record_restaurant_audit(
+        db: sqlite3.Connection,
+        property_id: str,
+        restaurant_id: str | None,
+        actor_user_id: str | None,
+        resource_type: str,
+        resource_id: str,
+        action: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        db.execute(
+            """INSERT INTO restaurant_audit_events
+            (event_id,property_id,restaurant_id,actor_user_id,resource_type,resource_id,action,metadata,created_at)
+            VALUES(?,?,?,?,?,?,?,?,?)""",
+            (_id("audit"), property_id, restaurant_id, actor_user_id, resource_type, resource_id, action, _json(metadata or {}), _now()),
+        )
+
+    def create_menu(
+        self,
+        property_id: str,
+        restaurant_id: str,
+        payload: dict[str, Any],
+        *,
+        actor_user_id: str | None = None,
+    ) -> dict[str, Any]:
+        restaurant = self.get_restaurant(property_id, restaurant_id)
+        if not restaurant or restaurant["archived"] or restaurant["status"] in {"disabled", "archived"}:
+            raise KeyError("Restaurant not found.")
         now = _now()
+        status = "pending_approval"
         record = {
             "menu_id": _id("menu"),
             "property_id": property_id,
@@ -525,16 +779,169 @@ class HospitalityStore:
             "name": _clean(payload.get("name"), 160),
             "meal_period": _clean(payload.get("meal_period") or "all_day", 80),
             "active": 1 if payload.get("active", True) else 0,
+            "workflow_status": status,
+            "created_by": actor_user_id,
+            "updated_by": actor_user_id,
+            "approved_by": None,
+            "published_by": None,
+            "approved_at": None,
+            "published_at": None,
             "created_at": now,
             "updated_at": now,
         }
         if not record["name"]:
             raise ValueError("Menu name is required.")
         with self._connect() as db:
-            db.execute("INSERT INTO menus VALUES (:menu_id,:property_id,:restaurant_id,:name,:meal_period,:active,:created_at,:updated_at)", record)
-        return self._bools(record, ["active"])
+            db.execute(
+                """INSERT INTO menus
+                (menu_id,property_id,restaurant_id,name,meal_period,active,workflow_status,created_by,updated_by,
+                 approved_by,published_by,approved_at,published_at,created_at,updated_at)
+                VALUES
+                (:menu_id,:property_id,:restaurant_id,:name,:meal_period,:active,:workflow_status,:created_by,:updated_by,
+                 :approved_by,:published_by,:approved_at,:published_at,:created_at,:updated_at)""",
+                record,
+            )
+            self._record_restaurant_audit(db, property_id, restaurant_id, actor_user_id, "menu", record["menu_id"], "created", {"status": status})
+        return self._menu_dict(record)
 
-    def create_menu_item(self, property_id: str, menu_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def restaurant_menus(self, property_id: str, restaurant_id: str, *, guest: bool = False) -> list[dict[str, Any]]:
+        self._require_owned("restaurants", "restaurant_id", restaurant_id, property_id)
+        clause = "AND workflow_status='published' AND active=1" if guest else ""
+        with self._connect() as db:
+            menus = db.execute(
+                f"SELECT * FROM menus WHERE property_id=? AND restaurant_id=? {clause} ORDER BY meal_period,name",
+                (property_id, restaurant_id),
+            ).fetchall()
+            result = []
+            for menu in menus:
+                items = db.execute(
+                    "SELECT * FROM menu_items WHERE property_id=? AND menu_id=? ORDER BY name",
+                    (property_id, menu["menu_id"]),
+                ).fetchall()
+                result.append({**self._menu_dict(menu), "items": [self._menu_item_dict(item) for item in items if not guest or item["available"]]})
+        return result
+
+    def update_menu(
+        self, property_id: str, menu_id: str, payload: dict[str, Any], *, actor_user_id: str | None = None
+    ) -> dict[str, Any]:
+        now = _now()
+        with self._connect() as db:
+            row = db.execute("SELECT * FROM menus WHERE property_id=? AND menu_id=?", (property_id, menu_id)).fetchone()
+            if not row:
+                raise KeyError("Menu not found.")
+            name = _clean(payload.get("name", row["name"]), 160)
+            meal_period = _clean(payload.get("meal_period", row["meal_period"]), 80)
+            if not name:
+                raise ValueError("Menu name is required.")
+            db.execute(
+                """UPDATE menus SET name=?,meal_period=?,active=0,workflow_status='pending_approval',
+                updated_by=?,approved_by=NULL,approved_at=NULL,published_by=NULL,published_at=NULL,updated_at=?
+                WHERE property_id=? AND menu_id=?""",
+                (name, meal_period, actor_user_id, now, property_id, menu_id),
+            )
+            self._record_restaurant_audit(db, property_id, row["restaurant_id"], actor_user_id, "menu", menu_id, "updated", {"status": "pending_approval"})
+            result = db.execute("SELECT * FROM menus WHERE property_id=? AND menu_id=?", (property_id, menu_id)).fetchone()
+        return self._menu_dict(result)
+
+    def restaurant_id_for_menu(self, property_id: str, menu_id: str) -> str | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT restaurant_id FROM menus WHERE property_id=? AND menu_id=?",
+                (property_id, menu_id),
+            ).fetchone()
+        return row["restaurant_id"] if row else None
+
+    def restaurant_id_for_menu_item(self, property_id: str, item_id: str) -> str | None:
+        with self._connect() as db:
+            row = db.execute(
+                """SELECT m.restaurant_id FROM menu_items i
+                JOIN menus m ON m.property_id=i.property_id AND m.menu_id=i.menu_id
+                WHERE i.property_id=? AND i.item_id=?""",
+                (property_id, item_id),
+            ).fetchone()
+        return row["restaurant_id"] if row else None
+
+    def restaurant_id_for_promotion(self, property_id: str, promotion_id: str) -> str | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT restaurant_id FROM restaurant_promotions WHERE property_id=? AND promotion_id=?",
+                (property_id, promotion_id),
+            ).fetchone()
+        return row["restaurant_id"] if row else None
+
+    def restaurant_analytics(self, property_id: str, restaurant_id: str) -> dict[str, Any]:
+        self._require_owned("restaurants", "restaurant_id", restaurant_id, property_id)
+        with self._connect() as db:
+            conversations = db.execute(
+                """SELECT COUNT(*) AS total,
+                SUM(CASE WHEN state IN ('waiting_for_staff','assigned') THEN 1 ELSE 0 END) AS waiting,
+                SUM(CASE WHEN state='human_active' THEN 1 ELSE 0 END) AS active,
+                SUM(CASE WHEN state IN ('resolved','returned_to_ai') THEN 1 ELSE 0 END) AS completed
+                FROM conversation_state WHERE property_id=? AND restaurant_id=?""",
+                (property_id, restaurant_id),
+            ).fetchone()
+            messages = db.execute(
+                """SELECT COUNT(*) FROM conversation_messages m
+                JOIN conversation_state cs ON cs.property_id=m.property_id AND cs.session_id=m.session_id
+                WHERE cs.property_id=? AND cs.restaurant_id=?""",
+                (property_id, restaurant_id),
+            ).fetchone()[0]
+            menus = db.execute(
+                "SELECT COUNT(*) FROM menus WHERE property_id=? AND restaurant_id=?",
+                (property_id, restaurant_id),
+            ).fetchone()[0]
+            promotions = db.execute(
+                "SELECT COUNT(*) FROM restaurant_promotions WHERE property_id=? AND restaurant_id=?",
+                (property_id, restaurant_id),
+            ).fetchone()[0]
+        return {
+            "conversations": int(conversations["total"] or 0),
+            "waiting_for_staff": int(conversations["waiting"] or 0),
+            "human_active": int(conversations["active"] or 0),
+            "completed": int(conversations["completed"] or 0),
+            "messages": int(messages or 0),
+            "menus": int(menus or 0),
+            "promotions": int(promotions or 0),
+        }
+
+    def approve_menu(self, property_id: str, menu_id: str, actor_user_id: str) -> dict[str, Any]:
+        now = _now()
+        with self._connect() as db:
+            db.execute(
+                """UPDATE menus SET workflow_status='approved',approved_by=?,approved_at=?,updated_by=?,updated_at=?
+                WHERE property_id=? AND menu_id=? AND workflow_status IN ('pending_approval','draft','approved')""",
+                (actor_user_id, now, actor_user_id, now, property_id, menu_id),
+            )
+            row = db.execute("SELECT * FROM menus WHERE property_id=? AND menu_id=?", (property_id, menu_id)).fetchone()
+            if row:
+                self._record_restaurant_audit(db, property_id, row["restaurant_id"], actor_user_id, "menu", menu_id, "approved")
+        if not row:
+            raise KeyError("Menu not found.")
+        return self._menu_dict(row)
+
+    def publish_menu(self, property_id: str, menu_id: str, actor_user_id: str) -> dict[str, Any]:
+        now = _now()
+        with self._connect() as db:
+            db.execute(
+                """UPDATE menus SET workflow_status='published',active=1,published_by=?,published_at=?,updated_by=?,updated_at=?
+                WHERE property_id=? AND menu_id=? AND workflow_status IN ('approved','published')""",
+                (actor_user_id, now, actor_user_id, now, property_id, menu_id),
+            )
+            row = db.execute("SELECT * FROM menus WHERE property_id=? AND menu_id=?", (property_id, menu_id)).fetchone()
+            if row and row["workflow_status"] == "published":
+                self._record_restaurant_audit(db, property_id, row["restaurant_id"], actor_user_id, "menu", menu_id, "published")
+        if not row or row["workflow_status"] != "published":
+            raise ValueError("Only an approved menu can be published.")
+        return self._menu_dict(row)
+
+    def create_menu_item(
+        self,
+        property_id: str,
+        menu_id: str,
+        payload: dict[str, Any],
+        *,
+        actor_user_id: str | None = None,
+    ) -> dict[str, Any]:
         self._require_owned("menus", "menu_id", menu_id, property_id)
         now = _now()
         record = {
@@ -544,7 +951,7 @@ class HospitalityStore:
             "name": _clean(payload.get("name"), 160),
             "description": _clean(payload.get("description"), 1000),
             "price": _clean(payload.get("price"), 40),
-            "image_url": _clean(payload.get("image_url"), 500),
+            "image_url": self._image_url(payload.get("image_url")),
             "ingredients": _json(list(payload.get("ingredients") or [])[:40]),
             "allergens": _json(list(payload.get("allergens") or [])[:40]),
             "dietary_tags": _json(list(payload.get("dietary_tags") or [])[:40]),
@@ -561,7 +968,201 @@ class HospitalityStore:
                 :allergens,:dietary_tags,:available,:created_at,:updated_at)""",
                 record,
             )
+            parent = db.execute("SELECT restaurant_id,workflow_status FROM menus WHERE property_id=? AND menu_id=?", (property_id, menu_id)).fetchone()
+            db.execute(
+                "UPDATE menus SET workflow_status='pending_approval',active=0,updated_by=?,updated_at=? WHERE property_id=? AND menu_id=?",
+                (actor_user_id, now, property_id, menu_id),
+            )
+            self._record_restaurant_audit(db, property_id, parent["restaurant_id"], actor_user_id, "menu_item", record["item_id"], "created")
         return self._menu_item_dict(record)
+
+    def update_menu_item(
+        self, property_id: str, item_id: str, payload: dict[str, Any], *, actor_user_id: str | None = None
+    ) -> dict[str, Any]:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM menu_items WHERE property_id=? AND item_id=?",
+                (property_id, item_id),
+            ).fetchone()
+            if not row:
+                raise KeyError("Menu item not found.")
+            parent = db.execute(
+                "SELECT * FROM menus WHERE property_id=? AND menu_id=?",
+                (property_id, row["menu_id"]),
+            ).fetchone()
+            if not parent or not db.execute(
+                "SELECT 1 FROM restaurants WHERE property_id=? AND restaurant_id=?",
+                (property_id, parent["restaurant_id"]),
+            ).fetchone():
+                raise KeyError("Menu item not found.")
+            record = {
+                "name": _clean(payload.get("name", row["name"]), 160),
+                "description": _clean(payload.get("description", row["description"]), 1000),
+                "price": _clean(payload.get("price", row["price"]), 40),
+                "image_url": self._image_url(payload.get("image_url", row["image_url"])),
+                "ingredients": _json(payload.get("ingredients", _load(row["ingredients"]))),
+                "allergens": _json(payload.get("allergens", _load(row["allergens"]))),
+                "dietary_tags": _json(payload.get("dietary_tags", _load(row["dietary_tags"]))),
+                "available": 1 if payload.get("available", bool(row["available"])) else 0,
+                "updated_at": _now(),
+                "property_id": property_id,
+                "item_id": item_id,
+                "menu_id": row["menu_id"],
+                "restaurant_id": parent["restaurant_id"],
+            }
+            if not record["name"]:
+                raise ValueError("Menu item name is required.")
+            db.execute(
+                """UPDATE menu_items SET name=:name,description=:description,price=:price,image_url=:image_url,
+                ingredients=:ingredients,allergens=:allergens,dietary_tags=:dietary_tags,available=:available,
+                updated_at=:updated_at WHERE property_id=:property_id AND menu_id=:menu_id AND item_id=:item_id""",
+                record,
+            )
+            db.execute(
+                """UPDATE menus SET workflow_status='pending_approval',active=0,updated_by=?,updated_at=?
+                WHERE property_id=? AND menu_id=?""",
+                (actor_user_id, record["updated_at"], property_id, row["menu_id"]),
+            )
+            self._record_restaurant_audit(db, property_id, parent["restaurant_id"], actor_user_id, "menu_item", item_id, "updated")
+            result = db.execute("SELECT * FROM menu_items WHERE property_id=? AND item_id=?", (property_id, item_id)).fetchone()
+        return self._menu_item_dict(result)
+
+    def create_promotion(
+        self, property_id: str, restaurant_id: str, payload: dict[str, Any], *, actor_user_id: str | None = None
+    ) -> dict[str, Any]:
+        self._require_owned("restaurants", "restaurant_id", restaurant_id, property_id)
+        now = _now()
+        starts_at = self._optional_timestamp(payload.get("starts_at"))
+        ends_at = self._optional_timestamp(payload.get("ends_at"))
+        if starts_at is not None and ends_at is not None and ends_at < starts_at:
+            raise ValueError("Promotion end time must be after its start time.")
+        title = _clean(payload.get("title"), 180)
+        if not title:
+            raise ValueError("Promotion title is required.")
+        record = {
+            "promotion_id": _id("promo"),
+            "property_id": property_id,
+            "restaurant_id": restaurant_id,
+            "title": title,
+            "description": _clean(payload.get("description"), 1000),
+            "starts_at": starts_at,
+            "ends_at": ends_at,
+            "status": "pending_approval",
+            "created_by": actor_user_id,
+            "updated_by": actor_user_id,
+            "approved_by": None,
+            "published_by": None,
+            "approved_at": None,
+            "published_at": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self._connect() as db:
+            db.execute(
+                """INSERT INTO restaurant_promotions
+                (promotion_id,property_id,restaurant_id,title,description,starts_at,ends_at,status,created_by,updated_by,
+                 approved_by,published_by,approved_at,published_at,created_at,updated_at)
+                VALUES
+                (:promotion_id,:property_id,:restaurant_id,:title,:description,:starts_at,:ends_at,:status,:created_by,:updated_by,
+                 :approved_by,:published_by,:approved_at,:published_at,:created_at,:updated_at)""",
+                record,
+            )
+            self._record_restaurant_audit(db, property_id, restaurant_id, actor_user_id, "promotion", record["promotion_id"], "created")
+        return self._promotion_dict(record)
+
+    def update_promotion(
+        self, property_id: str, promotion_id: str, payload: dict[str, Any], *, actor_user_id: str | None = None
+    ) -> dict[str, Any]:
+        now = _now()
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM restaurant_promotions WHERE property_id=? AND promotion_id=?",
+                (property_id, promotion_id),
+            ).fetchone()
+            if not row:
+                raise KeyError("Promotion not found.")
+            starts_at = self._optional_timestamp(payload.get("starts_at", row["starts_at"]))
+            ends_at = self._optional_timestamp(payload.get("ends_at", row["ends_at"]))
+            if starts_at is not None and ends_at is not None and ends_at < starts_at:
+                raise ValueError("Promotion end time must be after its start time.")
+            title = _clean(payload.get("title", row["title"]), 180)
+            if not title:
+                raise ValueError("Promotion title is required.")
+            db.execute(
+                """UPDATE restaurant_promotions SET title=?,description=?,starts_at=?,ends_at=?,status='pending_approval',
+                updated_by=?,approved_by=NULL,approved_at=NULL,published_by=NULL,published_at=NULL,updated_at=?
+                WHERE property_id=? AND promotion_id=?""",
+                (title, _clean(payload.get("description", row["description"]), 1000), starts_at, ends_at, actor_user_id, now, property_id, promotion_id),
+            )
+            self._record_restaurant_audit(db, property_id, row["restaurant_id"], actor_user_id, "promotion", promotion_id, "updated", {"status": "pending_approval"})
+            result = db.execute(
+                "SELECT * FROM restaurant_promotions WHERE property_id=? AND promotion_id=?",
+                (property_id, promotion_id),
+            ).fetchone()
+        return self._promotion_dict(result)
+
+    def restaurant_promotions(
+        self, property_id: str, restaurant_id: str, *, guest: bool = False
+    ) -> list[dict[str, Any]]:
+        self._require_owned("restaurants", "restaurant_id", restaurant_id, property_id)
+        now = _now()
+        with self._connect() as db:
+            rows = db.execute(
+                """SELECT * FROM restaurant_promotions
+                WHERE property_id=? AND restaurant_id=?
+                  AND (?=0 OR (status='published' AND (starts_at IS NULL OR starts_at<=?) AND (ends_at IS NULL OR ends_at>=?)))
+                ORDER BY starts_at,title""",
+                (property_id, restaurant_id, 1 if guest else 0, now, now),
+            ).fetchall()
+        return [self._promotion_dict(row, guest=guest) for row in rows]
+
+    def approve_promotion(self, property_id: str, promotion_id: str, actor_user_id: str) -> dict[str, Any]:
+        now = _now()
+        with self._connect() as db:
+            db.execute(
+                """UPDATE restaurant_promotions SET status='approved',approved_by=?,approved_at=?,updated_by=?,updated_at=?
+                WHERE property_id=? AND promotion_id=? AND status IN ('draft','pending_approval','approved')""",
+                (actor_user_id, now, actor_user_id, now, property_id, promotion_id),
+            )
+            row = db.execute(
+                "SELECT * FROM restaurant_promotions WHERE property_id=? AND promotion_id=?",
+                (property_id, promotion_id),
+            ).fetchone()
+            if row and row["status"] == "approved":
+                self._record_restaurant_audit(db, property_id, row["restaurant_id"], actor_user_id, "promotion", promotion_id, "approved")
+        if not row or row["status"] != "approved":
+            raise KeyError("Promotion not found or cannot be approved.")
+        return self._promotion_dict(row)
+
+    def publish_promotion(self, property_id: str, promotion_id: str, actor_user_id: str) -> dict[str, Any]:
+        now = _now()
+        with self._connect() as db:
+            db.execute(
+                """UPDATE restaurant_promotions SET status='published',published_by=?,published_at=?,updated_by=?,updated_at=?
+                WHERE property_id=? AND promotion_id=? AND status IN ('approved','published')""",
+                (actor_user_id, now, actor_user_id, now, property_id, promotion_id),
+            )
+            row = db.execute(
+                "SELECT * FROM restaurant_promotions WHERE property_id=? AND promotion_id=?",
+                (property_id, promotion_id),
+            ).fetchone()
+            if row and row["status"] == "published":
+                self._record_restaurant_audit(db, property_id, row["restaurant_id"], actor_user_id, "promotion", promotion_id, "published")
+        if not row or row["status"] != "published":
+            raise ValueError("Only an approved promotion can be published.")
+        return self._promotion_dict(row)
+
+    @staticmethod
+    def _optional_timestamp(value: Any) -> int | None:
+        if value in (None, ""):
+            return None
+        try:
+            number = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Promotion dates must be Unix timestamps.") from exc
+        if number < 0:
+            raise ValueError("Promotion dates must be Unix timestamps.")
+        return number
 
     def create_event(self, property_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         now = _now()
@@ -801,11 +1402,28 @@ class HospitalityStore:
         record["metadata"] = _load(record["metadata"])
         return record
 
-    def overview(self, property_id: str) -> dict[str, Any]:
+    def overview(self, property_id: str, restaurant_ids: set[str] | None = None) -> dict[str, Any]:
         with self._connect() as db:
+            restaurants = [
+                self._restaurant_dict(row)
+                for row in db.execute("SELECT * FROM restaurants WHERE property_id=? ORDER BY name", (property_id,))
+            ]
+            promotions = [
+                self._promotion_dict(row)
+                for row in db.execute("SELECT * FROM restaurant_promotions WHERE property_id=? ORDER BY created_at DESC", (property_id,))
+            ]
+            if restaurant_ids is not None:
+                restaurants = [item for item in restaurants if item["restaurant_id"] in restaurant_ids]
+                promotions = [item for item in promotions if item["restaurant_id"] in restaurant_ids]
+            menus = {
+                item["restaurant_id"]: self.restaurant_menus(property_id, item["restaurant_id"])
+                for item in restaurants
+            }
             return {
                 "facilities": [self._facility_dict(row) for row in db.execute("SELECT * FROM facility_profiles WHERE property_id=? ORDER BY name", (property_id,))],
-                "restaurants": [self._restaurant_dict(row) for row in db.execute("SELECT * FROM restaurants WHERE property_id=? ORDER BY name", (property_id,))],
+                "restaurants": restaurants,
+                "menus": menus,
+                "promotions": promotions,
                 "events": [self._event_dict(row) for row in db.execute("SELECT * FROM hotel_events WHERE property_id=? ORDER BY starts_at", (property_id,))],
                 "service_requests": [self._service_dict(row) for row in db.execute("SELECT * FROM service_requests WHERE property_id=? ORDER BY created_at DESC", (property_id,))],
                 "notification_rules": [self._notification_rule_dict(row) for row in db.execute("SELECT * FROM notification_rules WHERE property_id=? ORDER BY name", (property_id,))],
@@ -823,10 +1441,39 @@ class HospitalityStore:
                     (property_id,),
                 )
             ]
-            restaurants = [self._restaurant_dict(row) for row in db.execute("SELECT * FROM restaurants WHERE property_id=? ORDER BY name", (property_id,))]
-            menus = [self._menu_item_dict(row) for row in db.execute("SELECT mi.* FROM menu_items mi JOIN menus m ON m.menu_id=mi.menu_id WHERE mi.property_id=? AND mi.available=1 AND m.active=1", (property_id,))]
+            restaurants = [
+                self._restaurant_dict(row, guest=True)
+                for row in db.execute(
+                    "SELECT * FROM restaurants WHERE property_id=? AND archived=0 AND status NOT IN ('disabled','archived') ORDER BY name",
+                    (property_id,),
+                )
+            ]
+            menus = [
+                self._menu_item_dict(row)
+                for row in db.execute(
+                    """SELECT mi.* FROM menu_items mi
+                    JOIN menus m ON m.menu_id=mi.menu_id AND m.property_id=mi.property_id
+                    JOIN restaurants r ON r.restaurant_id=m.restaurant_id AND r.property_id=m.property_id
+                    WHERE mi.property_id=? AND mi.available=1 AND m.active=1
+                      AND m.workflow_status='published' AND r.archived=0 AND r.status NOT IN ('disabled','archived')""",
+                    (property_id,),
+                )
+            ]
+            promotions = [
+                self._promotion_dict(row, guest=True)
+                for row in db.execute(
+                    """SELECT p.* FROM restaurant_promotions p
+                    JOIN restaurants r ON r.restaurant_id=p.restaurant_id AND r.property_id=p.property_id
+                    WHERE p.property_id=? AND p.status='published'
+                      AND (p.starts_at IS NULL OR p.starts_at<=?)
+                      AND (p.ends_at IS NULL OR p.ends_at>=?)
+                      AND r.archived=0 AND r.status NOT IN ('disabled','archived')
+                    ORDER BY p.starts_at,p.title""",
+                    (property_id, _now(), _now()),
+                )
+            ]
             events = [self._event_dict(row) for row in db.execute("SELECT * FROM hotel_events WHERE property_id=? AND status='scheduled' ORDER BY starts_at", (property_id,))]
-        return {"facilities": facilities, "restaurants": restaurants, "menu_items": menus, "events": events}
+        return {"facilities": facilities, "restaurants": restaurants, "menu_items": menus, "promotions": promotions, "events": events}
 
     def request_metrics(self, property_id: str) -> dict[str, int]:
         with self._connect() as db:
@@ -886,10 +1533,29 @@ class HospitalityStore:
         data["images"] = json.loads(data["images"] or "[]")
         return data
 
-    def _restaurant_dict(self, row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
-        data = self._bools(row, ["reservation_available"])
+    def _restaurant_dict(self, row: sqlite3.Row | dict[str, Any], *, guest: bool = False) -> dict[str, Any]:
+        data = self._bools(row, ["reservation_available", "archived"])
         data["opening_hours"] = _load(data["opening_hours"])
         data["meal_periods"] = json.loads(data["meal_periods"] or "[]")
+        data["contact_details"] = _load(data.get("contact_details"))
+        data["images"] = json.loads(data.get("images") or "[]")
+        if guest:
+            data.pop("internal_notes", None)
+        return data
+
+    @staticmethod
+    def _menu_dict(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
+        data = dict(row)
+        data["active"] = bool(data["active"])
+        return data
+
+    def _promotion_dict(self, row: sqlite3.Row | dict[str, Any], *, guest: bool = False) -> dict[str, Any]:
+        data = dict(row)
+        if guest:
+            data.pop("created_by", None)
+            data.pop("updated_by", None)
+            data.pop("approved_by", None)
+            data.pop("published_by", None)
         return data
 
     def _menu_item_dict(self, row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:

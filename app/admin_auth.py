@@ -32,7 +32,24 @@ PERMISSIONS: dict[str, str] = {
     "concierge.view": "View concierge configuration",
     "concierge.edit": "Edit concierge configuration",
     "conversations.view": "View guest conversations",
+    "conversations.takeover": "Accept an escalated guest conversation",
     "conversations.reply": "Reply to guest conversations",
+    "conversations.assign": "Assign and reassign guest conversations",
+    "conversations.resolve": "Resolve guest conversations",
+    "conversations.return_to_ai": "Return guest conversations to AI",
+    "guest_sessions.view": "View guest session and stay records",
+    "guest_sessions.manage": "Manage guest sessions and stay records",
+    "restaurant.view": "View assigned restaurants and guest-facing information",
+    "restaurant.manage": "Manage assigned restaurant configuration",
+    "restaurant.analytics.view": "View assigned restaurant analytics",
+    "restaurant.menu.view": "View restaurant menus",
+    "restaurant.menu.edit": "Edit restaurant menus and menu items",
+    "restaurant.menu.approve": "Approve and publish restaurant menus",
+    "restaurant.hours.view": "View restaurant hours",
+    "restaurant.hours.edit": "Manage restaurant operating hours",
+    "restaurant.promotions.view": "View restaurant promotions",
+    "restaurant.promotions.edit": "Create and edit restaurant promotions",
+    "restaurant.promotions.approve": "Approve and publish restaurant promotions",
     "requests.view": "View guest requests",
     "requests.manage": "Manage guest requests",
     "analytics.view": "View analytics",
@@ -68,7 +85,12 @@ DEFAULT_ROLES: dict[str, dict[str, Any]] = {
         "description": "Hotel operations, content, requests, conversations, knowledge, and analytics.",
         "permissions": [
             "dashboard.view", "properties.view", "properties.edit", "knowledge.view", "knowledge.edit", "knowledge.publish",
-            "concierge.view", "concierge.edit", "conversations.view", "conversations.reply",
+            "concierge.view", "concierge.edit", "conversations.view", "conversations.takeover", "conversations.reply",
+            "conversations.assign", "conversations.resolve", "conversations.return_to_ai",
+            "guest_sessions.view", "guest_sessions.manage",
+            "restaurant.view", "restaurant.manage", "restaurant.menu.view", "restaurant.menu.edit", "restaurant.menu.approve",
+            "restaurant.hours.view", "restaurant.hours.edit", "restaurant.promotions.view", "restaurant.promotions.edit",
+            "restaurant.promotions.approve",
             "requests.view", "requests.manage", "analytics.view", "assistant.use", "diagnostics.view",
             "reports.export", "ai.view", "integrations.view",
             "domains.view",
@@ -79,7 +101,28 @@ DEFAULT_ROLES: dict[str, dict[str, Any]] = {
         "description": "Operational reporting and request management for one assigned hotel department.",
         "permissions": [
             "dashboard.view", "properties.view", "requests.view", "requests.manage", "analytics.view",
-            "assistant.use", "diagnostics.view", "reports.export",
+            "assistant.use", "diagnostics.view", "reports.export", "guest_sessions.view", "guest_sessions.manage",
+        ],
+    },
+    "restaurant-manager": {
+        "name": "Restaurant Manager",
+        "description": "Manage assigned restaurant details, menus, hours, promotions, and guest conversations.",
+        "permissions": [
+            "properties.view", "restaurant.view", "restaurant.manage", "restaurant.analytics.view",
+            "restaurant.menu.view", "restaurant.menu.edit", "restaurant.menu.approve",
+            "restaurant.hours.view", "restaurant.hours.edit",
+            "restaurant.promotions.view", "restaurant.promotions.edit", "restaurant.promotions.approve",
+            "conversations.view", "conversations.takeover", "conversations.reply", "conversations.assign",
+            "conversations.resolve", "conversations.return_to_ai",
+        ],
+    },
+    "restaurant-staff": {
+        "name": "Restaurant Staff",
+        "description": "View assigned restaurant information and handle escalated guest conversations.",
+        "permissions": [
+            "properties.view", "restaurant.view", "restaurant.menu.view",
+            "restaurant.hours.view", "restaurant.promotions.view", "conversations.view",
+            "conversations.takeover", "conversations.reply", "conversations.resolve", "conversations.return_to_ai",
         ],
     },
     "concierge-front-desk": {
@@ -87,7 +130,9 @@ DEFAULT_ROLES: dict[str, dict[str, Any]] = {
         "description": "Guest conversations and request operations without system configuration.",
         "permissions": [
             "dashboard.view", "properties.view", "knowledge.view", "concierge.view",
-            "conversations.view", "conversations.reply", "requests.view", "requests.manage", "assistant.use",
+            "conversations.view", "conversations.takeover", "conversations.reply", "conversations.resolve", "conversations.return_to_ai", "guest_sessions.view",
+            "restaurant.view", "restaurant.menu.view",
+            "restaurant.hours.view", "restaurant.promotions.view", "requests.view", "requests.manage", "assistant.use",
         ],
     },
     "content-manager": {
@@ -95,7 +140,11 @@ DEFAULT_ROLES: dict[str, dict[str, Any]] = {
         "description": "Hotel content, knowledge, facilities, dining, and concierge responses.",
         "permissions": [
             "dashboard.view", "properties.view", "properties.edit", "knowledge.view", "knowledge.edit", "knowledge.publish",
-            "concierge.view", "concierge.edit", "analytics.view", "assistant.use", "reports.export",
+            "concierge.view", "concierge.edit", "restaurant.view", "restaurant.manage",
+            "restaurant.menu.view", "restaurant.menu.edit", "restaurant.menu.approve",
+            "restaurant.hours.view", "restaurant.hours.edit",
+            "restaurant.promotions.view", "restaurant.promotions.edit", "restaurant.promotions.approve",
+            "analytics.view", "assistant.use", "reports.export",
         ],
     },
     "viewer-auditor": {
@@ -103,7 +152,8 @@ DEFAULT_ROLES: dict[str, dict[str, Any]] = {
         "description": "Read-only reporting, analytics, and audit access.",
         "permissions": [
             "dashboard.view", "properties.view", "knowledge.view", "concierge.view",
-            "conversations.view", "requests.view", "analytics.view", "ai.view", "integrations.view",
+            "conversations.view", "guest_sessions.view", "requests.view", "analytics.view", "ai.view", "integrations.view",
+            "restaurant.view", "restaurant.menu.view", "restaurant.hours.view", "restaurant.promotions.view",
             "domains.view", "security.view", "audit.view", "roles.view", "users.view",
             "assistant.use", "diagnostics.view", "reports.export",
         ],
@@ -348,6 +398,22 @@ class AdminAuthStore:
                 db.execute("ALTER TABLE admin_users ADD COLUMN department_id TEXT")
             db.execute(
                 """
+                CREATE TABLE IF NOT EXISTS user_restaurants (
+                    user_id TEXT NOT NULL,
+                    property_id TEXT NOT NULL,
+                    restaurant_id TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    created_by TEXT,
+                    PRIMARY KEY (user_id, restaurant_id),
+                    FOREIGN KEY (user_id) REFERENCES admin_users(user_id) ON DELETE CASCADE,
+                    FOREIGN KEY (property_id, restaurant_id)
+                        REFERENCES restaurants(property_id, restaurant_id) ON DELETE CASCADE
+                )
+                """
+            )
+            db.execute("CREATE INDEX IF NOT EXISTS idx_user_restaurants_property_restaurant ON user_restaurants(property_id, restaurant_id)")
+            db.execute(
+                """
                 INSERT OR IGNORE INTO admin_user_identities (identity_id, user_id, provider, provider_subject, created_at)
                 SELECT 'local-' || user_id, user_id, 'local', normalized_username, created_at FROM admin_users
                 """
@@ -414,6 +480,10 @@ class AdminAuthStore:
                 self._record_login_attempt(ip_address, False, now)
                 self.audit_row(row, "auth.login_failed", "session", row["user_id"], ip_address, metadata={"reason": "disabled"})
                 raise AuthenticationError("Invalid username or password.")
+            if row["status"] == "locked" and row["locked_until"] is None:
+                self._record_login_attempt(ip_address, False, now)
+                self.audit_row(row, "auth.login_blocked", "session", row["user_id"], ip_address, metadata={"reason": "manual_lock"})
+                raise AccountLockedError("Account is locked. Contact an administrator.")
             if row["locked_until"] and row["locked_until"] > now:
                 self._record_login_attempt(ip_address, False, now)
                 self.audit_row(row, "auth.login_blocked", "session", row["user_id"], ip_address, metadata={"reason": "locked"})
@@ -522,7 +592,7 @@ class AdminAuthStore:
                 """,
                 (int(time.time()), *params),
             ).fetchall()
-        return [self._serialize_user(row) for row in rows]
+        return [self._serialize_user(row) | {"restaurant_ids": self._restaurant_ids_for_user(row["user_id"])} for row in rows]
 
     def get_user(self, user_id: str) -> dict[str, Any] | None:
         with self._connect() as db:
@@ -530,7 +600,7 @@ class AdminAuthStore:
                 "SELECT u.*, r.name AS role_name, r.slug AS role_slug FROM admin_users u JOIN admin_roles r ON r.role_id = u.role_id WHERE u.user_id = ?",
                 (user_id,),
             ).fetchone()
-        return self._serialize_user(row) if row else None
+        return (self._serialize_user(row) | {"restaurant_ids": self._restaurant_ids_for_user(user_id)}) if row else None
 
     def create_user(self, payload: dict[str, Any], actor: AdminPrincipal | None) -> dict[str, Any]:
         username = str(payload.get("username", "")).strip()
@@ -549,8 +619,8 @@ class AdminAuthStore:
         if actor and not actor.can("properties.all"):
             if property_id != actor.property_id:
                 raise PermissionError("You can create users only for your assigned property.")
-            if role["slug"] == "super-admin":
-                raise PermissionError("Only a Super Admin can assign the Super Admin role.")
+        if actor:
+            self.assert_role_assignment_allowed(actor, role, property_id)
         if role["slug"] != "super-admin" and not property_id:
             raise ValueError("A property is required for this role.")
         if role["slug"] == "department-manager" and not department_id:
@@ -558,8 +628,8 @@ class AdminAuthStore:
         if role["slug"] != "department-manager":
             department_id = None
         status = str(payload.get("status", "active")).strip().lower()
-        if status not in {"active", "disabled"}:
-            raise ValueError("Status must be active or disabled.")
+        if status not in {"active", "disabled", "locked"}:
+            raise ValueError("Status must be active, disabled, or locked.")
         password_hash = hash_password(str(payload.get("password", "")))
         user_id = str(uuid.uuid4())
         now = int(time.time())
@@ -581,6 +651,11 @@ class AdminAuthStore:
                     "INSERT INTO admin_user_identities (identity_id, user_id, provider, provider_subject, created_at) VALUES (?, ?, 'local', ?, ?)",
                     (str(uuid.uuid4()), user_id, normalized, now),
                 )
+                restaurant_ids = self._set_restaurant_assignments(
+                    db, user_id, property_id, payload.get("restaurant_ids", []),
+                    actor, role,
+                )
+                self._record_restaurant_assignment_audit(db, user_id, property_id, set(), restaurant_ids, actor)
         except sqlite3.IntegrityError as exc:
             raise ValueError("That username is already in use.") from exc
         user = self.get_user(user_id)
@@ -602,8 +677,9 @@ class AdminAuthStore:
         property_id = str(payload.get("property_id", current["property_id"]) or "").strip() or None
         department_id = str(payload.get("department_id", current.get("department_id")) or "").strip() or None
         if not actor.can("properties.all"):
-            if property_id != actor.property_id or role["slug"] == "super-admin":
+            if property_id != actor.property_id:
                 raise PermissionError("You cannot assign this property or role.")
+        self.assert_role_assignment_allowed(actor, role, property_id)
         if role["slug"] == "department-manager" and not department_id:
             raise ValueError("A department is required for the Department Manager role.")
         if role["slug"] != "department-manager":
@@ -622,8 +698,22 @@ class AdminAuthStore:
             )
             if status == "active":
                 db.execute("UPDATE admin_users SET locked_until = NULL, failed_login_count = 0 WHERE user_id = ?", (user_id,))
+            elif status == "locked":
+                db.execute("UPDATE admin_users SET locked_until = NULL WHERE user_id = ?", (user_id,))
             if status == "disabled":
                 db.execute("UPDATE admin_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL", (now, user_id))
+            if "restaurant_ids" in payload or property_id != current["property_id"] or not self._role_has_restaurant_access(role):
+                assignments = payload.get("restaurant_ids", current.get("restaurant_ids", []) if property_id == current["property_id"] else [])
+                restaurant_ids = self._set_restaurant_assignments(
+                    db, user_id, property_id, assignments,
+                    actor, role,
+                )
+                previous_ids = set(current.get("restaurant_ids", []))
+                if property_id != current["property_id"]:
+                    self._record_restaurant_assignment_audit(db, user_id, current["property_id"], previous_ids, set(), actor)
+                    self._record_restaurant_assignment_audit(db, user_id, property_id, set(), restaurant_ids, actor)
+                else:
+                    self._record_restaurant_assignment_audit(db, user_id, property_id, previous_ids, restaurant_ids, actor)
         self.audit(actor, "users.updated", "user", user_id, property_id=property_id, metadata={"username": current["username"], "role": role["name"], "status": status})
         return self.get_user(user_id) or {}
 
@@ -764,6 +854,7 @@ class AdminAuthStore:
         unknown = [permission for permission in permissions if permission not in PERMISSIONS]
         if unknown:
             raise ValueError(f"Unknown permission: {unknown[0]}")
+        self.assert_permissions_delegatable(principal, permissions)
         property_id = str(payload.get("property_id") or principal.property_id or "").strip() or None
         if not principal.can("properties.all") and property_id != principal.property_id:
             raise PermissionError("Custom roles must belong to your assigned property.")
@@ -799,6 +890,129 @@ class AdminAuthStore:
             raise ValueError("A role with that name already exists in this property.") from exc
         self.audit(principal, "roles.saved", "role", role_id, property_id=property_id, metadata={"name": name, "permissions": permissions})
         return self.get_role(role_id) or {}
+
+    @staticmethod
+    def assert_permissions_delegatable(principal: AdminPrincipal, permissions: list[str] | set[str] | tuple[str, ...]) -> None:
+        """Prevent an administrator from granting permissions they do not hold."""
+        requested = set(permissions)
+        if principal.can("properties.all"):
+            return
+        denied = sorted(requested - set(principal.permissions))
+        if denied:
+            raise PermissionError(f"You cannot delegate permissions you do not hold: {', '.join(denied)}.")
+
+    @classmethod
+    def assert_role_assignment_allowed(
+        cls, principal: AdminPrincipal, role: dict[str, Any], property_id: str | None
+    ) -> None:
+        if not principal.can("properties.all"):
+            if property_id != principal.property_id:
+                raise PermissionError("You cannot assign a role outside your property.")
+            cls.assert_permissions_delegatable(principal, role.get("permissions") or [])
+        role_property_id = role.get("property_id")
+        if role_property_id is not None and role_property_id != property_id:
+            raise PermissionError("A property role can only be assigned within its own property.")
+
+    @staticmethod
+    def _role_has_restaurant_access(role: dict[str, Any]) -> bool:
+        return bool({"restaurant.view", "restaurant.manage"} & set(role.get("permissions") or []))
+
+    def _set_restaurant_assignments(
+        self,
+        db: sqlite3.Connection,
+        user_id: str,
+        property_id: str | None,
+        restaurant_ids: Any,
+        actor: AdminPrincipal | None,
+        role: dict[str, Any],
+    ) -> set[str]:
+        if restaurant_ids is None:
+            restaurant_ids = []
+        if not isinstance(restaurant_ids, list):
+            raise ValueError("Restaurant assignments must be a list of restaurant IDs.")
+        ids = list(dict.fromkeys(str(value).strip() for value in restaurant_ids if str(value).strip()))
+        if len(ids) > 100:
+            raise ValueError("A user can be assigned to at most 100 restaurants.")
+        restaurant_table = db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='restaurants'"
+        ).fetchone()
+        if not restaurant_table:
+            if ids:
+                raise ValueError("Restaurants must be initialized before assigning restaurant access.")
+            return set()
+        db.execute("DELETE FROM user_restaurants WHERE user_id = ?", (user_id,))
+        if ids and not self._role_has_restaurant_access(role):
+            raise PermissionError("Restaurant assignments require a restaurant access role.")
+        if ids and not property_id:
+            raise ValueError("Restaurant assignments require a property.")
+        if not ids:
+            return set()
+        found = {
+            row["restaurant_id"]
+            for row in db.execute(
+                f"SELECT restaurant_id FROM restaurants WHERE property_id=? AND restaurant_id IN ({','.join('?' for _ in ids)})",
+                (property_id, *ids),
+            ).fetchall()
+        }
+        missing = sorted(set(ids) - found)
+        if missing:
+            raise PermissionError("Restaurant assignments must reference restaurants in the user's property.")
+        if actor and not (actor.can("properties.all") or actor.can("properties.edit")):
+            allowed = {
+                row["restaurant_id"]
+                for row in db.execute(
+                    "SELECT restaurant_id FROM user_restaurants WHERE user_id=? AND property_id=?",
+                    (actor.user_id, property_id),
+                ).fetchall()
+            }
+            if not set(ids) <= allowed:
+                raise PermissionError("You can assign users only to restaurants assigned to you.")
+        now = int(time.time())
+        db.executemany(
+            "INSERT INTO user_restaurants(user_id,property_id,restaurant_id,created_at,created_by) VALUES(?,?,?,?,?)",
+            [(user_id, property_id, restaurant_id, now, actor.user_id if actor else None) for restaurant_id in ids],
+        )
+        return set(ids)
+
+    @staticmethod
+    def _record_restaurant_assignment_audit(
+        db: sqlite3.Connection,
+        user_id: str,
+        property_id: str | None,
+        before: set[str],
+        after: set[str],
+        actor: AdminPrincipal | None,
+    ) -> None:
+        if not property_id or not (before ^ after):
+            return
+        exists = db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='restaurant_audit_events'"
+        ).fetchone()
+        if not exists:
+            return
+        now = int(time.time())
+        for restaurant_id in sorted(after - before):
+            db.execute(
+                """INSERT INTO restaurant_audit_events
+                (event_id,property_id,restaurant_id,actor_user_id,resource_type,resource_id,action,metadata,created_at)
+                VALUES(?,?,?,?,?,?,?,?,?)""",
+                (uuid.uuid4().hex, property_id, restaurant_id, actor.user_id if actor else None, "user", user_id, "restaurant_user_assigned", "{}", now),
+            )
+        for restaurant_id in sorted(before - after):
+            db.execute(
+                """INSERT INTO restaurant_audit_events
+                (event_id,property_id,restaurant_id,actor_user_id,resource_type,resource_id,action,metadata,created_at)
+                VALUES(?,?,?,?,?,?,?,?,?)""",
+                (uuid.uuid4().hex, property_id, restaurant_id, actor.user_id if actor else None, "user", user_id, "restaurant_user_removed", "{}", now),
+            )
+
+    def _restaurant_ids_for_user(self, user_id: str) -> list[str]:
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT restaurant_id FROM user_restaurants WHERE user_id=? ORDER BY restaurant_id",
+                (user_id,),
+            ).fetchall()
+        return [row["restaurant_id"] for row in rows]
 
     def delete_role(self, role_id: str, principal: AdminPrincipal) -> None:
         role = self.get_role(role_id)

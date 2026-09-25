@@ -314,6 +314,39 @@ test("guest: restaurant card details button toggles verified details", async ({ 
   await expect(detailsBtn).toHaveText("Hide details");
 });
 
+test("guest can request restaurant staff from the hotel menu", async ({ page, request }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "The escalation creates persistent conversation state.");
+  const csrf = await loginAdmin(request);
+  const properties = await (await request.get("/api/admin/properties")).json();
+  const propertyId = properties.properties[0].property_id;
+  const restaurantName = `Guest Staff ${Date.now().toString(36)}`;
+  const created = await request.post(`/api/admin/properties/${propertyId}/restaurants`, {
+    headers: { "X-CSRF-Token": csrf },
+    data: { data: { name: restaurantName, opening_hours: { monday: "06:30-22:00" }, internal_notes: "Never shown to guests." } },
+  });
+  expect(created.ok()).toBeTruthy();
+  const restaurant = await created.json();
+
+  const facilitiesLoaded = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/guest/facilities");
+  const sessionStarted = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/session/start" && response.request().method() === "POST");
+  await page.goto("/");
+  expect((await facilitiesLoaded).ok()).toBeTruthy();
+  expect((await sessionStarted).ok()).toBeTruthy();
+  await page.getByRole("button", { name: "Open hotel menu" }).click();
+  await page.getByRole("button", { name: "Talk to Restaurant Staff" }).click();
+  await expect(page.locator("#restaurant-staff-dialog")).toBeVisible();
+  await page.locator("#restaurant-staff-select").selectOption({ label: restaurantName });
+  await expect(page.locator("#restaurant-staff-select")).toHaveValue(restaurant.restaurant_id);
+  await page.locator("#restaurant-staff-reason").fill("Please confirm the dinner menu.");
+
+  const escalation = page.waitForResponse((response) => new URL(response.url()).pathname.endsWith("/escalate") && response.request().method() === "POST");
+  await page.getByRole("button", { name: "Request staff" }).click();
+  const response = await escalation;
+  expect(response.ok()).toBeTruthy();
+  await expect(page.locator("#restaurant-staff-dialog")).not.toBeVisible();
+  await expect(page.locator("#message-list")).toContainText("Your request is with the restaurant team");
+});
+
 // --- 6. Service request confirmation ---
 
 test("guest: configured service request shows confirmation card", async ({ page, request }) => {

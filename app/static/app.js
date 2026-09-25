@@ -10,6 +10,7 @@ const state = {
   intro: null,
   services: [],
   recommendations: [],
+  restaurants: [],
   personalization: null,
   staffMessageIds: new Set(),
   pendingAttachment: null,
@@ -162,7 +163,7 @@ function renderMessage(message) {
   if (message.role === "assistant") {
     const label = document.createElement("div");
     label.className = "message-label";
-    label.textContent = "Concierge";
+    label.textContent = message.sender_label || "Concierge";
     row.appendChild(label);
   }
 
@@ -477,8 +478,15 @@ async function handleGuestInput(rawMessage) {
 }
 
 async function sendChat(message) {
-  addMessage({ role: "assistant", type: "status", text: "Thinking..." });
-  const thinking = state.messages[state.messages.length - 1];
+  const initialRecommendations = isRestaurantRequest(message) ? state.recommendations : [];
+  const thinking = {
+    role: "assistant",
+    type: initialRecommendations.length ? "recommendation" : "status",
+    text: initialRecommendations.length ? "Here are the hotel's verified dining recommendations. I’m also checking for current options." : "Thinking...",
+    results: initialRecommendations.map((place) => ({ ...place, category: place.category || "Hotel recommendation", description: place.description || place.address })),
+  };
+  state.messages.push(thinking);
+  renderMessages();
   try {
     const result = await jsonFetch("/api/chat", {
       method: "POST",
@@ -488,6 +496,18 @@ async function sendChat(message) {
         mode: state.mode,
       }),
     });
+    if (result.human_takeover) {
+      thinking.type = "status";
+      thinking.text = "Your message is with the restaurant team. A staff member can reply here.";
+      renderMessages();
+      return;
+    }
+    if (result.ai_paused) {
+      thinking.type = "status";
+      thinking.text = "This conversation is closed. Start a new chat if you need more help.";
+      renderMessages();
+      return;
+    }
     const livePlaces = result.places || [];
     const savedRecommendations = isRestaurantRequest(message) && !result.personalized_recommendations ? state.recommendations : [];
     const recommendationResults = livePlaces.length ? livePlaces : savedRecommendations;
@@ -642,6 +662,9 @@ function setupMenu() {
   });
   $("memory-level").addEventListener("change", changePersonalizationLevel);
   $("memory-preference-form").addEventListener("submit", saveMemoryPreference);
+  $("restaurant-staff-request-form").addEventListener("submit", requestRestaurantStaff);
+  $("close-restaurant-staff-dialog").addEventListener("click", () => $("restaurant-staff-dialog").close());
+  $("cancel-restaurant-staff-dialog").addEventListener("click", () => $("restaurant-staff-dialog").close());
   $("clear-memory-button").addEventListener("click", clearMemoryPreferences);
   $("disable-memory-button").addEventListener("click", () => setPersonalization(false, "stay").catch((error) => showToast(error.message, "warning")));
   $("property-map-modal").addEventListener("click", (event) => {
@@ -817,6 +840,8 @@ async function handleMenuAction(action) {
   }
   if (action === "property-map") {
     await openPropertyMap();
+  } else if (action === "restaurant-staff") {
+    openRestaurantStaffRequest();
   } else if (action === "memory") {
     await openMemoryPanel();
   } else if (action === "hotel-info") {
@@ -846,6 +871,47 @@ async function handleMenuAction(action) {
     addMessage({ role: "assistant", type: "text", text: "Your chat session is temporary and expires after inactivity under this hotel's session settings. Personalization starts private. Saved preferences are used only after you opt in, and you can review, remove, or clear them in Personalization / Memory. Avoid sharing payment details or passwords in chat." });
   } else if (action === "help") {
     addMessage({ role: "assistant", type: "text", text: "Ask about verified hotel information, enabled services, dining, facilities, Wi-Fi access, or local recommendations. Operational requests are created only after you confirm them." });
+  }
+}
+
+function openRestaurantStaffRequest() {
+  const select = $("restaurant-staff-select");
+  select.replaceChildren();
+  for (const restaurant of state.restaurants) {
+    if (["disabled", "archived"].includes(restaurant.status) || restaurant.archived) continue;
+    const option = document.createElement("option");
+    option.value = restaurant.restaurant_id;
+    option.textContent = restaurant.name;
+    select.appendChild(option);
+  }
+  $("restaurant-staff-status").textContent = "";
+  if (!select.options.length) {
+    addMessage({ role: "assistant", type: "status", text: "No restaurant staff contact is configured for this property yet." });
+    return;
+  }
+  $("restaurant-staff-dialog").showModal();
+}
+
+async function requestRestaurantStaff(event) {
+  event.preventDefault();
+  if (!state.sessionId) throw new Error("Your concierge session has expired.");
+  const button = $("restaurant-staff-request-form").querySelector('button[type="submit"]');
+  button.disabled = true;
+  try {
+    await jsonFetch("/api/guest/conversations/" + encodeURIComponent(state.sessionId) + "/escalate", {
+      method: "POST",
+      body: JSON.stringify({
+        restaurant_id: $("restaurant-staff-select").value,
+        reason: $("restaurant-staff-reason").value.trim(),
+      }),
+    });
+    $("restaurant-staff-dialog").close();
+    $("restaurant-staff-reason").value = "";
+    addMessage({ role: "assistant", type: "status", text: "Your request is with the restaurant team. A team member can reply in this chat." });
+  } catch (error) {
+    $("restaurant-staff-status").textContent = error.message;
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -1014,6 +1080,10 @@ async function start() {
   ]);
   state.services = catalog.services || [];
   state.recommendations = recommendations.recommendations || [];
+  try {
+    const hospitality = await jsonFetch("/api/guest/facilities");
+    state.restaurants = hospitality.restaurants || [];
+  } catch { state.restaurants = []; }
   applyHotelProfile(profile);
   await maybeShowIntro();
 
@@ -1043,6 +1113,7 @@ async function startGuestSession() {
       method: "POST",
       body: JSON.stringify({
         client_id: state.clientId,
+        property_id: state.hotel?.property_id,
         gateway_context: gatewayContext(),
       }),
     });
@@ -1062,7 +1133,7 @@ async function pollStaffMessages() {
     for (const message of data.messages || []) {
       if (state.staffMessageIds.has(message.message_id)) continue;
       state.staffMessageIds.add(message.message_id);
-      addMessage({ role: "assistant", type: "text", text: message.content });
+      addMessage({ role: "assistant", sender_label: "Restaurant Staff", type: "text", text: message.content });
     }
   } catch (error) {
     if (!String(error.message).toLowerCase().includes("expired")) console.warn("Unable to refresh staff replies", error);

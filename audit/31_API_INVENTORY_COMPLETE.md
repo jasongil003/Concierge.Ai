@@ -1,6 +1,6 @@
 # API Inventory
 
-Source: route decorators and shared middleware in `app/main.py`, reviewed 2026-09-25. This inventory covers 150 registered routes. “Implemented” describes handler presence; it does not imply each route received an individual negative-case security test.
+Source: route decorators and shared middleware in `app/main.py`, reviewed 2026-09-25 after PR #31 changes. This inventory covers 190 registered HTTP method/path combinations. “Implemented” describes handler presence; it does not imply each route received an individual negative-case security test. Restaurant and conversation handler checks may narrow the middleware permission further based on assigned restaurant and conversation state.
 
 | Endpoint | Method | Authentication | Permission | Status | Notes |
 |---|---|---|---|---|---|
@@ -154,6 +154,51 @@ Source: route decorators and shared middleware in `app/main.py`, reviewed 2026-0
 | `/api/session/resume` | `POST` | Approved source CIDR + active guest session | - | Implemented; route-level test coverage varies | JSON. 30 attempts/session/minute; verifies client id and network. |
 | `/api/authenticate` | `POST` | Approved source CIDR + active guest session | - | Implemented; route-level test coverage varies | JSON. JSON body is Pydantic/store validated where applicable; errors use HTTP status responses. |
 | `/api/chat` | `POST` | Approved source CIDR + active guest session | - | Implemented; route-level test coverage varies | JSON. 20 messages/session/minute; session + network. |
+
+## PR #31 routes added to the inventory
+
+| Endpoint | Method | Authentication | Permission | Status | Notes |
+|---|---|---|---|---|---|
+| `/api/admin/properties/{property_id}/conversations/{session_id}/accept` | `POST` | Admin session cookie | conversations.takeover | Implemented; state transition and access tests | JSON. Requires access to the conversation's assigned restaurant; accept is an atomic conditional update. |
+| `/api/admin/properties/{property_id}/conversations/{session_id}/assign` | `POST` | Admin session cookie | conversations.assign | Implemented; scope tests | JSON. Manager/authorized admin only; target user must have access to the same restaurant. |
+| `/api/admin/properties/{property_id}/conversations/{session_id}/resolve` | `POST` | Admin session cookie | conversations.resolve | Implemented; workflow tests | JSON. Requires property and assigned restaurant access. |
+| `/api/admin/properties/{property_id}/conversations/{session_id}/return-to-ai` | `POST` | Admin session cookie | conversations.return_to_ai | Implemented; workflow tests | JSON. Requires property and assigned restaurant access. |
+| `/api/admin/properties/{property_id}/knowledge/conflicts` | `GET` | Admin session cookie | knowledge.view | Implemented; route-level test coverage varies | JSON. Property-scoped knowledge conflict queue. |
+| `/api/admin/properties/{property_id}/knowledge/conflicts/{conflict_id}/resolve` | `POST` | Admin session cookie | knowledge.publish | Implemented; route-level test coverage varies | JSON. Resolves one property-scoped conflict. |
+| `/api/admin/properties/{property_id}/knowledge/health` | `GET` | Admin session cookie | knowledge.view | Implemented; route-level test coverage varies | JSON. Property-scoped source health. |
+| `/api/admin/properties/{property_id}/knowledge/items` | `POST` | Admin session cookie | knowledge.edit | Implemented; route-level test coverage varies | JSON. Creates a property-scoped knowledge item. |
+| `/api/admin/properties/{property_id}/knowledge/items/{item_id}` | `GET` | Admin session cookie | knowledge.view | Implemented; route-level test coverage varies | JSON. Reads one property-scoped knowledge item. |
+| `/api/admin/properties/{property_id}/knowledge/items/{item_id}` | `PATCH` | Admin session cookie | knowledge.edit | Implemented; route-level test coverage varies | JSON. Updates a property-scoped knowledge item. |
+| `/api/admin/properties/{property_id}/knowledge/items/{item_id}/approve` | `POST` | Admin session cookie | knowledge.publish | Implemented; route-level test coverage varies | JSON. Approval is property-scoped. |
+| `/api/admin/properties/{property_id}/knowledge/items/{item_id}/archive` | `POST` | Admin session cookie | knowledge.edit | Implemented; route-level test coverage varies | JSON. Archives a property-scoped knowledge item. |
+| `/api/admin/properties/{property_id}/knowledge/items/{item_id}/publish` | `POST` | Admin session cookie | knowledge.publish | Implemented; route-level test coverage varies | JSON. Publishes a property-scoped knowledge item. |
+| `/api/admin/properties/{property_id}/knowledge/items/{item_id}/unpublish` | `POST` | Admin session cookie | knowledge.publish | Implemented; route-level test coverage varies | JSON. Unpublishes a property-scoped knowledge item. |
+| `/api/admin/properties/{property_id}/knowledge/managed` | `GET` | Admin session cookie | knowledge.view | Implemented; route-level test coverage varies | JSON. Lists property-scoped managed sources. |
+| `/api/admin/properties/{property_id}/knowledge/sources` | `POST` | Admin session cookie | knowledge.edit | Implemented; route-level test coverage varies | JSON. Registers a property-scoped source. |
+| `/api/admin/properties/{property_id}/knowledge/sources/{source_id}` | `DELETE` | Admin session cookie | knowledge.delete | Implemented; route-level test coverage varies | JSON. Deletes a property-scoped source. |
+| `/api/admin/properties/{property_id}/knowledge/sources/{source_id}` | `GET` | Admin session cookie | knowledge.view | Implemented; route-level test coverage varies | JSON. Reads source metadata. |
+| `/api/admin/properties/{property_id}/knowledge/sources/{source_id}/download` | `GET` | Admin session cookie | knowledge.view | Implemented; route-level test coverage varies | File response. Reads a property-scoped source. |
+| `/api/admin/properties/{property_id}/knowledge/sources/{source_id}/replace` | `POST` | Admin session cookie | knowledge.edit | Implemented; route-level test coverage varies | Multipart/file response as defined by handler. Replaces a property-scoped source version. |
+| `/api/admin/properties/{property_id}/knowledge/sources/{source_id}/retry` | `POST` | Admin session cookie | knowledge.edit | Implemented; route-level test coverage varies | JSON. Retries processing for one property-scoped source. |
+| `/api/admin/properties/{property_id}/knowledge/sources/{source_id}/supersede` | `POST` | Admin session cookie | knowledge.publish | Implemented; route-level test coverage varies | JSON. Supersedes a property-scoped source version. |
+| `/api/admin/properties/{property_id}/knowledge/sources/{source_id}/versions` | `GET` | Admin session cookie | knowledge.view | Implemented; route-level test coverage varies | JSON. Lists property-scoped source versions. |
+| `/api/admin/properties/{property_id}/menu-items/{item_id}` | `PUT` | Admin session cookie | restaurant.menu.edit | Implemented; restaurant scope tests | JSON. Handler also validates property, restaurant assignment and menu ownership. |
+| `/api/admin/properties/{property_id}/menus/{menu_id}` | `PUT` | Admin session cookie | restaurant.menu.edit | Implemented; restaurant scope tests | JSON. Handler also validates property and assigned restaurant. |
+| `/api/admin/properties/{property_id}/menus/{menu_id}/approve` | `POST` | Admin session cookie | restaurant.menu.approve | Implemented; workflow tests | JSON. Approval is restaurant-scoped. |
+| `/api/admin/properties/{property_id}/menus/{menu_id}/publish` | `POST` | Admin session cookie | restaurant.menu.approve | Implemented; workflow tests | JSON. Publishes approved restaurant content. |
+| `/api/admin/properties/{property_id}/promotions/{promotion_id}` | `PUT` | Admin session cookie | restaurant.promotions.edit | Implemented; workflow tests | JSON. Handler also validates property and assigned restaurant. |
+| `/api/admin/properties/{property_id}/promotions/{promotion_id}/approve` | `POST` | Admin session cookie | restaurant.promotions.approve | Implemented; workflow tests | JSON. Approval is restaurant-scoped. |
+| `/api/admin/properties/{property_id}/promotions/{promotion_id}/publish` | `POST` | Admin session cookie | restaurant.promotions.approve | Implemented; workflow tests | JSON. Publishes approved restaurant content. |
+| `/api/admin/properties/{property_id}/restaurants` | `GET` | Admin session cookie | restaurant.view | Implemented; restaurant isolation tests | JSON. Returns only restaurants allowed by property and user assignment. |
+| `/api/admin/properties/{property_id}/restaurants/{restaurant_id}` | `GET` | Admin session cookie | restaurant.view | Implemented; restaurant isolation tests | JSON. Handler validates property and restaurant assignment. |
+| `/api/admin/properties/{property_id}/restaurants/{restaurant_id}` | `PUT` | Admin session cookie | restaurant.manage | Implemented; manager scope tests | JSON. Handler validates property and restaurant assignment. |
+| `/api/admin/properties/{property_id}/restaurants/{restaurant_id}/analytics` | `GET` | Admin session cookie | restaurant.analytics.view | Implemented; route-level test coverage varies | JSON. Query is scoped to property and restaurant assignment. |
+| `/api/admin/properties/{property_id}/restaurants/{restaurant_id}/hours` | `PUT` | Admin session cookie | restaurant.hours.edit | Implemented; manager/staff permission tests | JSON. Staff read-only; handler validates assigned restaurant. |
+| `/api/admin/properties/{property_id}/restaurants/{restaurant_id}/menus` | `GET` | Admin session cookie | restaurant.menu.view | Implemented; restaurant scope tests | JSON. Guest-facing role receives approved/published information only. |
+| `/api/admin/properties/{property_id}/restaurants/{restaurant_id}/promotions` | `GET` | Admin session cookie | restaurant.promotions.view | Implemented; restaurant scope tests | JSON. Guest-facing role receives active/published promotions only. |
+| `/api/admin/properties/{property_id}/restaurants/{restaurant_id}/promotions` | `POST` | Admin session cookie | restaurant.promotions.edit | Implemented; workflow tests | JSON. Creates a property- and restaurant-scoped draft. |
+| `/api/admin/properties/{property_id}/restaurants/{restaurant_id}/staff` | `GET` | Admin session cookie | conversations.assign | Implemented; route-level test coverage varies | JSON. Lists eligible staff assigned to the same restaurant. |
+| `/api/guest/conversations/{session_id}/escalate` | `POST` | Approved source CIDR + active guest session | Guest escalation action | Implemented; escalation and rate-limit tests | JSON. Explicit guest-to-staff action; session and source-IP limits apply. |
 
 ## Shared validation and rate limits
 

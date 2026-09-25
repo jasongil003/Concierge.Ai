@@ -79,6 +79,55 @@ test("admin data buttons: catalog, request, and recommendation workflows", async
   await serviceRow.getByRole("button", { name: "Delete" }).click();
 });
 
+test("admin restaurant workflow creates, approves, publishes, edits, and archives venue content", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "The mutation workflow only needs one browser profile.");
+  const suffix = Date.now().toString(36);
+  const restaurantName = `Button Restaurant ${suffix}`;
+  const menuName = `Button Menu ${suffix}`;
+  const itemName = `Button Item ${suffix}`;
+  const promotionName = `Button Promotion ${suffix}`;
+
+  await page.goto("/admin");
+  await openPanel(page, "Restaurants");
+  await page.locator("#restaurant-name").fill(restaurantName);
+  await page.locator("#restaurant-hours-monday").fill("06:30-22:00");
+  await page.locator("#restaurant-meals").fill("breakfast, dinner");
+  await page.locator("#restaurant-internal-notes").fill("Staff-only workflow test note.");
+  await page.getByRole("button", { name: "Save Restaurant" }).click();
+
+  const restaurantRow = page.locator("#restaurant-list .compact-row").filter({ hasText: restaurantName });
+  await expect(restaurantRow).toBeVisible();
+  await restaurantRow.getByRole("button", { name: "Edit" }).click();
+  await expect(page.locator("#restaurant-hours-monday")).toHaveValue("06:30-22:00");
+  await page.locator("#restaurant-workflow-select").selectOption({ label: restaurantName });
+
+  await page.locator("#restaurant-menu-name").fill(menuName);
+  await page.locator("#restaurant-menu-period").fill("dinner");
+  await page.getByRole("button", { name: "Add Menu", exact: true }).click();
+  const menuRow = page.locator("#restaurant-menu-list .compact-row").filter({ hasText: menuName }).first();
+  await expect(menuRow).toContainText("pending_approval");
+  await page.locator("#restaurant-menu-select").selectOption({ index: 0 });
+  await page.locator("#restaurant-item-name").fill(itemName);
+  await page.locator("#restaurant-item-price").fill("24.00");
+  await page.getByRole("button", { name: "Add Menu Item" }).click();
+  await expect(page.locator("#restaurant-menu-list .compact-row").filter({ hasText: itemName })).toBeVisible();
+  await menuRow.getByRole("button", { name: "Approve" }).click();
+  await menuRow.getByRole("button", { name: "Publish" }).click();
+  await expect(menuRow).toContainText("published");
+
+  await page.locator("#restaurant-promotion-title").fill(promotionName);
+  await page.locator("#restaurant-promotion-description").fill("Submitted through the restaurant admin workflow.");
+  await page.getByRole("button", { name: "Submit for Approval" }).click();
+  const promotionRow = page.locator("#restaurant-promotion-list .compact-row").filter({ hasText: promotionName });
+  await expect(promotionRow).toContainText("pending_approval");
+  await promotionRow.getByRole("button", { name: "Approve" }).click();
+  await promotionRow.getByRole("button", { name: "Publish" }).click();
+  await expect(promotionRow).toContainText("published");
+
+  await restaurantRow.getByRole("button", { name: "Archive" }).click();
+  await expect(restaurantRow).toContainText("archived");
+});
+
 test("admin operations buttons: map, stay memory, location, and intro", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium", "The mutation workflow only needs one browser profile.");
   const suffix = Date.now().toString(36);

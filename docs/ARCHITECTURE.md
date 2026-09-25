@@ -70,13 +70,9 @@ The guest sees a simple Fast / Auto / Advanced mode switch. Provider names remai
 
 See [AI providers and routing](AI_PROVIDERS.md).
 
-Future routing will add:
+The guest conversation API supports explicit restaurant staff requests. The conversation store tracks `ai_active`, `waiting_for_staff`, `assigned`, `human_active`, `resolved`, and `returned_to_ai`. Assignment and acceptance are separate atomic transitions. AI writes re-check the state inside their database transaction, so an in-flight model response cannot be stored after staff takeover. Restaurant conversations remain paused after resolution and resume only when staff returns them to the AI.
 
-- service requests
-- PMS-aware tools
-- human escalation
-- semantic cache
-- small intent router
+PMS-aware tools, semantic cache, and an intent router remain future work. Automated classification into a restaurant escalation is not a substitute for the explicit guest request and verified staff workflow.
 
 ## Session lifecycle
 
@@ -170,6 +166,27 @@ New -> Assigned -> Accepted -> In Progress -> Delivered -> Completed
 ```
 
 The guest-facing layer should only claim completion after the backend status is `completed`. Feedback is explicit (`yes`, `partially`, `no`) rather than inferred from sentiment.
+
+## Restaurant Operations and Data Isolation
+
+Restaurants are owned by one property. The normalized restaurant hierarchy is:
+
+```text
+property -> restaurant -> menu -> menu item
+property -> restaurant -> promotion
+property -> user -> restaurant assignment
+property -> restaurant -> conversation -> messages and audit events
+```
+
+The SQLite store uses composite property/resource keys and foreign keys for new restaurant, menu, and promotion schemas. Every restaurant-facing data query includes both `property_id` and the restaurant or child resource identifier. User assignments are stored in `user_restaurants`; menu and promotion content records the creator, editor, approver, publisher, and transition times. Menu or promotion edits clear prior approval and return content to `pending_approval`. Guest queries return only published, active menus and current published promotions. Internal restaurant notes are excluded from guest payloads.
+
+Restaurant Manager and Restaurant Staff are property-scoped roles with per-restaurant assignments. Managers edit restaurant details, hours, menu items, and promotions and approve/publish guest content. Staff see approved guest information and handle assigned conversations. Backend permission checks apply to direct API calls as well as the admin UI. Historical records are retained by archiving or disabling a restaurant instead of deleting it.
+
+### Database and migration boundary
+
+The deployment remains a single Concierge container with SQLite at `/state/concierge.db`, persisted through the `concierge-state` Docker volume. There is no database container and no restaurant-specific database. Existing SQLite databases receive additive columns and indexes when the stores initialize.
+
+Store classes own SQL and expose property-scoped operations to route handlers. This provides a useful boundary for a later PostgreSQL adapter, but the current stores still use SQLite-specific connection APIs, placeholders, `PRAGMA`, and `BEGIN IMMEDIATE`; PostgreSQL readiness is architectural preparation, not a completed backend-neutral data layer. A PostgreSQL migration will need a repository/transaction adapter and integration tests for equivalent constraints and atomic transitions.
 
 ## Network zones
 

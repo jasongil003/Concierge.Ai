@@ -78,21 +78,21 @@ https://concierge.example.com
 
 with the hostname allowed through the ANTlabs pre-auth/walled-garden policy.
 
-## Gateway context preservation
+## Signed gateway assertion
 
-When ANTlabs redirects or links the guest into Concierge.Ai, preserve only the parameters required to complete the login handoff.
+When the property's `antlabs_gateway_enabled` guardrail is enabled, `POST /api/session/start` requires a gateway assertion. The assertion is an HMAC-SHA256 over the exact request bytes using this canonical input:
 
-The browser prototype currently stores query parameters as `gateway_context`.
+```text
+timestamp + "." + nonce + "." + request_body
+```
 
-Production requirements:
+Required headers are `X-ANTlabs-Timestamp`, `X-ANTlabs-Nonce`, and `X-ANTlabs-Signature`. The nonce must be 16 to 256 characters, the timestamp must be within five minutes, and the signature may be sent as hex or `sha256=<hex>`. The request body must contain the same `property_id` that Concierge resolved from the trusted property host. The request's direct source IP must match a configured ANTlabs gateway CIDR.
 
-1. allowlist accepted gateway parameter names
-2. reject unexpected fields
-3. never trust client-supplied room or authorization state
-4. use signed or opaque state where possible
-5. prevent replay
-6. set a short lifetime
-7. avoid exposing guest PII in URLs
+Nonce consumption is atomic and persistent. Concierge stores only a SHA-256 hash, scopes the row to the property, rejects reuse, and removes expired entries when consuming a nonce. If signature validation, property binding, source-range validation, or nonce storage fails, session creation is denied.
+
+Keep the signing secret on the gateway or a trusted server-side integration. Never place it in browser code or guest URLs. Do not use `ALLOW_BODY_PROPERTY_SELECTION` as a substitute for a trusted hostname mapping in production. The assertion proves that the signed request came through the configured integration; it does not authenticate a guest with ANTlabs or prove the guest has Internet access.
+
+Only allowlist the gateway context fields the application needs. Do not trust client-supplied room, guest, or authorization values unless they are covered by the signed assertion and validated against the target gateway contract. Avoid guest PII in URLs.
 
 ## Configuration
 
@@ -109,7 +109,7 @@ ANTLABS_SESSION_CONTEXT_KEY=<validated-query/context-key-if-required>
 ANTLABS_PASSTHROUGH_FIELDS=<validated-field-1>,<validated-field-2>
 ```
 
-Do not deploy `browser_handoff` using placeholder field names. No ANTlabs session field is sent by default; it must be mapped from validated gateway-provided context.
+Do not deploy `browser_handoff` using placeholder field names. No ANTlabs session field is sent by default; it must be mapped from validated gateway-provided context. Startup accepts only `mock` and `browser_handoff`; unsupported values such as `live` fail configuration loading. Production startup also requires an auth URL for browser handoff. These checks validate configuration shape, not gateway compatibility.
 
 ## Real SG5 validation checklist
 
@@ -148,6 +148,8 @@ The milestone is complete when this flow works without manually changing the gat
 9. Concierge session remains active
 10. SG5/PMS logout causes concierge session expiry
 ```
+
+This full round trip is still a lab validation requirement. A signed Concierge assertion and a rendered browser handoff form do not demonstrate that SG5 authenticated the guest or granted network access.
 
 ## Location and stay event hooks
 
