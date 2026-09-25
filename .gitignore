@@ -10,3 +10,5 @@ state/
 node_modules/
 playwright-report/
 test-results/
+/outputs/qa-*/
+*.inspect.ndjson

@@ -79,7 +79,7 @@ test("document upload creates reviewable knowledge without publishing", async ({
   await page.goto("/admin");
   await openPanel(page, "Documents");
   const filename = `Pool-Hours-${Date.now()}.txt`;
-  await page.locator("#knowledge-document-upload").setInputFiles({ name: filename, mimeType: "text/plain", buffer: Buffer.from("Pool hours: 06:00-22:00") });
+  await page.locator("#knowledge-document-upload").setInputFiles({ name: filename, mimeType: "text/plain", buffer: Buffer.from(`Pool hours: 06:00-22:00\nSource: ${filename}`) });
   await expect(page.locator("#document-list")).toContainText(filename);
   await openPanel(page, "Knowledge");
   await expect(page.locator("#managed-knowledge-list")).toContainText("Pool hours: 06:00-22:00");

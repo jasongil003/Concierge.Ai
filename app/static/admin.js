@@ -25,6 +25,9 @@ const state = {
   conversations: [],
   selectedConversation: null,
   hospitality: null,
+  restaurantMenus: [],
+  restaurantPromotions: [],
+  restaurantAnalytics: null,
   mapBackgrounds: new Map(),
   freeformDraft: null,
   knowledge: { items: [], documents: [], faqs: [] },
@@ -78,7 +81,7 @@ const NAV_SECTIONS = [
     items: [
       { id: "conversations", label: "Conversations", panel: "conversations", permission: "conversations.view", status: "live", icon: "◫" },
       { id: "guest-requests", label: "Guest Requests", panel: "requests", permission: "requests.view", status: "live", icon: "☷" },
-      { id: "guest-sessions", label: "Guest Sessions", panel: "sessions", permission: "conversations.view", status: "live", icon: "◎" },
+      { id: "guest-sessions", label: "Guest Sessions", panel: "sessions", permission: "guest_sessions.view", status: "live", icon: "◎" },
       { id: "personalization", label: "Personalization", panel: "personalization-settings", permission: "properties.view", status: "live", icon: "✧" },
       { id: "guest-preview", label: "Guest Preview", panel: "guest", permission: "concierge.view", status: "live", icon: "◐" },
     ],
@@ -89,7 +92,7 @@ const NAV_SECTIONS = [
       { id: "hotel-information", label: "Hotel Information", panel: "hotel-information", permission: "properties.view", status: "live", icon: "□" },
       { id: "rooms", label: "Rooms", panel: "rooms", permission: "properties.view", status: "live", icon: "▤" },
       { id: "facilities", label: "Facilities", panel: "facilities", permission: "properties.view", status: "live", icon: "◇" },
-      { id: "restaurants", label: "Restaurants", panel: "restaurants", permission: "properties.view", status: "live", icon: "○" },
+      { id: "restaurants", label: "Restaurants", panel: "restaurants", permission: "restaurant.view", status: "live", icon: "○" },
       { id: "service-catalog", label: "Service Catalog", panel: "service-catalog", permission: "requests.view", status: "live", icon: "＋" },
       { id: "recommendations", label: "Recommendations", panel: "recommendations", permission: "properties.view", status: "live", icon: "⌖" },
       { id: "zones-maps", label: "Zones & Maps", panel: "zones", permission: "properties.view", status: "live", icon: "⌗" },
@@ -634,26 +637,182 @@ async function deleteFacility(id) { await jsonFetch(`/api/admin/properties/${enc
 
 function renderRestaurants() {
   const list = $("restaurant-list"); if (!list) return; list.innerHTML = "";
+  const workflowSelect = $("restaurant-workflow-select");
+  const previousRestaurantId = workflowSelect?.value;
+  const facilitySelect = $("restaurant-facility");
+  if (facilitySelect) {
+    const previousFacilityId = facilitySelect.value;
+    facilitySelect.replaceChildren(new Option("No linked facility", ""));
+    for (const facility of state.hospitality?.facilities || []) facilitySelect.appendChild(new Option(facility.name, facility.facility_id));
+    facilitySelect.value = previousFacilityId;
+  }
+  if (workflowSelect) {
+    workflowSelect.replaceChildren();
+    for (const restaurant of state.hospitality?.restaurants || []) workflowSelect.appendChild(new Option(restaurant.name, restaurant.restaurant_id));
+    if ((state.hospitality?.restaurants || []).some((item) => item.restaurant_id === previousRestaurantId)) workflowSelect.value = previousRestaurantId;
+  }
   for (const item of state.hospitality?.restaurants || []) {
     const row = document.createElement("div"); row.className = "compact-row"; row.innerHTML = `<strong>${escapeHTML(item.name)}</strong><span>${escapeHTML(item.location || "No location")} · ${escapeHTML(item.status)}</span><span>${escapeHTML(item.description || "")}</span>`;
-    const edit = document.createElement("button"); edit.type = "button"; edit.textContent = "Edit"; edit.addEventListener("click", () => editRestaurant(item));
-    const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "Delete"; remove.addEventListener("click", () => deleteRestaurant(item.restaurant_id).catch((error) => showToast(error.message, "error")));
-    row.append(edit, remove); list.appendChild(row);
+    if (can("restaurant.manage")) {
+      const edit = document.createElement("button"); edit.type = "button"; edit.textContent = "Edit"; edit.addEventListener("click", () => editRestaurant(item));
+      row.append(edit);
+      if (can("properties.edit")) {
+        const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "Archive"; remove.addEventListener("click", () => deleteRestaurant(item.restaurant_id).catch((error) => showToast(error.message, "error")));
+        row.append(remove);
+      }
+    }
+    list.appendChild(row);
   }
   if (!list.children.length) list.textContent = "No restaurants configured.";
+  if (workflowSelect?.value) loadRestaurantWorkflows().catch((error) => showToast(error.message, "error"));
 }
 
 function editRestaurant(item) {
   $("restaurant-id").value = item.restaurant_id; $("restaurant-name").value = item.name; $("restaurant-location").value = item.location || ""; $("restaurant-hours").value = item.opening_hours?.display || ""; $("restaurant-meals").value = (item.meal_periods || []).join(", "); $("restaurant-status").value = item.status; $("restaurant-description").value = item.description || ""; $("restaurant-reservations").checked = item.reservation_available;
+  for (const day of ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]) $("restaurant-hours-" + day).value = item.opening_hours?.[day] || "";
+  $("restaurant-facility").value = item.facility_id || ""; $("restaurant-cuisine").value = item.cuisine || ""; $("restaurant-dress-code").value = item.dress_code || ""; $("restaurant-capacity").value = item.capacity || ""; $("restaurant-phone-extension").value = item.phone_extension || ""; $("restaurant-reservation-url").value = item.external_reservation_url || ""; $("restaurant-contact-email").value = item.contact_details?.email || ""; $("restaurant-contact-phone").value = item.contact_details?.phone || ""; $("restaurant-contact-website").value = item.contact_details?.website || ""; $("restaurant-images").value = (item.images || []).join(", "); $("restaurant-guest-notes").value = item.guest_notes || ""; $("restaurant-internal-notes").value = item.internal_notes || "";
 }
 
 async function saveRestaurant() {
   const name = $("restaurant-name").value.trim(); if (!name) throw new Error("Restaurant name is required.");
-  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/restaurants`, { method: "POST", body: JSON.stringify({ data: { restaurant_id: $("restaurant-id").value || undefined, name, location: $("restaurant-location").value.trim(), opening_hours: { display: $("restaurant-hours").value.trim() }, meal_periods: $("restaurant-meals").value.split(",").map((item) => item.trim()).filter(Boolean), status: $("restaurant-status").value, description: $("restaurant-description").value.trim(), reservation_available: $("restaurant-reservations").checked } }) });
+  const id = $("restaurant-id").value;
+  if (!id && !can("properties.edit")) throw new Error("Only a property administrator can add a restaurant.");
+  const openingHours = { display: $("restaurant-hours").value.trim() };
+  for (const day of ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]) {
+    const hours = $("restaurant-hours-" + day).value.trim();
+    if (hours) openingHours[day] = hours;
+  }
+  const data = { facility_id: $("restaurant-facility").value || null, name, location: $("restaurant-location").value.trim(), opening_hours: openingHours, meal_periods: $("restaurant-meals").value.split(",").map((item) => item.trim()).filter(Boolean), status: $("restaurant-status").value, description: $("restaurant-description").value.trim(), reservation_available: $("restaurant-reservations").checked, cuisine: $("restaurant-cuisine").value.trim(), dress_code: $("restaurant-dress-code").value.trim(), capacity: $("restaurant-capacity").value ? Number($("restaurant-capacity").value) : null, phone_extension: $("restaurant-phone-extension").value.trim(), external_reservation_url: $("restaurant-reservation-url").value.trim(), contact_details: { email: $("restaurant-contact-email").value.trim(), phone: $("restaurant-contact-phone").value.trim(), website: $("restaurant-contact-website").value.trim() }, images: $("restaurant-images").value.split(",").map((item) => item.trim()).filter(Boolean), guest_notes: $("restaurant-guest-notes").value.trim(), internal_notes: $("restaurant-internal-notes").value.trim() };
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/restaurants${id ? `/${encodeURIComponent(id)}` : ""}`, { method: id ? "PUT" : "POST", body: JSON.stringify({ data }) });
   $("restaurant-id").value = ""; $("restaurant-name").value = ""; await loadHospitalityManagement(); showToast("Restaurant saved.");
 }
 
-async function deleteRestaurant(id) { await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/restaurants/${encodeURIComponent(id)}`, { method: "DELETE" }); await loadHospitalityManagement(); showToast("Restaurant deleted."); }
+async function deleteRestaurant(id) { await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/restaurants/${encodeURIComponent(id)}`, { method: "DELETE" }); await loadHospitalityManagement(); showToast("Restaurant archived."); }
+
+async function loadRestaurantWorkflows() {
+  const restaurantId = $("restaurant-workflow-select")?.value;
+  if (!restaurantId) { state.restaurantMenus = []; state.restaurantPromotions = []; state.restaurantAnalytics = null; renderRestaurantWorkflows(); return; }
+  const base = `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/restaurants/${encodeURIComponent(restaurantId)}`;
+  const requests = [jsonFetch(`${base}/menus`), jsonFetch(`${base}/promotions`)];
+  if (can("restaurant.analytics.view")) requests.push(jsonFetch(`${base}/analytics`));
+  const [menus, promotions, analytics] = await Promise.all(requests);
+  state.restaurantMenus = menus.menus || [];
+  state.restaurantPromotions = promotions.promotions || [];
+  state.restaurantAnalytics = analytics || null;
+  renderRestaurantWorkflows();
+}
+
+function renderRestaurantWorkflows() {
+  const menuList = $("restaurant-menu-list");
+  const menuSelect = $("restaurant-menu-select");
+  const promotionList = $("restaurant-promotion-list");
+  const analytics = $("restaurant-analytics");
+  if (!menuList || !menuSelect || !promotionList) return;
+  const previousMenuId = menuSelect.value;
+  menuList.replaceChildren(); menuSelect.replaceChildren(); promotionList.replaceChildren();
+  for (const menu of state.restaurantMenus) menuSelect.appendChild(new Option(`${menu.name} · ${menu.workflow_status}`, menu.menu_id));
+  if (state.restaurantMenus.some((menu) => menu.menu_id === previousMenuId)) menuSelect.value = previousMenuId;
+  for (const menu of state.restaurantMenus) {
+    const row = document.createElement("div"); row.className = "compact-row";
+    row.innerHTML = `<strong>${escapeHTML(menu.name)}</strong><span>${escapeHTML(menu.meal_period)} · ${escapeHTML(menu.workflow_status)}</span><span>${menu.items?.length || 0} item(s) · ${menu.active ? "active" : "inactive"}</span>`;
+    if (can("restaurant.menu.edit")) row.append(makeActionButton("Edit", () => editRestaurantMenu(menu), true));
+    if (menu.workflow_status === "pending_approval" && can("restaurant.menu.approve")) row.append(makeActionButton("Approve", () => approveRestaurantWorkflow("menus", menu.menu_id, "approve"), true));
+    if (menu.workflow_status === "approved" && can("restaurant.menu.approve")) row.append(makeActionButton("Publish", () => approveRestaurantWorkflow("menus", menu.menu_id, "publish")));
+    menuList.appendChild(row);
+    for (const item of menu.items || []) {
+      const itemRow = document.createElement("div"); itemRow.className = "compact-row menu-item-row";
+      itemRow.innerHTML = `<strong>${escapeHTML(item.name)}</strong><span>${escapeHTML(item.price || "No price")} · ${item.available ? "available" : "unavailable"}</span><span>${escapeHTML(item.description || "")}${item.allergens?.length ? ` · Allergens: ${escapeHTML(item.allergens.join(", "))}` : ""}</span>`;
+      if (can("restaurant.menu.edit")) itemRow.append(makeActionButton("Edit item", () => editRestaurantMenuItem(menu, item), true));
+      menuList.appendChild(itemRow);
+    }
+  }
+  for (const promotion of state.restaurantPromotions) {
+    const row = document.createElement("div"); row.className = "compact-row";
+    row.innerHTML = `<strong>${escapeHTML(promotion.title)}</strong><span>${escapeHTML(promotion.status)}</span><span>${escapeHTML(promotion.description || "")}</span>`;
+    if (can("restaurant.promotions.edit")) row.append(makeActionButton("Edit", () => editRestaurantPromotion(promotion), true));
+    if (promotion.status === "pending_approval" && can("restaurant.promotions.approve")) row.append(makeActionButton("Approve", () => approveRestaurantWorkflow("promotions", promotion.promotion_id, "approve"), true));
+    if (promotion.status === "approved" && can("restaurant.promotions.approve")) row.append(makeActionButton("Publish", () => approveRestaurantWorkflow("promotions", promotion.promotion_id, "publish")));
+    promotionList.appendChild(row);
+  }
+  if (!menuList.children.length) menuList.textContent = "No menus configured.";
+  if (!promotionList.children.length) promotionList.textContent = "No promotions configured.";
+  if (analytics) {
+    analytics.replaceChildren();
+    for (const [label, value] of Object.entries({ conversations: "conversations", waiting_for_staff: "waiting", human_active: "staff handling", completed: "completed", menus: "menus", promotions: "promotions" })) {
+      const item = document.createElement("div"); item.className = "metric-card"; item.innerHTML = `<strong>${Number(state.restaurantAnalytics?.[label] || 0)}</strong><span>${escapeHTML(value)}</span>`; analytics.appendChild(item);
+    }
+  }
+}
+
+async function saveRestaurantMenu() {
+  const restaurantId = $("restaurant-workflow-select").value;
+  const name = $("restaurant-menu-name").value.trim();
+  if (!restaurantId || !name) throw new Error("Select a restaurant and enter a menu name.");
+  const menuId = $("restaurant-menu-edit-id").value;
+  const endpoint = menuId ? `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/menus/${encodeURIComponent(menuId)}` : `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/restaurants/${encodeURIComponent(restaurantId)}/menus`;
+  await jsonFetch(endpoint, { method: menuId ? "PUT" : "POST", body: JSON.stringify({ data: { name, meal_period: $("restaurant-menu-period").value.trim() || "all_day" } }) });
+  $("restaurant-menu-edit-id").value = ""; $("restaurant-menu-name").value = ""; $("restaurant-menu-period").value = ""; $("save-restaurant-menu").textContent = "Add Menu"; await loadRestaurantWorkflows(); showToast("Menu submitted for approval.");
+}
+
+function editRestaurantMenu(menu) {
+  $("restaurant-menu-edit-id").value = menu.menu_id;
+  $("restaurant-menu-name").value = menu.name;
+  $("restaurant-menu-period").value = menu.meal_period;
+  $("save-restaurant-menu").textContent = "Save Menu";
+}
+
+function editRestaurantMenuItem(menu, item) {
+  $("restaurant-menu-select").value = menu.menu_id;
+  $("restaurant-item-edit-id").value = item.item_id;
+  $("restaurant-item-name").value = item.name;
+  $("restaurant-item-description").value = item.description || "";
+  $("restaurant-item-price").value = item.price || "";
+  $("restaurant-item-allergens").value = (item.allergens || []).join(", ");
+  $("restaurant-item-available").checked = item.available !== false;
+  $("save-restaurant-menu-item").textContent = "Save Menu Item";
+}
+
+function editRestaurantPromotion(promotion) {
+  const localDateTime = (timestamp) => {
+    if (!timestamp) return "";
+    const date = new Date(Number(timestamp) * 1000);
+    date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+    return date.toISOString().slice(0, 16);
+  };
+  $("restaurant-promotion-edit-id").value = promotion.promotion_id;
+  $("restaurant-promotion-title").value = promotion.title;
+  $("restaurant-promotion-description").value = promotion.description || "";
+  $("restaurant-promotion-start").value = localDateTime(promotion.starts_at);
+  $("restaurant-promotion-end").value = localDateTime(promotion.ends_at);
+  $("save-restaurant-promotion").textContent = "Save and Resubmit";
+}
+
+async function saveRestaurantMenuItem() {
+  const menuId = $("restaurant-menu-select").value;
+  const name = $("restaurant-item-name").value.trim();
+  if (!menuId || !name) throw new Error("Select a menu and enter a menu item name.");
+  const itemId = $("restaurant-item-edit-id").value;
+  const data = { name, description: $("restaurant-item-description").value.trim(), price: $("restaurant-item-price").value.trim(), allergens: $("restaurant-item-allergens").value.split(",").map((item) => item.trim()).filter(Boolean), available: $("restaurant-item-available").checked };
+  const endpoint = itemId ? `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/menu-items/${encodeURIComponent(itemId)}` : `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/menus/${encodeURIComponent(menuId)}/items`;
+  await jsonFetch(endpoint, { method: itemId ? "PUT" : "POST", body: JSON.stringify({ data }) });
+  $("restaurant-item-edit-id").value = ""; $("restaurant-item-name").value = ""; $("restaurant-item-description").value = ""; $("restaurant-item-price").value = ""; $("restaurant-item-allergens").value = ""; $("restaurant-item-available").checked = true; $("save-restaurant-menu-item").textContent = "Add Menu Item"; await loadRestaurantWorkflows(); showToast("Menu item submitted for approval.");
+}
+
+async function saveRestaurantPromotion() {
+  const restaurantId = $("restaurant-workflow-select").value;
+  const title = $("restaurant-promotion-title").value.trim();
+  if (!restaurantId || !title) throw new Error("Select a restaurant and enter a promotion title.");
+  const toUnixSeconds = (value) => value ? Math.floor(new Date(value).getTime() / 1000) : null;
+  const promotionId = $("restaurant-promotion-edit-id").value;
+  const endpoint = promotionId ? `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/promotions/${encodeURIComponent(promotionId)}` : `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/restaurants/${encodeURIComponent(restaurantId)}/promotions`;
+  await jsonFetch(endpoint, { method: promotionId ? "PUT" : "POST", body: JSON.stringify({ data: { title, description: $("restaurant-promotion-description").value.trim(), starts_at: toUnixSeconds($("restaurant-promotion-start").value), ends_at: toUnixSeconds($("restaurant-promotion-end").value) } }) });
+  $("restaurant-promotion-edit-id").value = ""; $("restaurant-promotion-title").value = ""; $("restaurant-promotion-description").value = ""; $("restaurant-promotion-start").value = ""; $("restaurant-promotion-end").value = ""; $("save-restaurant-promotion").textContent = "Submit for Approval"; await loadRestaurantWorkflows(); showToast("Promotion submitted for approval.");
+}
+
+async function approveRestaurantWorkflow(resource, id, action) {
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/${resource}/${encodeURIComponent(id)}/${action}`, { method: "POST" });
+  await loadRestaurantWorkflows(); showToast(`${resource === "menus" ? "Menu" : "Promotion"} ${action}d.`);
+}
 
 async function loadKnowledge() {
   const base = `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge`;
@@ -2375,10 +2534,14 @@ function renderConversations() {
   const status = $("conversation-status-filter").value;
   const list = $("conversation-list");
   list.innerHTML = "";
-  for (const conversation of state.conversations.filter((item) => (!status || item.status === status) && (!query || item.session_id.toLowerCase().includes(query) || item.messages.some((message) => message.content.toLowerCase().includes(query))))) {
+  for (const conversation of state.conversations.filter((item) => (!status || item.status === status) && (!query || item.session_id.toLowerCase().includes(query) || item.restaurant_name?.toLowerCase().includes(query) || item.escalation_reason?.toLowerCase().includes(query) || item.messages.some((message) => message.content.toLowerCase().includes(query))))) {
     const row = document.createElement("button");
     row.type = "button"; row.className = "compact-row";
-    row.innerHTML = `<strong>${escapeHTML(conversation.session_id.slice(0, 12))}</strong><span>${escapeHTML(conversation.status)} · ${conversation.message_count} messages · ${conversation.human_takeover ? "Staff" : "AI"}</span>`;
+    const latest = conversation.messages?.at(-1);
+    const conversationLabel = conversation.restaurant_id ? (conversation.state || conversation.status) : conversation.status;
+    const startedAt = ["assigned", "human_active"].includes(conversation.state) ? conversation.assigned_at : conversation.last_message_at || conversation.created_at;
+    const waitingMinutes = startedAt ? Math.max(0, Math.floor((Date.now() / 1000 - Number(startedAt)) / 60)) : 0;
+    row.innerHTML = `<strong>${escapeHTML(conversation.restaurant_name || "Hotel team")} · ${escapeHTML(conversation.session_id.slice(0, 12))}</strong><span>${escapeHTML(conversationLabel)} · ${conversation.message_count} messages · ${waitingMinutes} min · ${escapeHTML(conversation.assigned_user_name || "Unassigned")}</span><span>${escapeHTML(conversation.escalation_reason || latest?.content || "No recent message")}</span>`;
     row.addEventListener("click", () => { state.selectedConversation = conversation; renderConversationMessages(); });
     list.appendChild(row);
   }
@@ -2395,16 +2558,48 @@ function renderConversationMessages() {
     list.appendChild(row);
   }
   if (!conversation) list.textContent = "Select a conversation.";
-  $("toggle-takeover").disabled = !conversation;
-  $("close-conversation").disabled = !conversation;
-  $("send-staff-response").disabled = !conversation;
-  $("toggle-takeover").textContent = conversation?.human_takeover ? "Return to AI" : "Take Over";
+  const restaurantConversation = Boolean(conversation?.restaurant_id);
+  const canAccept = can("conversations.takeover") && restaurantConversation && (conversation?.state === "waiting_for_staff" || (conversation?.state === "assigned" && conversation.assigned_user_id === state.auth?.id));
+  const canReturn = can("conversations.return_to_ai") && conversation?.state === "human_active" && (conversation.assigned_user_id === state.auth?.id || can("conversations.assign"));
+  $("toggle-takeover").disabled = !conversation || !(restaurantConversation ? canAccept || canReturn : can("conversations.takeover") || canReturn);
+  $("close-conversation").disabled = !conversation || !can("conversations.resolve") || (restaurantConversation && conversation.state !== "human_active");
+  $("send-staff-response").disabled = !conversation || !can("conversations.reply") || (restaurantConversation && (conversation.state !== "human_active" || (conversation.assigned_user_id !== state.auth?.id && !can("conversations.assign"))));
+  $("toggle-takeover").textContent = conversation?.state === "human_active" ? "Return to AI" : restaurantConversation ? "Accept Conversation" : "Take Over";
+  $("close-conversation").textContent = restaurantConversation ? "Resolve" : "Close";
+  $("assign-conversation").disabled = !conversation?.restaurant_id || !can("conversations.assign") || !$("conversation-staff-select").value;
+  loadAssignableRestaurantStaff().catch((error) => showToast(error.message, "error"));
 }
 
 async function setConversationState(status, humanTakeover) {
   if (!state.selectedConversation) return;
-  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations/${encodeURIComponent(state.selectedConversation.session_id)}`, { method: "PUT", body: JSON.stringify({ status, human_takeover: humanTakeover }) });
+  const conversation = state.selectedConversation;
+  const base = `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations/${encodeURIComponent(conversation.session_id)}`;
+  if (conversation.restaurant_id) {
+    const action = status === "closed" ? "resolve" : humanTakeover ? "accept" : "return-to-ai";
+    await jsonFetch(`${base}/${action}`, { method: "POST" });
+  } else {
+    await jsonFetch(base, { method: "PUT", body: JSON.stringify({ status, human_takeover: humanTakeover }) });
+  }
   await loadConversations(); showToast("Conversation updated.");
+}
+
+async function loadAssignableRestaurantStaff() {
+  const select = $("conversation-staff-select");
+  const conversation = state.selectedConversation;
+  if (!select) return;
+  select.replaceChildren();
+  if (!conversation?.restaurant_id || !can("conversations.assign")) return;
+  const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/restaurants/${encodeURIComponent(conversation.restaurant_id)}/staff`);
+  for (const person of data.staff || []) select.appendChild(new Option(person.display_name, person.user_id));
+  $("assign-conversation").disabled = !select.value;
+}
+
+async function assignSelectedConversation() {
+  const conversation = state.selectedConversation;
+  const userId = $("conversation-staff-select").value;
+  if (!conversation?.restaurant_id || !userId) throw new Error("Choose an assigned restaurant staff member.");
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations/${encodeURIComponent(conversation.session_id)}/assign`, { method: "POST", body: JSON.stringify({ user_id: userId }) });
+  await loadConversations(); showToast("Conversation assigned.");
 }
 
 async function sendStaffResponse() {
@@ -2849,7 +3044,38 @@ async function openUserDialog(user = null) {
   $("user-dialog-title").textContent = creating ? "Create User" : "Edit User";
   $("save-user-button").textContent = creating ? "Create User" : "Save Changes";
   $("user-dialog-message").textContent = "";
+  await loadRestaurantAssignmentOptions(user?.restaurant_ids || []);
   $("user-dialog").showModal();
+}
+
+async function loadRestaurantAssignmentOptions(selectedIds = []) {
+  const fieldset = $("restaurant-assignment-fieldset");
+  const list = $("restaurant-assignment-list");
+  const role = state.roles.find((item) => item.role_id === $("admin-role").value);
+  const restaurantRole = role?.permissions?.some((permission) => ["restaurant.view", "restaurant.manage"].includes(permission));
+  const propertyId = $("admin-property").value;
+  list.replaceChildren();
+  fieldset.hidden = !restaurantRole || !propertyId;
+  if (!restaurantRole || !propertyId) return;
+  const data = await jsonFetch("/api/admin/properties/" + encodeURIComponent(propertyId) + "/hospitality");
+  const selected = new Set(selectedIds);
+  for (const restaurant of data.restaurants || []) {
+    const label = document.createElement("label");
+    label.className = "assignment-option";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.value = restaurant.restaurant_id;
+    checkbox.checked = selected.has(restaurant.restaurant_id);
+    const name = document.createElement("span");
+    name.textContent = restaurant.name;
+    label.append(checkbox, name);
+    list.appendChild(label);
+  }
+  if (!list.children.length) list.textContent = "No restaurants are configured for this property.";
+}
+
+function selectedRestaurantAssignments() {
+  return [...document.querySelectorAll("#restaurant-assignment-list input:checked")].map((item) => item.value);
 }
 
 async function saveUser(event) {
@@ -2863,6 +3089,7 @@ async function saveUser(event) {
     role_id: $("admin-role").value,
     email: $("admin-email").value.trim() || null,
     status: $("admin-status").value,
+    restaurant_ids: selectedRestaurantAssignments(),
   };
   if (creating) {
     if ($("admin-password").value !== $("admin-password-confirm").value) {
@@ -3276,6 +3503,14 @@ function setup() {
   $("logout-button").addEventListener("click", () => logout().catch((error) => showToast(error.message, "error")));
   $("create-user-button").addEventListener("click", () => openUserDialog().catch((error) => showToast(error.message, "error")));
   $("user-form").addEventListener("submit", saveUser);
+  $("admin-property").addEventListener("change", () => loadRestaurantAssignmentOptions(selectedRestaurantAssignments()).catch((error) => showToast(error.message, "error")));
+  $("admin-role").addEventListener("change", () => loadRestaurantAssignmentOptions(selectedRestaurantAssignments()).catch((error) => showToast(error.message, "error")));
+  $("restaurant-assignment-select-all").addEventListener("click", () => {
+    for (const checkbox of document.querySelectorAll("#restaurant-assignment-list input")) checkbox.checked = true;
+  });
+  $("restaurant-assignment-clear").addEventListener("click", () => {
+    for (const checkbox of document.querySelectorAll("#restaurant-assignment-list input")) checkbox.checked = false;
+  });
   $("user-search").addEventListener("input", renderUsers);
   $("user-status-filter").addEventListener("change", renderUsers);
   $("create-role-button").addEventListener("click", () => openRoleDialog().catch((error) => showToast(error.message, "error")));
@@ -3457,6 +3692,8 @@ function setup() {
   $("save-conversation-retention").addEventListener("click", () => saveConversationRetention().catch((error) => showToast(error.message, "error")));
   $("conversation-search").addEventListener("input", renderConversations);
   $("conversation-status-filter").addEventListener("change", renderConversations);
+  $("conversation-staff-select").addEventListener("change", () => { $("assign-conversation").disabled = !$("conversation-staff-select").value; });
+  $("assign-conversation").addEventListener("click", () => assignSelectedConversation().catch((error) => showToast(error.message, "error")));
   $("toggle-takeover").addEventListener("click", () => setConversationState("open", !state.selectedConversation?.human_takeover).catch((error) => showToast(error.message, "error")));
   $("close-conversation").addEventListener("click", () => setConversationState("closed", false).catch((error) => showToast(error.message, "error")));
   $("send-staff-response").addEventListener("click", () => sendStaffResponse().catch((error) => showToast(error.message, "error")));
@@ -3472,6 +3709,10 @@ function setup() {
   $("save-guest-module").addEventListener("click", () => saveGuestModule().catch((error) => showToast(error.message, "error")));
   $("save-facility").addEventListener("click", () => saveFacility().catch((error) => showToast(error.message, "error")));
   $("save-restaurant").addEventListener("click", () => saveRestaurant().catch((error) => showToast(error.message, "error")));
+  $("restaurant-workflow-select").addEventListener("change", () => loadRestaurantWorkflows().catch((error) => showToast(error.message, "error")));
+  $("save-restaurant-menu").addEventListener("click", () => saveRestaurantMenu().catch((error) => showToast(error.message, "error")));
+  $("save-restaurant-menu-item").addEventListener("click", () => saveRestaurantMenuItem().catch((error) => showToast(error.message, "error")));
+  $("save-restaurant-promotion").addEventListener("click", () => saveRestaurantPromotion().catch((error) => showToast(error.message, "error")));
   $("ai-usage-period").addEventListener("change", () => loadAIUsage().catch((error) => showToast(error.message, "error")));
   $("test-antlabs").addEventListener("click", () => testAntlabs().catch((error) => showToast(error.message, "error")));
   $("save-knowledge").addEventListener("click", () => saveKnowledgeEntry().catch((error) => showToast(error.message, "error")));

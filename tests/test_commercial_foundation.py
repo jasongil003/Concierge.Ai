@@ -50,6 +50,8 @@ def test_facility_restaurant_menu_event_guest_visibility(tmp_path: Path):
             "allergens": ["dairy"],
         },
     )
+    store.approve_menu("hotel-a", menu["menu_id"], "manager")
+    store.publish_menu("hotel-a", menu["menu_id"], "manager")
     event = store.create_event("hotel-a", {"title": "Poolside Music", "starts_at": 2000, "facility_id": facility["facility_id"]})
 
     guest = store.guest_facilities("hotel-a")
@@ -57,6 +59,19 @@ def test_facility_restaurant_menu_event_guest_visibility(tmp_path: Path):
     assert guest["restaurants"][0]["reservation_available"] is True
     assert guest["menu_items"][0]["name"] == item["name"]
     assert guest["events"][0]["event_id"] == event["event_id"]
+
+
+def test_restaurant_content_requires_approval_before_guest_publication(tmp_path: Path):
+    store = _store(tmp_path)
+    restaurant = store.create_restaurant("hotel-a", {"name": "A", "internal_notes": "Never show guests"})
+    menu = store.create_menu("hotel-a", restaurant["restaurant_id"], {"name": "Dinner"}, actor_user_id="editor")
+    item = store.create_menu_item("hotel-a", menu["menu_id"], {"name": "Soup", "price": "PHP 200"}, actor_user_id="editor")
+    assert menu["workflow_status"] == "pending_approval"
+    assert store.guest_facilities("hotel-a")["menu_items"] == []
+    store.approve_menu("hotel-a", menu["menu_id"], "manager")
+    store.publish_menu("hotel-a", menu["menu_id"], "manager")
+    assert store.guest_facilities("hotel-a")["menu_items"][0]["item_id"] == item["item_id"]
+    assert "internal_notes" not in store.get_restaurant("hotel-a", restaurant["restaurant_id"], guest=True)
 
 
 def test_menu_property_isolation(tmp_path: Path):

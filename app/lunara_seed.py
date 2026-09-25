@@ -174,7 +174,7 @@ def seed_lunara_demo(
     for facility_id, name, location, hours, booking in FACILITIES:
         hospitality.upsert_facility_profile(PROPERTY_ID, {"facility_id": f"lunara-facility-{facility_id}", "building_id": building["building_id"], "name": name, "facility_type": facility_id, "opening_hours": {"display": hours}, "description": f"{name}, {location}.", "booking_supported": booking, "live_status": "open"})
     for restaurant_id, name, location, periods, reservation in DINING:
-        hospitality.create_restaurant(PROPERTY_ID, {"restaurant_id": f"lunara-restaurant-{restaurant_id}", "name": name, "location": location, "meal_periods": periods, "reservation_available": reservation, "description": f"Lunara dining venue at {location}.", "status": "open"})
+        hospitality.create_restaurant(PROPERTY_ID, {"name": name, "location": location, "meal_periods": periods, "reservation_available": reservation, "description": f"Lunara dining venue at {location}.", "status": "open"}, restaurant_id=f"lunara-restaurant-{restaurant_id}")
 
     departments = [
         ("front-desk", "Front Desk", 10, "Duty Manager"), ("housekeeping", "Housekeeping", 20, "Housekeeping Supervisor"),

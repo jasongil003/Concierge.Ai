@@ -330,7 +330,15 @@ class InternetGuard:
 
 class GatewayGuard:
     @staticmethod
-    def validate(headers: Any, body: bytes, direct_ip: str, config: dict[str, Any] | None) -> bool:
+    def validate(
+        headers: Any,
+        body: bytes,
+        direct_ip: str,
+        config: dict[str, Any] | None,
+        *,
+        property_id: str | None = None,
+        nonce_consumer: Any = None,
+    ) -> bool:
         policy = normalize_guardrails(config)
         if not policy["antlabs_gateway_enabled"]:
             return False
@@ -343,15 +351,30 @@ class GatewayGuard:
         secret = policy.get("antlabs_signature_secret", "")
         signature = str(headers.get("x-antlabs-signature", ""))
         timestamp = str(headers.get("x-antlabs-timestamp", ""))
-        if not secret or not signature or not timestamp:
+        nonce = str(headers.get("x-antlabs-nonce", ""))
+        if not secret or not signature or not timestamp or not nonce or len(nonce) < 16 or len(nonce) > 256:
             return False
         try:
             if abs(int(time.time()) - int(timestamp)) > 300:
                 return False
         except ValueError:
             return False
-        expected = hmac.new(secret.encode(), timestamp.encode() + b"." + body, hashlib.sha256).hexdigest()
-        return hmac.compare_digest(signature.removeprefix("sha256="), expected)
+        if not property_id or not callable(nonce_consumer):
+            return False
+        try:
+            payload = json.loads(body)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return False
+        if not isinstance(payload, dict) or payload.get("property_id") != property_id:
+            return False
+        canonical = timestamp.encode() + b"." + nonce.encode() + b"." + body
+        expected = hmac.new(secret.encode(), canonical, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(signature.removeprefix("sha256="), expected):
+            return False
+        try:
+            return bool(nonce_consumer(property_id, nonce))
+        except (OSError, sqlite3.Error):
+            return False
 
 
 class RateLimiter:

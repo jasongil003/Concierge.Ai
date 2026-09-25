@@ -113,7 +113,7 @@ jobs:
       - name: Create persistent volume and start container
         run: |
           docker volume create concierge-ci-state
-          docker run -d --name concierge-ci -p 8080:8080 --health-cmd="python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=4)\"" --health-interval=5s --health-retries=12 --health-start-period=5s -e APP_ENVIRONMENT=production -e PROPERTY_ID=hotel-a -e DB_PATH=/state/concierge.db -e UPLOAD_ROOT=/state/uploads -e ADMIN_BOOTSTRAP_PASSWORD -e CREDENTIAL_ENCRYPTION_SECRET -e ADMIN_COOKIE_SECURE=true -e ALLOW_BODY_PROPERTY_SELECTION=false -e ANTLABS_MODE=live -v concierge-ci-state:/state concierge-ai:ci
+          docker run -d --name concierge-ci -p 8080:8080 --health-cmd="python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=4)\"" --health-interval=5s --health-retries=12 --health-start-period=5s -e APP_ENVIRONMENT=production -e PROPERTY_ID=hotel-a -e DB_PATH=/state/concierge.db -e UPLOAD_ROOT=/state/uploads -e ADMIN_BOOTSTRAP_PASSWORD -e CREDENTIAL_ENCRYPTION_SECRET -e ADMIN_COOKIE_SECURE=true -e ALLOW_BODY_PROPERTY_SELECTION=false -e ANTLABS_MODE=browser_handoff -e ANTLABS_AUTH_URL=https://gateway.invalid/auth -v concierge-ci-state:/state concierge-ai:ci
       - name: Verify non-root, healthy runtime, and write workflows
         run: |
           test "$(docker exec concierge-ci id -u)" != "0"
@@ -126,7 +126,7 @@ jobs:
       - name: Recreate container and verify volume persistence
         run: |
           docker rm -f concierge-ci
-          docker run -d --name concierge-ci -p 8080:8080 --health-cmd="python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=4)\"" --health-interval=5s --health-retries=12 --health-start-period=5s -e APP_ENVIRONMENT=production -e PROPERTY_ID=hotel-a -e DB_PATH=/state/concierge.db -e UPLOAD_ROOT=/state/uploads -e ADMIN_BOOTSTRAP_PASSWORD -e CREDENTIAL_ENCRYPTION_SECRET -e ADMIN_COOKIE_SECURE=true -e ALLOW_BODY_PROPERTY_SELECTION=false -e ANTLABS_MODE=live -v concierge-ci-state:/state concierge-ai:ci
+          docker run -d --name concierge-ci -p 8080:8080 --health-cmd="python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=4)\"" --health-interval=5s --health-retries=12 --health-start-period=5s -e APP_ENVIRONMENT=production -e PROPERTY_ID=hotel-a -e DB_PATH=/state/concierge.db -e UPLOAD_ROOT=/state/uploads -e ADMIN_BOOTSTRAP_PASSWORD -e CREDENTIAL_ENCRYPTION_SECRET -e ADMIN_COOKIE_SECURE=true -e ALLOW_BODY_PROPERTY_SELECTION=false -e ANTLABS_MODE=browser_handoff -e ANTLABS_AUTH_URL=https://gateway.invalid/auth -v concierge-ci-state:/state concierge-ai:ci
           for attempt in $(seq 1 18); do
             test "$(docker inspect --format '{{.State.Health.Status}}' concierge-ci)" = healthy && break
             sleep 5

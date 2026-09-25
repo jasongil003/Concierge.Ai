@@ -1,3 +1,7 @@
+import hashlib
+import hmac
+import json
+import time
 from pathlib import Path
 
 import pytest
@@ -7,6 +11,7 @@ import app.main as main_module
 from app.guardrails import (
     AIInputSanitizer,
     ActionGuard,
+    GatewayGuard,
     InternetGuard,
     NetworkGuard,
     PrivacyGuard,
@@ -238,6 +243,34 @@ def test_canonical_injection_variants_are_classified():
     ):
         assert PrivacyGuard.classify(phrase) == "prompt_injection", phrase
     assert PrivacyGuard.classify("List all guests") == "privacy"
+
+
+def test_antlabs_gateway_assertion_binds_property_and_rejects_nonce_replay(tmp_path: Path):
+    store = SessionStore(tmp_path / "gateway-nonces.db")
+    secret = "gateway-signing-secret"
+    config = {
+        "antlabs_gateway_enabled": True,
+        "antlabs_gateway_ranges": ["127.0.0.0/8"],
+        "antlabs_signature_secret": secret,
+    }
+
+    def signed(body: bytes, property_id: str, nonce: str) -> dict[str, str]:
+        timestamp = str(int(time.time()))
+        canonical = timestamp.encode() + b"." + nonce.encode() + b"." + body
+        signature = hmac.new(secret.encode(), canonical, hashlib.sha256).hexdigest()
+        return {"x-antlabs-timestamp": timestamp, "x-antlabs-nonce": nonce, "x-antlabs-signature": signature}
+
+    body = json.dumps({"property_id": "hotel-a", "client_id": "guest"}, separators=(",", ":")).encode()
+    nonce = "nonce-hotel-a-000001"
+    headers = signed(body, "hotel-a", nonce)
+    assert GatewayGuard.validate(headers, body, "127.0.0.1", config, property_id="hotel-a", nonce_consumer=store.consume_gateway_nonce)
+    assert not GatewayGuard.validate(headers, body, "127.0.0.1", config, property_id="hotel-a", nonce_consumer=store.consume_gateway_nonce)
+
+    wrong_body = json.dumps({"property_id": "hotel-b", "client_id": "guest"}, separators=(",", ":")).encode()
+    assert not GatewayGuard.validate(signed(wrong_body, "hotel-b", "nonce-hotel-b-000001"), wrong_body, "127.0.0.1", config, property_id="hotel-a", nonce_consumer=store.consume_gateway_nonce)
+    with store._connect() as db:
+        row = db.execute("SELECT nonce_hash FROM gateway_assertion_nonces").fetchone()
+    assert row is not None and row["nonce_hash"] != nonce
 
 
 def test_service_request_preserves_guest_text_for_output_encoding_contract(admin_client, tmp_path, monkeypatch):

@@ -17,6 +17,8 @@ from app.admin_auth import (
     verify_password,
 )
 from app.main import app
+from app.hospitality import HospitalityStore
+from app.properties import PropertyRecord, PropertyStore
 
 
 ADMIN_PASSWORD = "ChangeMe123!"
@@ -191,10 +193,80 @@ def test_session_expiration(auth_store: AdminAuthStore):
     assert auth_store.authenticate(token) is None
 
 
+def test_manual_account_lock_is_indefinite_until_unlocked(auth_store: AdminAuthStore):
+    _, administrator = auth_store.login("admin", ADMIN_PASSWORD, "10.0.0.1", "test")
+    user = auth_store.create_user(
+        {
+            "username": "manual.lock",
+            "display_name": "Manual Lock",
+            "password": "InitialPass123!",
+            "role_id": "role-super-admin",
+            "property_id": None,
+            "status": "active",
+        },
+        administrator,
+    )
+    auth_store.update_user(user["id"], {"status": "locked"}, administrator)
+    with pytest.raises(AccountLockedError, match="Contact an administrator"):
+        auth_store.login("manual.lock", "InitialPass123!", "10.0.0.9", "test")
+    auth_store.update_user(user["id"], {"status": "active"}, administrator)
+    assert auth_store.login("manual.lock", "InitialPass123!", "10.0.0.9", "test")[1].status == "active"
+
+
+def test_property_admin_cannot_delegate_global_permissions_even_with_spoofed_role_slug(auth_store: AdminAuthStore):
+    _, global_admin = auth_store.login("admin", ADMIN_PASSWORD, "10.0.0.1", "test")
+    user = auth_store.create_user(
+        {
+            "username": "property.admin",
+            "display_name": "Property Administrator",
+            "password": "PropertyPass123!",
+            "role_id": "role-property-administrator",
+            "property_id": "demo-hotel",
+            "status": "active",
+        },
+        global_admin,
+    )
+    _, property_admin = auth_store.login("property.admin", "PropertyPass123!", "10.0.0.2", "test")
+    with pytest.raises(PermissionError, match="cannot delegate"):
+        auth_store.save_role(
+            {"name": "Escalated", "property_id": "demo-hotel", "permissions": ["properties.view", "properties.all"]},
+            property_admin,
+        )
+    forged_role = {"role_id": "role-forged", "slug": "super-admin", "property_id": "demo-hotel", "permissions": ["system.configure"]}
+    with pytest.raises(PermissionError, match="cannot delegate"):
+        auth_store.assert_role_assignment_allowed(property_admin, forged_role, "demo-hotel")
+
+
+def test_restaurant_assignments_cannot_be_widened_beyond_actor_scope(tmp_path: Path):
+    database = tmp_path / "restaurant-assignments.db"
+    properties = PropertyStore(database)
+    properties.upsert(PropertyRecord(property_id="hotel-a", hotel_name="Hotel A"))
+    hospitality = HospitalityStore(database)
+    grill = hospitality.create_restaurant("hotel-a", {"name": "The Grill"})
+    cafe = hospitality.create_restaurant("hotel-a", {"name": "Lobby Cafe"})
+    auth = AdminAuthStore(database)
+    auth.ensure_bootstrap_admin("admin", ADMIN_PASSWORD)
+    _, super_admin = auth.login("admin", ADMIN_PASSWORD, "10.0.0.1", "test")
+    manager = auth.create_user({
+        "username": "grill.manager", "display_name": "Grill Manager", "password": "ManagerPass123!",
+        "role_id": "role-restaurant-manager", "property_id": "hotel-a", "status": "active",
+        "restaurant_ids": [grill["restaurant_id"]],
+    }, super_admin)
+    staff = auth.create_user({
+        "username": "grill.staff", "display_name": "Grill Staff", "password": "StaffMember123!",
+        "role_id": "role-restaurant-staff", "property_id": "hotel-a", "status": "active",
+        "restaurant_ids": [grill["restaurant_id"]],
+    }, super_admin)
+    _, manager_principal = auth.login(manager["username"], "ManagerPass123!", "10.0.0.2", "test")
+    with pytest.raises(PermissionError, match="assigned to you"):
+        auth.update_user(staff["id"], {"restaurant_ids": [cafe["restaurant_id"]]}, manager_principal)
+    assert auth.get_user(staff["id"])["restaurant_ids"] == [grill["restaurant_id"]]
+
+
 def test_default_roles_have_expected_permission_boundaries(auth_store: AdminAuthStore):
     assert set(DEFAULT_ROLES) == {
         "super-admin", "property-administrator", "property-manager", "concierge-front-desk",
-        "content-manager", "viewer-auditor", "department-manager",
+        "content-manager", "viewer-auditor", "department-manager", "restaurant-manager", "restaurant-staff",
     }
     super_admin = auth_store.get_role("role-super-admin")
     assert set(super_admin["permissions"]) == set(PERMISSIONS)
@@ -207,6 +279,12 @@ def test_default_roles_have_expected_permission_boundaries(auth_store: AdminAuth
     assert {"requests.view", "analytics.view", "assistant.use", "reports.export"} <= department_permissions
     assert "properties.all" not in department_permissions
     assert "infrastructure.view" not in department_permissions
+    restaurant_manager = set(auth_store.get_role("role-restaurant-manager")["permissions"])
+    assert {"restaurant.menu.edit", "restaurant.menu.approve", "restaurant.promotions.approve", "restaurant.analytics.view", "conversations.assign"} <= restaurant_manager
+    assert not ({"properties.all", "system.configure", "security.configure", "users.create", "ai.configure", "dashboard.view", "analytics.view"} & restaurant_manager)
+    restaurant_staff = set(auth_store.get_role("role-restaurant-staff")["permissions"])
+    assert {"restaurant.view", "restaurant.menu.view", "conversations.takeover", "conversations.reply", "conversations.resolve"} <= restaurant_staff
+    assert not ({"restaurant.manage", "restaurant.menu.edit", "restaurant.menu.approve", "restaurant.promotions.approve", "users.create", "roles.manage", "ai.configure"} & restaurant_staff)
 
 
 def test_user_custom_role_and_password_management(auth_client: TestClient):
