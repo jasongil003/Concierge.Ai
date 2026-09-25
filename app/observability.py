@@ -214,9 +214,9 @@ class ObservabilityStore:
             department_params: tuple[Any, ...] = (department_name,) if department_name else ()
             sessions = db.execute("SELECT COUNT(*) FROM sessions WHERE property_id=? AND created_at>=? AND created_at<=?", (property_id, start, end)).fetchone()[0] if self._table_exists(db, "sessions") else 0
             conversations = db.execute("SELECT COUNT(DISTINCT session_id) FROM conversation_messages WHERE property_id=? AND created_at>=? AND created_at<=?", (property_id, start, end)).fetchone()[0] if self._table_exists(db, "conversation_messages") else 0
-            requests = db.execute(f"SELECT COUNT(*) FROM service_requests WHERE property_id=? AND created_at>=? AND created_at<=?{department_sql}", (property_id, start, end, *department_params)).fetchone()[0] if self._table_exists(db, "service_requests") else 0
-            previous_requests = db.execute(f"SELECT COUNT(*) FROM service_requests WHERE property_id=? AND created_at>=? AND created_at<?{department_sql}", (property_id, previous_start, start, *department_params)).fetchone()[0] if self._table_exists(db, "service_requests") else 0
-            request_rows = db.execute(f"SELECT * FROM service_requests WHERE property_id=? AND created_at>=? AND created_at<=?{department_sql} ORDER BY created_at", (property_id, start, end, *department_params)).fetchall() if self._table_exists(db, "service_requests") else []
+            requests = db.execute(f"SELECT COUNT(*) FROM service_requests WHERE property_id=? AND created_at>=? AND created_at<=?{department_sql}", (property_id, start, end, *department_params)).fetchone()[0] if self._table_exists(db, "service_requests") else 0  # nosec B608
+            previous_requests = db.execute(f"SELECT COUNT(*) FROM service_requests WHERE property_id=? AND created_at>=? AND created_at<?{department_sql}", (property_id, previous_start, start, *department_params)).fetchone()[0] if self._table_exists(db, "service_requests") else 0  # nosec B608
+            request_rows = db.execute(f"SELECT * FROM service_requests WHERE property_id=? AND created_at>=? AND created_at<=?{department_sql} ORDER BY created_at", (property_id, start, end, *department_params)).fetchall() if self._table_exists(db, "service_requests") else []  # nosec B608
             ai_row = db.execute("SELECT COUNT(*) total,SUM(CASE WHEN success=0 THEN 1 ELSE 0 END) errors,AVG(latency_ms) latency,SUM(total_tokens) tokens FROM ai_usage WHERE property_id=? AND created_at>=? AND created_at<=?", (property_id, start, end)).fetchone() if self._table_exists(db, "ai_usage") else None
             ai_time_rows = db.execute("SELECT (created_at / ?) * ? bucket_at,COUNT(*) count FROM ai_usage WHERE property_id=? AND created_at>=? AND created_at<=? GROUP BY bucket_at ORDER BY bucket_at", (bucket, bucket, property_id, start, end)).fetchall() if self._table_exists(db, "ai_usage") else []
             ai_provider_rows = db.execute("SELECT provider_id,model,COUNT(*) count FROM ai_usage WHERE property_id=? AND created_at>=? AND created_at<=? GROUP BY provider_id,model ORDER BY count DESC", (property_id, start, end)).fetchall() if self._table_exists(db, "ai_usage") else []
@@ -280,7 +280,7 @@ class ObservabilityStore:
                 )
             if active_ids:
                 placeholders = ",".join("?" for _ in active_ids)
-                db.execute(f"UPDATE operational_alerts SET active=0 WHERE property_id=? AND alert_id NOT IN ({placeholders})", (property_id, *active_ids))
+                db.execute(f"UPDATE operational_alerts SET active=0 WHERE property_id=? AND alert_id NOT IN ({placeholders})", (property_id, *active_ids))  # nosec B608
             else:
                 db.execute("UPDATE operational_alerts SET active=0 WHERE property_id=?", (property_id,))
         return self.alerts(property_id)

@@ -19,10 +19,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -45,13 +45,39 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
       - run: npm ci
       - run: npm audit --audit-level=high
+
+  static-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install Python dependencies and Bandit
+        run: pip install -r requirements-dev.txt
+      - name: Run Python security analysis
+        run: bandit -q -r app -x app/static --severity-level medium --confidence-level medium
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Scan repository history for secrets
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
   browser-tests:
     runs-on: windows-latest
@@ -59,10 +85,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -71,7 +97,7 @@ jobs:
         run: pip install -r requirements-dev.txt
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -91,7 +117,7 @@ jobs:
 
       - name: Upload browser report on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: |
@@ -103,13 +129,36 @@ jobs:
   docker-runtime-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      ADMIN_BOOTSTRAP_PASSWORD: "CI-Only-Admin-Password-123!"
-      CREDENTIAL_ENCRYPTION_SECRET: "ci-only-encryption-secret-32-bytes-minimum"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+      - name: Generate one-run smoke credentials
+        run: |
+          echo "ADMIN_BOOTSTRAP_PASSWORD=$(openssl rand -hex 16)A!" >> "$GITHUB_ENV"
+          echo "CREDENTIAL_ENCRYPTION_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
       - name: Build production image
         run: docker build -t concierge-ai:ci .
+      - name: Scan production image for known vulnerabilities
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          image-ref: concierge-ai:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+      - name: Generate image SBOM
+        uses: anchore/sbom-action@v0.24.0
+        with:
+          image: concierge-ai:ci
+          artifact-name: concierge-ai-production-sbom.spdx.json
+          output-file: concierge-ai-production-sbom.spdx.json
+          format: spdx-json
+      - name: Upload image SBOM
+        uses: actions/upload-artifact@v7
+        with:
+          name: concierge-ai-production-sbom
+          path: concierge-ai-production-sbom.spdx.json
+          if-no-files-found: error
       - name: Create persistent volume and start container
         run: |
           docker volume create concierge-ci-state

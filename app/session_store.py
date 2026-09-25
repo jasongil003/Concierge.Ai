@@ -142,9 +142,24 @@ class SessionStore:
 
     @staticmethod
     def _ensure_column(db: sqlite3.Connection, table: str, name: str, definition: str) -> None:
-        columns = {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}
+        allowed_definitions = {
+            "conversation_messages": {"sender_user_id": "TEXT"},
+            "conversation_state": {
+                "state": "TEXT NOT NULL DEFAULT 'ai_active'",
+                "department_type": "TEXT",
+                "department_id": "TEXT",
+                "restaurant_id": "TEXT",
+                "assigned_user_id": "TEXT",
+                "assigned_at": "INTEGER",
+                "escalation_reason": "TEXT NOT NULL DEFAULT ''",
+            },
+        }
+        if allowed_definitions.get(table, {}).get(name) != definition:
+            raise ValueError("Unsupported schema column migration.")
+        # Identifiers and DDL are selected from the fixed migration map above.
+        columns = {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}  # nosec B608
         if name not in columns:
-            db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+            db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")  # nosec B608
 
     def consume_gateway_nonce(self, property_id: str, nonce: str, now: int | None = None) -> bool:
         """Atomically reserve a signed gateway nonce; only the hash is persisted."""
@@ -448,8 +463,8 @@ class SessionStore:
                 return 0
             placeholders = ",".join("?" for _ in session_ids)
             params = (property_id, *session_ids)
-            db.execute(f"DELETE FROM conversation_messages WHERE property_id=? AND session_id IN ({placeholders})", params)
-            db.execute(f"DELETE FROM conversation_state WHERE property_id=? AND session_id IN ({placeholders})", params)
+            db.execute(f"DELETE FROM conversation_messages WHERE property_id=? AND session_id IN ({placeholders})", params)  # nosec B608
+            db.execute(f"DELETE FROM conversation_state WHERE property_id=? AND session_id IN ({placeholders})", params)  # nosec B608
         return len(session_ids)
 
     def conversations(self, property_id: str, restaurant_ids: set[str] | None = None) -> list[dict[str, Any]]:
@@ -460,21 +475,23 @@ class SessionStore:
         restaurant_params: tuple[Any, ...] = ()
         if restaurant_ids is not None:
             ordered_ids = sorted(restaurant_ids)
-            restaurant_clause = f"AND cs.restaurant_id IN ({','.join('?' for _ in ordered_ids)})"
+            restaurant_clause = f"AND cs.restaurant_id IN ({','.join('?' for _ in ordered_ids)})"  # nosec B608
             restaurant_params = tuple(ordered_ids)
-        with self._connect() as db:
-            rows = db.execute(
-                """SELECT s.session_id,s.client_id,s.authenticated,s.created_at,s.last_seen_at,
+        query = (
+            """SELECT s.session_id,s.client_id,s.authenticated,s.created_at,s.last_seen_at,
                 COALESCE(cs.status,'open') AS status,COALESCE(cs.human_takeover,0) AS human_takeover,
                 COALESCE(cs.state,'ai_active') AS state,cs.department_type,cs.department_id,cs.restaurant_id,
                 cs.assigned_user_id,cs.assigned_at,cs.escalation_reason,
                 COUNT(m.message_id) AS message_count,MAX(m.created_at) AS last_message_at
                 FROM sessions s LEFT JOIN conversation_messages m ON m.session_id=s.session_id AND m.property_id=s.property_id
                 LEFT JOIN conversation_state cs ON cs.session_id=s.session_id AND cs.property_id=s.property_id
-                WHERE s.property_id=? """ + restaurant_clause +
-                " GROUP BY s.session_id ORDER BY COALESCE(MAX(m.created_at),s.created_at) DESC",
-                (property_id, *restaurant_params),
-            ).fetchall()
+                WHERE s.property_id=? """
+            + restaurant_clause
+            + " GROUP BY s.session_id ORDER BY COALESCE(MAX(m.created_at),s.created_at) DESC"
+        )
+        with self._connect() as db:
+            # The optional clause consists only of generated placeholders; all restaurant IDs are bound values.
+            rows = db.execute(query, (property_id, *restaurant_params)).fetchall()  # nosec B608
             result = []
             for row in rows:
                 messages = db.execute(

@@ -468,7 +468,7 @@ class PropertyStore:
         "design_versions",
     }
 
-    COLUMNS = [
+    COLUMNS = (
         "property_id",
         "hotel_name",
         "description",
@@ -509,7 +509,18 @@ class PropertyStore:
         "design_versions",
         "created_at",
         "updated_at",
-    ]
+    )
+    UPSERT_SQL = """
+        INSERT INTO properties ({columns})
+        VALUES ({placeholders})
+        ON CONFLICT(property_id) DO UPDATE SET {updates}
+    """.format(
+        columns=", ".join(COLUMNS),
+        placeholders=", ".join("?" for _ in COLUMNS),
+        updates=", ".join(
+            f"{column} = excluded.{column}" for column in COLUMNS if column != "property_id"
+        ),
+    )
 
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -597,22 +608,8 @@ class PropertyStore:
         record.created_at = existing.created_at if existing else now
         record.updated_at = now
         payload = self._serialize_record(record)
-        placeholders = ", ".join("?" for _ in self.COLUMNS)
-        updates = ", ".join(
-            f"{column} = excluded.{column}"
-            for column in self.COLUMNS
-            if column != "property_id"
-        )
-
         with self._connect() as db:
-            db.execute(
-                f"""
-                INSERT INTO properties ({", ".join(self.COLUMNS)})
-                VALUES ({placeholders})
-                ON CONFLICT(property_id) DO UPDATE SET {updates}
-                """,
-                [payload[column] for column in self.COLUMNS],
-            )
+            db.execute(self.UPSERT_SQL, [payload[column] for column in self.COLUMNS])
         return record
 
     def delete(self, property_id: str) -> bool:
@@ -716,6 +713,18 @@ class PropertyStore:
         return PropertyRecord(**data)
 
     def _ensure_column(self, db: sqlite3.Connection, name: str, definition: str) -> None:
+        allowed_definitions = {
+            "design_draft": "TEXT NOT NULL DEFAULT '{}'",
+            "design_published": "TEXT NOT NULL DEFAULT '{}'",
+            "design_versions": "TEXT NOT NULL DEFAULT '[]'",
+            "rooms": "TEXT NOT NULL DEFAULT '[]'",
+            "guest_modules": "TEXT NOT NULL DEFAULT '[]'",
+            "personality": "TEXT NOT NULL DEFAULT '{}'",
+            "guardrails": "TEXT NOT NULL DEFAULT '{}'",
+            "app_settings": "TEXT NOT NULL DEFAULT '{}'",
+        }
+        if allowed_definitions.get(name) != definition:
+            raise ValueError("Unsupported property schema column migration.")
         columns = {row["name"] for row in db.execute("PRAGMA table_info(properties)").fetchall()}
         if name not in columns:
-            db.execute(f"ALTER TABLE properties ADD COLUMN {name} {definition}")
+            db.execute(f"ALTER TABLE properties ADD COLUMN {name} {definition}")  # nosec B608

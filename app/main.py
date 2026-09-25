@@ -69,6 +69,7 @@ from .outbound_http import OutboundRequestBroker, OutboundRequestError
 from .places import GooglePlaces, format_places_for_ai, rank_places
 from .properties import AUTHENTICATION_RULES, PropertyRecord, PropertyStore, validate_design_config
 from .reporting import ReportService
+from .rbac import bind_admin_route_policies, matched_admin_policy
 from .session_store import SessionStore
 from .zones import ZoneStore
 
@@ -150,92 +151,6 @@ async def guardrail_denied_handler(request: Request, exc: GuardrailDenied) -> JS
     return JSONResponse(exc.decision.payload(guest_safe=True), status_code=exc.status_code)
 
 
-def _required_admin_permission(method: str, path: str) -> str | None:
-    if path.startswith("/api/admin/auth/"):
-        return None
-    if path.startswith("/api/admin/users"):
-        if method == "GET":
-            return "users.view"
-        if method == "POST" and path.endswith("/revoke-sessions"):
-            return "security.configure"
-        if method == "POST":
-            return "users.create" if path == "/api/admin/users" else "users.edit"
-        return "users.delete" if method == "DELETE" else "users.edit"
-    if path.startswith("/api/admin/roles"):
-        return "roles.view" if method == "GET" else "roles.manage"
-    if path.startswith("/api/admin/permissions"):
-        return "roles.view"
-    if path.startswith("/api/admin/audit"):
-        return "audit.view"
-    if path.startswith("/api/admin/system/"):
-        return "system.configure"
-    if "/assistant/" in path:
-        return "assistant.use"
-    if "/reports/" in path:
-        return "reports.export"
-    if "/operations/alerts" in path:
-        return "dashboard.view"
-    if "/operations/" in path:
-        return "dashboard.view"
-    if "/guardrails" in path:
-        return "security.view" if method == "GET" else "security.configure"
-    if "/promotions" in path:
-        if path.endswith(("/approve", "/publish")):
-            return "restaurant.promotions.approve"
-        return "restaurant.promotions.view" if method == "GET" else "restaurant.promotions.edit"
-    if "/menu-items/" in path:
-        return "restaurant.menu.view" if method == "GET" else "restaurant.menu.edit"
-    if "/menus" in path:
-        if path.endswith(("/approve", "/publish")):
-            return "restaurant.menu.approve"
-        return "restaurant.menu.view" if method == "GET" else "restaurant.menu.edit"
-    if path.endswith("/analytics") and "/restaurants/" in path:
-        return "restaurant.analytics.view"
-    if path.endswith("/hours") and "/restaurants/" in path:
-        return "restaurant.hours.edit"
-    if "/restaurants" in path or path.endswith("/hospitality"):
-        return "restaurant.view" if method == "GET" else "restaurant.manage"
-    if "/conversations/" in path and path.endswith("/accept"):
-        return "conversations.takeover"
-    if "/conversations/" in path and path.endswith("/assign"):
-        return "conversations.assign"
-    if "/conversations/" in path and path.endswith("/resolve"):
-        return "conversations.resolve"
-    if "/conversations/" in path and path.endswith("/return-to-ai"):
-        return "conversations.return_to_ai"
-    if "/knowledge" in path:
-        if method == "DELETE":
-            return "knowledge.delete"
-        if path.endswith(("/publish", "/approve", "/unpublish", "/supersede", "/resolve")):
-            return "knowledge.publish"
-        return "knowledge.view" if method == "GET" else "knowledge.edit"
-    if "/webhooks" in path:
-        return "integrations.view" if method == "GET" else "integrations.configure"
-    if "/deployment" in path:
-        return "domains.view" if method == "GET" else "domains.configure"
-    if path.endswith("/dashboard"):
-        return "dashboard.view"
-    if "/sessions" in path or "/stays/" in path:
-        return "guest_sessions.view" if method == "GET" and path.endswith("/sessions") else "guest_sessions.manage"
-    if "/conversations" in path:
-        return "conversations.view" if method == "GET" else "conversations.reply"
-    if "/service-catalog" in path or "/departments" in path:
-        return "requests.view" if method == "GET" else "requests.manage"
-    if "/ai/" in path or path.endswith("/ai") or "/improvement-loop" in path:
-        return "ai.view" if method == "GET" else "ai.configure"
-    if "/design" in path or "/intro" in path:
-        return "concierge.view" if method == "GET" else "concierge.edit"
-    if "/service-requests" in path or "/feedback" in path or "/notifications" in path:
-        return "requests.view" if method == "GET" else "requests.manage"
-    if "/antlabs/" in path:
-        return "integrations.view"
-    if "/location/" in path:
-        return "analytics.view" if method == "GET" else "properties.edit"
-    if any(token in path for token in ("/zones", "/buildings", "/floors", "/floor-maps", "/facilities", "/events", "/navigation/", "/access-points")):
-        return "properties.view" if method == "GET" else "properties.edit"
-    return "properties.view" if method == "GET" else "properties.edit"
-
-
 def _path_property_id(path: str) -> str | None:
     match = re.match(r"^/api/admin/properties/([^/]+)", path)
     return match.group(1) if match else None
@@ -256,7 +171,7 @@ async def add_security_headers(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "geolocation=(self), camera=(), microphone=()"
-    response.headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    response.headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' data: https:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
     response.headers["X-Request-ID"] = getattr(request.state, "request_id", "")
     if settings.app_environment in ("production", "staging"):
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
@@ -292,15 +207,14 @@ async def collect_request_telemetry(request: Request, call_next):
 @app.middleware("http")
 async def enforce_admin_security(request: Request, call_next):
     path = request.url.path.rstrip("/") or "/"
-    public_admin_paths = {
-        "/admin/login",
-        "/api/admin/auth/login",
-        "/api/admin/auth/password-reset/request",
-        "/api/admin/auth/password-reset/confirm",
-    }
+    public_admin_pages = {"/admin/login"}
     is_admin_page = path == "/admin"
     is_admin_api = path == "/api/admin" or path.startswith("/api/admin/")
-    if path in public_admin_paths or not (is_admin_page or is_admin_api):
+    if path in public_admin_pages or not (is_admin_page or is_admin_api):
+        return await call_next(request)
+
+    policy, matched_scope = matched_admin_policy(request.app, request.scope, request.method) if is_admin_api else (None, request.scope)
+    if policy and policy.authentication == "public":
         return await call_next(request)
 
     principal = admin_auth.authenticate(request.cookies.get(SESSION_COOKIE))
@@ -311,16 +225,19 @@ async def enforce_admin_security(request: Request, call_next):
     request.state.admin = principal
 
     if is_admin_api:
+        if policy is None:
+            return JSONResponse({"detail": "No administrator authorization policy is registered for this operation."}, status_code=403)
+        request.state.admin_route_policy = policy
         if _admin_rate_limited(principal.session_id):
             return JSONResponse({"detail": "Administrative request limit exceeded. Try again shortly."}, status_code=429)
         if principal.force_password_change and path not in {
             "/api/admin/auth/me", "/api/admin/auth/change-password", "/api/admin/auth/logout"
         }:
             return JSONResponse({"detail": "Change your temporary password before continuing."}, status_code=428)
-        permission = _required_admin_permission(request.method, path)
+        permission = policy.permission
         if permission and not principal.can(permission):
             return JSONResponse({"detail": f"Permission required: {permission}"}, status_code=403)
-        property_id = _path_property_id(path)
+        property_id = matched_scope.get("path_params", {}).get("property_id")
         if property_id and not principal.can_access_property(property_id):
             return JSONResponse({"detail": "You do not have access to this property."}, status_code=403)
         if request.method not in {"GET", "HEAD", "OPTIONS"}:
@@ -330,7 +247,7 @@ async def enforce_admin_security(request: Request, call_next):
 
     response = await call_next(request)
     if is_admin_api and request.method not in {"GET", "HEAD", "OPTIONS"} and response.status_code < 400:
-        property_id = _path_property_id(path)
+        property_id = matched_scope.get("path_params", {}).get("property_id")
         admin_auth.audit(
             principal,
             f"api.{request.method.lower()}",
@@ -3818,7 +3735,7 @@ def _require_restaurant_access(
                 (principal.user_id, property_id, restaurant_id),
             ).fetchone()
         if not row:
-            raise HTTPException(status_code=404, detail="Restaurant not found.")
+            raise HTTPException(status_code=403, detail="This account is not assigned to that restaurant.")
     restaurant = hospitality.get_restaurant(property_id, restaurant_id)
     if not restaurant or (
         not allow_archived and (restaurant["archived"] or restaurant["status"] in {"disabled", "archived"})
@@ -3997,3 +3914,8 @@ async def _dispatch_webhooks(property_id: str, event_name: str, payload: dict[st
             operations.record_webhook_delivery(property_id, webhook["webhook_id"], event_name, status, response.status_code, error)
         except OutboundRequestError as exc:
             operations.record_webhook_delivery(property_id, webhook["webhook_id"], event_name, "failed", error=str(exc))
+
+
+# Fail application startup if an administrator API route is missing an explicit
+# permission/authentication policy. The inventory is checked again in tests.
+bind_admin_route_policies(app)

@@ -1,0 +1,654 @@
+{
+  "DELETE /api/admin/properties/{property_id}": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "DELETE /api/admin/properties/{property_id}/ai/providers/{provider_id}/credentials/{credential_type}": {
+    "authentication": "required",
+    "permission": "ai.configure"
+  },
+  "DELETE /api/admin/properties/{property_id}/assistant/conversation": {
+    "authentication": "required",
+    "permission": "assistant.use"
+  },
+  "DELETE /api/admin/properties/{property_id}/departments/{department_id}": {
+    "authentication": "required",
+    "permission": "requests.manage"
+  },
+  "DELETE /api/admin/properties/{property_id}/hospitality/facilities/{facility_id}": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "DELETE /api/admin/properties/{property_id}/knowledge/sources/{source_id}": {
+    "authentication": "required",
+    "permission": "knowledge.delete"
+  },
+  "DELETE /api/admin/properties/{property_id}/knowledge/{item_id}": {
+    "authentication": "required",
+    "permission": "knowledge.delete"
+  },
+  "DELETE /api/admin/properties/{property_id}/recommendations/{recommendation_id}": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "DELETE /api/admin/properties/{property_id}/restaurants/{restaurant_id}": {
+    "authentication": "required",
+    "permission": "restaurant.manage"
+  },
+  "DELETE /api/admin/properties/{property_id}/service-catalog/{service_id}": {
+    "authentication": "required",
+    "permission": "requests.manage"
+  },
+  "DELETE /api/admin/properties/{property_id}/webhooks/{webhook_id}": {
+    "authentication": "required",
+    "permission": "integrations.configure"
+  },
+  "DELETE /api/admin/properties/{property_id}/zones/{zone_id}": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "DELETE /api/admin/roles/{role_id}": {
+    "authentication": "required",
+    "permission": "roles.manage"
+  },
+  "DELETE /api/admin/users/{user_id}": {
+    "authentication": "required",
+    "permission": "users.delete"
+  },
+  "GET /api/admin/audit": {
+    "authentication": "required",
+    "permission": "audit.view"
+  },
+  "GET /api/admin/auth/me": {
+    "authentication": "required",
+    "permission": null
+  },
+  "GET /api/admin/permissions": {
+    "authentication": "required",
+    "permission": "roles.view"
+  },
+  "GET /api/admin/properties": {
+    "authentication": "required",
+    "permission": "properties.view"
+  },
+  "GET /api/admin/properties/{property_id}": {
+    "authentication": "required",
+    "permission": "properties.view"
+  },
+  "GET /api/admin/properties/{property_id}/ai": {
+    "authentication": "required",
+    "permission": "ai.view"
+  },
+  "GET /api/admin/properties/{property_id}/ai/usage": {
+    "authentication": "required",
+    "permission": "ai.view"
+  },
+  "GET /api/admin/properties/{property_id}/antlabs/status": {
+    "authentication": "required",
+    "permission": "integrations.view"
+  },
+  "GET /api/admin/properties/{property_id}/conversations": {
+    "authentication": "required",
+    "permission": "conversations.view"
+  },
+  "GET /api/admin/properties/{property_id}/dashboard": {
+    "authentication": "required",
+    "permission": "dashboard.view"
+  },
+  "GET /api/admin/properties/{property_id}/deployment/status": {
+    "authentication": "required",
+    "permission": "domains.view"
+  },
+  "GET /api/admin/properties/{property_id}/design": {
+    "authentication": "required",
+    "permission": "concierge.view"
+  },
+  "GET /api/admin/properties/{property_id}/floor-maps/{map_id}/asset": {
+    "authentication": "required",
+    "permission": "properties.view"
+  },
+  "GET /api/admin/properties/{property_id}/guardrails": {
+    "authentication": "required",
+    "permission": "security.view"
+  },
+  "GET /api/admin/properties/{property_id}/guardrails/diagnostics": {
+    "authentication": "required",
+    "permission": "security.view"
+  },
+  "GET /api/admin/properties/{property_id}/hospitality": {
+    "authentication": "required",
+    "permission": "restaurant.view"
+  },
+  "GET /api/admin/properties/{property_id}/improvement-loop": {
+    "authentication": "required",
+    "permission": "ai.view"
+  },
+  "GET /api/admin/properties/{property_id}/intro": {
+    "authentication": "required",
+    "permission": "concierge.view"
+  },
+  "GET /api/admin/properties/{property_id}/intro/assets/{filename}": {
+    "authentication": "required",
+    "permission": "concierge.view"
+  },
+  "GET /api/admin/properties/{property_id}/knowledge": {
+    "authentication": "required",
+    "permission": "knowledge.view"
+  },
+  "GET /api/admin/properties/{property_id}/knowledge/conflicts": {
+    "authentication": "required",
+    "permission": "knowledge.view"
+  },
+  "GET /api/admin/properties/{property_id}/knowledge/health": {
+    "authentication": "required",
+    "permission": "knowledge.view"
+  },
+  "GET /api/admin/properties/{property_id}/knowledge/items/{item_id}": {
+    "authentication": "required",
+    "permission": "knowledge.view"
+  },
+  "GET /api/admin/properties/{property_id}/knowledge/managed": {
+    "authentication": "required",
+    "permission": "knowledge.view"
+  },
+  "GET /api/admin/properties/{property_id}/knowledge/sources/{source_id}": {
+    "authentication": "required",
+    "permission": "knowledge.view"
+  },
+  "GET /api/admin/properties/{property_id}/knowledge/sources/{source_id}/download": {
+    "authentication": "required",
+    "permission": "knowledge.view"
+  },
+  "GET /api/admin/properties/{property_id}/knowledge/sources/{source_id}/versions": {
+    "authentication": "required",
+    "permission": "knowledge.view"
+  },
+  "GET /api/admin/properties/{property_id}/location/live": {
+    "authentication": "required",
+    "permission": "analytics.view"
+  },
+  "GET /api/admin/properties/{property_id}/navigation/route": {
+    "authentication": "required",
+    "permission": "properties.view"
+  },
+  "GET /api/admin/properties/{property_id}/operations/alerts": {
+    "authentication": "required",
+    "permission": "dashboard.view"
+  },
+  "GET /api/admin/properties/{property_id}/operations/dashboard": {
+    "authentication": "required",
+    "permission": "dashboard.view"
+  },
+  "GET /api/admin/properties/{property_id}/personalization": {
+    "authentication": "required",
+    "permission": "properties.view"
+  },
+  "GET /api/admin/properties/{property_id}/recommendations": {
+    "authentication": "required",
+    "permission": "properties.view"
+  },
+  "GET /api/admin/properties/{property_id}/reports/export.pdf": {
+    "authentication": "required",
+    "permission": "reports.export"
+  },
+  "GET /api/admin/properties/{property_id}/reports/export.xlsx": {
+    "authentication": "required",
+    "permission": "reports.export"
+  },
+  "GET /api/admin/properties/{property_id}/restaurants": {
+    "authentication": "required",
+    "permission": "restaurant.view"
+  },
+  "GET /api/admin/properties/{property_id}/restaurants/{restaurant_id}": {
+    "authentication": "required",
+    "permission": "restaurant.view"
+  },
+  "GET /api/admin/properties/{property_id}/restaurants/{restaurant_id}/analytics": {
+    "authentication": "required",
+    "permission": "restaurant.analytics.view"
+  },
+  "GET /api/admin/properties/{property_id}/restaurants/{restaurant_id}/menus": {
+    "authentication": "required",
+    "permission": "restaurant.menu.view"
+  },
+  "GET /api/admin/properties/{property_id}/restaurants/{restaurant_id}/promotions": {
+    "authentication": "required",
+    "permission": "restaurant.promotions.view"
+  },
+  "GET /api/admin/properties/{property_id}/restaurants/{restaurant_id}/staff": {
+    "authentication": "required",
+    "permission": "restaurant.view"
+  },
+  "GET /api/admin/properties/{property_id}/service-catalog": {
+    "authentication": "required",
+    "permission": "requests.view"
+  },
+  "GET /api/admin/properties/{property_id}/service-requests/{request_id}/history": {
+    "authentication": "required",
+    "permission": "requests.view"
+  },
+  "GET /api/admin/properties/{property_id}/sessions": {
+    "authentication": "required",
+    "permission": "guest_sessions.view"
+  },
+  "GET /api/admin/properties/{property_id}/webhooks": {
+    "authentication": "required",
+    "permission": "integrations.view"
+  },
+  "GET /api/admin/properties/{property_id}/zones": {
+    "authentication": "required",
+    "permission": "properties.view"
+  },
+  "GET /api/admin/roles": {
+    "authentication": "required",
+    "permission": "roles.view"
+  },
+  "GET /api/admin/system/email": {
+    "authentication": "required",
+    "permission": "system.configure"
+  },
+  "GET /api/admin/users": {
+    "authentication": "required",
+    "permission": "users.view"
+  },
+  "PATCH /api/admin/properties/{property_id}/knowledge/items/{item_id}": {
+    "authentication": "required",
+    "permission": "knowledge.edit"
+  },
+  "POST /api/admin/auth/change-password": {
+    "authentication": "required",
+    "permission": null
+  },
+  "POST /api/admin/auth/login": {
+    "authentication": "public",
+    "permission": null
+  },
+  "POST /api/admin/auth/logout": {
+    "authentication": "required",
+    "permission": null
+  },
+  "POST /api/admin/auth/password-reset/confirm": {
+    "authentication": "public",
+    "permission": null
+  },
+  "POST /api/admin/auth/password-reset/request": {
+    "authentication": "public",
+    "permission": null
+  },
+  "POST /api/admin/properties/{property_id}/access-points": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "POST /api/admin/properties/{property_id}/ai/providers/{provider_id}/credentials": {
+    "authentication": "required",
+    "permission": "ai.configure"
+  },
+  "POST /api/admin/properties/{property_id}/ai/providers/{provider_id}/models/refresh": {
+    "authentication": "required",
+    "permission": "ai.configure"
+  },
+  "POST /api/admin/properties/{property_id}/ai/providers/{provider_id}/test": {
+    "authentication": "required",
+    "permission": "ai.configure"
+  },
+  "POST /api/admin/properties/{property_id}/antlabs/test": {
+    "authentication": "required",
+    "permission": "integrations.view"
+  },
+  "POST /api/admin/properties/{property_id}/assistant/hotel-chat": {
+    "authentication": "required",
+    "permission": "assistant.use"
+  },
+  "POST /api/admin/properties/{property_id}/assistant/query": {
+    "authentication": "required",
+    "permission": "assistant.use"
+  },
+  "POST /api/admin/properties/{property_id}/buildings": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "POST /api/admin/properties/{property_id}/conversations/{session_id}/accept": {
+    "authentication": "required",
+    "permission": "conversations.takeover"
+  },
+  "POST /api/admin/properties/{property_id}/conversations/{session_id}/assign": {
+    "authentication": "required",
+    "permission": "conversations.assign"
+  },
+  "POST /api/admin/properties/{property_id}/conversations/{session_id}/messages": {
+    "authentication": "required",
+    "permission": "conversations.reply"
+  },
+  "POST /api/admin/properties/{property_id}/conversations/{session_id}/resolve": {
+    "authentication": "required",
+    "permission": "conversations.resolve"
+  },
+  "POST /api/admin/properties/{property_id}/conversations/{session_id}/return-to-ai": {
+    "authentication": "required",
+    "permission": "conversations.return_to_ai"
+  },
+  "POST /api/admin/properties/{property_id}/deployment/verify": {
+    "authentication": "required",
+    "permission": "domains.configure"
+  },
+  "POST /api/admin/properties/{property_id}/design/discard": {
+    "authentication": "required",
+    "permission": "concierge.edit"
+  },
+  "POST /api/admin/properties/{property_id}/design/publish": {
+    "authentication": "required",
+    "permission": "concierge.edit"
+  },
+  "POST /api/admin/properties/{property_id}/design/restore": {
+    "authentication": "required",
+    "permission": "concierge.edit"
+  },
+  "POST /api/admin/properties/{property_id}/events": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "POST /api/admin/properties/{property_id}/facilities": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "POST /api/admin/properties/{property_id}/feedback": {
+    "authentication": "required",
+    "permission": "requests.manage"
+  },
+  "POST /api/admin/properties/{property_id}/floors": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "POST /api/admin/properties/{property_id}/floors/{floor_id}/maps": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "POST /api/admin/properties/{property_id}/improvement-loop/decision": {
+    "authentication": "required",
+    "permission": "ai.configure"
+  },
+  "POST /api/admin/properties/{property_id}/improvement-loop/pause": {
+    "authentication": "required",
+    "permission": "ai.configure"
+  },
+  "POST /api/admin/properties/{property_id}/improvement-loop/resume": {
+    "authentication": "required",
+    "permission": "ai.configure"
+  },
+  "POST /api/admin/properties/{property_id}/improvement-loop/run-next": {
+    "authentication": "required",
+    "permission": "ai.configure"
+  },
+  "POST /api/admin/properties/{property_id}/improvement-loop/satisfied": {
+    "authentication": "required",
+    "permission": "ai.configure"
+  },
+  "POST /api/admin/properties/{property_id}/improvement-loop/start": {
+    "authentication": "required",
+    "permission": "ai.configure"
+  },
+  "POST /api/admin/properties/{property_id}/improvement-loop/stop": {
+    "authentication": "required",
+    "permission": "ai.configure"
+  },
+  "POST /api/admin/properties/{property_id}/intro/upload": {
+    "authentication": "required",
+    "permission": "concierge.edit"
+  },
+  "POST /api/admin/properties/{property_id}/journey-events": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "POST /api/admin/properties/{property_id}/knowledge/conflicts/{conflict_id}/resolve": {
+    "authentication": "required",
+    "permission": "knowledge.publish"
+  },
+  "POST /api/admin/properties/{property_id}/knowledge/documents": {
+    "authentication": "required",
+    "permission": "knowledge.edit"
+  },
+  "POST /api/admin/properties/{property_id}/knowledge/items": {
+    "authentication": "required",
+    "permission": "knowledge.edit"
+  },
+  "POST /api/admin/properties/{property_id}/knowledge/items/{item_id}/approve": {
+    "authentication": "required",
+    "permission": "knowledge.publish"
+  },
+  "POST /api/admin/properties/{property_id}/knowledge/items/{item_id}/archive": {
+    "authentication": "required",
+    "permission": "knowledge.edit"
+  },
+  "POST /api/admin/properties/{property_id}/knowledge/items/{item_id}/publish": {
+    "authentication": "required",
+    "permission": "knowledge.publish"
+  },
+  "POST /api/admin/properties/{property_id}/knowledge/items/{item_id}/unpublish": {
+    "authentication": "required",
+    "permission": "knowledge.publish"
+  },
+  "POST /api/admin/properties/{property_id}/knowledge/sources": {
+    "authentication": "required",
+    "permission": "knowledge.edit"
+  },
+  "POST /api/admin/properties/{property_id}/knowledge/sources/{source_id}/replace": {
+    "authentication": "required",
+    "permission": "knowledge.edit"
+  },
+  "POST /api/admin/properties/{property_id}/knowledge/sources/{source_id}/retry": {
+    "authentication": "required",
+    "permission": "knowledge.edit"
+  },
+  "POST /api/admin/properties/{property_id}/knowledge/sources/{source_id}/supersede": {
+    "authentication": "required",
+    "permission": "knowledge.publish"
+  },
+  "POST /api/admin/properties/{property_id}/location/observations": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "POST /api/admin/properties/{property_id}/location/report": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "POST /api/admin/properties/{property_id}/menus/{menu_id}/approve": {
+    "authentication": "required",
+    "permission": "restaurant.menu.approve"
+  },
+  "POST /api/admin/properties/{property_id}/menus/{menu_id}/items": {
+    "authentication": "required",
+    "permission": "restaurant.menu.edit"
+  },
+  "POST /api/admin/properties/{property_id}/menus/{menu_id}/publish": {
+    "authentication": "required",
+    "permission": "restaurant.menu.approve"
+  },
+  "POST /api/admin/properties/{property_id}/navigation/edges": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "POST /api/admin/properties/{property_id}/navigation/nodes": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "POST /api/admin/properties/{property_id}/notifications/rules": {
+    "authentication": "required",
+    "permission": "requests.manage"
+  },
+  "POST /api/admin/properties/{property_id}/notifications/rules/{rule_id}/evaluate": {
+    "authentication": "required",
+    "permission": "requests.manage"
+  },
+  "POST /api/admin/properties/{property_id}/promotions/{promotion_id}/approve": {
+    "authentication": "required",
+    "permission": "restaurant.promotions.approve"
+  },
+  "POST /api/admin/properties/{property_id}/promotions/{promotion_id}/publish": {
+    "authentication": "required",
+    "permission": "restaurant.promotions.approve"
+  },
+  "POST /api/admin/properties/{property_id}/restaurants": {
+    "authentication": "required",
+    "permission": "restaurant.manage"
+  },
+  "POST /api/admin/properties/{property_id}/restaurants/{restaurant_id}/menus": {
+    "authentication": "required",
+    "permission": "restaurant.menu.edit"
+  },
+  "POST /api/admin/properties/{property_id}/restaurants/{restaurant_id}/promotions": {
+    "authentication": "required",
+    "permission": "restaurant.promotions.edit"
+  },
+  "POST /api/admin/properties/{property_id}/service-catalog/{service_id}/duplicate": {
+    "authentication": "required",
+    "permission": "requests.manage"
+  },
+  "POST /api/admin/properties/{property_id}/service-requests": {
+    "authentication": "required",
+    "permission": "requests.manage"
+  },
+  "POST /api/admin/properties/{property_id}/sessions/reconnect": {
+    "authentication": "required",
+    "permission": "guest_sessions.manage"
+  },
+  "POST /api/admin/properties/{property_id}/stays/{stay_id}/checkout": {
+    "authentication": "required",
+    "permission": "guest_sessions.manage"
+  },
+  "POST /api/admin/properties/{property_id}/webhooks/{webhook_id}/test": {
+    "authentication": "required",
+    "permission": "integrations.configure"
+  },
+  "POST /api/admin/roles": {
+    "authentication": "required",
+    "permission": "roles.manage"
+  },
+  "POST /api/admin/system/email/test": {
+    "authentication": "required",
+    "permission": "system.configure"
+  },
+  "POST /api/admin/users": {
+    "authentication": "required",
+    "permission": "users.create"
+  },
+  "POST /api/admin/users/{user_id}/reset-password": {
+    "authentication": "required",
+    "permission": "users.edit"
+  },
+  "POST /api/admin/users/{user_id}/revoke-sessions": {
+    "authentication": "required",
+    "permission": "security.configure"
+  },
+  "PUT /api/admin/properties/{property_id}": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "PUT /api/admin/properties/{property_id}/ai/providers/{provider_id}": {
+    "authentication": "required",
+    "permission": "ai.configure"
+  },
+  "PUT /api/admin/properties/{property_id}/ai/settings": {
+    "authentication": "required",
+    "permission": "ai.configure"
+  },
+  "PUT /api/admin/properties/{property_id}/conversations/retention": {
+    "authentication": "required",
+    "permission": "conversations.reply"
+  },
+  "PUT /api/admin/properties/{property_id}/conversations/{session_id}": {
+    "authentication": "required",
+    "permission": "conversations.reply"
+  },
+  "PUT /api/admin/properties/{property_id}/departments": {
+    "authentication": "required",
+    "permission": "requests.manage"
+  },
+  "PUT /api/admin/properties/{property_id}/design/draft": {
+    "authentication": "required",
+    "permission": "concierge.edit"
+  },
+  "PUT /api/admin/properties/{property_id}/guardrails": {
+    "authentication": "required",
+    "permission": "security.configure"
+  },
+  "PUT /api/admin/properties/{property_id}/hospitality/facilities": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "PUT /api/admin/properties/{property_id}/improvement-loop": {
+    "authentication": "required",
+    "permission": "ai.configure"
+  },
+  "PUT /api/admin/properties/{property_id}/intro": {
+    "authentication": "required",
+    "permission": "concierge.edit"
+  },
+  "PUT /api/admin/properties/{property_id}/knowledge": {
+    "authentication": "required",
+    "permission": "knowledge.edit"
+  },
+  "PUT /api/admin/properties/{property_id}/menu-items/{item_id}": {
+    "authentication": "required",
+    "permission": "restaurant.menu.edit"
+  },
+  "PUT /api/admin/properties/{property_id}/menus/{menu_id}": {
+    "authentication": "required",
+    "permission": "restaurant.menu.edit"
+  },
+  "PUT /api/admin/properties/{property_id}/personalization": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "PUT /api/admin/properties/{property_id}/promotions/{promotion_id}": {
+    "authentication": "required",
+    "permission": "restaurant.promotions.edit"
+  },
+  "PUT /api/admin/properties/{property_id}/recommendations": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "PUT /api/admin/properties/{property_id}/restaurants/{restaurant_id}": {
+    "authentication": "required",
+    "permission": "restaurant.manage"
+  },
+  "PUT /api/admin/properties/{property_id}/restaurants/{restaurant_id}/hours": {
+    "authentication": "required",
+    "permission": "restaurant.hours.edit"
+  },
+  "PUT /api/admin/properties/{property_id}/service-catalog": {
+    "authentication": "required",
+    "permission": "requests.manage"
+  },
+  "PUT /api/admin/properties/{property_id}/service-requests/{request_id}": {
+    "authentication": "required",
+    "permission": "requests.manage"
+  },
+  "PUT /api/admin/properties/{property_id}/service-requests/{request_id}/status": {
+    "authentication": "required",
+    "permission": "requests.manage"
+  },
+  "PUT /api/admin/properties/{property_id}/stays/{stay_id}/memory": {
+    "authentication": "required",
+    "permission": "guest_sessions.manage"
+  },
+  "PUT /api/admin/properties/{property_id}/webhooks": {
+    "authentication": "required",
+    "permission": "integrations.configure"
+  },
+  "PUT /api/admin/properties/{property_id}/zones": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "PUT /api/admin/roles/{role_id}": {
+    "authentication": "required",
+    "permission": "roles.manage"
+  },
+  "PUT /api/admin/system/email": {
+    "authentication": "required",
+    "permission": "system.configure"
+  },
+  "PUT /api/admin/users/{user_id}": {
+    "authentication": "required",
+    "permission": "users.edit"
+  }
+}

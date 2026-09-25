@@ -66,9 +66,9 @@ def test_restaurant_manager_and_staff_are_limited_to_assigned_restaurants(tmp_pa
         assert [item["restaurant_id"] for item in overview["restaurants"]] == [grill["restaurant_id"]]
         assert {item["session_id"] for item in manager_client.get("/api/admin/properties/hotel-a/conversations").json()["conversations"]} == {assigned_session.session_id}
 
-        assert manager_client.get(f"/api/admin/properties/hotel-a/restaurants/{cafe['restaurant_id']}/menus").status_code == 404
-        assert manager_client.get(f"/api/admin/properties/hotel-a/restaurants/{cafe['restaurant_id']}/promotions").status_code == 404
-        assert manager_client.post(f"/api/admin/properties/hotel-a/conversations/{hidden_session.session_id}/accept").status_code == 404
+        assert manager_client.get(f"/api/admin/properties/hotel-a/restaurants/{cafe['restaurant_id']}/menus").status_code == 403
+        assert manager_client.get(f"/api/admin/properties/hotel-a/restaurants/{cafe['restaurant_id']}/promotions").status_code == 403
+        assert manager_client.post(f"/api/admin/properties/hotel-a/conversations/{hidden_session.session_id}/accept").status_code == 403
         assert manager_client.get("/api/admin/properties/hotel-a/sessions").status_code == 403
         assert manager_client.get("/api/admin/properties/hotel-a/operations/dashboard").status_code == 403
         safe_property = manager_client.get("/api/admin/properties/hotel-a").json()

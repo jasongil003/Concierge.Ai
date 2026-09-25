@@ -344,9 +344,41 @@ class HospitalityStore:
             )
 
     def _ensure_column(self, db: sqlite3.Connection, table: str, name: str, definition: str) -> None:
-        columns = {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}
+        allowed_definitions = {
+            "service_requests": {
+                "service_id": "TEXT",
+                "assigned_to": "TEXT",
+                "notes": "TEXT NOT NULL DEFAULT '[]'",
+                "client_request_id": "TEXT",
+            },
+            "restaurants": {
+                "cuisine": "TEXT NOT NULL DEFAULT ''",
+                "dress_code": "TEXT NOT NULL DEFAULT ''",
+                "capacity": "INTEGER",
+                "phone_extension": "TEXT NOT NULL DEFAULT ''",
+                "external_reservation_url": "TEXT NOT NULL DEFAULT ''",
+                "contact_details": "TEXT NOT NULL DEFAULT '{}'",
+                "images": "TEXT NOT NULL DEFAULT '[]'",
+                "internal_notes": "TEXT NOT NULL DEFAULT ''",
+                "guest_notes": "TEXT NOT NULL DEFAULT ''",
+                "archived": "INTEGER NOT NULL DEFAULT 0",
+            },
+            "menus": {
+                "workflow_status": "TEXT NOT NULL DEFAULT 'published'",
+                "created_by": "TEXT",
+                "updated_by": "TEXT",
+                "approved_by": "TEXT",
+                "published_by": "TEXT",
+                "approved_at": "INTEGER",
+                "published_at": "INTEGER",
+            },
+        }
+        if allowed_definitions.get(table, {}).get(name) != definition:
+            raise ValueError("Unsupported schema column migration.")
+        # Identifiers and DDL are selected from the fixed migration map above.
+        columns = {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}  # nosec B608
         if name not in columns:
-            db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+            db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")  # nosec B608
 
     def upsert_department(self, property_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         now = _now()
@@ -809,7 +841,7 @@ class HospitalityStore:
         clause = "AND workflow_status='published' AND active=1" if guest else ""
         with self._connect() as db:
             menus = db.execute(
-                f"SELECT * FROM menus WHERE property_id=? AND restaurant_id=? {clause} ORDER BY meal_period,name",
+                f"SELECT * FROM menus WHERE property_id=? AND restaurant_id=? {clause} ORDER BY meal_period,name",  # nosec B608
                 (property_id, restaurant_id),
             ).fetchall()
             result = []
@@ -1284,8 +1316,11 @@ class HospitalityStore:
                 notes.append({"text": note, "created_at": now})
                 updates["notes"] = _json(notes[-100:])
             if updates:
+                allowed_columns = {"priority", "department", "assigned_to", "notes"}
+                if not set(updates) <= allowed_columns:
+                    raise ValueError("Unsupported service request update field.")
                 clause = ",".join(f"{key}=?" for key in updates)
-                db.execute(f"UPDATE service_requests SET {clause},updated_at=? WHERE property_id=? AND request_id=?", (*updates.values(), now, property_id, request_id))
+                db.execute(f"UPDATE service_requests SET {clause},updated_at=? WHERE property_id=? AND request_id=?", (*updates.values(), now, property_id, request_id))  # nosec B608
                 self._record_request_history(db, property_id, request_id, "updated", {key: value for key, value in updates.items() if key != "notes"} | ({"note": note} if note else {}), now)
             row = db.execute("SELECT * FROM service_requests WHERE property_id=? AND request_id=?", (property_id, request_id)).fetchone()
         return self._service_dict(row)
@@ -1494,7 +1529,7 @@ class HospitalityStore:
         marks = ",".join("?" for _ in ids)
         with self._connect() as db:
             rows = db.execute(
-                f"SELECT * FROM service_requests WHERE property_id=? AND stay_id IN ({marks}) ORDER BY created_at DESC LIMIT 20",
+                f"SELECT * FROM service_requests WHERE property_id=? AND stay_id IN ({marks}) ORDER BY created_at DESC LIMIT 20",  # nosec B608
                 (property_id, *ids),
             ).fetchall()
         return [self._service_dict(row) for row in rows]
@@ -1516,8 +1551,16 @@ class HospitalityStore:
         return True, "eligible"
 
     def _require_owned(self, table: str, key: str, value: str, property_id: str) -> None:
+        allowed_keys = {
+            "departments": {"department_id"},
+            "facility_profiles": {"facility_id"},
+            "restaurants": {"restaurant_id"},
+            "menus": {"menu_id"},
+        }
+        if key not in allowed_keys.get(table, set()):
+            raise ValueError("Unsupported ownership lookup.")
         with self._connect() as db:
-            row = db.execute(f"SELECT 1 FROM {table} WHERE property_id=? AND {key}=?", (property_id, value)).fetchone()
+            row = db.execute(f"SELECT 1 FROM {table} WHERE property_id=? AND {key}=?", (property_id, value)).fetchone()  # nosec B608
         if row is None:
             raise KeyError(f"{table} record not found.")
 

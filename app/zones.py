@@ -351,10 +351,10 @@ class ZoneStore:
             buildings = [dict(row) for row in db.execute("SELECT * FROM buildings WHERE property_id=? ORDER BY name", (property_id,))]
             floors = [dict(row) for row in db.execute("SELECT * FROM floors WHERE property_id=? ORDER BY building_id, level", (property_id,))]
             maps = [self._map_row(row) for row in db.execute("SELECT * FROM floor_maps WHERE property_id=? ORDER BY created_at DESC", (property_id,))]
-            zones = [self._public(row) for row in db.execute(f"SELECT * FROM zones WHERE property_id=?{suffix} ORDER BY name", (property_id,))]
-            facilities = [self._public(row) for row in db.execute(f"SELECT * FROM facilities WHERE property_id=?{suffix} ORDER BY name", (property_id,))]
-            nodes = [self._public(row) for row in db.execute(f"SELECT * FROM navigation_nodes WHERE property_id=?{suffix} ORDER BY label", (property_id,))]
-            edges = [self._public(row) for row in db.execute(f"SELECT * FROM navigation_edges WHERE property_id=?{suffix}", (property_id,))]
+            zones = [self._public(row) for row in db.execute(f"SELECT * FROM zones WHERE property_id=?{suffix} ORDER BY name", (property_id,))]  # nosec B608
+            facilities = [self._public(row) for row in db.execute(f"SELECT * FROM facilities WHERE property_id=?{suffix} ORDER BY name", (property_id,))]  # nosec B608
+            nodes = [self._public(row) for row in db.execute(f"SELECT * FROM navigation_nodes WHERE property_id=?{suffix} ORDER BY label", (property_id,))]  # nosec B608
+            edges = [self._public(row) for row in db.execute(f"SELECT * FROM navigation_edges WHERE property_id=?{suffix}", (property_id,))]  # nosec B608
             aps = [] if guest else [dict(row) for row in db.execute("SELECT * FROM access_points WHERE property_id=? ORDER BY name", (property_id,))]
         return {"buildings": buildings, "floors": floors, "maps": maps, "zones": zones, "facilities": facilities, "access_points": aps, "navigation_nodes": nodes, "navigation_edges": edges}
 
@@ -363,10 +363,10 @@ class ZoneStore:
         labels: dict[str, str] = {}
         visibility = " AND guest_visible=1" if guest else ""
         with self._connect() as db:
-            for row in db.execute(f"SELECT node_id,label FROM navigation_nodes WHERE property_id=?{visibility}", (property_id,)):
+            for row in db.execute(f"SELECT node_id,label FROM navigation_nodes WHERE property_id=?{visibility}", (property_id,)):  # nosec B608
                 labels[row["node_id"]] = row["label"]
                 graph[row["node_id"]] = []
-            for row in db.execute(f"SELECT * FROM navigation_edges WHERE property_id=?{visibility}", (property_id,)):
+            for row in db.execute(f"SELECT * FROM navigation_edges WHERE property_id=?{visibility}", (property_id,)):  # nosec B608
                 if row["from_node_id"] in graph and row["to_node_id"] in graph:
                     graph[row["from_node_id"]].append((row["to_node_id"], float(row["distance"])))
                     if row["bidirectional"]:
@@ -415,8 +415,16 @@ class ZoneStore:
         return self._public(row) if row else None
 
     def _require_owned(self, table: str, key: str, value: str, property_id: str) -> None:
+        allowed_keys = {
+            "buildings": {"building_id"},
+            "floors": {"floor_id"},
+            "zones": {"zone_id"},
+            "navigation_nodes": {"node_id"},
+        }
+        if key not in allowed_keys.get(table, set()):
+            raise ValueError("Unsupported ownership lookup.")
         with self._connect() as db:
-            row = db.execute(f"SELECT 1 FROM {table} WHERE {key}=? AND property_id=?", (value, property_id)).fetchone()
+            row = db.execute(f"SELECT 1 FROM {table} WHERE {key}=? AND property_id=?", (value, property_id)).fetchone()  # nosec B608
         if row is None:
             raise KeyError(f"{table[:-1].replace('_', ' ').title()} not found.")
 
