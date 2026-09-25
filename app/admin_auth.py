@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .database import connect_database
+
 
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 SESSION_COOKIE = "concierge_admin_session"
@@ -272,8 +274,7 @@ class AdminAuthStore:
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
+        connection = connect_database(self.path)
         connection.execute("PRAGMA foreign_keys = ON")
         return connection
 

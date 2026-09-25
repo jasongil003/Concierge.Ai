@@ -14,6 +14,14 @@ from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import urlsplit, urlunsplit
 
+from redis.asyncio import Redis
+from redis.backoff import NoBackoff
+from redis.exceptions import RedisError
+from redis.retry import Retry
+
+from .database import connect_database
+from . import metrics
+
 
 DEFAULT_GUARDRAILS: dict[str, Any] = {
     "guest_network_only": True,
@@ -423,6 +431,70 @@ class SQLiteRateLimiter:
             return True
 
 
+class RateLimitUnavailable(RuntimeError):
+    """Raised when the distributed limiter cannot make a safe decision."""
+
+
+class RedisRateLimiter:
+    """Atomic fixed-window limiter shared by every API replica.
+
+    A missing/failed Redis service is fail-closed: sensitive guest/admin actions
+    return 503 instead of quietly switching to a replica-local limit.
+    """
+
+    _INCREMENT_SCRIPT = """
+    local count = redis.call('INCR', KEYS[1])
+    if count == 1 then
+      redis.call('PEXPIRE', KEYS[1], ARGV[1])
+    end
+    return count
+    """
+
+    def __init__(self, url: str, client: Redis | None = None) -> None:
+        if not url and client is None:
+            raise ValueError("Redis URL is required for the distributed rate limiter.")
+        self.client = client or Redis.from_url(
+            url,
+            decode_responses=False,
+            socket_connect_timeout=0.5,
+            socket_timeout=0.5,
+            health_check_interval=30,
+            retry=Retry(NoBackoff(), retries=0),
+        )
+
+    @staticmethod
+    def _redis_key(key: str) -> str:
+        digest = hashlib.sha256(key.encode("utf-8", errors="replace")).hexdigest()
+        return f"concierge:rate:{digest}"
+
+    async def allow(self, key: str, limit: int, seconds: int = 60) -> bool:
+        scope = key.split(":", 1)[0][:60] or "unknown"
+        try:
+            count = int(await self.client.eval(
+                self._INCREMENT_SCRIPT,
+                1,
+                self._redis_key(key),
+                max(1000, min(int(seconds), 86400 * 30) * 1000),
+            ))
+        except (RedisError, OSError, TimeoutError) as exc:
+            metrics.REDIS_ERRORS.inc()
+            metrics.RATE_LIMIT_EVENTS.labels(scope, "error").inc()
+            raise RateLimitUnavailable("Distributed request protection is temporarily unavailable.") from exc
+        allowed = count <= max(1, int(limit))
+        metrics.RATE_LIMIT_EVENTS.labels(scope, "allowed" if allowed else "blocked").inc()
+        return allowed
+
+    async def ping(self) -> bool:
+        try:
+            return bool(await self.client.ping())
+        except (RedisError, OSError, TimeoutError) as exc:
+            metrics.REDIS_ERRORS.inc()
+            raise RateLimitUnavailable("Redis readiness check failed.") from exc
+
+    async def close(self) -> None:
+        await self.client.aclose()
+
+
 class SecurityAuditLogger:
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -443,9 +515,7 @@ class SecurityAuditLogger:
             """)
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        return connection
+        return connect_database(self.path)
 
     def record(self, request_id: str, property_id: str | None, action: str, result: str, source_ip: str = "", resource: str = "guardrail", actor: str = "guest", metadata: dict[str, Any] | None = None) -> None:
         clean = {

@@ -1,5 +1,6 @@
 import os
-from dataclasses import dataclass
+import json
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -7,6 +8,24 @@ from dotenv import load_dotenv
 load_dotenv()
 
 SUPPORTED_ANTLABS_MODES = frozenset({"mock", "browser_handoff"})
+
+
+def _provider_concurrency() -> dict[str, int]:
+    try:
+        parsed = json.loads(os.getenv("AI_PROVIDER_CONCURRENCY_LIMITS", "{}"))
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    result: dict[str, int] = {}
+    for provider, value in parsed.items():
+        if provider not in {"gemini", "groq", "openai", "openrouter", "claude", "local"}:
+            continue
+        try:
+            result[provider] = max(1, min(int(value), 256))
+        except (TypeError, ValueError):
+            continue
+    return result
 
 
 def validate_antlabs_mode(mode: str) -> str:
@@ -34,6 +53,16 @@ class Settings:
     property_id: str = os.getenv("PROPERTY_ID", "demo-hotel")
     hotel_config_path: Path = Path(os.getenv("HOTEL_CONFIG_PATH", "data/hotel.json"))
     db_path: Path = Path(os.getenv("DB_PATH", "state/concierge.db"))
+    database_url: str = os.getenv("DATABASE_URL", "").strip()
+    redis_url: str = os.getenv("REDIS_URL", "").strip()
+    metrics_token: str = os.getenv("METRICS_TOKEN", "").strip()
+    background_workers_enabled: bool = _bool("ENABLE_BACKGROUND_WORKERS", True)
+    db_pool_size: int = max(1, int(os.getenv("DB_POOL_SIZE", "8")))
+    db_max_overflow: int = max(0, int(os.getenv("DB_MAX_OVERFLOW", "4")))
+    db_pool_timeout_seconds: float = max(0.1, float(os.getenv("DB_POOL_TIMEOUT_SECONDS", "5")))
+    db_pool_recycle_seconds: int = max(60, int(os.getenv("DB_POOL_RECYCLE_SECONDS", "1800")))
+    db_statement_timeout_ms: int = max(100, int(os.getenv("DB_STATEMENT_TIMEOUT_MS", "5000")))
+    db_connect_timeout_seconds: int = max(1, int(os.getenv("DB_CONNECT_TIMEOUT_SECONDS", "5")))
     upload_root: Path = Path(os.getenv("UPLOAD_ROOT", "")) if os.getenv("UPLOAD_ROOT") else Path("")  # resolved below
     knowledge_max_file_bytes: int = int(os.getenv("KNOWLEDGE_MAX_FILE_BYTES", str(25 * 1024 * 1024)))
     knowledge_max_files_per_upload: int = int(os.getenv("KNOWLEDGE_MAX_FILES_PER_UPLOAD", "5"))
@@ -61,6 +90,14 @@ class Settings:
     ollama_model: str = os.getenv("OLLAMA_MODEL", "qwen3:8b")
     ollama_timeout_seconds: int = int(os.getenv("OLLAMA_TIMEOUT_SECONDS", "45"))
     ollama_think: bool = _bool("OLLAMA_THINK", False)
+    ai_provider_concurrency_limit: int = max(1, int(os.getenv("AI_PROVIDER_CONCURRENCY_LIMIT", "8")))
+    ai_provider_concurrency_limits: dict[str, int] = field(default_factory=_provider_concurrency)
+    ai_provider_queue_wait_seconds: float = max(0.05, float(os.getenv("AI_PROVIDER_QUEUE_WAIT_SECONDS", "1.5")))
+    ai_provider_queue_capacity: int = max(0, min(1024, int(os.getenv("AI_PROVIDER_QUEUE_CAPACITY", "32"))))
+    ai_provider_retry_attempts: int = max(0, min(3, int(os.getenv("AI_PROVIDER_RETRY_ATTEMPTS", "1"))))
+    ai_provider_retry_base_seconds: float = max(0.01, float(os.getenv("AI_PROVIDER_RETRY_BASE_SECONDS", "0.25")))
+    ai_provider_circuit_failures: int = max(1, int(os.getenv("AI_PROVIDER_CIRCUIT_FAILURES", "4")))
+    ai_provider_circuit_cooldown_seconds: float = max(1.0, float(os.getenv("AI_PROVIDER_CIRCUIT_COOLDOWN_SECONDS", "20")))
 
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "").strip()
     gemini_fast_model: str = os.getenv("GEMINI_FAST_MODEL", "gemini-3.5-flash-lite").strip()
@@ -127,7 +164,17 @@ def validate_production_settings(value: Settings, *, check_filesystem: bool = Tr
         errors.append("ALLOW_BODY_PROPERTY_SELECTION must be disabled")
     if not value.allow_demo_settings and (value.property_id == "demo-hotel" or value.antlabs_mode == "mock"):
         errors.append("demo property and mock guest authentication settings are not allowed")
-    if check_filesystem:
+    if not value.database_url:
+        errors.append("DATABASE_URL must point to PostgreSQL for production deployments")
+    elif not value.database_url.lower().startswith(("postgresql://", "postgresql+psycopg://", "postgres://")):
+        errors.append("DATABASE_URL must use PostgreSQL; SQLite is not supported for the production profile")
+    if not value.redis_url:
+        errors.append("REDIS_URL must be configured for distributed rate limiting")
+    elif not value.redis_url.lower().startswith(("redis://", "rediss://")):
+        errors.append("REDIS_URL must use redis:// or rediss://")
+    if len(value.metrics_token) < 32:
+        errors.append("METRICS_TOKEN must contain at least 32 characters")
+    if not value.database_url and check_filesystem:
         parent = value.db_path.expanduser().resolve().parent
         if not parent.is_dir() or not os.access(parent, os.W_OK):
             errors.append("DB_PATH parent directory must exist and be writable")

@@ -1,24 +1,156 @@
 services:
-  concierge:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-concierge}
+      POSTGRES_USER: ${POSTGRES_USER:-concierge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the environment}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks:
+      - backend
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?Set REDIS_PASSWORD in the environment}"]
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in the environment}
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks:
+      - backend
+
+  migrate:
     build: .
-    container_name: concierge-ai
-    ports:
-      - "8080:8080"
+    restart: "no"
     env_file:
       - .env
     environment:
       APP_ENVIRONMENT: production
+      DB_PATH: /state/concierge.db
+      UPLOAD_ROOT: /state/uploads
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in the environment}
+      REDIS_URL: ${REDIS_URL:?Set REDIS_URL in the environment}
+      METRICS_TOKEN: ${METRICS_TOKEN:?Set METRICS_TOKEN in the environment}
       ADMIN_COOKIE_SECURE: "true"
       ALLOW_BODY_PROPERTY_SELECTION: "false"
       APP_DEBUG: "false"
-      DB_PATH: /state/concierge.db
-      UPLOAD_ROOT: /state/uploads
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+    command: ["alembic", "upgrade", "head"]
     volumes:
       - concierge-state:/state
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - backend
+
+  api:
+    build: .
     restart: unless-stopped
+    init: true
+    stop_grace_period: 45s
+    env_file:
+      - .env
+    environment:
+      APP_ENVIRONMENT: production
+      DB_PATH: /state/concierge.db
+      UPLOAD_ROOT: /state/uploads
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in the environment}
+      REDIS_URL: ${REDIS_URL:?Set REDIS_URL in the environment}
+      METRICS_TOKEN: ${METRICS_TOKEN:?Set METRICS_TOKEN in the environment}
+      ADMIN_COOKIE_SECURE: "true"
+      ALLOW_BODY_PROPERTY_SELECTION: "false"
+      APP_DEBUG: "false"
+      ENABLE_BACKGROUND_WORKERS: "false"
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1", "--proxy-headers", "--forwarded-allow-ips=172.29.0.2"]
+    expose:
+      - "8080"
+    volumes:
+      - concierge-state:/state
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - frontend
+      - backend
+
+  worker:
+    build: .
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 45s
+    env_file:
+      - .env
+    environment:
+      APP_ENVIRONMENT: production
+      DB_PATH: /state/concierge.db
+      UPLOAD_ROOT: /state/uploads
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in the environment}
+      REDIS_URL: ${REDIS_URL:?Set REDIS_URL in the environment}
+      METRICS_TOKEN: ${METRICS_TOKEN:?Set METRICS_TOKEN in the environment}
+      ADMIN_COOKIE_SECURE: "true"
+      ALLOW_BODY_PROPERTY_SELECTION: "false"
+      APP_DEBUG: "false"
+      ENABLE_BACKGROUND_WORKERS: "true"
+      DB_POOL_SIZE: "2"
+      DB_MAX_OVERFLOW: "2"
+    command: ["python", "-m", "app.worker"]
+    healthcheck:
+      disable: true
+    volumes:
+      - concierge-state:/state
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - backend
+
+  proxy:
+    image: nginx:1.29-alpine
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api
+    networks:
+      frontend:
+        ipv4_address: 172.29.0.2
 
 volumes:
   concierge-state:
+  postgres-data:
+  redis-data:
+
+networks:
+  frontend:
+    ipam:
+      config:
+        - subnet: 172.29.0.0/24
+  backend:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24

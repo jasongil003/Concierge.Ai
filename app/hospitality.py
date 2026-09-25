@@ -4,6 +4,8 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any
+
+from .database import connect_database
 from urllib.parse import urlsplit
 
 
@@ -39,8 +41,7 @@ class HospitalityStore:
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
+        connection = connect_database(self.path)
         connection.execute("PRAGMA foreign_keys = ON")
         return connection
 

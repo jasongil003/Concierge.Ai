@@ -1,10 +1,13 @@
 import base64
+import asyncio
 import hashlib
 import json
+import random
 import sqlite3
 import time
+import uuid
 from datetime import datetime, timezone
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, AsyncIterator, Protocol
 
@@ -12,8 +15,10 @@ import httpx
 from cryptography.fernet import Fernet
 
 from .config import settings
+from .database import connect_database
 from .guardrails import AIInputSanitizer, AIOutputValidator
 from .llm import build_prompt
+from . import metrics
 
 
 PROVIDER_DEFINITIONS: dict[str, dict[str, Any]] = {
@@ -119,6 +124,29 @@ class AIUsageLimitError(RuntimeError):
     pass
 
 
+class ProviderCircuitOpen(RuntimeError):
+    pass
+
+
+class ProviderBulkheadFull(RuntimeError):
+    pass
+
+
+@dataclass
+class _ProviderCircuit:
+    failures: int = 0
+    opened_until: float = 0.0
+    probe_in_flight: bool = False
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
+
+
+@dataclass
+class _ProviderSlots:
+    semaphore: asyncio.Semaphore
+    waiting: int = 0
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
+
+
 class AIProvider(Protocol):
     provider_id: str
 
@@ -179,9 +207,7 @@ class AIProviderStore:
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        return connection
+        return connect_database(self.path)
 
     def _init_db(self) -> None:
         with self._connect() as db:
@@ -840,8 +866,225 @@ class UnavailableProviderAdapter:
 
 
 class AIModelService:
+    _DISTRIBUTED_ACQUIRE = """
+    local clock = redis.call('TIME')
+    local now = tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000)
+    local expires = now + tonumber(ARGV[1])
+    local maximum = tonumber(ARGV[2])
+    redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now)
+    if redis.call('ZCARD', KEYS[1]) < maximum then
+      redis.call('ZADD', KEYS[1], expires, ARGV[3])
+      redis.call('PEXPIRE', KEYS[1], ARGV[4])
+      return 1
+    end
+    return 0
+    """
+    _DISTRIBUTED_RELEASE = """
+    redis.call('ZREM', KEYS[1], ARGV[1])
+    if redis.call('ZCARD', KEYS[1]) == 0 then redis.call('DEL', KEYS[1]) end
+    return 1
+    """
+
     def __init__(self, store: AIProviderStore) -> None:
         self.store = store
+        self._provider_slots: dict[str, _ProviderSlots] = {}
+        self._provider_circuits: dict[str, _ProviderCircuit] = {}
+        self._distributed_redis = None
+
+    def set_distributed_redis(self, client: Any) -> None:
+        """Share provider concurrency slots across all replicas through Redis."""
+        self._distributed_redis = client
+
+    def _slots_for(self, provider_id: str) -> _ProviderSlots:
+        slots = self._provider_slots.get(provider_id)
+        if slots is None:
+            maximum = settings.ai_provider_concurrency_limits.get(
+                provider_id, settings.ai_provider_concurrency_limit
+            )
+            slots = _ProviderSlots(asyncio.Semaphore(max(1, min(int(maximum), 256))))
+            self._provider_slots[provider_id] = slots
+        return slots
+
+    def _circuit_for(self, provider_id: str) -> _ProviderCircuit:
+        circuit = self._provider_circuits.get(provider_id)
+        if circuit is None:
+            circuit = _ProviderCircuit()
+            self._provider_circuits[provider_id] = circuit
+        return circuit
+
+    async def _acquire_provider_slot(
+        self, provider_id: str, request_timeout_seconds: int
+    ) -> tuple[_ProviderSlots, str | None]:
+        slots = self._slots_for(provider_id)
+        waiting = False
+        async with slots.lock:
+            if slots.semaphore.locked():
+                if slots.waiting >= settings.ai_provider_queue_capacity:
+                    raise ProviderBulkheadFull(f"Provider {provider_id} is at capacity.")
+                slots.waiting += 1
+                metrics.AI_PROVIDER_QUEUE_DEPTH.labels(provider_id).set(slots.waiting)
+                waiting = True
+            else:
+                await slots.semaphore.acquire()
+        if waiting:
+            try:
+                await asyncio.wait_for(
+                    slots.semaphore.acquire(), timeout=settings.ai_provider_queue_wait_seconds
+                )
+            except TimeoutError as exc:
+                raise ProviderBulkheadFull(f"Provider {provider_id} queue is full.") from exc
+            finally:
+                async with slots.lock:
+                    slots.waiting = max(0, slots.waiting - 1)
+                    metrics.AI_PROVIDER_QUEUE_DEPTH.labels(provider_id).set(slots.waiting)
+        token: str | None = None
+        if self._distributed_redis is not None:
+            token = uuid.uuid4().hex
+            redis_key = f"concierge:ai:bulkhead:{provider_id}"
+            lease_ms = max(15_000, min(180_000, int(request_timeout_seconds + 30) * 1000))
+            maximum = settings.ai_provider_concurrency_limits.get(
+                provider_id, settings.ai_provider_concurrency_limit
+            )
+            deadline = time.monotonic() + settings.ai_provider_queue_wait_seconds
+            marked_waiting = False
+            try:
+                while True:
+                    claimed = await self._distributed_redis.eval(
+                        self._DISTRIBUTED_ACQUIRE,
+                        1,
+                        redis_key,
+                        lease_ms,
+                        max(1, min(int(maximum), 256)),
+                        token,
+                        lease_ms * 2,
+                    )
+                    if int(claimed) == 1:
+                        if marked_waiting:
+                            async with slots.lock:
+                                slots.waiting = max(0, slots.waiting - 1)
+                                metrics.AI_PROVIDER_QUEUE_DEPTH.labels(provider_id).set(slots.waiting)
+                        return slots, token
+                    if time.monotonic() >= deadline:
+                        raise ProviderBulkheadFull(f"Provider {provider_id} is at distributed capacity.")
+                    if not marked_waiting:
+                        async with slots.lock:
+                            slots.waiting += 1
+                            metrics.AI_PROVIDER_QUEUE_DEPTH.labels(provider_id).set(slots.waiting)
+                        marked_waiting = True
+                    await asyncio.sleep(min(0.05, max(0.005, deadline - time.monotonic())))
+            except ProviderBulkheadFull:
+                if marked_waiting:
+                    async with slots.lock:
+                        slots.waiting = max(0, slots.waiting - 1)
+                        metrics.AI_PROVIDER_QUEUE_DEPTH.labels(provider_id).set(slots.waiting)
+                slots.semaphore.release()
+                raise
+            except Exception as exc:
+                if marked_waiting:
+                    async with slots.lock:
+                        slots.waiting = max(0, slots.waiting - 1)
+                        metrics.AI_PROVIDER_QUEUE_DEPTH.labels(provider_id).set(slots.waiting)
+                slots.semaphore.release()
+                metrics.REDIS_ERRORS.inc()
+                raise ProviderBulkheadFull("Shared AI provider capacity is temporarily unavailable.") from exc
+        return slots, token
+
+    async def _release_distributed_slot(self, provider_id: str, token: str | None) -> None:
+        if self._distributed_redis is None or token is None:
+            return
+        try:
+            await self._distributed_redis.eval(
+                self._DISTRIBUTED_RELEASE,
+                1,
+                f"concierge:ai:bulkhead:{provider_id}",
+                token,
+            )
+        except Exception:
+            # The bounded lease expires automatically; preserve the provider response.
+            metrics.REDIS_ERRORS.inc()
+
+    async def _circuit_permit(self, provider_id: str) -> bool:
+        circuit = self._circuit_for(provider_id)
+        async with circuit.lock:
+            if not circuit.opened_until:
+                return True
+            if time.monotonic() < circuit.opened_until or circuit.probe_in_flight:
+                return False
+            circuit.probe_in_flight = True
+            return True
+
+    async def _circuit_success(self, provider_id: str) -> None:
+        circuit = self._circuit_for(provider_id)
+        async with circuit.lock:
+            circuit.failures = 0
+            circuit.opened_until = 0.0
+            circuit.probe_in_flight = False
+
+    async def _circuit_failure(self, provider_id: str) -> None:
+        circuit = self._circuit_for(provider_id)
+        async with circuit.lock:
+            circuit.failures += 1
+            circuit.probe_in_flight = False
+            if circuit.failures >= settings.ai_provider_circuit_failures:
+                circuit.opened_until = time.monotonic() + settings.ai_provider_circuit_cooldown_seconds
+
+    async def _release_circuit_probe(self, provider_id: str) -> None:
+        circuit = self._circuit_for(provider_id)
+        async with circuit.lock:
+            circuit.probe_in_flight = False
+
+    @staticmethod
+    def _retryable_provider_error(error: Exception) -> bool:
+        if isinstance(error, (TimeoutError, httpx.TimeoutException, httpx.NetworkError, ConnectionError, OSError)):
+            return True
+        return isinstance(error, httpx.HTTPStatusError) and (
+            error.response.status_code == 429 or error.response.status_code >= 500
+        )
+
+    async def _send_with_resilience(
+        self, provider_id: str, adapter: AIProvider, request: AIChatRequest, credential: dict[str, Any]
+    ) -> AIChatResponse:
+        started = time.perf_counter()
+        if not await self._circuit_permit(provider_id):
+            metrics.AI_PROVIDER_REQUESTS.labels(provider_id, "circuit_open").inc()
+            raise ProviderCircuitOpen(f"Provider {provider_id} circuit is open.")
+        last_error: Exception | None = None
+        try:
+            for attempt in range(settings.ai_provider_retry_attempts + 1):
+                slots, distributed_token = await self._acquire_provider_slot(provider_id, request.timeout_seconds)
+                try:
+                    response = await asyncio.wait_for(
+                        adapter.send_message(request, credential),
+                        timeout=max(1, min(int(request.timeout_seconds), 120)),
+                    )
+                except Exception as exc:
+                    last_error = exc
+                else:
+                    await self._circuit_success(provider_id)
+                    elapsed = max(0.0, time.perf_counter() - started)
+                    metrics.AI_PROVIDER_REQUESTS.labels(provider_id, "success").inc()
+                    metrics.AI_PROVIDER_DURATION.labels(provider_id, "success").observe(elapsed)
+                    return response
+                finally:
+                    slots.semaphore.release()
+                    await self._release_distributed_slot(provider_id, distributed_token)
+                if attempt >= settings.ai_provider_retry_attempts or not self._retryable_provider_error(last_error):
+                    break
+                delay = min(5.0, settings.ai_provider_retry_base_seconds * (2 ** attempt))
+                await asyncio.sleep(delay + random.uniform(0.0, delay))
+            assert last_error is not None
+            await self._circuit_failure(provider_id)
+            elapsed = max(0.0, time.perf_counter() - started)
+            metrics.AI_PROVIDER_REQUESTS.labels(provider_id, "failure").inc()
+            metrics.AI_PROVIDER_DURATION.labels(provider_id, "failure").observe(elapsed)
+            raise last_error
+        except ProviderBulkheadFull:
+            await self._release_circuit_probe(provider_id)
+            metrics.AI_PROVIDER_REQUESTS.labels(provider_id, "saturated").inc()
+            metrics.AI_PROVIDER_DURATION.labels(provider_id, "saturated").observe(
+                max(0.0, time.perf_counter() - started)
+            )
+            raise
 
     def adapter_for(self, provider_id: str, endpoint_url: str = "") -> AIProvider:
         if provider_id == "gemini":
@@ -907,7 +1150,8 @@ class AIModelService:
         if system_prompt_override:
             system = system_prompt_override[:8000]
         failures: list[Exception] = []
-        for index, connection in enumerate(self.resolve_connections(property_id)):
+        connections = self.resolve_connections(property_id)
+        for index, connection in enumerate(connections):
             provider_id = connection["provider_id"]
             model = connection["selected_model"] or PROVIDER_DEFINITIONS[provider_id]["default_model"]
             max_tokens = int(connection["max_output_tokens"])
@@ -920,17 +1164,17 @@ class AIModelService:
                 messages=[AIMessage("system", system), AIMessage("user", prompt)],
                 temperature=float(connection["temperature"]),
                 max_tokens=max_tokens,
-                timeout_seconds=int(connection["timeout_seconds"]),
+                timeout_seconds=max(1, min(int(connection["timeout_seconds"]), 120)),
             )
             adapter = self.adapter_for(provider_id, connection["endpoint_url"])
             credential = self.store.credentials_for(property_id, provider_id)
             started = time.perf_counter()
             try:
-                response = await adapter.send_message(request, credential)
+                response = await self._send_with_resilience(provider_id, adapter, request, credential)
             except Exception as exc:
                 failures.append(exc)
                 self.store.record_usage(property_id, provider_id, model, int((time.perf_counter() - started) * 1000), False, error_type=exc.__class__.__name__)
-                if index + 1 < len(self.resolve_connections(property_id)):
+                if index + 1 < len(connections):
                     self.store.audit(property_id, "provider_fallback", provider_id, {"error_type": exc.__class__.__name__})
                 continue
             self.store.record_usage(
@@ -993,6 +1237,7 @@ class AIModelService:
         temp = float(connection["temperature"]) if temperature is None else float(temperature)
         tokens = int(connection["max_output_tokens"]) if max_tokens is None else int(max_tokens)
         timeout = int(connection["timeout_seconds"]) if timeout_seconds is None else int(timeout_seconds)
+        timeout = max(1, min(timeout, 120))
 
         safe_messages = [AIMessage(message.role, AIInputSanitizer.sanitize_text(message.content)) for message in messages]
         request = AIChatRequest(
@@ -1008,7 +1253,7 @@ class AIModelService:
         credential = self.store.credentials_for(property_id, provider_id)
         started = time.perf_counter()
         try:
-            response = await adapter.send_message(request, credential)
+            response = await self._send_with_resilience(provider_id, adapter, request, credential)
         except Exception as exc:
             self.store.record_usage(
                 property_id,

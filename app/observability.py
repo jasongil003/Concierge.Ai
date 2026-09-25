@@ -10,6 +10,9 @@ import threading
 import time
 from typing import Any, Callable
 
+from .database import connect_database
+from . import metrics
+
 
 PERIODS: dict[str, tuple[int, int]] = {
     "1h": (3600, 300),
@@ -62,9 +65,7 @@ class ObservabilityStore:
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        return connection
+        return connect_database(self.path)
 
     def _init_db(self) -> None:
         with self._connect() as db:
@@ -112,17 +113,26 @@ class ObservabilityStore:
     def request_started(self) -> int:
         with self._request_lock:
             self._active_requests += 1
-            return self._active_requests
+            current = self._active_requests
+        metrics.request_started()
+        return current
 
     def request_finished(self) -> int:
         with self._request_lock:
             self._active_requests = max(0, self._active_requests - 1)
-            return self._active_requests
+            current = self._active_requests
+        metrics.request_finished()
+        return current
 
     @property
     def queue_depth(self) -> int:
         with self._request_lock:
             return max(0, self._active_requests - 1)
+
+    @property
+    def active_requests(self) -> int:
+        with self._request_lock:
+            return self._active_requests
 
     def record(self, property_id: str | None, metric: str, value: float | int | None, unit: str = "", availability: str = "available", source: str = "application", recorded_at: int | None = None) -> None:
         with self._connect() as db:
@@ -131,12 +141,19 @@ class ObservabilityStore:
                 (property_id, metric, None if value is None else float(value), unit, availability, source, recorded_at or int(time.time())),
             )
 
-    def record_request(self, property_id: str | None, latency_ms: float, status_code: int, queue_depth: int) -> None:
-        now = int(time.time())
-        self.record(property_id, "api_latency_ms", latency_ms, "ms", recorded_at=now)
-        self.record(property_id, "http_requests", 1, "request", recorded_at=now)
-        self.record(property_id, "http_errors", 1 if status_code >= 500 else 0, "error", recorded_at=now)
-        self.record(property_id, "request_queue_depth", queue_depth, "request", recorded_at=now)
+    def record_request(
+        self,
+        property_id: str | None,
+        latency_ms: float,
+        status_code: int,
+        queue_depth: int,
+        method: str = "UNKNOWN",
+        route: str = "unmatched",
+    ) -> None:
+        del property_id, queue_depth
+        # Per-request telemetry is process-local and scrapeable; do not write four
+        # SQLite rows while serving every guest request.
+        metrics.observe_http_request(method, route, status_code, latency_ms / 1000)
 
     def collect_system(self, property_id: str | None = None) -> dict[str, dict[str, Any]]:
         result: dict[str, dict[str, Any]] = {}

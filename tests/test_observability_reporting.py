@@ -6,6 +6,7 @@ from zipfile import ZipFile
 import pytest
 
 from app.ai_providers import AIProviderStore
+from app import metrics
 from app.hospitality import HospitalityStore
 from app.observability import DiagnosticContext, DiagnosticToolRegistry, ObservabilityStore
 from app.reporting import ReportService, SHEET_NAMES
@@ -31,6 +32,20 @@ def test_metric_history_is_property_isolated(tmp_path):
 
     assert history
     assert max(item["value"] for item in history) <= 40
+
+
+def test_request_telemetry_is_scrapeable_without_database_writes(tmp_path):
+    store = ObservabilityStore(tmp_path / "request-metrics.db")
+    store.request_started()
+    before = store.history("hotel-a", "api_latency_ms", "1h")
+    store.record_request("hotel-a", 12.5, 200, 0, "GET", "/health/ready")
+    after = store.history("hotel-a", "api_latency_ms", "1h")
+    store.request_finished()
+
+    assert before == after == []
+    rendered = metrics.render_metrics().decode("utf-8")
+    assert 'concierge_http_requests_total{method="GET",route="/health/ready",status_class="2xx"}' in rendered
+    assert "concierge_http_request_duration_seconds_bucket" in rendered
 
 
 def test_department_analytics_cannot_see_other_department(tmp_path):

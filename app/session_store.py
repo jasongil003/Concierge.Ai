@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .database import connect_database
+
 
 @dataclass
 class SessionRecord:
@@ -28,8 +30,7 @@ class SessionStore:
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
+        connection = connect_database(self.path)
         connection.execute("PRAGMA foreign_keys = ON")
         return connection
 

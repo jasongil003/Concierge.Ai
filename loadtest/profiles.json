@@ -1,0 +1,13 @@
+{
+  "baseline": [10, 100, 500, 1000],
+  "scale": [5000, 10000, 30000],
+  "spike": {"from": 100, "to": 5000, "seconds": 30},
+  "soak": {"users": 5000, "duration": "4h"},
+  "default_spawn_rate_per_worker": 25,
+  "admin_users_per_run": 1,
+  "notes": [
+    "Run Locust in distributed mode for the scale profile.",
+    "Use enough injector IP addresses to reflect real client source IPs and the configured session-start rate limits.",
+    "The deterministic AI endpoint prevents paid provider traffic."
+  ]
+}

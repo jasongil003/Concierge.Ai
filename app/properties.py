@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .database import connect_database
+
 from .guardrails import public_guardrails
 
 
@@ -528,9 +530,7 @@ class PropertyStore:
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        return connection
+        return connect_database(self.path)
 
     def _init_db(self) -> None:
         with self._connect() as db:

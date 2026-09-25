@@ -6,6 +6,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from .database import connect_database
+
 from .ai_providers import AIMessage, AIModelService, PROVIDER_DEFINITIONS
 
 
@@ -23,9 +25,7 @@ class ImprovementLoopStore:
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        return connection
+        return connect_database(self.path)
 
     def _init_db(self) -> None:
         with self._connect() as db:
@@ -394,9 +394,10 @@ class ImprovementLoopStore:
 
 
 class ImprovementLoopManager:
-    def __init__(self, store: ImprovementLoopStore, models: AIModelService) -> None:
+    def __init__(self, store: ImprovementLoopStore, models: AIModelService, *, worker_enabled: bool = True) -> None:
         self.store = store
         self.models = models
+        self.worker_enabled = worker_enabled
         self.tasks: dict[str, asyncio.Task[None]] = {}
         self.locks: dict[str, asyncio.Lock] = {}
 
@@ -443,6 +444,9 @@ class ImprovementLoopManager:
 
     def resume_persisted(self) -> None:
         self.store.cleanup_orphaned_iterations()
+        self.resume_running()
+
+    def resume_running(self) -> None:
         for property_id in self.store.running_property_ids():
             self._schedule(property_id)
 
@@ -451,6 +455,8 @@ class ImprovementLoopManager:
             self._cancel(property_id)
 
     def _schedule(self, property_id: str) -> None:
+        if not self.worker_enabled:
+            return
         existing = self.tasks.get(property_id)
         if existing and not existing.done():
             return
@@ -497,7 +503,14 @@ class ImprovementLoopManager:
                 if loop["approval_mode"] == "manual":
                     self.store.set_status(property_id, "awaiting_approval")
                     return
-                await asyncio.sleep(loop["interval_seconds"])
+                # Check persisted status regularly so an operator pause or shutdown
+                # is observed even when the configured interval is long.
+                remaining = loop["interval_seconds"]
+                while remaining > 0:
+                    await asyncio.sleep(min(5, remaining))
+                    remaining -= 5
+                    if self.store.get(property_id)["status"] != "running":
+                        return
         except asyncio.CancelledError:
             return
 
