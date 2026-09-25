@@ -1,7 +1,22 @@
 services:
   concierge:
+    build: .
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
     environment:
       APP_ENVIRONMENT: development
       ADMIN_COOKIE_SECURE: "false"
       ALLOW_BODY_PROPERTY_SELECTION: "true"
       ALLOW_DEMO_SETTINGS: "true"
+      DATABASE_URL: ""
+      REDIS_URL: ""
+      DB_PATH: /state/concierge.db
+      UPLOAD_ROOT: /state/uploads
+    volumes:
+      - concierge-dev-state:/state
+    restart: unless-stopped
+
+volumes:
+  concierge-dev-state:

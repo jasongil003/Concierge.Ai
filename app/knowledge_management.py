@@ -17,6 +17,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from .database import connect_database
+
 from .config import settings
 
 logger = logging.getLogger(__name__)
@@ -241,6 +243,7 @@ class KnowledgeStore:
               sha256 TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1, previous_source_id TEXT,
               status TEXT NOT NULL, error TEXT NOT NULL DEFAULT '', created_by TEXT NOT NULL,
               created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, processed_at INTEGER,
+              retry_count INTEGER NOT NULL DEFAULT 0, next_retry_at INTEGER, dead_lettered_at INTEGER,
               FOREIGN KEY(previous_source_id) REFERENCES km_sources(source_id));
             CREATE INDEX IF NOT EXISTS idx_km_sources_property ON km_sources(property_id,status,created_at);
             DROP INDEX IF EXISTS idx_km_sources_digest;
@@ -272,10 +275,18 @@ class KnowledgeStore:
                 db.execute("ALTER TABLE km_items ADD COLUMN structured_json TEXT NOT NULL DEFAULT '{}' ")
             if "risk_flags_json" not in columns:
                 db.execute("ALTER TABLE km_items ADD COLUMN risk_flags_json TEXT NOT NULL DEFAULT '[]'")
+            source_columns = {row[1] for row in db.execute("PRAGMA table_info(km_sources)")}
+            for column, definition in (
+                ("retry_count", "INTEGER NOT NULL DEFAULT 0"),
+                ("next_retry_at", "INTEGER"),
+                ("dead_lettered_at", "INTEGER"),
+            ):
+                if column not in source_columns:
+                    db.execute(f"ALTER TABLE km_sources ADD COLUMN {column} {definition}")
+            db.execute("CREATE INDEX IF NOT EXISTS idx_km_sources_retry ON km_sources(status,next_retry_at,updated_at)")
 
     def _db(self):
-        db = sqlite3.connect(self.path, timeout=30)
-        db.row_factory = sqlite3.Row
+        db = connect_database(self.path, timeout=30)
         db.execute("PRAGMA foreign_keys=ON")
         return db
 
@@ -324,7 +335,14 @@ class KnowledgeStore:
         if source["status"] in {"ready_review", "conflict_detected", "published", "archived"}: return source
         now = int(time.time())
         with self._db() as db:
-            claim = db.execute("UPDATE km_sources SET status='processing',error='',updated_at=? WHERE property_id=? AND source_id=? AND (status IN ('uploaded','processing_failed') OR (status='processing' AND updated_at<?))", (now, property_id, source_id, now - 300))
+            claim = db.execute(
+                """UPDATE km_sources SET status='processing',error='',retry_count=retry_count+1,
+                   next_retry_at=NULL,updated_at=? WHERE property_id=? AND source_id=? AND
+                   (status='uploaded' OR (status='processing_failed' AND retry_count<5
+                     AND (next_retry_at IS NULL OR next_retry_at<=?)) OR
+                    (status='processing' AND updated_at<?))""",
+                (now, property_id, source_id, now, now - 300),
+            )
             if not claim.rowcount:
                 return self.get_source(property_id, source_id)
         try:
@@ -344,15 +362,41 @@ class KnowledgeStore:
             self.detect_conflicts(property_id, source_id)
             logger.info("knowledge_processed property=%s source=%s items=%d", property_id, source_id, len(facts))
         except Exception as exc:
+            failed_at = int(time.time())
             with self._db() as db:
-                db.execute("UPDATE km_sources SET status='processing_failed',error=?,updated_at=? WHERE property_id=? AND source_id=?", (str(exc)[:400], int(time.time()), property_id, source_id))
+                current = db.execute(
+                    "SELECT retry_count FROM km_sources WHERE property_id=? AND source_id=?",
+                    (property_id, source_id),
+                ).fetchone()
+                retry_count = int(current["retry_count"]) if current else 5
+                dead_letter = retry_count >= 5
+                delay = min(3600, 5 * (2 ** max(0, retry_count - 1)))
+                db.execute(
+                    """UPDATE km_sources SET status=?,error=?,updated_at=?,next_retry_at=?,dead_lettered_at=?
+                       WHERE property_id=? AND source_id=?""",
+                    (
+                        "dead_letter" if dead_letter else "processing_failed",
+                        str(exc)[:400],
+                        failed_at,
+                        None if dead_letter else failed_at + delay,
+                        failed_at if dead_letter else None,
+                        property_id,
+                        source_id,
+                    ),
+                )
             logger.warning("knowledge_processing_failed property=%s source=%s error_type=%s", property_id, source_id, exc.__class__.__name__)
         return self.get_source(property_id, source_id)
 
     def pending_sources(self) -> list[tuple[str, str]]:
         now = int(time.time())
         with self._db() as db:
-            rows = db.execute("SELECT property_id,source_id FROM km_sources WHERE status='uploaded' OR (status='processing' AND updated_at<?) LIMIT 20", (now - 300,)).fetchall()
+            rows = db.execute(
+                """SELECT property_id,source_id FROM km_sources WHERE status='uploaded'
+                   OR (status='processing' AND updated_at<?)
+                   OR (status='processing_failed' AND retry_count<5 AND next_retry_at<=?)
+                   ORDER BY COALESCE(next_retry_at,created_at),created_at LIMIT 20""",
+                (now - 300, now),
+            ).fetchall()
         return [(row["property_id"], row["source_id"]) for row in rows]
 
     def list_items(self, property_id: str, *, source_id: str | None = None, status: str | None = None, query: str = "") -> list[dict[str, Any]]:

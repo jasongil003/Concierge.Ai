@@ -4,7 +4,10 @@ import base64
 import binascii
 import hashlib
 import hmac
+import inspect
 import json
+import logging
+import os
 from pathlib import Path
 import re
 import smtplib
@@ -24,6 +27,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from prometheus_client import CONTENT_TYPE_LATEST
 
 from .admin_auth import (
     PERMISSIONS,
@@ -36,6 +40,7 @@ from .admin_auth import (
 from .ai_providers import AIModelService, AIProviderStore
 from .antlabs import AntlabsAdapter
 from .config import settings
+from .database import configure_database, database_ready, dispose_database, verify_schema_current
 from .hotel import HotelKnowledge
 from .improvement_loop import ImprovementLoopManager, ImprovementLoopStore
 from .guest_identity import GuestIdentityStore
@@ -53,6 +58,8 @@ from .guardrails import (
     NetworkGuard,
     PrivacyGuard,
     PropertyGuard,
+    RateLimitUnavailable,
+    RedisRateLimiter,
     SQLiteRateLimiter,
     SecurityAuditLogger,
     normalize_guardrails,
@@ -72,9 +79,26 @@ from .reporting import ReportService
 from .rbac import bind_admin_route_policies, matched_admin_policy
 from .session_store import SessionStore
 from .zones import ZoneStore
+from . import metrics
 
+logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
+
+configure_database(
+    settings.database_url,
+    pool_size=settings.db_pool_size,
+    max_overflow=settings.db_max_overflow,
+    pool_timeout=settings.db_pool_timeout_seconds,
+    pool_recycle=settings.db_pool_recycle_seconds,
+    pool_pre_ping=True,
+    pool_use_lifo=True,
+    connect_args={
+        "connect_timeout": settings.db_connect_timeout_seconds,
+        "options": f"-c statement_timeout={settings.db_statement_timeout_ms} -c idle_in_transaction_session_timeout=10000",
+    },
+)
+verify_schema_current()
 
 knowledge = HotelKnowledge(settings.hotel_config_path)
 store = SessionStore(settings.db_path, settings.session_ttl_minutes)
@@ -89,7 +113,11 @@ hospitality = HospitalityStore(settings.db_path)
 ai_provider_store = AIProviderStore(settings.db_path)
 ai_models = AIModelService(ai_provider_store)
 improvement_loop_store = ImprovementLoopStore(settings.db_path)
-improvement_loops = ImprovementLoopManager(improvement_loop_store, ai_models)
+improvement_loops = ImprovementLoopManager(
+    improvement_loop_store,
+    ai_models,
+    worker_enabled=settings.background_workers_enabled,
+)
 admin_copilot_store = AdminCopilotStore(settings.db_path)
 admin_auth = AdminAuthStore(
     settings.db_path,
@@ -110,7 +138,9 @@ diagnostic_tools = DiagnosticToolRegistry()
 report_service = ReportService()
 network_guard = NetworkGuard()
 action_guard = ActionGuard()
-rate_limiter = SQLiteRateLimiter(settings.db_path)
+rate_limiter = RedisRateLimiter(settings.redis_url) if settings.redis_url else SQLiteRateLimiter(settings.db_path)
+if isinstance(rate_limiter, RedisRateLimiter):
+    ai_models.set_distributed_redis(rate_limiter.client)
 security_audit = SecurityAuditLogger(settings.db_path)
 if settings.property_id == LUNARA_PROPERTY_ID:
     seed_lunara_demo(
@@ -125,20 +155,42 @@ if settings.property_id == LUNARA_PROPERTY_ID:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     personalization.cleanup_expired()
-    improvement_loops.resume_persisted()
     async def process_pending_knowledge():
         while True:
-            for property_id, source_id in knowledge_management.pending_sources():
-                await asyncio.to_thread(knowledge_management.process, property_id, source_id)
+            try:
+                improvement_loops.resume_running()
+                pending = await asyncio.to_thread(knowledge_management.pending_sources)
+                for property_id, source_id in pending:
+                    try:
+                        await asyncio.to_thread(knowledge_management.process, property_id, source_id)
+                    except Exception as exc:
+                        metrics.WORKER_FAILURES.labels("knowledge_ingest").inc()
+                        logger.error("Knowledge ingestion job failed (%s)", exc.__class__.__name__)
+                        await asyncio.sleep(1)
+            except Exception as exc:
+                metrics.WORKER_FAILURES.labels("knowledge_poll").inc()
+                logger.error("Knowledge queue poll failed (%s)", exc.__class__.__name__)
             await asyncio.sleep(10)
-    knowledge_worker = asyncio.create_task(process_pending_knowledge())
+    knowledge_worker = None
+    if settings.background_workers_enabled:
+        improvement_loops.resume_persisted()
+        knowledge_worker = asyncio.create_task(process_pending_knowledge())
     yield
-    knowledge_worker.cancel()
-    try:
-        await knowledge_worker
-    except asyncio.CancelledError:
-        pass
-    improvement_loops.shutdown()
+    if knowledge_worker is not None:
+        knowledge_worker.cancel()
+        try:
+            await knowledge_worker
+        except asyncio.CancelledError:
+            pass
+    deadline = time.monotonic() + 20
+    while observability.active_requests > 0 and time.monotonic() < deadline:
+        await asyncio.sleep(0.05)
+    if settings.background_workers_enabled:
+        improvement_loops.shutdown()
+    if isinstance(rate_limiter, RedisRateLimiter):
+        await rate_limiter.close()
+    if settings.database_url:
+        await asyncio.to_thread(dispose_database)
 
 
 app = FastAPI(title=settings.app_name, version="0.2.0", lifespan=lifespan)
@@ -151,17 +203,28 @@ async def guardrail_denied_handler(request: Request, exc: GuardrailDenied) -> JS
     return JSONResponse(exc.decision.payload(guest_safe=True), status_code=exc.status_code)
 
 
+@app.exception_handler(RateLimitUnavailable)
+async def rate_limit_unavailable_handler(request: Request, exc: RateLimitUnavailable) -> JSONResponse:
+    del request
+    return JSONResponse({"detail": str(exc)}, status_code=503)
+
+
 def _path_property_id(path: str) -> str | None:
     match = re.match(r"^/api/admin/properties/([^/]+)", path)
     return match.group(1) if match else None
 
 
-def _admin_rate_limited(session_id: str) -> bool:
-    return not rate_limiter.allow(f"admin-api:{session_id}", 300, 60)
+async def _rate_limit_allowed(key: str, limit: int, seconds: int) -> bool:
+    decision = rate_limiter.allow(key, limit, seconds)
+    return bool(await decision) if inspect.isawaitable(decision) else bool(decision)
 
 
-def _chat_rate_limited(session_id: str) -> bool:
-    return not rate_limiter.allow(f"guest-chat:{session_id}", 20, 60)
+async def _admin_rate_limited(session_id: str) -> bool:
+    return not await _rate_limit_allowed(f"admin-api:{session_id}", 300, 60)
+
+
+async def _chat_rate_limited(session_id: str) -> bool:
+    return not await _rate_limit_allowed(f"guest-chat:{session_id}", 20, 60)
 
 
 @app.middleware("http")
@@ -201,6 +264,8 @@ async def collect_request_telemetry(request: Request, call_next):
             round((time.perf_counter() - started) * 1000, 2),
             status_code,
             observability.request_finished(),
+            request.method,
+            metrics.route_template(request),
         )
 
 
@@ -228,7 +293,7 @@ async def enforce_admin_security(request: Request, call_next):
         if policy is None:
             return JSONResponse({"detail": "No administrator authorization policy is registered for this operation."}, status_code=403)
         request.state.admin_route_policy = policy
-        if _admin_rate_limited(principal.session_id):
+        if await _admin_rate_limited(principal.session_id):
             return JSONResponse({"detail": "Administrative request limit exceeded. Try again shortly."}, status_code=429)
         if principal.force_password_change and path not in {
             "/api/admin/auth/me", "/api/admin/auth/change-password", "/api/admin/auth/logout"
@@ -755,19 +820,48 @@ async def health_live() -> dict[str, str]:
 
 @app.get("/health/ready")
 async def health_ready() -> dict[str, Any]:
+    checks: dict[str, str] = {"database": "healthy", "redis": "not_configured", "storage": "healthy"}
     try:
-        with sqlite3.connect(settings.db_path, timeout=2) as db:
-            db.execute("SELECT 1").fetchone()
-    except sqlite3.Error as exc:
+        if settings.database_url:
+            await asyncio.to_thread(database_ready)
+        else:
+            with sqlite3.connect(settings.db_path, timeout=2) as db:
+                db.execute("SELECT 1").fetchone()
+    except Exception as exc:
+        metrics.DATABASE_ERRORS.labels("readiness").inc()
+        checks["database"] = "unavailable"
         raise HTTPException(status_code=503, detail="Database is not ready.") from exc
+    if isinstance(rate_limiter, RedisRateLimiter):
+        try:
+            if not await rate_limiter.ping():
+                raise RateLimitUnavailable("Redis did not answer the readiness probe.")
+            checks["redis"] = "healthy"
+        except RateLimitUnavailable as exc:
+            checks["redis"] = "unavailable"
+            raise HTTPException(status_code=503, detail="Redis is not ready.") from exc
+    if not settings.upload_root.is_dir() or not os.access(settings.upload_root, os.W_OK):
+        checks["storage"] = "unavailable"
+        raise HTTPException(status_code=503, detail="Required storage is not ready.")
     return {
         "status": "ok",
+        "checks": checks,
         "app": settings.app_name,
         "property_id": settings.property_id,
         "ai_provider_mode": settings.ai_provider_mode,
         "local_model": settings.ollama_model,
         "antlabs_mode": settings.antlabs_mode,
     }
+
+
+@app.get("/metrics", include_in_schema=False)
+async def prometheus_metrics(request: Request) -> Response:
+    expected = settings.metrics_token
+    supplied = request.headers.get("Authorization", "")
+    if len(expected) < 32:
+        raise HTTPException(status_code=404, detail="Not found.")
+    if not supplied.startswith("Bearer ") or not secrets_compare(supplied[7:], expected):
+        raise HTTPException(status_code=401, detail="Metrics authentication required.")
+    return Response(metrics.render_metrics(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.get("/health/details")
@@ -924,7 +1018,7 @@ async def create_guest_service_request(payload: GuestServiceRequestPayload, requ
     if not decision.allowed:
         security_audit.record(decision.request_id, session.property_id, "service_request_blocked", "denied", getattr(request.state, "guardrail_decision", decision).client_ip)
         raise GuardrailDenied(decision, status_code=409 if decision.confirmation_required else 403)
-    if not rate_limiter.allow(f"service:{session.property_id}:{session.session_id}", 10, 300):
+    if not await _rate_limit_allowed(f"service:{session.property_id}:{session.session_id}", 10, 300):
         raise HTTPException(status_code=429, detail="Too many service requests. Please wait before trying again.")
     try:
         request_record = hospitality.create_service_request(
@@ -940,6 +1034,7 @@ async def create_guest_service_request(payload: GuestServiceRequestPayload, requ
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     replayed = bool(request_record.pop("idempotent_replay", False))
+    metrics.SERVICE_REQUESTS.labels("replayed" if replayed else "created").inc()
     if not replayed:
         await _dispatch_webhooks(session.property_id, "guest.request.created", {"request": request_record})
     return {"status": "existing" if replayed else "created", "request": request_record}
@@ -956,8 +1051,8 @@ async def guest_escalate_conversation(session_id: str, payload: RestaurantEscala
     session, property_record = _guest_session(request, session_id, action_level=2)
     client_ip = getattr(request.state, "guardrail_decision").client_ip
     if (
-        not rate_limiter.allow(f"restaurant-escalation:session:{session.property_id}:{session.session_id}", 5, 900)
-        or not rate_limiter.allow(f"restaurant-escalation:ip:{client_ip}", 30, 900)
+        not await _rate_limit_allowed(f"restaurant-escalation:session:{session.property_id}:{session.session_id}", 5, 900)
+        or not await _rate_limit_allowed(f"restaurant-escalation:ip:{client_ip}", 30, 900)
     ):
         raise HTTPException(status_code=429, detail="Too many staff requests. Please wait before requesting help again.")
     if not normalize_guardrails(property_record.guardrails)["human_escalation_enabled"]:
@@ -1005,8 +1100,8 @@ async def admin_login(payload: AdminLoginPayload, request: Request, response: Re
 async def request_admin_password_reset(payload: AdminPasswordResetRequestPayload, request: Request) -> dict[str, str]:
     client_ip = request.client.host if request.client else ""
     account_key = hashlib.sha256(payload.username.strip().casefold().encode("utf-8")).hexdigest()[:16]
-    ip_allowed = rate_limiter.allow(f"password-reset:ip:{client_ip}", 12, 3600)
-    account_allowed = rate_limiter.allow(f"password-reset:account:{account_key}", 3, 3600)
+    ip_allowed = await _rate_limit_allowed(f"password-reset:ip:{client_ip}", 12, 3600)
+    account_allowed = await _rate_limit_allowed(f"password-reset:account:{account_key}", 3, 3600)
     if not ip_allowed or not account_allowed:
         return {"message": "If recovery is configured for this account, reset instructions will be sent."}
     admin_auth.audit(
@@ -1031,8 +1126,8 @@ async def request_admin_password_reset(payload: AdminPasswordResetRequestPayload
 async def confirm_admin_password_reset(payload: AdminPasswordResetConfirmPayload, request: Request) -> dict[str, str]:
     client_ip = request.client.host if request.client else ""
     token_key = hashlib.sha256(payload.token.encode("utf-8")).hexdigest()[:16]
-    ip_allowed = rate_limiter.allow(f"password-reset-confirm:ip:{client_ip}", 30, 3600)
-    token_allowed = rate_limiter.allow(f"password-reset-confirm:token:{token_key}", 10, 3600)
+    ip_allowed = await _rate_limit_allowed(f"password-reset-confirm:ip:{client_ip}", 30, 3600)
+    token_allowed = await _rate_limit_allowed(f"password-reset-confirm:token:{token_key}", 10, 3600)
     if not ip_allowed or not token_allowed:
         raise HTTPException(status_code=429, detail="Too many password reset attempts. Try again later.")
     try:
@@ -3016,6 +3111,7 @@ async def create_service_request(property_id: str, payload: GenericPayload, requ
             payload.data["department"] = department_name
     try:
         request_record = hospitality.create_service_request(property_id, payload.data)
+        metrics.SERVICE_REQUESTS.labels("created").inc()
         await _dispatch_webhooks(property_id, "guest.request.created", {"request": request_record})
         return request_record
     except ValueError as exc:
@@ -3236,7 +3332,7 @@ async def start_session(payload: StartSessionRequest, request: Request) -> dict[
         }
     ip_rate_key = f"session-ip:{property_record.property_id}:{network.client_ip}"
     client_rate_key = f"session-client:{property_record.property_id}:{network.client_ip}:{payload.client_id}"
-    if not rate_limiter.allow(ip_rate_key, 240, 300) or not rate_limiter.allow(client_rate_key, 10, 300):
+    if not await _rate_limit_allowed(ip_rate_key, 240, 300) or not await _rate_limit_allowed(client_rate_key, 10, 300):
         raise HTTPException(status_code=429, detail="Too many session attempts. Please wait before trying again.")
     session = store.create(
         property_id=property_record.property_id,
@@ -3259,7 +3355,7 @@ async def resume_session(payload: ResumeSessionRequest, request: Request) -> dic
     candidate = store.peek(payload.session_id)
     if candidate is None or candidate.client_id != payload.client_id:
         raise HTTPException(status_code=401, detail="Concierge session expired.")
-    if not rate_limiter.allow(f"session-resume:{candidate.property_id}:{candidate.session_id}", 30, 60):
+    if not await _rate_limit_allowed(f"session-resume:{candidate.property_id}:{candidate.session_id}", 30, 60):
         raise HTTPException(status_code=429, detail="Too many resume attempts. Please wait a moment.")
     session, property_record = _guest_session(request, payload.session_id)
     policy = normalize_guardrails(property_record.guardrails)
@@ -3304,7 +3400,7 @@ async def authenticate(payload: AuthRequest, request: Request) -> dict[str, Any]
 @app.post("/api/chat")
 async def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
     session, property_record = _guest_session(request, payload.session_id)
-    if _chat_rate_limited(payload.session_id):
+    if await _chat_rate_limited(payload.session_id):
         raise HTTPException(status_code=429, detail="Too many messages. Please wait a moment.")
 
     requested_mode = payload.mode if settings.ai_guest_mode_switch else settings.ai_default_mode

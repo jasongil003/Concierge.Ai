@@ -39,7 +39,7 @@ jobs:
       - name: Audit Python dependencies
         run: |
           python -m pip install pip-audit
-          python -m pip_audit -r requirements.txt
+          python -m pip_audit -r requirements-dev.txt
 
   dependency-security:
     runs-on: ubuntu-latest
@@ -126,6 +126,99 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  postgres-redis-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      DATABASE_URL: postgresql+psycopg://concierge@127.0.0.1:5432/concierge
+      REDIS_URL: redis://127.0.0.1:6379/0
+      REDIS_TEST_URL: redis://127.0.0.1:6379/2
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: concierge
+          POSTGRES_DB: concierge
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U concierge -d concierge"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 15
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies and PostgreSQL client
+        run: |
+          pip install -r requirements-dev.txt
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          pg_dump --version
+      - name: Apply fresh schema and confirm repeatable migration
+        run: |
+          alembic upgrade head
+          alembic upgrade head
+      - name: Migrate an existing SQLite installation
+        run: pytest -q tests/test_postgres_sqlite_migration.py
+      - name: PostgreSQL adapter, transaction, query-plan, backup restore, and Redis integration tests
+        env:
+          PG_DUMP_AVAILABLE: "1"
+        run: >-
+          pytest -q
+          tests/test_postgres_integration.py
+          tests/test_postgres_backup_integration.py
+          tests/test_redis_rate_limiter.py
+          tests/test_ai_provider_distributed_bulkhead.py
+      - name: Start deterministic AI and API for the load smoke
+        run: |
+          export APP_ENVIRONMENT=development
+          export PROPERTY_ID=lunara-mnl-001
+          export HOTEL_CONFIG_PATH=data/lunara.json
+          export DB_PATH=/tmp/concierge-load-smoke.sqlite
+          export UPLOAD_ROOT=/tmp/concierge-load-smoke-uploads
+          export ADMIN_BOOTSTRAP_PASSWORD="$(openssl rand -hex 16)A!"
+          export CREDENTIAL_ENCRYPTION_SECRET="$(openssl rand -hex 32)"
+          export ADMIN_COOKIE_SECURE=false
+          export ALLOW_BODY_PROPERTY_SELECTION=true
+          export ALLOW_DEMO_SETTINGS=true
+          export ANTLABS_MODE=mock
+          export ENABLE_BACKGROUND_WORKERS=false
+          export METRICS_TOKEN="$(openssl rand -hex 24)"
+          export REDIS_URL=redis://127.0.0.1:6379/0
+          python loadtest/mock_ai.py > /tmp/concierge-mock-ai.log 2>&1 &
+          mock_pid=$!
+          python -m uvicorn app.main:app --host 127.0.0.1 --port 8092 > /tmp/concierge-api.log 2>&1 &
+          api_pid=$!
+          trap 'kill "$api_pid" "$mock_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --silent --fail http://127.0.0.1:8092/health/ready >/dev/null && curl --silent --fail http://127.0.0.1:8081/health >/dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail http://127.0.0.1:8092/health/ready
+          LOADTEST_CONFIRMATION=YES MOCK_AI_URL=http://127.0.0.1:8081 python scripts/configure_loadtest_ai.py
+          locust --headless -f loadtest/locustfile.py -u 10 -r 2 -t 25s --host http://127.0.0.1:8092 --csv /tmp/concierge-load-smoke --only-summary
+          python loadtest/assert_smoke.py /tmp/concierge-load-smoke_stats.csv
+      - name: Report service and load failures
+        if: failure()
+        run: |
+          pg_isready -h 127.0.0.1 -p 5432 -U concierge || true
+          redis-cli -h 127.0.0.1 ping || true
+          cat /tmp/concierge-api.log /tmp/concierge-mock-ai.log 2>/dev/null || true
+
   docker-runtime-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -162,7 +255,7 @@ jobs:
       - name: Create persistent volume and start container
         run: |
           docker volume create concierge-ci-state
-          docker run -d --name concierge-ci -p 8080:8080 --health-cmd="python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=4)\"" --health-interval=5s --health-retries=12 --health-start-period=5s -e APP_ENVIRONMENT=production -e PROPERTY_ID=hotel-a -e DB_PATH=/state/concierge.db -e UPLOAD_ROOT=/state/uploads -e ADMIN_BOOTSTRAP_PASSWORD -e CREDENTIAL_ENCRYPTION_SECRET -e ADMIN_COOKIE_SECURE=true -e ALLOW_BODY_PROPERTY_SELECTION=false -e ANTLABS_MODE=browser_handoff -e ANTLABS_AUTH_URL=https://gateway.invalid/auth -v concierge-ci-state:/state concierge-ai:ci
+          docker run -d --name concierge-ci -p 8080:8080 --health-cmd="python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=4)\"" --health-interval=5s --health-retries=12 --health-start-period=5s -e APP_ENVIRONMENT=development -e ALLOW_DEMO_SETTINGS=true -e PROPERTY_ID=hotel-a -e DB_PATH=/state/concierge.db -e UPLOAD_ROOT=/state/uploads -e ADMIN_BOOTSTRAP_PASSWORD -e CREDENTIAL_ENCRYPTION_SECRET -e ADMIN_COOKIE_SECURE=true -e ALLOW_BODY_PROPERTY_SELECTION=false -e ANTLABS_MODE=mock -e ENABLE_BACKGROUND_WORKERS=false -v concierge-ci-state:/state concierge-ai:ci
       - name: Verify non-root, healthy runtime, and write workflows
         run: |
           test "$(docker exec concierge-ci id -u)" != "0"
@@ -175,7 +268,7 @@ jobs:
       - name: Recreate container and verify volume persistence
         run: |
           docker rm -f concierge-ci
-          docker run -d --name concierge-ci -p 8080:8080 --health-cmd="python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=4)\"" --health-interval=5s --health-retries=12 --health-start-period=5s -e APP_ENVIRONMENT=production -e PROPERTY_ID=hotel-a -e DB_PATH=/state/concierge.db -e UPLOAD_ROOT=/state/uploads -e ADMIN_BOOTSTRAP_PASSWORD -e CREDENTIAL_ENCRYPTION_SECRET -e ADMIN_COOKIE_SECURE=true -e ALLOW_BODY_PROPERTY_SELECTION=false -e ANTLABS_MODE=browser_handoff -e ANTLABS_AUTH_URL=https://gateway.invalid/auth -v concierge-ci-state:/state concierge-ai:ci
+          docker run -d --name concierge-ci -p 8080:8080 --health-cmd="python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=4)\"" --health-interval=5s --health-retries=12 --health-start-period=5s -e APP_ENVIRONMENT=development -e ALLOW_DEMO_SETTINGS=true -e PROPERTY_ID=hotel-a -e DB_PATH=/state/concierge.db -e UPLOAD_ROOT=/state/uploads -e ADMIN_BOOTSTRAP_PASSWORD -e CREDENTIAL_ENCRYPTION_SECRET -e ADMIN_COOKIE_SECURE=true -e ALLOW_BODY_PROPERTY_SELECTION=false -e ANTLABS_MODE=mock -e ENABLE_BACKGROUND_WORKERS=false -v concierge-ci-state:/state concierge-ai:ci
           for attempt in $(seq 1 18); do
             test "$(docker inspect --format '{{.State.Health.Status}}' concierge-ci)" = healthy && break
             sleep 5

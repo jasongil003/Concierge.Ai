@@ -1,11 +1,22 @@
 import asyncio
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from fastapi.testclient import TestClient
 
-from app.ai_providers import AIChatResponse, AIModelService, AIProviderStore, AIUsageLimitError
+from app.ai_providers import (
+    AIChatRequest,
+    AIChatResponse,
+    AIMessage,
+    AIModelService,
+    AIProviderStore,
+    AIUsageLimitError,
+    ProviderBulkheadFull,
+    ProviderCircuitOpen,
+)
+import app.ai_providers as ai_provider_module
 from app.llm import build_prompt
 from app.main import app
 import app.main as main_module
@@ -172,6 +183,7 @@ def _enabled_provider(store: AIProviderStore, property_id: str, provider_id: str
 
 
 def test_fallback_chain_order_and_actual_provider_usage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(ai_provider_module, "settings", replace(ai_provider_module.settings, ai_provider_retry_attempts=1))
     store = AIProviderStore(tmp_path / "fallback.db")
     for provider_id in ("gemini", "openai", "local"):
         _enabled_provider(store, "hotel-a", provider_id)
@@ -191,10 +203,69 @@ def test_fallback_chain_order_and_actual_provider_usage(tmp_path: Path, monkeypa
     response = asyncio.run(service.concierge_chat("hotel-a", "hello", "Hotel A", []))
 
     assert response.provider == "openai"
-    assert calls == ["gemini", "openai"]
+    assert calls == ["gemini", "gemini", "openai"]
     usage = store.usage_rows("hotel-a")
     assert [(row["provider_id"], row["success"]) for row in usage] == [("gemini", 0), ("openai", 1)]
     assert sum(row["total_tokens"] or 0 for row in usage) == 15
+
+
+def test_provider_bulkhead_limits_concurrency_and_bounds_waiters(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    settings = replace(
+        ai_provider_module.settings,
+        ai_provider_concurrency_limit=1,
+        ai_provider_concurrency_limits={"local": 1},
+        ai_provider_queue_capacity=1,
+        ai_provider_queue_wait_seconds=0.5,
+        ai_provider_retry_attempts=0,
+    )
+    monkeypatch.setattr(ai_provider_module, "settings", settings)
+    service = AIModelService(AIProviderStore(tmp_path / "bulkhead.db"))
+
+    class SlowAdapter:
+        async def send_message(self, _request, _credential):
+            await asyncio.sleep(0.12)
+            return AIChatResponse("ok", "local", "local", 1, 1)
+
+    request = AIChatRequest("hotel-a", "local", "model", [AIMessage("user", "hello")], timeout_seconds=2)
+
+    async def run():
+        first = asyncio.create_task(service._send_with_resilience("local", SlowAdapter(), request, {}))
+        await asyncio.sleep(0.005)
+        second = asyncio.create_task(service._send_with_resilience("local", SlowAdapter(), request, {}))
+        await asyncio.sleep(0.005)
+        with pytest.raises(ProviderBulkheadFull):
+            await service._send_with_resilience("local", SlowAdapter(), request, {})
+        await asyncio.gather(first, second)
+
+    asyncio.run(run())
+
+
+def test_provider_circuit_opens_and_allows_one_recovery_probe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    settings = replace(
+        ai_provider_module.settings,
+        ai_provider_retry_attempts=0,
+        ai_provider_circuit_failures=2,
+        ai_provider_circuit_cooldown_seconds=0.05,
+    )
+    monkeypatch.setattr(ai_provider_module, "settings", settings)
+    service = AIModelService(AIProviderStore(tmp_path / "circuit.db"))
+    calls = []
+    bad = _FakeAdapter("local", calls, TimeoutError("provider timeout"))
+    request = AIChatRequest("hotel-a", "local", "model", [AIMessage("user", "hello")], timeout_seconds=2)
+
+    async def run():
+        for _ in range(2):
+            with pytest.raises(TimeoutError):
+                await service._send_with_resilience("local", bad, request, {})
+        with pytest.raises(ProviderCircuitOpen):
+            await service._send_with_resilience("local", bad, request, {})
+        await asyncio.sleep(0.06)
+        healthy = _FakeAdapter("local", calls)
+        response = await service._send_with_resilience("local", healthy, request, {})
+        assert response.text == "safe response"
+
+    asyncio.run(run())
+    assert calls == ["local", "local", "local"]
 
 
 def test_provider_limit_blocks_request(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

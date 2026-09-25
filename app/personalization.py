@@ -9,6 +9,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from .database import connect_database
+
 
 DEFAULT_POLICY: dict[str, Any] = {
     "enabled": True,
@@ -74,9 +76,7 @@ class PersonalizationStore:
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
-        db = sqlite3.connect(self.path)
-        db.row_factory = sqlite3.Row
-        return db
+        return connect_database(self.path)
 
     def _init_db(self) -> None:
         with self._connect() as db:

@@ -1,0 +1,17 @@
+services:
+  mock-ai:
+    build:
+      context: ./loadtest
+      dockerfile: mock-ai.Dockerfile
+    restart: unless-stopped
+    environment:
+      MOCK_AI_MODE: ${MOCK_AI_MODE:-normal}
+      MOCK_AI_DELAY_SECONDS: ${MOCK_AI_DELAY_SECONDS:-8}
+    expose:
+      - "8081"
+    networks:
+      - backend
+
+  api:
+    environment:
+      ENABLE_BACKGROUND_WORKERS: "false"
