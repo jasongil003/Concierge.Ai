@@ -579,19 +579,25 @@ class AdminAuthStore:
         self.audit(principal, "auth.logout", "session", principal.session_id)
 
     def list_users(self, principal: AdminPrincipal) -> list[dict[str, Any]]:
-        where = "" if principal.can("properties.all") else "WHERE u.property_id = ?"
-        params: tuple[Any, ...] = () if principal.can("properties.all") else (principal.property_id,)
-        with self._connect() as db:
-            rows = db.execute(
-                f"""
+        if principal.can("properties.all"):
+            query = """
                 SELECT u.*, r.name AS role_name, r.slug AS role_slug,
                        (SELECT COUNT(*) FROM admin_sessions s WHERE s.user_id = u.user_id AND s.revoked_at IS NULL AND s.expires_at > ?) AS active_sessions
                 FROM admin_users u JOIN admin_roles r ON r.role_id = u.role_id
-                {where}
                 ORDER BY u.created_at DESC
-                """,
-                (int(time.time()), *params),
-            ).fetchall()
+            """
+            params: tuple[Any, ...] = (int(time.time()),)
+        else:
+            query = """
+                SELECT u.*, r.name AS role_name, r.slug AS role_slug,
+                       (SELECT COUNT(*) FROM admin_sessions s WHERE s.user_id = u.user_id AND s.revoked_at IS NULL AND s.expires_at > ?) AS active_sessions
+                FROM admin_users u JOIN admin_roles r ON r.role_id = u.role_id
+                WHERE u.property_id = ?
+                ORDER BY u.created_at DESC
+            """
+            params = (int(time.time()), principal.property_id)
+        with self._connect() as db:
+            rows = db.execute(query, params).fetchall()
         return [self._serialize_user(row) | {"restaurant_ids": self._restaurant_ids_for_user(row["user_id"])} for row in rows]
 
     def get_user(self, user_id: str) -> dict[str, Any] | None:
@@ -950,7 +956,7 @@ class AdminAuthStore:
         found = {
             row["restaurant_id"]
             for row in db.execute(
-                f"SELECT restaurant_id FROM restaurants WHERE property_id=? AND restaurant_id IN ({','.join('?' for _ in ids)})",
+                f"SELECT restaurant_id FROM restaurants WHERE property_id=? AND restaurant_id IN ({','.join('?' for _ in ids)})",  # nosec B608
                 (property_id, *ids),
             ).fetchall()
         }
@@ -1050,7 +1056,7 @@ class AdminAuthStore:
         params.append(max(1, min(limit, 500)))
         with self._connect() as db:
             rows = db.execute(
-                f"SELECT * FROM admin_audit_logs {where} ORDER BY timestamp DESC, audit_id DESC LIMIT ?", params
+                f"SELECT * FROM admin_audit_logs {where} ORDER BY timestamp DESC, audit_id DESC LIMIT ?", params  # nosec B608
             ).fetchall()
         return [
             {

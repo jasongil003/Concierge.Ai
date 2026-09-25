@@ -1621,8 +1621,9 @@ function renderLoopLatest(iterations) {
   const response = latest.response || {};
   const findings = Array.isArray(response.findings) ? response.findings : [];
   const score = latest.score == null ? "—" : latest.score;
+  const scoreValue = Number.isFinite(Number(latest.score)) ? Math.max(0, Math.min(100, Number(latest.score))) : 0;
   $("loop-latest").innerHTML = `
-    <div class="loop-score-row"><strong>${escapeHTML(score)}</strong><div class="loop-score-track" aria-label="Quality score ${escapeHTML(score)}"><i style="width:${latest.score == null ? 0 : latest.score}%"></i></div></div>
+    <div class="loop-score-row"><strong>${escapeHTML(score)}</strong><progress class="loop-score-track" max="100" value="${scoreValue}" aria-label="Quality score ${escapeHTML(score)}"></progress></div>
     <p><strong>${escapeHTML(latest.summary || "Iteration completed")}</strong></p>
     ${findings.length ? `<ul class="loop-finding-list">${findings.map((item) => `<li>${escapeHTML(item)}</li>`).join("")}</ul>` : ""}
     <p><strong>Next action:</strong> ${escapeHTML(response.next_action || "Review this iteration.")}</p>

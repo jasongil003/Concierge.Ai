@@ -295,7 +295,7 @@ class PersonalizationStore:
             return 0
         placeholders = ",".join("?" for _ in categories)
         with self._connect() as db:
-            cursor = db.execute(f"DELETE FROM guest_preferences WHERE property_id=? AND session_id=? AND category IN ({placeholders})", (property_id, session_id, *sorted(categories)))
+            cursor = db.execute(f"DELETE FROM guest_preferences WHERE property_id=? AND session_id=? AND category IN ({placeholders})", (property_id, session_id, *sorted(categories)))  # nosec B608
             return int(cursor.rowcount)
 
     def clear_preferences(self, property_id: str, session_id: str) -> int:
@@ -385,8 +385,8 @@ class PersonalizationStore:
         placeholders = ",".join("?" for _ in session_ids)
         params = (property_id, *session_ids)
         with self._connect() as db:
-            cursor = db.execute(f"DELETE FROM guest_preferences WHERE property_id=? AND session_id IN ({placeholders})", params)
-            db.execute(f"DELETE FROM guest_personalization WHERE property_id=? AND session_id IN ({placeholders})", params)
+            cursor = db.execute(f"DELETE FROM guest_preferences WHERE property_id=? AND session_id IN ({placeholders})", params)  # nosec B608
+            db.execute(f"DELETE FROM guest_personalization WHERE property_id=? AND session_id IN ({placeholders})", params)  # nosec B608
             return int(cursor.rowcount)
 
     def cleanup_expired(self) -> int:
