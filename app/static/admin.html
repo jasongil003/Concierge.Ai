@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Concierge.Ai Platform</title>
-  <link rel="stylesheet" href="/static/admin.css">
+  <link rel="stylesheet" href="/static/admin.css?v=17">
 </head>
 <body>
   <div class="platform-shell">
@@ -13,62 +13,98 @@
         <div class="brand-mark">C</div>
         <div>
           <strong>Concierge.Ai</strong>
-          <span>Property platform</span>
+          <span>Admin Platform</span>
         </div>
       </div>
+      <button class="icon-button sidebar-toggle" id="sidebar-toggle" type="button" aria-label="Collapse sidebar" title="Collapse sidebar">☰</button>
+      <div class="topbar-context">
+        <label for="property-switcher">Property</label>
+        <select id="property-switcher" aria-label="Current property"></select>
+      </div>
       <div class="topbar-status">
-        <span class="publish-state" id="publish-state">Loading...</span>
+        <span class="publish-state"><i aria-hidden="true"></i><span id="publish-state">Loading...</span></span>
+        <button class="secondary ask-ai-trigger" type="button" data-permission="assistant.use">Ask AI</button>
         <a href="/" target="_blank" rel="noopener">Open guest app</a>
-        <button class="secondary" id="discard-design" type="button">Discard</button>
-        <button class="secondary" id="save-draft" type="button">Save Draft</button>
-        <button id="publish-design" type="button">Publish</button>
+        <button class="secondary" id="discard-design" type="button" data-permission="concierge.edit">Discard</button>
+        <button class="secondary" id="save-draft" type="button" data-permission="concierge.edit">Save Draft</button>
+        <button id="publish-design" type="button" data-permission="concierge.edit">Publish</button>
+        <div class="profile-shell">
+          <button class="profile-button" id="profile-button" type="button" aria-expanded="false">
+            <span class="profile-avatar" id="profile-avatar">A</span>
+            <span class="profile-summary"><strong id="profile-name">Administrator</strong><small id="profile-role">Loading...</small></span>
+            <span aria-hidden="true">⌄</span>
+          </button>
+          <div class="profile-menu" id="profile-menu" hidden>
+            <div class="profile-identity"><strong id="profile-menu-name">Administrator</strong><span id="profile-username">@admin</span><small id="profile-menu-role">Super Admin</small></div>
+            <button type="button" data-profile-panel="profile">Profile</button>
+            <button type="button" data-profile-panel="profile">Account Settings</button>
+            <button type="button" data-profile-panel="security">Security</button>
+            <button type="button" data-profile-panel="security">Change Password</button>
+            <button type="button" id="profile-switch-property">Switch Property</button>
+            <hr>
+            <button type="button" id="logout-button">Logout</button>
+          </div>
+        </div>
       </div>
     </header>
 
     <aside class="platform-sidebar">
-      <button class="nav-item active" data-panel="overview">Overview</button>
-      <button class="nav-item" data-panel="appearance">AI Chat Design</button>
-      <button class="nav-item" data-panel="guest">Guest Experience</button>
-      <button class="nav-item" data-panel="ai">AI Models</button>
-      <button class="nav-item" data-panel="knowledge">Knowledge</button>
-      <button class="nav-item" data-panel="wifi">Wi-Fi / ANTlabs</button>
-      <button class="nav-item" data-panel="auth-types">Authentication Type</button>
-      <button class="nav-item" data-panel="requests">Service Requests</button>
-      <button class="nav-item" data-panel="deployment">Deployment</button>
-      <button class="nav-item" data-panel="license">License</button>
+      <nav class="sidebar-nav" aria-label="Administration">
+        <div class="nav-loading">Loading navigation...</div>
+      </nav>
+      <div class="sidebar-health"><i aria-hidden="true"></i><div><strong>System operational</strong><span>On-prem runtime</span></div></div>
     </aside>
 
     <main class="platform-main">
       <section class="panel active" id="overview">
-        <div class="page-title">
-          <p>Property</p>
-          <h1 id="overview-title">Demo Hotel</h1>
+        <div class="page-title operations-title">
+          <div><p id="operations-profile-label">Operations overview</p><h1 id="overview-title">Demo Hotel</h1><span id="operations-role-copy">Loading the operational view for your role.</span></div>
+          <div class="operations-actions"><label>Timeframe<select class="operations-period" aria-label="Dashboard timeframe"><option value="1h">1 hour</option><option value="6h">6 hours</option><option value="24h" selected>24 hours</option><option value="7d">7 days</option><option value="30d">30 days</option></select></label><button class="secondary ask-ai-trigger" type="button" data-permission="assistant.use">Ask AI</button></div>
         </div>
-        <div class="metrics">
-          <article><span>Active guests</span><strong>128</strong></article>
-          <article><span>AI requests today</span><strong>1,842</strong></article>
-          <article><span>Open requests</span><strong>8</strong></article>
-          <article><span>Auth success</span><strong>97.4%</strong></article>
+        <section class="health-banner" id="operations-health-banner"><div><span class="health-dot unavailable"></span><div><strong>Checking operational health</strong><p>Verifying application data and configured dependencies.</p></div></div><button class="secondary" type="button" data-dashboard-panel="system-health">Open system health</button></section>
+        <div class="operations-metrics" id="operations-metrics"></div>
+        <div class="chart-grid" id="overview-charts"></div>
+        <div class="two-col operations-lower">
+          <section class="card"><div class="card-heading"><div><span>Active alerts</span><h2>Needs attention</h2></div><button class="secondary" type="button" data-dashboard-panel="alerts">View all</button></div><div id="overview-alerts" class="operations-list"></div></section>
+          <section class="card"><div class="card-heading"><div><span>Property operations</span><h2>Department demand</h2></div><button class="secondary" type="button" data-dashboard-panel="analytics">Analyze</button></div><div id="overview-departments" class="operations-list"></div></section>
         </div>
-        <div class="two-col">
-          <section class="card">
-            <h2>Property basics</h2>
-            <label>Property ID<input id="property-id" disabled></label>
-            <label>Hotel name<input id="hotel-name-input"></label>
-            <label>Concierge name<input id="concierge-name-input"></label>
-            <label>Domain / subdomain<input id="domain-input" placeholder="concierge.hotel.com"></label>
-            <label>Deployment mode<select id="deployment-mode"><option>on-prem</option><option>cloud</option><option>hybrid</option><option>edge</option></select></label>
-          </section>
-          <section class="card">
-            <h2>Operational status</h2>
-            <dl class="status-list">
-              <div><dt>Runtime</dt><dd>Local on-prem</dd></div>
-              <div><dt>Database</dt><dd>SQLite POC</dd></div>
-              <div><dt>ANTlabs</dt><dd>Mock / lab adapter</dd></div>
-              <div><dt>Guest URL</dt><dd><a href="/" target="_blank" rel="noopener">/</a></dd></div>
-            </dl>
-          </section>
-        </div>
+        <input id="property-id" type="hidden">
+        <input id="hotel-name-input" type="hidden">
+        <input id="concierge-name-input" type="hidden">
+        <input id="domain-input" type="hidden">
+        <select id="deployment-mode" hidden><option>on-prem</option><option>cloud</option><option>hybrid</option><option>edge</option></select>
+      </section>
+
+      <section class="panel" id="system-health">
+        <div class="page-title operations-title"><div><p>Technical observability</p><h1>System health</h1><span>Application, dependency, and host telemetry with explicit data availability.</span></div><label>Timeframe<select class="operations-period"><option value="1h">1 hour</option><option value="6h">6 hours</option><option value="24h" selected>24 hours</option><option value="7d">7 days</option><option value="30d">30 days</option></select></label></div>
+        <div class="component-grid" id="health-components"></div>
+        <div class="chart-grid" id="system-charts"></div>
+      </section>
+
+      <section class="panel" id="alerts">
+        <div class="page-title"><div><p>Operations</p><h1>Alerts</h1><span>Threshold-based alerts backed by recorded data.</span></div></div>
+        <div class="operations-list alerts-list" id="alerts-list"></div>
+      </section>
+
+      <section class="panel" id="ai-assistant">
+        <div class="page-title"><div><p>AI operations</p><h1>Operations Assistant</h1><span>Read-only diagnostics using permission-checked server tools.</span></div><div class="assistant-toolbar"><button class="secondary" type="button" data-assistant-new>New conversation</button><button class="secondary" type="button" data-assistant-clear>Clear conversation</button></div></div>
+        <section class="assistant-page"><div class="assistant-messages" id="assistant-page-messages"><div class="assistant-empty"><strong>Ask about this property</strong><p>Try “Why are service requests delayed?”, “Check all AI providers”, or “Compare requests with the previous period”.</p></div></div><form class="assistant-composer" id="assistant-page-form"><textarea id="assistant-page-input" rows="2" maxlength="1200" placeholder="Ask about operations, health, or trends"></textarea><button type="submit">Investigate</button></form></section>
+        <section class="card admin-hotel-ai"><h2>Hotel Knowledge AI</h2><p class="field-note">Ask about this property's knowledge or attach documents for review. Only approved, published guest-visible items reach Guest AI.</p><div class="assistant-messages" id="hotel-ai-messages" aria-live="polite"><div class="assistant-empty"><strong>Ask about hotel knowledge</strong><p>Find sources, identify gaps, or upload a document to extract knowledge.</p></div></div><form class="assistant-composer knowledge-composer" id="hotel-ai-form"><div id="hotel-ai-attachments" class="knowledge-attachments" aria-live="polite"></div><textarea id="hotel-ai-input" rows="2" maxlength="1200" aria-label="Message to Hotel Knowledge AI" placeholder="Ask about hotel information or drop files here"></textarea><input id="hotel-ai-files" type="file" multiple hidden accept=".pdf,.docx,.xlsx,.csv,.txt,.md,.json,.pptx,.png,.jpg,.jpeg,.webp"><button class="secondary" id="hotel-ai-attach" type="button">Attach files</button><button type="submit">Send</button><small>Enter to send · Shift+Enter for a new line</small></form></section>
+      </section>
+
+      <section class="panel" id="analytics">
+        <div class="page-title operations-title"><div><p>Analytics</p><h1>Operations analytics</h1><span>Guest engagement, service delivery, department performance, and AI outcomes.</span></div><div class="manager-date-controls"><label>Date range<select id="manager-period"><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="7d" selected>7 days</option><option value="30d">30 days</option><option value="custom">Custom</option></select></label><label class="custom-date" hidden>Start<input id="manager-start" type="date"></label><label class="custom-date" hidden>End<input id="manager-end" type="date"></label><button class="secondary" id="apply-manager-period" type="button">Apply</button></div></div>
+        <div class="operations-metrics" id="analytics-metrics"></div><div class="chart-grid" id="analytics-charts"></div><div class="two-col"><section class="card"><h2>Top services</h2><div id="analytics-services" class="operations-list"></div></section><section class="card"><h2>Top guest questions</h2><div id="analytics-questions" class="operations-list"></div></section></div>
+      </section>
+
+      <section class="panel" id="reports">
+        <div class="page-title"><div><p>Analytics &amp; Reports</p><h1>Management reports</h1><span>Property- and department-scoped operational exports.</span></div></div>
+        <div class="report-grid"><article class="card"><span>XLSX</span><h2>Detailed operations workbook</h2><p>Eight sheets covering the executive summary, guest activity, AI, requests, departments, questions, recommendations, and raw data.</p><button type="button" data-export="xlsx">Download workbook</button></article><article class="card"><span>PDF</span><h2>Management summary</h2><p>A concise multi-page report covering engagement, service performance, AI performance, issues, and recommendations.</p><button type="button" data-export="pdf">Download PDF</button></article></div>
+      </section>
+
+      <section class="panel" id="exports">
+        <div class="page-title"><div><p>Analytics &amp; Reports</p><h1>Exports</h1><span>Generate a fresh export from the selected property and timeframe.</span></div></div>
+        <section class="card export-toolbar"><label>Timeframe<select id="export-period"><option value="24h">24 hours</option><option value="7d" selected>7 days</option><option value="30d">30 days</option></select></label><button type="button" data-export="xlsx">Export XLSX</button><button class="secondary" type="button" data-export="pdf">Export PDF</button></section>
       </section>
 
       <section class="panel" id="appearance">
@@ -95,6 +131,8 @@
               <label>Secondary text<input id="secondary-text-color-input" type="color" value="#71717a"></label>
               <label>Accent<input id="accent-input" type="color" value="#18181b"></label>
               <label>User bubble<input id="user-message-input" type="color" value="#eeeeee"></label>
+              <label>Button color<input id="button-color-input" type="color" value="#18181b"></label>
+              <label>Composer<input id="composer-background-input" type="color" value="#ffffff"></label>
             </div>
             <label>Background picture<input id="background-image-input" type="file" accept="image/png,image/jpeg,image/webp"></label>
             <p class="field-note">Recommended background: JPG/WebP, 1600 x 2400 px portrait for mobile, 2400 x 1600 px landscape fallback, under 1.5 MB.</p>
@@ -106,6 +144,11 @@
               <label>Density<select id="density-input"><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></label>
               <label>Width<input id="content-width-input" type="number" min="320" max="1100" step="10"></label>
               <label>Message width<input id="message-width-input" type="number" min="280" max="900" step="10"></label>
+              <label>Composer width<input id="composer-width-input" type="number" min="280" max="1100" step="10"></label>
+              <label>Base font size<input id="base-font-size-input" type="number" min="12" max="22" step="1"></label>
+              <label>Message spacing<input id="message-spacing-input" type="number" min="8" max="64" step="2"></label>
+              <label>Border radius<input id="radius-input" type="number" min="0" max="40" step="1"></label>
+              <label>Prompt layout<select id="suggestion-layout-input"><option value="stack">Stack</option><option value="grid">Grid</option></select></label>
               <label>Message style<select id="user-style-input"><option value="bubble">Bubble</option><option value="minimal">Minimal</option></select></label>
               <label>Assistant style<select id="assistant-style-input"><option value="minimal">Minimal</option><option value="bubble">Bubble</option></select></label>
             </div>
@@ -113,6 +156,7 @@
               <label><input id="header-enabled-input" type="checkbox"> Show header</label>
               <label><input id="show-logo-input" type="checkbox"> Show logo mark</label>
               <label><input id="show-name-input" type="checkbox"> Show hotel name</label>
+              <label><input id="show-concierge-input" type="checkbox"> Show concierge name</label>
             </div>
             <h2>Suggested prompts</h2>
             <div class="prompt-list" id="prompt-list"></div>
@@ -132,9 +176,9 @@
             </div>
             <div class="phone-preview mobile" id="chat-preview">
               <header>
-                <button>☰</button>
+                <button type="button" disabled title="Preview only">☰</button>
                 <div class="preview-brand"><span class="preview-logo" id="preview-logo">D</span><div><strong id="preview-hotel">Demo Hotel</strong><span id="preview-concierge">Ava</span></div></div>
-                <button>⋯</button>
+                <button type="button" disabled title="Preview only">⋯</button>
               </header>
               <main>
                 <section class="preview-welcome">
@@ -147,25 +191,142 @@
                   <div class="assistant-copy">Here are a few nearby options that should work well. I can narrow these by cuisine, budget, or walking distance.</div>
                 </section>
               </main>
-              <footer><span id="preview-placeholder">Ask your concierge...</span><button>↑</button></footer>
+              <footer><span id="preview-placeholder">Ask your concierge...</span><button type="button" disabled title="Preview only">↑</button></footer>
             </div>
           </section>
         </div>
       </section>
 
       <section class="panel" id="guest">
-        <div class="page-title"><p>Guest experience</p><h1>Conversation modules</h1></div>
-        <section class="card">
-          <table>
-            <thead><tr><th>Module</th><th>Trigger</th><th>Status</th><th>Action</th></tr></thead>
-            <tbody>
-              <tr><td>Wi-Fi authentication</td><td>Wi-Fi / internet intent</td><td>Enabled</td><td><button disabled title="Configuration API is not implemented yet.">Locked</button></td></tr>
-              <tr><td>Restaurant recommendations</td><td>Dining / nearby intent</td><td>Enabled</td><td><button disabled title="Recommendation source management is not implemented yet.">Locked</button></td></tr>
-              <tr><td>Housekeeping request</td><td>Service intent</td><td>POC</td><td><button disabled title="Service workflow configuration is not implemented yet.">Locked</button></td></tr>
-              <tr><td>Late checkout</td><td>Checkout intent</td><td>POC</td><td><button disabled title="Service workflow configuration is not implemented yet.">Locked</button></td></tr>
-            </tbody>
-          </table>
-        </section>
+        <div class="page-title"><div><p>Guest experience</p><h1>Conversation modules</h1><span>Enabled modules appear in the guest menu in the configured order.</span></div></div>
+        <div class="two-col"><section class="card"><h2>Module</h2><input id="guest-module-id" type="hidden"><label>Name<input id="guest-module-name" maxlength="80"></label><label>Guest prompt<textarea id="guest-module-prompt" rows="3" placeholder="What time is breakfast?"></textarea></label><label>Order<input id="guest-module-order" type="number" min="0" max="99" value="0"></label><label class="check-row"><input id="guest-module-enabled" type="checkbox" checked> Enabled</label><button id="save-guest-module" type="button">Save Module</button></section><section class="card"><h2>Published modules</h2><div id="guest-module-list" class="compact-list"></div></section></div>
+      </section>
+
+      <section class="panel" id="personalization-settings">
+        <div class="page-title"><div><p>Guest experience</p><h1>Personalization</h1><span>Set property-wide memory rules. Guests can always choose a more private level for themselves.</span></div></div>
+        <div class="two-col">
+          <section class="card settings-form">
+            <h2>Guest memory</h2>
+            <label class="check-row"><input id="personalization-enabled" type="checkbox"> Personalization enabled</label>
+            <label>Default level<select id="personalization-default-level"><option value="private">Private / Anonymous</option><option value="stay">Stay Personalization</option><option value="personal">Personal Concierge</option></select></label>
+            <label class="check-row"><input id="personalization-learning" type="checkbox"> Learn preferences from conversation</label>
+            <label class="check-row"><input id="personalization-profile" type="checkbox"> Allow Personal Concierge profile</label>
+            <label class="check-row"><input id="personalization-delete-checkout" type="checkbox"> Delete profile at checkout</label>
+            <div class="inline-fields"><label>Memory retention<select id="personalization-retention"><option value="stay_only">Stay only</option><option value="configurable">Configurable</option></select></label><label>Retention days<input id="personalization-retention-days" type="number" min="1" max="365" value="2"></label></div>
+            <label class="check-row"><input id="personalization-pms" type="checkbox"> Allow authorized PMS personalization</label>
+          </section>
+          <section class="card settings-form">
+            <h2>Recommendation context</h2>
+            <label class="check-row"><input id="personalization-location" type="checkbox"> Allow location-aware recommendations</label>
+            <label class="check-row"><input id="personalization-internet" type="checkbox"> Allow internet recommendations</label>
+            <p class="field-note">Internet and location recommendations also remain subject to the property's network, guardrail, provider, and location configuration.</p>
+            <button id="save-personalization-policy" type="button" data-permission="properties.edit">Save Personalization Settings</button>
+            <p class="field-note">Guest preferences are private to their property and session. This settings page does not expose guest conversation contents or preference values.</p>
+          </section>
+        </div>
+      </section>
+
+      <section class="panel" id="zones">
+        <div class="page-title"><p>Zones</p><h1>Facility mapping and floor-plan editor</h1></div>
+        <div class="map-workspace">
+          <aside class="map-sidebar">
+            <h2>Tools</h2>
+            <div class="tool-grid">
+              <button data-map-tool="select">Select</button><button data-map-tool="rectangle">Rectangle</button>
+              <button data-map-tool="polygon">Polygon</button><button data-map-tool="ellipse">Ellipse</button>
+              <button data-map-tool="freeform">Freeform</button>
+              <button id="duplicate-map-object" type="button">Duplicate</button><button id="delete-map-object" type="button">Delete</button>
+              <button id="undo-map" type="button">Undo</button><button id="redo-map" type="button">Redo</button>
+            </div>
+            <h2>Layers</h2>
+            <label><input class="layer-toggle" data-layer="access_points" type="checkbox" checked> Access Points</label>
+            <label><input class="layer-toggle" data-layer="facilities" type="checkbox" checked> Facilities</label>
+            <label><input class="layer-toggle" data-layer="zones" type="checkbox" checked> Zones</label>
+            <label><input class="layer-toggle" data-layer="navigation" type="checkbox" checked> Navigation Paths</label>
+            <label><input class="layer-toggle" data-layer="floor_plan" type="checkbox" checked> Uploaded Floor Plan</label>
+            <h2>Hierarchy</h2>
+            <div id="zone-tree" class="compact-list"></div>
+          </aside>
+          <section class="map-canvas-shell">
+            <div class="map-topbar">
+              <select id="zone-building-select"></select>
+              <select id="zone-floor-select"></select>
+              <input id="floor-map-upload" type="file" accept="image/png,image/jpeg,image/svg+xml,application/pdf">
+              <button id="save-map-object" type="button">Save Object</button>
+            </div>
+            <canvas id="floor-map-canvas" width="1200" height="720"></canvas>
+          </section>
+          <aside class="map-properties">
+            <h2>Selected Object</h2>
+            <label>Type<select id="map-object-type"><option value="zone">Zone</option><option value="facility">Facility</option><option value="access_point">Wi-Fi AP</option><option value="entrance">Entrance</option><option value="exit">Exit</option><option value="elevator">Elevator</option><option value="stairs">Stairs</option><option value="navigation">Navigation Path</option><option value="label">Label</option></select></label>
+            <label>Name<input id="map-object-name" placeholder="Lobby"></label>
+            <label>Guest visible<select id="map-object-visible"><option value="true">Visible to guests</option><option value="false">Operations only</option></select></label>
+            <label>AP identifier<input id="map-ap-identifier" placeholder="ap-lobby-01"></label>
+            <p class="field-note">Guest APIs never expose AP identifiers or WLAN infrastructure. APs map devices to aggregate zones only.</p>
+          </aside>
+        </div>
+      </section>
+
+      <section class="panel" id="sessions">
+        <div class="page-title"><p>Sessions</p><h1>Guest stay memory and device identity</h1></div>
+        <div class="two-col">
+          <section class="card">
+            <h2>Reconnect a WLAN device</h2>
+            <label>Raw MAC from ANTlabs/WLAN<input id="session-raw-mac" placeholder="AA:BB:CC:DD:EE:FF"></label>
+            <label>Room (optional)<input id="session-room" placeholder="1503"></label>
+            <button id="create-stay-session" type="button">Create / Restore Stay</button>
+            <p class="field-note">Raw MAC values are accepted only server-side and converted to property-scoped HMAC device IDs.</p>
+          </section>
+          <section class="card">
+            <h2>AI Memory</h2>
+            <label>Stay ID<input id="memory-stay-id"></label>
+            <label>Summary<textarea id="memory-summary" rows="4"></textarea></label>
+            <button id="save-stay-memory" type="button">Save Compact Memory</button>
+          </section>
+        </div>
+        <section class="card table-card"><h2>Active / History</h2><div id="session-list" class="compact-list"></div></section>
+      </section>
+
+      <section class="panel" id="location">
+        <div class="page-title"><div><p>Location Analytics</p><h1>Locations, occupancy, and movement</h1><span>Manage guest-visible property locations and review aggregate WLAN-derived activity.</span></div></div>
+        <div class="two-col"><section class="card"><h2>Location</h2><input id="location-id" type="hidden"><label>Name<input id="location-name" maxlength="160"></label><label>Type<input id="location-type" maxlength="80" placeholder="entrance, venue, landmark"></label><label>Description<textarea id="location-description" rows="3" maxlength="1000"></textarea></label><div class="inline-fields"><label>Latitude<input id="location-latitude" type="number" step="any"></label><label>Longitude<input id="location-longitude" type="number" step="any"></label></div><label class="check-row"><input id="location-visible" type="checkbox" checked> Guest visible</label><button id="save-location" type="button">Save Location</button></section><section class="card"><h2>Managed locations</h2><div id="managed-location-list" class="compact-list"></div></section></div>
+        <section class="metrics" id="location-live-metrics"></section>
+        <div class="two-col">
+          <section class="card">
+            <h2>Record AP Observation</h2>
+            <label>Device MAC<input id="obs-raw-mac" placeholder="AA:BB:CC:DD:EE:FF"></label>
+            <label>Access Point ID<input id="obs-ap-id" placeholder="ap-lobby-01"></label>
+            <button id="record-observation" type="button">Record Observation</button>
+            <p class="field-note">V1 analytics are zone occupancy from associated AP. This is not meter-level indoor positioning.</p>
+          </section>
+          <section class="card">
+            <h2>Report Filter</h2>
+            <label>Period<select id="analytics-period"><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option></select></label>
+            <button id="load-location-report" type="button">Load Report</button>
+          </section>
+        </div>
+        <section class="card table-card"><h2>Area and Movement Report</h2><div id="location-report" class="compact-list"></div></section>
+      </section>
+
+      <section class="panel" id="intro">
+        <div class="page-title"><p>Branding</p><h1>Intro experience</h1></div>
+        <div class="two-col">
+          <section class="card">
+            <label>Mode<select id="intro-mode"><option value="none">None</option><option value="generate_from_logo">Generate from logo</option><option value="custom_upload">Upload custom animation</option></select></label>
+            <label>Preset<select id="intro-preset"><option value="none">None</option><option value="minimal_fade">Minimal Fade</option><option value="fade_scale">Fade + Scale</option><option value="luxury_reveal">Luxury Reveal</option><option value="particle_assemble">Particle Assemble</option><option value="line_draw">Line Draw</option><option value="glass_blur">Glass / Blur</option><option value="split_reveal">Split Reveal</option><option value="logo_to_chat_header">Logo -> Chat Header</option></select></label>
+            <label>Duration ms<input id="intro-duration" type="number" min="300" max="8000" step="100"></label>
+            <label>Welcome message<input id="intro-message"></label>
+            <div class="inline-fields"><label>Background<input id="intro-background" type="color"></label><label>Brand color<input id="intro-brand-color" type="color"></label></div>
+            <label><input id="intro-first-visit" type="checkbox"> First visit only</label>
+            <label><input id="intro-skip" type="checkbox"> Allow Skip</label>
+            <label>Custom asset<input id="intro-upload" type="file" accept=".lottie,application/json,.json,video/webm,video/mp4"></label>
+            <button id="save-intro" type="button">Save Intro</button>
+          </section>
+          <section class="intro-preview">
+            <div id="intro-preview-card"><strong>C</strong><span id="intro-preview-message">Welcome</span><button type="button" disabled title="Preview only">Skip</button></div>
+            <p class="field-note">If animation loading fails or reduced motion is preferred, the guest app shows the logo and continues directly to chat.</p>
+          </section>
+        </div>
       </section>
 
       <section class="panel" id="ai">
@@ -186,66 +347,293 @@
         </section>
       </section>
 
-      <section class="panel" id="knowledge">
-        <div class="page-title"><p>Knowledge</p><h1>Hotel source library</h1></div>
-        <p class="poc-note">Not available in this POC. Knowledge is seeded from data/hotel.json.</p>
-        <section class="upload-zone" aria-disabled="true">Drop PDFs, menus, policies, and FAQs here</section>
-        <section class="card">
-          <table><thead><tr><th>Name</th><th>Type</th><th>Status</th><th>Chunks</th><th>Updated</th></tr></thead><tbody>
-            <tr><td>Guest directory</td><td>PDF</td><td>Ready</td><td>126</td><td>Today</td></tr>
-            <tr><td>Wi-Fi FAQ</td><td>Seed</td><td>Ready</td><td>6</td><td>Initial</td></tr>
-          </tbody></table>
+      <section class="panel" id="improvement-loop">
+        <div class="page-title loop-page-title">
+          <div><p>Controlled intelligence</p><h1>Continuous improvement loop</h1></div>
+          <span class="loop-status-badge draft" id="loop-status-badge"><i aria-hidden="true"></i><span>Draft</span></span>
+        </div>
+        <section class="loop-command-bar" aria-label="Loop controls">
+          <div><strong id="loop-command-title">Ready to configure</strong><span id="loop-command-detail">The operator remains the only authority who can end the loop as satisfied.</span></div>
+          <div class="loop-actions">
+            <button class="secondary" id="loop-run-once" type="button">Run once</button>
+            <button id="loop-start" type="button">Start loop</button>
+            <button class="secondary" id="loop-pause" type="button">Pause</button>
+            <button class="secondary" id="loop-resume" type="button">Resume</button>
+            <button class="secondary danger" id="loop-stop" type="button">Stop</button>
+            <button class="loop-satisfied" id="loop-satisfied" type="button">Mark satisfied</button>
+          </div>
+        </section>
+        <div class="loop-layout">
+          <section class="card loop-config">
+            <div class="card-heading"><div><span>Definition</span><h2>Objective and authority</h2></div><span class="card-chip" id="loop-iteration-count">0 iterations</span></div>
+            <label>Objective<textarea id="loop-objective" rows="3" placeholder="What should improve?"></textarea></label>
+            <label>Satisfaction criteria<textarea id="loop-criteria" rows="4" placeholder="Define the concrete conditions you will accept."></textarea></label>
+            <label>Current evidence<textarea id="loop-evidence" rows="4" placeholder="Paste test results, observations, metrics, or current product state."></textarea></label>
+            <div class="loop-field-grid">
+              <label>AI provider<select id="loop-provider"></select></label>
+              <label>Model<select id="loop-model"></select></label>
+              <label>Authority mode<select id="loop-approval-mode"><option value="manual">Approval every iteration</option><option value="continuous">Continuous advisory</option></select></label>
+              <label>Interval (seconds)<input id="loop-interval" type="number" min="5" max="86400" value="60"></label>
+              <label>Maximum iterations<input id="loop-max-iterations" type="number" min="0" max="100000" value="0"></label>
+              <label>Failure limit<input id="loop-failure-limit" type="number" min="1" max="20" value="3"></label>
+            </div>
+            <p class="field-note">Set maximum iterations to 0 for unlimited. Pause, Stop, and Mark satisfied remain available.</p>
+            <button id="loop-save" type="button">Save loop configuration</button>
+          </section>
+          <section class="card loop-review">
+            <div class="card-heading"><div><span>Human gate</span><h2>Review the latest iteration</h2></div><span class="card-chip" id="loop-review-state">No review</span></div>
+            <div class="loop-latest" id="loop-latest"><p>No iteration has run yet.</p></div>
+            <label>Operator feedback<textarea id="loop-feedback" rows="4" placeholder="Tell the selected model what must change next."></textarea></label>
+            <div class="loop-review-actions"><button id="loop-approve" type="button">Approve and continue</button><button class="secondary" id="loop-revise" type="button">Request revision</button></div>
+          </section>
+        </div>
+        <section class="card loop-history-card">
+          <div class="card-heading"><div><span>Audit trail</span><h2>Iteration history</h2></div><span class="card-chip">Persistent</span></div>
+          <div class="loop-history" id="loop-history"></div>
         </section>
       </section>
 
+      <section class="panel" id="knowledge">
+        <div class="page-title"><div><p>Knowledge</p><h1>Hotel source library</h1><span>Approved property facts are retrieved as verified context for guest answers.</span></div></div>
+        <section class="card"><h2>Knowledge Health</h2><div id="knowledge-health" class="knowledge-health">Loading measured coverage…</div><p class="field-note">Coverage uses eight required categories and six core facts found in published, active items.</p></section>
+        <section class="card"><div class="card-heading"><div><span>Review queue</span><h2>Extracted knowledge</h2></div></div><label>Search knowledge<input id="managed-knowledge-search" type="search" placeholder="Search titles and content"></label><div id="managed-knowledge-list" class="compact-list"></div></section>
+        <div class="two-col"><section class="card"><h2>Knowledge entry</h2><input id="knowledge-id" type="hidden"><label>Title<input id="knowledge-title" maxlength="200"></label><label>Approved content<textarea id="knowledge-body" rows="8" maxlength="50000"></textarea></label><label class="check-row"><input id="knowledge-enabled" type="checkbox" checked> Available to Concierge AI</label><button id="save-knowledge" type="button">Save Knowledge</button></section><section class="card"><h2>Managed entries</h2><div id="knowledge-list" class="compact-list"></div></section></div>
+      </section>
+
       <section class="panel" id="wifi">
-        <div class="page-title"><p>Wi-Fi / ANTlabs</p><h1>Gateway handoff settings</h1></div>
-        <p class="poc-note">Not available in this POC. ANTlabs mode is configured via ANTLABS_MODE environment variable.</p>
-        <section class="card form-grid">
-          <label>Mode<select disabled title="Not available in this POC"><option>mock</option><option>browser_handoff</option></select></label>
-          <label>Login URL<input placeholder="Validated SG5 URL" disabled title="Not available in this POC"></label>
-          <label>Room field<input placeholder="Validated field" disabled title="Not available in this POC"></label>
-          <label>Last-name field<input placeholder="Validated field" disabled title="Not available in this POC"></label>
-          <label>Session context key<input placeholder="Gateway context key" disabled title="Not available in this POC"></label>
-          <label>Success redirect<input placeholder="/resume" disabled title="Not available in this POC"></label>
-        </section>
+        <div class="page-title"><div><p>Wi-Fi / ANTlabs</p><h1>Gateway connection status</h1><span>Runtime settings remain environment-controlled so gateway credentials never reach the browser.</span></div><button id="test-antlabs" type="button">Test Connection</button></div>
+        <section class="card"><dl class="detail-list"><div><dt>Configuration</dt><dd id="antlabs-configured">Checking</dd></div><div><dt>Mode</dt><dd id="antlabs-mode">—</dd></div><div><dt>Status</dt><dd id="antlabs-status">—</dd></div><div><dt>Endpoint</dt><dd id="antlabs-endpoint">Not configured</dd></div><div><dt>Last check</dt><dd id="antlabs-last-check">Never</dd></div></dl><p class="field-note" id="antlabs-detail">Use Test Connection to verify gateway reachability. Mock mode never contacts hardware.</p></section>
       </section>
 
       <section class="panel" id="auth-types">
         <div class="page-title"><p>Authentication</p><h1>Enabled login methods</h1></div>
-        <p class="poc-note">Turn on the authentication methods available for this hotel. The concierge will use this summary when explaining how guests can connect.</p>
+        <p class="poc-note">Guests can submit only the methods enabled here. Save changes to apply them to the guest login form.</p>
         <section class="auth-type-list" id="auth-type-list" aria-label="Authentication type list"></section>
+        <button id="save-auth-types" type="button">Save Authentication Methods</button>
+      </section>
+
+      <section class="panel" id="conversations">
+        <div class="page-title"><div><p>Guest Experience</p><h1>Conversations</h1><span>Guest messages, AI responses, escalation, and human takeover.</span></div><button class="secondary" id="refresh-conversations" type="button">Refresh</button></div>
+        <section class="card retention-card"><div><h2>Privacy and retention</h2><p class="field-note">Active conversations support service delivery and human takeover. Historical messages are deleted after the configured retention period.</p></div><label>Retention days<input id="conversation-retention-days" type="number" min="1" max="365" value="30"></label><button id="save-conversation-retention" type="button">Save Retention</button></section>
+        <div class="two-col">
+          <section class="card"><h2>Conversation list</h2><label>Search<input id="conversation-search" type="search" aria-label="Search conversations"></label><label>Status<select id="conversation-status-filter"><option value="">All statuses</option><option value="open">Open</option><option value="escalated">Escalated</option><option value="closed">Closed</option></select></label><div id="conversation-list" class="compact-list"></div></section>
+          <section class="card"><h2>Message history</h2><div id="conversation-messages" class="compact-list">Select a conversation.</div><label data-permission="conversations.assign">Assign to staff<select id="conversation-staff-select"></select></label><button class="secondary" id="assign-conversation" type="button" data-permission="conversations.assign" disabled>Assign Conversation</button><label>Staff response<textarea id="staff-response" rows="3"></textarea></label><div class="dialog-actions"><button class="secondary" id="toggle-takeover" type="button" disabled>Accept / Return to AI</button><button class="secondary" id="close-conversation" type="button" disabled>Resolve</button><button id="send-staff-response" type="button" disabled>Send Response</button></div></section>
+        </div>
       </section>
 
       <section class="panel" id="requests">
         <div class="page-title"><p>Operations</p><h1>Service request workflow</h1></div>
-        <p class="poc-note">Not available in this POC. Service requests are simulated in the guest chat.</p>
-        <section class="card"><table><thead><tr><th>Request</th><th>Room</th><th>Status</th><th>Assigned</th></tr></thead><tbody>
-          <tr><td>Two towels</td><td>1503</td><td>Open</td><td>Housekeeping</td></tr>
-          <tr><td>Late checkout</td><td>0818</td><td>Review</td><td>Front desk</td></tr>
-        </tbody></table></section>
+        <div class="two-col">
+          <section class="card">
+            <h2>Create request</h2>
+            <label>Room<input id="service-room" placeholder="1503"></label>
+            <label>Service<select id="service-type"><option value="">Select a configured service</option></select></label>
+            <label>Department<select id="service-department"><option value="">Select a department</option></select></label>
+            <label>Priority<select id="service-priority"><option value="low">Low</option><option value="normal" selected>Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></label>
+            <label>Description<textarea id="service-description" rows="3" placeholder="Please send two towels."></textarea></label>
+            <label>SLA minutes<input id="service-sla" type="number" min="1" max="240" value="15"></label>
+            <button id="create-service-request" type="button">Create Request</button>
+          </section>
+          <section class="card">
+            <h2>Open operations</h2>
+            <div id="service-request-list" class="compact-list"></div>
+          </section>
+        </div>
       </section>
 
-      <section class="panel" id="deployment">
-        <div class="page-title"><p>Deployment</p><h1>On-prem runtime</h1></div>
-        <section class="card status-list">
-          <div><dt>Canonical guest URL</dt><dd>https://concierge.hotel.com</dd></div>
-          <div><dt>HTTPS</dt><dd>Required for pilot</dd></div>
-          <div><dt>Guest VLAN policy</dt><dd>Allow Concierge HTTPS only</dd></div>
-        </section>
+      <section class="panel" id="service-catalog">
+        <div class="page-title"><div><p>Property</p><h1>Service Catalog</h1><span>Departments route work to operational teams. Services are the guest-request choices assigned to those teams, with SLAs and confirmation rules.</span></div></div>
+        <div class="two-col">
+          <section class="card">
+            <h2>Department</h2>
+            <input id="department-id" type="hidden">
+            <label>Name<input id="department-name" maxlength="120"></label>
+            <label>Default SLA minutes<input id="department-sla" type="number" min="1" max="1440" value="30"></label>
+            <label>Escalation target<input id="department-escalation" maxlength="240"></label>
+            <label class="check-row"><input id="department-enabled" type="checkbox" checked> Enabled</label>
+            <button id="save-department" type="button">Save Department</button>
+            <div id="department-list" class="compact-list"></div>
+          </section>
+          <section class="card">
+            <h2>Service</h2>
+            <input id="catalog-service-id" type="hidden">
+            <label>Name<input id="catalog-service-name" maxlength="160"></label>
+            <label>Department<select id="catalog-service-department"><option value="">Unassigned</option></select></label>
+            <label>Keywords<input id="catalog-service-keywords" placeholder="crib, baby bed"></label>
+            <label>Description<textarea id="catalog-service-description" rows="3"></textarea></label>
+            <label>SLA minutes<input id="catalog-service-sla" type="number" min="1" max="1440" value="30"></label>
+            <label class="check-row"><input id="catalog-service-confirm" type="checkbox" checked> Confirmation required</label>
+            <label class="check-row"><input id="catalog-service-enabled" type="checkbox" checked> Enabled</label>
+            <button id="save-catalog-service" type="button">Save Service</button>
+            <div id="catalog-service-list" class="compact-list"></div>
+          </section>
+        </div>
       </section>
 
-      <section class="panel" id="license">
-        <div class="page-title"><p>License</p><h1>Concierge.Ai Pro</h1></div>
-        <section class="license-grid">
-          <article><span>Type</span><strong>Perpetual</strong></article>
-          <article><span>Rooms</span><strong>248 / 300</strong></article>
-          <article><span>Nodes</span><strong>1 / 2</strong></article>
-          <article><span>Maintenance</span><strong>Until Sep 19, 2027</strong></article>
+      <section class="panel" id="users">
+        <div class="page-title"><div><p>Users &amp; Access</p><h1>User management</h1><span>Manage username-based administrator accounts and active sessions.</span></div><button id="create-user-button" type="button" data-permission="users.create">Create User</button></div>
+        <div class="table-toolbar">
+          <input id="user-search" type="search" placeholder="Search username or display name" aria-label="Search users">
+          <select id="user-status-filter" aria-label="Filter by status"><option value="">All statuses</option><option value="active">Active</option><option value="disabled">Disabled</option><option value="locked">Locked</option></select>
+          <span id="user-count">0 users</span>
+        </div>
+        <div class="data-table-shell">
+          <table class="data-table" id="users-table">
+            <thead><tr><th>Username</th><th>Display Name</th><th>Property</th><th>Role</th><th>Status</th><th>Last Login</th><th>Created</th><th><span class="sr-only">Actions</span></th></tr></thead>
+            <tbody id="users-table-body"></tbody>
+          </table>
+          <div class="table-empty" id="users-empty" hidden>No users match this view.</div>
+        </div>
+      </section>
+
+      <section class="panel" id="roles">
+        <div class="page-title"><div><p>Users &amp; Access</p><h1>Roles</h1><span>System roles provide secure defaults. Custom roles can be tailored by permission.</span></div><button id="create-role-button" type="button" data-permission="roles.manage">Create Role</button></div>
+        <div class="role-list" id="role-list"></div>
+      </section>
+
+      <section class="panel" id="permissions">
+        <div class="page-title"><div><p>Users &amp; Access</p><h1>Permission catalog</h1><span>Every administrative capability is checked by the API before data is read or changed.</span></div></div>
+        <div class="permission-catalog" id="permission-catalog"></div>
+      </section>
+
+      <section class="panel" id="audit">
+        <div class="page-title"><div><p>System</p><h1>Audit logs</h1><span>Administrative activity across users, properties, configuration, and security.</span></div><button class="secondary" id="refresh-audit" type="button">Refresh</button></div>
+        <div class="filter-bar">
+          <input id="audit-username" placeholder="Username">
+          <select id="audit-property"><option value="">All properties</option></select>
+          <input id="audit-action" placeholder="Action">
+          <input id="audit-resource" placeholder="Resource">
+          <input id="audit-date" type="date" aria-label="Audit date">
+          <button id="apply-audit-filters" type="button">Apply</button>
+        </div>
+        <div class="data-table-shell">
+          <table class="data-table"><thead><tr><th>Timestamp</th><th>User</th><th>Role</th><th>Property</th><th>Action</th><th>Resource</th><th>IP Address</th></tr></thead><tbody id="audit-table-body"></tbody></table>
+          <div class="table-empty" id="audit-empty" hidden>No audit events match these filters.</div>
+        </div>
+      </section>
+
+      <section class="panel" id="profile">
+        <div class="page-title"><div><p>Account</p><h1>Profile</h1><span>Your administrator identity and assigned access scope.</span></div></div>
+        <div class="settings-layout">
+          <section class="settings-section"><h2>Identity</h2><dl class="detail-list"><div><dt>Display name</dt><dd id="profile-detail-name">—</dd></div><div><dt>Username</dt><dd id="profile-detail-username">—</dd></div><div><dt>Role</dt><dd id="profile-detail-role">—</dd></div><div><dt>Property</dt><dd id="profile-detail-property">—</dd></div><div><dt>Recovery email</dt><dd id="profile-detail-email">Not configured</dd></div></dl></section>
+        </div>
+      </section>
+
+      <section class="panel" id="security">
+        <div class="page-title"><div><p>Account</p><h1>Security</h1><span>Change your password and review session protections.</span></div></div>
+        <div class="settings-layout">
+          <section class="settings-section"><h2>Change password</h2><form id="change-password-form"><label>Current password<input id="current-password" type="password" autocomplete="current-password" required></label><label>New password<input id="new-password" type="password" autocomplete="new-password" required></label><label>Confirm new password<input id="confirm-new-password" type="password" autocomplete="new-password" required></label><p class="field-note">Use at least 12 characters with upper- and lowercase letters, a number, and a symbol.</p><button type="submit">Change Password</button></form></section>
+          <section class="settings-section"><h2>Session policy</h2><dl class="detail-list"><div><dt>Authentication</dt><dd>Username + password</dd></div><div><dt>Session cookie</dt><dd>HTTP-only, SameSite Strict</dd></div><div><dt>Session expires</dt><dd id="session-expiry">—</dd></div><div><dt>CSRF protection</dt><dd>Enabled</dd></div></dl></section>
+        </div>
+      </section>
+
+      <section class="panel" id="hotel-information">
+        <div class="page-title"><div><p>Property</p><h1>Hotel information</h1><span>Published property facts used by the guest experience and verified-answer paths.</span></div></div>
+        <div class="two-col"><section class="card"><h2>Identity and contact</h2><label>Hotel name<input id="hotel-info-name" maxlength="200"></label><label>Description<textarea id="hotel-info-description" rows="4"></textarea></label><label>Address<textarea id="hotel-info-address" rows="2"></textarea></label><label>Phone<input id="hotel-info-phone" maxlength="80"></label><label>Email<input id="hotel-info-email" type="email" maxlength="254"></label><label>Website<input id="hotel-info-website" type="url" maxlength="500"></label></section><section class="card"><h2>Stay guidance</h2><label>Check-in<input id="hotel-info-checkin" placeholder="3:00 PM"></label><label>Checkout<input id="hotel-info-checkout" placeholder="12:00 PM"></label><label>Breakfast information<textarea id="hotel-info-breakfast" rows="2"></textarea></label><label>Wi-Fi guidance<textarea id="hotel-info-wifi" rows="2"></textarea></label><label>Policies<textarea id="hotel-info-policies" rows="3" placeholder="One policy per line"></textarea></label><div class="dialog-actions"><button class="secondary" id="clear-hotel-information" type="button">Clear Optional Fields</button><button id="save-hotel-information" type="button">Save &amp; Publish</button></div></section></div>
+      </section>
+      <section class="panel" id="rooms"><div class="page-title"><div><p>Property</p><h1>Rooms</h1><span>Property-scoped room types and guest-facing room information. This inventory is independent of any PMS.</span></div></div><div class="two-col"><section class="card"><h2>Room</h2><input id="room-id" type="hidden"><label>Name / type<input id="room-name" maxlength="160"></label><label>Description<textarea id="room-description" rows="3"></textarea></label><label>Capacity<input id="room-capacity" type="number" min="1" max="30" value="2"></label><label>Status<select id="room-status"><option value="available">Available</option><option value="unavailable">Unavailable</option><option value="maintenance">Maintenance</option></select></label><button id="save-room" type="button">Save Room</button></section><section class="card"><h2>Managed rooms</h2><div id="room-list" class="compact-list"></div></section></div></section>
+      <section class="panel" id="facilities"><div class="page-title"><div><p>Property</p><h1>Facilities</h1><span>Manage amenities, locations, hours, and live availability used by guest answers.</span></div></div><div class="two-col"><section class="card"><h2>Facility</h2><input id="facility-id" type="hidden"><label>Name<input id="facility-name" maxlength="160"></label><label>Type<input id="facility-type" placeholder="pool, gym, spa" maxlength="80"></label><label>Location<input id="facility-location" maxlength="240"></label><label>Hours<input id="facility-hours" placeholder="06:00–22:00"></label><label>Status<select id="facility-status"><option value="open">Open</option><option value="closed">Closed</option><option value="temporarily_closed">Temporarily closed</option><option value="maintenance">Maintenance</option><option value="private_event">Private event</option></select></label><label>Description<textarea id="facility-description" rows="3"></textarea></label><button id="save-facility" type="button">Save Facility</button></section><section class="card"><h2>Managed facilities</h2><div id="facility-list" class="compact-list"></div></section></div></section>
+      <section class="panel" id="restaurants">
+        <div class="page-title"><div><p>Property</p><h1>Restaurants</h1><span>Manage assigned dining venues, menus, hours, promotions, and guest-facing information.</span></div></div>
+        <div class="two-col">
+          <section class="card" data-permission="restaurant.manage"><h2>Dining venue</h2><input id="restaurant-id" type="hidden"><label>Name<input id="restaurant-name" maxlength="160"></label><label>Property Facility / Zone<select id="restaurant-facility"><option value="">No linked facility</option></select></label><label>Location<input id="restaurant-location" maxlength="240"></label><label>Hours summary<input id="restaurant-hours" placeholder="Breakfast 06:30–10:30"></label><div class="hours-week-grid" aria-label="Restaurant hours by day"><label>Monday<input id="restaurant-hours-monday" placeholder="06:30–22:00"></label><label>Tuesday<input id="restaurant-hours-tuesday" placeholder="06:30–22:00"></label><label>Wednesday<input id="restaurant-hours-wednesday" placeholder="06:30–22:00"></label><label>Thursday<input id="restaurant-hours-thursday" placeholder="06:30–22:00"></label><label>Friday<input id="restaurant-hours-friday" placeholder="06:30–23:00"></label><label>Saturday<input id="restaurant-hours-saturday" placeholder="06:30–23:00"></label><label>Sunday<input id="restaurant-hours-sunday" placeholder="06:30–22:00"></label></div><label>Meal periods<input id="restaurant-meals" placeholder="breakfast, lunch, dinner"></label><label>Status<select id="restaurant-status"><option value="open">Open</option><option value="closed">Closed</option><option value="temporarily_closed">Temporarily closed</option><option value="maintenance">Maintenance</option><option value="private_event">Private event</option><option value="disabled">Disabled</option></select></label><label>Cuisine<input id="restaurant-cuisine" maxlength="120"></label><label>Dress code<input id="restaurant-dress-code" maxlength="120"></label><label>Capacity<input id="restaurant-capacity" type="number" min="1" max="100000"></label><label>Phone extension<input id="restaurant-phone-extension" maxlength="80"></label><label>Reservation URL<input id="restaurant-reservation-url" type="url" maxlength="500" placeholder="https://…"></label><label>Description<textarea id="restaurant-description" rows="3"></textarea></label><label>Contact email<input id="restaurant-contact-email" type="email" maxlength="254"></label><label>Contact phone<input id="restaurant-contact-phone" maxlength="80"></label><label>Contact website<input id="restaurant-contact-website" type="url" maxlength="500"></label><label>Image URLs<input id="restaurant-images" placeholder="https://… , https://…"></label><label>Guest notes<textarea id="restaurant-guest-notes" rows="2"></textarea></label><label>Internal notes<textarea id="restaurant-internal-notes" rows="2"></textarea></label><label class="check-row"><input id="restaurant-reservations" type="checkbox"> Reservations available</label><button id="save-restaurant" type="button">Save Restaurant</button></section>
+          <section class="card"><h2>Assigned restaurants</h2><div id="restaurant-list" class="compact-list"></div></section>
+        </div>
+        <section class="card restaurant-workflows"><div class="page-title"><div><h2>Menus and promotions</h2><span>Choose a restaurant to review menus and promotions.</span></div><label>Restaurant<select id="restaurant-workflow-select"></select></label></div><div id="restaurant-analytics" class="metric-grid" data-permission="restaurant.analytics.view"></div>
+          <div class="two-col">
+            <section class="card"><h3>Menus</h3><div data-permission="restaurant.menu.edit"><input id="restaurant-menu-edit-id" type="hidden"><label>Menu name<input id="restaurant-menu-name" maxlength="160"></label><label>Meal period<input id="restaurant-menu-period" maxlength="80" placeholder="breakfast, lunch, dinner"></label><button id="save-restaurant-menu" type="button">Add Menu</button></div><label data-permission="restaurant.menu.edit">Menu<select id="restaurant-menu-select"></select></label><div class="menu-item-fields" data-permission="restaurant.menu.edit"><input id="restaurant-item-edit-id" type="hidden"><label>Item name<input id="restaurant-item-name" maxlength="160"></label><label>Description<textarea id="restaurant-item-description" rows="2"></textarea></label><label>Price<input id="restaurant-item-price" maxlength="40"></label><label>Allergens<input id="restaurant-item-allergens" placeholder="peanuts, dairy"></label><label class="check-row"><input id="restaurant-item-available" type="checkbox" checked> Available to guests</label><button id="save-restaurant-menu-item" type="button">Add Menu Item</button></div><div id="restaurant-menu-list" class="compact-list"></div></section>
+            <section class="card"><h3>Promotions</h3><div data-permission="restaurant.promotions.edit"><input id="restaurant-promotion-edit-id" type="hidden"><label>Title<input id="restaurant-promotion-title" maxlength="180"></label><label>Description<textarea id="restaurant-promotion-description" rows="2"></textarea></label><label>Starts<input id="restaurant-promotion-start" type="datetime-local"></label><label>Ends<input id="restaurant-promotion-end" type="datetime-local"></label><button id="save-restaurant-promotion" type="button">Submit for Approval</button></div><div id="restaurant-promotion-list" class="compact-list"></div></section>
+          </div>
         </section>
       </section>
+      <section class="panel" id="recommendations">
+        <div class="page-title"><div><p>Property</p><h1>Local recommendations</h1><span>Curated places shown as guest recommendation cards. Add complete descriptions and a valid map URL so Details and Directions remain useful.</span></div></div>
+        <div class="two-col">
+          <section class="card">
+            <h2>Recommendation</h2>
+            <input id="recommendation-id" type="hidden">
+            <label>Name<input id="recommendation-name" maxlength="160"></label>
+            <label>Category<input id="recommendation-category" maxlength="80"></label>
+            <label>Address<input id="recommendation-address" maxlength="300"></label>
+            <label>Map link<input id="recommendation-map-url" type="url" maxlength="500"></label>
+            <label>Description<textarea id="recommendation-description" rows="4"></textarea></label>
+            <label>Source<input id="recommendation-source" value="property" maxlength="160"></label>
+            <label class="check-row"><input id="recommendation-enabled" type="checkbox" checked> Visible to guests</label>
+            <button id="save-recommendation" type="button">Save Recommendation</button>
+          </section>
+          <section class="card"><h2>Managed recommendations</h2><div id="recommendation-list" class="compact-list"></div></section>
+        </div>
+      </section>
+      <section class="panel" id="documents"><div class="page-title"><div><p>Knowledge</p><h1>Documents</h1><span>Source files are processed into reviewable knowledge. Nothing uploads directly to Guest AI.</span></div></div><section class="card"><label>Documents<input id="knowledge-document-upload" type="file" multiple accept=".pdf,.docx,.xlsx,.csv,.txt,.md,.json,.pptx,.png,.jpg,.jpeg,.webp"></label><p class="field-note">PDF, DOCX, XLSX, CSV, TXT, Markdown, JSON, PPTX, PNG, JPEG, WEBP. Limits are configurable. Images require Tesseract OCR.</p><div id="document-list" class="compact-list"></div></section></section>
+      <section class="panel" id="faqs"><div class="page-title"><div><p>Knowledge</p><h1>FAQs</h1><span>Approved questions and answers available to the concierge retrieval layer.</span></div></div><div class="two-col"><section class="card"><h2>FAQ</h2><input id="faq-id" type="hidden"><label>Question<input id="faq-question" maxlength="500"></label><label>Approved answer<textarea id="faq-answer" rows="6" maxlength="12000"></textarea></label><label class="check-row"><input id="faq-enabled" type="checkbox" checked> Available to Concierge AI</label><button id="save-faq" type="button">Save FAQ</button></section><section class="card"><h2>Managed FAQs</h2><div id="faq-list" class="compact-list"></div></section></div></section>
+      <section class="panel" id="ai-personality"><div class="page-title"><div><p>AI</p><h1>AI personality</h1><span>Property-specific response style. System safety rules always take precedence.</span></div></div><section class="card settings-form"><div class="form-grid"><label>Concierge identity<input id="personality-name" maxlength="80"></label><label>Tone<select id="personality-tone"><option value="warm">Warm</option><option value="professional">Professional</option><option value="friendly">Friendly</option><option value="luxury">Luxury</option></select></label><label>Formality<select id="personality-formality"><option value="balanced">Balanced</option><option value="formal">Formal</option><option value="casual">Casual</option></select></label><label>Response length<select id="personality-length"><option value="concise">Concise</option><option value="balanced">Balanced</option><option value="detailed">Detailed</option></select></label><label>Greeting behavior<select id="personality-greeting"><option value="first_message">First message only</option><option value="when_helpful">When helpful</option><option value="never">Never</option></select></label></div><label>Property-specific instructions<textarea id="personality-instructions" rows="5" maxlength="4000"></textarea></label><button id="save-personality" type="button">Save Personality</button></section></section>
+      <section class="panel placeholder-panel" id="system-prompt"><div class="page-title"><div><p>AI</p><h1>System prompt</h1><span>Controlled prompt policy and approved hotel context.</span></div></div><div class="empty-state"><strong>System prompts are server-managed</strong><p>This prevents accidental exposure or unsafe browser-side prompt editing.</p></div></section>
+      <section class="panel" id="guardrails"><div class="page-title"><div><p>Security</p><h1>Guardrails</h1><span>Property-scoped protections enforced by the backend on every guest workflow.</span></div></div><div class="two-col"><section class="card settings-form"><h2>Network Access</h2><label class="check-row"><input id="guardrail-network-only" type="checkbox"> Require approved hotel network</label><label>Approved subnets (CIDR)<textarea id="guardrail-cidrs" rows="4" placeholder="10.20.0.0/16&#10;192.168.20.0/24"></textarea></label><label>Trusted proxy ranges (CIDR)<textarea id="guardrail-proxies" rows="3" placeholder="10.0.0.10/32"></textarea></label><div class="form-grid"><label>Failed revalidation<select id="guardrail-revalidation"><option value="suspend">Suspend until reconnected</option><option value="expire">Expire session</option></select></label><label>Session timeout (minutes)<input id="guardrail-timeout" type="number" min="5" max="1440"></label></div><label class="check-row"><input id="guardrail-antlabs" type="checkbox"> Validate signed ANTlabs gateway context</label><label>Approved ANTlabs gateway ranges<textarea id="guardrail-antlabs-ranges" rows="2" placeholder="10.20.0.1/32"></textarea></label><label>ANTlabs signing secret<input id="guardrail-antlabs-secret" type="password" autocomplete="new-password" placeholder="Leave blank to keep the saved secret"></label></section><section class="card settings-form"><h2>Internet Access</h2><label class="check-row"><input id="guardrail-internet" type="checkbox"> Controlled internet search</label><label class="check-row"><input id="guardrail-directions" type="checkbox"> Directions</label><label class="check-row"><input id="guardrail-restaurants" type="checkbox"> Restaurant search</label><label class="check-row"><input id="guardrail-attractions" type="checkbox"> Attraction search</label><label class="check-row"><input id="guardrail-weather" type="checkbox"> Weather</label><h2>Actions</h2><label class="check-row"><input id="guardrail-services" type="checkbox"> Service requests with confirmation</label><label class="check-row"><input id="guardrail-reservations" type="checkbox"> Reservations with confirmation</label><label class="check-row"><input id="guardrail-financial" type="checkbox"> Financial actions with confirmation</label><label class="check-row"><input id="guardrail-location" type="checkbox"> Permission-based device location</label></section><section class="card settings-form"><h2>Guest Privacy and AI Safety</h2><div class="form-grid"><label>Unknown answers<select id="guardrail-unknown"><option value="state_unavailable">State that verified information is unavailable</option><option value="escalate">Escalate to hotel staff</option></select></label><label>Escalation behavior<select id="guardrail-escalation"><option value="offer_human">Offer human assistance</option><option value="automatic">Automatically escalate</option><option value="front_desk">Direct to front desk</option></select></label></div><label>Allowed topics<textarea id="guardrail-allowed" rows="3" placeholder="One topic per line"></textarea></label><label>Restricted topics<textarea id="guardrail-restricted" rows="3" placeholder="One topic per line"></textarea></label><label>Sensitive-information handling<textarea id="guardrail-sensitive" rows="3" maxlength="2000"></textarea></label><label>Human escalation rules<textarea id="guardrail-human" rows="3" maxlength="2000"></textarea></label><label class="check-row"><input id="guardrail-human-enabled" type="checkbox"> Human escalation enabled</label><label class="check-row"><input id="guardrail-audit" type="checkbox"> Security audit logging enabled</label><button id="save-guardrails" type="button">Save Guardrails</button></section><section class="card"><div class="page-title"><div><h2>Network Status Diagnostics</h2><span>Visible only to authorized administrators.</span></div><button class="secondary" id="refresh-guardrail-diagnostics" type="button">Refresh</button></div><dl class="detail-list"><div><dt>Detected client IP</dt><dd id="guardrail-diagnostic-ip">—</dd></div><div><dt>Matched network</dt><dd id="guardrail-diagnostic-network">—</dd></div><div><dt>Property</dt><dd id="guardrail-diagnostic-property">—</dd></div><div><dt>Trusted proxy</dt><dd id="guardrail-diagnostic-proxy">—</dd></div><div><dt>Network policy</dt><dd id="guardrail-diagnostic-result">—</dd></div><div><dt>Active guest sessions</dt><dd id="guardrail-diagnostic-sessions">—</dd></div></dl></section></div></section>
+      <section class="panel placeholder-panel" id="api"><div class="page-title"><div><p>Integrations</p><h1>API</h1><span>Secure integration endpoints and access policies.</span></div></div><div class="empty-state"><strong>API administration is restricted</strong><p>Credentials remain server-side and are managed through environment-backed secrets.</p></div></section>
+      <section class="panel" id="webhooks"><div class="page-title"><div><p>Integrations</p><h1>Webhooks</h1><span>Signed, property-scoped operational event delivery with status history.</span></div></div><div class="two-col"><section class="card"><h2>Endpoint</h2><input id="webhook-id" type="hidden"><label>Name<input id="webhook-name" maxlength="120"></label><label>Endpoint URL<input id="webhook-url" type="url" maxlength="1000" placeholder="https://operations.example.com/events"></label><label>Events<select id="webhook-events" multiple size="4"><option value="guest.session.started">Guest session started</option><option value="guest.request.created">Guest request created</option><option value="guest.request.updated">Guest request updated</option><option value="conversation.escalated">Conversation escalated</option></select></label><label>Signing secret<input id="webhook-secret" type="password" autocomplete="new-password" placeholder="Leave blank to keep the saved secret"></label><label class="check-row"><input id="webhook-enabled" type="checkbox" checked> Enabled</label><button id="save-webhook" type="button">Save Webhook</button></section><section class="card"><h2>Configured endpoints</h2><div id="webhook-list" class="compact-list"></div><h2>Recent deliveries</h2><div id="webhook-deliveries" class="compact-list"></div></section></div></section>
+      <section class="panel placeholder-panel" id="third-party"><div class="page-title"><div><p>Integrations</p><h1>Third-party services</h1><span>Approved hospitality and operations connections.</span></div></div><div class="empty-state"><strong>No third-party services connected</strong><p>Integrations remain isolated by property.</p></div></section>
+      <section class="panel placeholder-panel" id="questions"><div class="page-title"><div><p>Analytics</p><h1>Questions</h1><span>Guest question patterns and knowledge coverage.</span></div></div><div class="empty-state"><strong>Question analytics are collecting</strong><p>Aggregated trends will appear without exposing guest credentials.</p></div></section>
+      <section class="panel placeholder-panel" id="request-analytics"><div class="page-title"><div><p>Analytics</p><h1>Request analytics</h1><span>Volume, SLA, completion, and department trends.</span></div></div><div class="empty-state"><strong>Use Guest Requests for live operations</strong><p>Historical operational reporting will appear here.</p></div></section>
+      <section class="panel" id="ai-usage"><div class="page-title"><div><p>Analytics</p><h1>AI usage</h1><span>Recorded provider requests, errors, and latency. Cost is omitted because no verified billing data is available.</span></div><select id="ai-usage-period"><option value="1">24 hours</option><option value="7" selected>7 days</option><option value="30">30 days</option></select></div><section class="metrics" id="ai-usage-metrics"></section><section class="card"><h2>Provider and model activity</h2><div id="ai-usage-list" class="compact-list"></div></section></section>
+      <section class="panel" id="system-settings"><div class="page-title"><div><p>System</p><h1>Settings</h1><span>Safe application defaults and protected outbound-email configuration.</span></div></div><div class="two-col"><section class="card"><h2>Property defaults</h2><label>Default language<input id="setting-language" maxlength="12" placeholder="en"></label><label>Time zone<input id="setting-timezone" maxlength="80" placeholder="Asia/Manila"></label><label class="check-row"><input id="setting-maintenance" type="checkbox"> Maintenance banner enabled</label><label>Maintenance message<textarea id="setting-maintenance-message" rows="3" maxlength="500"></textarea></label><button id="save-app-settings" type="button">Save Application Settings</button></section><section class="card"><h2>Password-reset email</h2><label class="check-row"><input id="smtp-enabled" type="checkbox"> Enable outbound email</label><label>SMTP host<input id="smtp-host" maxlength="255"></label><div class="inline-fields"><label>Port<input id="smtp-port" type="number" min="1" max="65535" value="587"></label><label>Security<select id="smtp-security"><option value="starttls">STARTTLS</option><option value="ssl">SSL/TLS</option><option value="none">None</option></select></label></div><label>Username<input id="smtp-username" autocomplete="off"></label><label>Password<input id="smtp-password" type="password" autocomplete="new-password" placeholder="Leave blank to keep saved password"></label><label>From address<input id="smtp-from" type="email"></label><p class="field-note" id="smtp-status">SMTP is not configured.</p><div class="dialog-actions"><button class="secondary" id="test-smtp" type="button">Test Connection</button><button id="save-smtp" type="button">Save Email Settings</button></div></section></div></section>
+
+      <section class="panel" id="domain"><div class="page-title"><div><p>Deployment</p><h1>Domain</h1><span>Configure the intended guest hostname and verify real DNS resolution.</span></div><button id="verify-deployment" type="button">Verify Domain &amp; SSL</button></div><section class="card"><label>Guest domain<input id="deployment-domain" placeholder="concierge.hotel-example.com"></label><label>Public guest URL<input id="deployment-public-url" type="url" placeholder="https://concierge.hotel-example.com"></label><button id="save-deployment" type="button">Save Deployment Settings</button><dl class="detail-list"><div><dt>Status</dt><dd id="domain-status">Not configured</dd></div><div><dt>Resolved addresses</dt><dd id="domain-addresses">—</dd></div><div><dt>Last checked</dt><dd id="deployment-last-checked">Never</dd></div></dl></section></section>
+      <section class="panel" id="ssl"><div class="page-title"><div><p>Deployment</p><h1>SSL</h1><span>Read-only certificate verification. Private keys are never stored here.</span></div></div><section class="card"><dl class="detail-list"><div><dt>Certificate status</dt><dd id="ssl-status">Not checked</dd></div><div><dt>Issuer</dt><dd id="ssl-issuer">—</dd></div><div><dt>Expiration</dt><dd id="ssl-expiration">—</dd></div><div><dt>Days remaining</dt><dd id="ssl-days">—</dd></div><div><dt>Validation detail</dt><dd id="ssl-error">—</dd></div></dl></section></section>
+      <section class="panel" id="network"><div class="page-title"><div><p>Deployment</p><h1>Network</h1><span>Only Concierge.AI reverse-proxy and HTTPS expectations are configured here.</span></div></div><section class="card settings-form"><label class="check-row"><input id="network-reverse-proxy" type="checkbox"> Deployed behind a reverse proxy</label><label class="check-row"><input id="network-https-required" type="checkbox" checked> Require HTTPS for guest deployment</label><label>Trusted proxy address<input id="network-trusted-proxy" placeholder="10.0.0.10"></label><p class="field-note">Firewall, VLAN, and ANTlabs walled-garden rules remain infrastructure responsibilities.</p><button id="save-network" type="button">Save Network Expectations</button></section></section>
     </main>
   </div>
+  <dialog class="admin-dialog" id="user-dialog">
+    <form id="user-form">
+      <div class="dialog-heading"><div><span>Users &amp; Access</span><h2 id="user-dialog-title">Create User</h2></div><button class="icon-button" type="button" data-close-dialog="user-dialog" aria-label="Close">×</button></div>
+      <input id="user-id" type="hidden">
+      <div class="dialog-form-grid">
+        <label>Username<input id="admin-username" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="frontdesk01" required></label>
+        <label>Display Name<input id="admin-display-name" placeholder="Front Desk" required></label>
+        <label>Property<select id="admin-property" required></select></label>
+        <label>Role<select id="admin-role" required></select></label>
+        <label>Department ID<input id="admin-department" placeholder="Required for Department Manager"></label>
+        <label>Optional Email<input id="admin-email" type="email" placeholder="name@hotel.com"></label>
+        <label>Status<select id="admin-status"><option value="active">Active</option><option value="disabled">Disabled</option><option value="locked">Locked</option></select></label>
+        <label class="create-password-field">Temporary Password<input id="admin-password" type="password" autocomplete="new-password" placeholder="At least 12 characters"></label>
+        <label class="create-password-field">Confirm Password<input id="admin-password-confirm" type="password" autocomplete="new-password"></label>
+      </div>
+      <fieldset id="restaurant-assignment-fieldset" class="restaurant-assignment" hidden>
+        <legend>Restaurant access</legend>
+        <div class="assignment-toolbar"><button class="secondary" id="restaurant-assignment-select-all" type="button">Select all</button><button class="secondary" id="restaurant-assignment-clear" type="button">Clear selection</button></div>
+        <div id="restaurant-assignment-list" class="assignment-list"></div>
+      </fieldset>
+      <label class="check-row create-password-field"><input id="admin-force-password" type="checkbox" checked> Require password change on first login</label>
+      <p class="dialog-message" id="user-dialog-message" role="alert"></p>
+      <div class="dialog-actions"><button class="secondary" type="button" data-close-dialog="user-dialog">Cancel</button><button id="save-user-button" type="submit">Create User</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="admin-dialog" id="role-dialog">
+    <form id="role-form">
+      <div class="dialog-heading"><div><span>Users &amp; Access</span><h2 id="role-dialog-title">Create Role</h2></div><button class="icon-button" type="button" data-close-dialog="role-dialog" aria-label="Close">×</button></div>
+      <input id="role-id" type="hidden">
+      <div class="dialog-form-grid"><label>Role Name<input id="role-name" placeholder="Marketing" required></label><label>Property<select id="role-property"></select></label></div>
+      <label>Description<textarea id="role-description" rows="2"></textarea></label>
+      <fieldset class="permission-selector"><legend>Permissions</legend><div id="role-permissions"></div></fieldset>
+      <p class="dialog-message" id="role-dialog-message" role="alert"></p>
+      <div class="dialog-actions"><button class="secondary" type="button" data-close-dialog="role-dialog">Cancel</button><button id="save-role-button" type="submit">Create Role</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="admin-dialog compact-dialog" id="password-reset-dialog">
+    <form id="password-reset-form">
+      <div class="dialog-heading"><div><span>Credential</span><h2>Reset Password</h2></div><button class="icon-button" type="button" data-close-dialog="password-reset-dialog" aria-label="Close">×</button></div>
+      <input id="password-reset-user-id" type="hidden">
+      <p id="password-reset-user"></p>
+      <label>Temporary Password<input id="password-reset-value" type="password" autocomplete="new-password" required></label>
+      <label>Confirm Password<input id="password-reset-confirm" type="password" autocomplete="new-password" required></label>
+      <label class="check-row"><input id="password-reset-force" type="checkbox" checked> Require password change on next login</label>
+      <p class="dialog-message" id="password-reset-message" role="alert"></p>
+      <div class="dialog-actions"><button class="secondary" type="button" data-close-dialog="password-reset-dialog">Cancel</button><button type="submit">Reset Password</button></div>
+    </form>
+  </dialog>
+  <div class="context-menu" id="user-action-menu" hidden></div>
+
   <div class="drawer-backdrop" id="provider-drawer-backdrop" hidden></div>
   <aside class="provider-drawer" id="provider-drawer" hidden>
     <header>
@@ -261,8 +649,7 @@
       <div class="form-grid">
         <label>Authentication<select id="drawer-auth-method"></select></label>
         <label>Status<input id="drawer-status" disabled></label>
-        <label>Model<input id="drawer-model" list="drawer-model-list"></label>
-        <datalist id="drawer-model-list"></datalist>
+        <label>Model<select id="drawer-model"></select></label>
         <label>Endpoint URL<input id="drawer-endpoint" placeholder="http://host.docker.internal:11434"></label>
         <label>Temperature<input id="drawer-temperature" type="number" min="0" max="2" step="0.1"></label>
         <label>Max output tokens<input id="drawer-max-tokens" type="number" min="1" max="32000"></label>
@@ -286,7 +673,13 @@
       <button id="save-provider" type="button">Save</button>
     </footer>
   </aside>
-  <div class="toast" id="toast"></div>
-  <script src="/static/admin.js"></script>
+  <div class="drawer-backdrop" id="assistant-drawer-backdrop" hidden></div>
+  <aside class="assistant-drawer" id="assistant-drawer" hidden aria-label="AI operations assistant">
+    <header><div><p>AI operations</p><h2>Ask AI</h2></div><button class="secondary" id="close-assistant-drawer" type="button">Close</button></header>
+    <div class="assistant-messages" id="assistant-drawer-messages"><div class="assistant-empty"><strong>Investigate with evidence</strong><p>Answers cite the component, timeframe, and data returned by server-side diagnostic tools.</p></div></div>
+    <form class="assistant-composer" id="assistant-drawer-form"><textarea id="assistant-drawer-input" rows="2" maxlength="1200" placeholder="Why are requests delayed?"></textarea><button type="submit">Ask</button></form>
+  </aside>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="/static/admin.js?v=14"></script>
 </body>
 </html>

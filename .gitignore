@@ -3,9 +3,12 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.codex-tmp/
 .DS_Store
 state/
 *.db
 node_modules/
 playwright-report/
 test-results/
+/outputs/qa-*/
+*.inspect.ndjson

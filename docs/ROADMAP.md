@@ -679,3 +679,40 @@ Do not try to build every phase in parallel.
 5. **One real on-prem hotel pilot**
 
 The pilot should happen before major investment in voice, precise indoor positioning, or full cloud migration.
+
+---
+
+## Current implementation status - zones, sessions, analytics, intro
+
+**Status: commercial foundation implemented / real hardware validation pending**
+
+- [x] Admin `Zones` section with building/floor hierarchy, floor-map upload validation, layer toggles, and canvas-based map object creation
+- [x] Normalized data models for buildings, floors, maps, zones, facilities, APs, navigation nodes, and navigation edges
+- [x] AP-to-zone association model using aggregate areas, not individual room mapping
+- [x] Guest-safe zone/navigation APIs that omit AP identifiers and internal WLAN details
+- [x] Deterministic route graph API for guest and operations views
+- [x] Admin `Sessions` section for device reconnect, stay history, and compact AI memory
+- [x] Property-scoped HMAC pseudonymous device identity
+- [x] Concierge Stay ID as the memory anchor
+- [x] Checkout anonymization and retention cleanup hooks
+- [x] Admin `Location Analytics` section for live occupancy, observations, reports, dwell time, and movement transitions
+- [x] Aggregate movement reporting instead of individual trail display
+- [x] AI interaction and facility conversion event tables for future privacy-safe correlation
+- [x] Admin `Branding -> Intro Experience` section with presets, duration, colors, first-visit, skip, and upload validation
+- [x] Guest intro fallback that respects reduced motion and never blocks chat startup
+- [x] Vendor-neutral `WiFiLocationProvider` abstraction and mock provider
+- [x] Structured facility profiles with opening hours, capacity, booking support, and live status
+- [x] Restaurants, menus, menu items, dietary/allergen tags, and availability
+- [x] Hotel events with facility/zone, audience, capacity, CTA, and notification timing
+- [x] Service request lifecycle with SLA state and explicit guest feedback
+- [x] Notification rules, verified payload evaluation, suppression guardrails, and delivery history
+- [x] Guest journey event tracking for adoption and observed-conversion reporting
+
+Remaining validation:
+
+- Real ANTlabs/WLAN AP association feed
+- PMS checkout events and authoritative stay boundaries
+- Real restaurant/POS, booking, PMS, and notification delivery integrations
+- Production admin authentication/RBAC enforcement
+- Production map editor precision, PDF rendering previews, and advanced polygon point editing
+- Hardware-backed location accuracy testing

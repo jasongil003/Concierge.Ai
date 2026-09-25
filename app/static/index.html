@@ -4,9 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Concierge.Ai</title>
-  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/styles.css?v=9">
 </head>
 <body>
+  <section class="intro-overlay" id="intro-overlay" hidden>
+    <div class="intro-stage" id="intro-stage">
+      <div class="intro-logo" id="intro-logo">C</div>
+      <p id="intro-message">Welcome</p>
+      <button id="intro-skip" type="button">Skip</button>
+    </div>
+  </section>
   <main class="concierge-shell" id="concierge-shell">
     <header class="concierge-header">
       <button class="icon-button" id="menu-button" type="button" aria-label="Open hotel menu">
@@ -16,20 +23,36 @@
         <div class="hotel-mark" id="hotel-mark">C</div>
         <div>
           <strong id="hotel-name">Concierge</strong>
-          <span id="concierge-name">AI concierge</span>
+          <span class="concierge-presence"><i aria-hidden="true"></i><span id="concierge-name">AI concierge</span></span>
         </div>
       </div>
       <button class="icon-button dots-button" id="options-button" type="button" aria-label="Open options">
         <span></span><span></span><span></span>
       </button>
     </header>
+    <div class="maintenance-banner" id="maintenance-banner" role="status" hidden></div>
 
     <section class="conversation-region" aria-label="Concierge conversation">
       <div class="conversation-column">
         <section class="welcome-state" id="welcome-state">
-          <p id="welcome-greeting">Good evening.</p>
-          <h1 id="welcome-headline">How can I help with your stay?</h1>
+          <div class="welcome-copy">
+            <div class="welcome-eyebrow">
+              <p id="welcome-greeting">Good evening.</p>
+              <span class="availability-badge"><i aria-hidden="true"></i> Available now</span>
+            </div>
+            <h1 id="welcome-headline">How can I help with your stay?</h1>
+            <p class="welcome-subtitle">From a late checkout to local recommendations, consider it handled.</p>
+          </div>
+          <div class="suggestion-heading" aria-hidden="true">
+            <span>Popular requests</span>
+            <span>Choose one to get started</span>
+          </div>
           <div class="suggestion-list" id="suggestion-list" aria-label="Suggested prompts"></div>
+          <div class="privacy-note">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.2 16 4.7v4.5c0 3.8-2.4 6.9-6 8.6-3.6-1.7-6-4.8-6-8.6V4.7L10 2.2Z"/><path d="m7.4 9.9 1.7 1.7 3.7-4"/></svg>
+            <span>Private by default. Personalize only if you choose.</span>
+          </div>
+          <button class="personalize-cta" id="personalize-cta" type="button">Personalize my stay</button>
         </section>
 
         <section class="message-list" id="message-list" aria-live="polite" aria-label="Messages"></section>
@@ -38,7 +61,10 @@
 
     <footer class="composer-region">
       <form class="composer" id="composer-form">
-        <button class="composer-tool" id="plus-button" type="button" aria-label="More actions">+</button>
+        <button class="composer-tool" id="upload-button" type="button" aria-label="Upload a document" title="Upload a text document">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17V4M7 9l5-5 5 5M5 20h14"/></svg>
+        </button>
+        <input id="upload-input" type="file" accept=".txt,.md,.csv,.json,.html,text/plain,text/markdown,text/csv,application/json,text/html" hidden>
         <textarea
           id="composer-input"
           rows="1"
@@ -47,7 +73,9 @@
           placeholder="Ask your concierge..."
           aria-label="Ask your concierge"
         ></textarea>
-        <button class="send-button" id="send-button" type="submit" aria-label="Send message" disabled>↑</button>
+        <button class="send-button" id="send-button" type="submit" aria-label="Send message" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4.8 14-2.7-5.5L5 12Z"/><path d="m11.5 13.5 3.6-3.6"/></svg>
+        </button>
       </form>
       <p class="composer-note" id="composer-note">Concierge can help with hotel information, Wi-Fi, dining, checkout, and requests.</p>
     </footer>
@@ -55,20 +83,97 @@
     <aside class="hotel-menu" id="hotel-menu" aria-hidden="true" aria-label="Hotel menu">
       <div class="menu-panel">
         <div class="menu-header">
-          <strong>Hotel menu</strong>
+          <div>
+            <span>Guest services</span>
+            <strong>How can we help?</strong>
+          </div>
           <button class="icon-button" id="close-menu-button" type="button" aria-label="Close menu">×</button>
         </div>
+        <p class="menu-section-label">Concierge</p>
         <button type="button" data-menu-action="new-chat">New conversation</button>
+        <button type="button" data-menu-action="restaurant-staff">Talk to Restaurant Staff</button>
+        <button type="button" data-menu-action="property-map">Property map</button>
         <button type="button" data-menu-action="hotel-info">Hotel information</button>
         <button type="button" data-menu-action="language">Language</button>
+        <button type="button" data-menu-action="memory">Personalization / Memory</button>
         <button type="button" data-menu-action="accessibility">Accessibility</button>
         <button type="button" data-menu-action="privacy">Privacy</button>
         <button type="button" data-menu-action="help">Help</button>
+        <div id="configured-module-list"></div>
       </div>
     </aside>
 
+    <section class="memory-modal" id="memory-modal" hidden aria-modal="true" role="dialog" aria-labelledby="memory-title">
+      <div class="memory-panel">
+        <header>
+          <div><span>Guest controlled</span><h2 id="memory-title">Personalization / Memory</h2></div>
+          <button class="icon-button" id="close-memory-button" type="button" aria-label="Close personalization settings">×</button>
+        </header>
+        <p class="memory-intro">Keep this concierge private or let it remember useful preferences for your stay. You can change or clear them any time.</p>
+        <label class="memory-level-label" for="memory-level">Personalization level</label>
+        <select id="memory-level">
+          <option value="private">Private / Anonymous</option>
+          <option value="stay">Stay Personalization</option>
+          <option value="personal">Personal Concierge</option>
+        </select>
+        <p class="memory-status" id="memory-status" role="status"></p>
+        <div class="memory-list-heading"><strong>What your concierge knows</strong><span id="memory-count"></span></div>
+        <div class="memory-preference-list" id="memory-preference-list"></div>
+        <form class="memory-preference-form" id="memory-preference-form">
+          <label>Preference type
+            <select id="memory-category">
+              <option value="food">Food or cuisine</option><option value="dietary">Dietary need</option><option value="budget">Budget</option>
+              <option value="travel_party">Travel party</option><option value="transportation">Getting around</option><option value="interests">Interests</option>
+              <option value="activities">Activities</option><option value="accessibility">Accessibility</option><option value="language">Language</option>
+              <option value="response_style">Response style</option><option value="trip_purpose">Trip purpose</option><option value="activity_time">Activity time</option>
+              <option value="preferred_name">Preferred name</option>
+            </select>
+          </label>
+          <label>Preference
+            <input id="memory-value" maxlength="160" placeholder="For example, Japanese food" required>
+          </label>
+          <input id="memory-preference-key" type="hidden">
+          <button type="submit">Save preference</button>
+        </form>
+        <div class="memory-actions">
+          <button class="secondary" id="clear-memory-button" type="button">Clear all preferences</button>
+          <button class="secondary" id="disable-memory-button" type="button">Keep it private</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="property-map-modal" id="property-map-modal" hidden aria-modal="true" role="dialog" aria-labelledby="property-map-title">
+      <div class="property-map-panel">
+        <header>
+          <div>
+            <span>Explore Lunara</span>
+            <h2 id="property-map-title">Property map</h2>
+          </div>
+          <button class="icon-button" id="close-map-button" type="button" aria-label="Close property map">×</button>
+        </header>
+        <div class="property-map-canvas" id="property-map-canvas">
+          <img src="/static/assets/lunara-property-map.png" alt="Lunara Grand Hotel and Residences property map">
+          <div id="property-map-markers" aria-label="Mapped guest areas"></div>
+        </div>
+        <p class="property-map-note">Select a numbered marker for its verified project label. Hotel knowledge-base details take precedence over text embedded in the visual.</p>
+      </div>
+    </section>
+
+    <dialog class="staff-request-dialog" id="restaurant-staff-dialog">
+      <form id="restaurant-staff-request-form">
+        <header>
+          <div><span>Guest support</span><h2>Talk to Restaurant Staff</h2></div>
+          <button class="icon-button" id="close-restaurant-staff-dialog" type="button" aria-label="Close">×</button>
+        </header>
+        <label>Restaurant<select id="restaurant-staff-select" required></select></label>
+        <label>What can the team help with?<textarea id="restaurant-staff-reason" rows="3" maxlength="500" placeholder="Optional"></textarea></label>
+        <p id="restaurant-staff-status" role="status"></p>
+        <div class="dialog-actions"><button class="secondary" id="cancel-restaurant-staff-dialog" type="button">Cancel</button><button type="submit">Request staff</button></div>
+      </form>
+    </dialog>
+
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </main>
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=10"></script>
 </body>
 </html>

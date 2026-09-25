@@ -7,7 +7,12 @@ services:
     env_file:
       - .env
     environment:
+      APP_ENVIRONMENT: production
+      ADMIN_COOKIE_SECURE: "true"
+      ALLOW_BODY_PROPERTY_SELECTION: "false"
+      APP_DEBUG: "false"
       DB_PATH: /state/concierge.db
+      UPLOAD_ROOT: /state/uploads
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
     volumes:
       - concierge-state:/state
