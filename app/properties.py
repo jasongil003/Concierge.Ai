@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .guardrails import public_guardrails
+
 
 SAFE_FONTS = {
     "Geist",
@@ -322,6 +324,11 @@ class PropertyRecord:
     ai_settings: dict[str, Any] = field(default_factory=dict)
     antlabs_config: dict[str, Any] = field(default_factory=dict)
     knowledge_sources: list[dict[str, Any]] = field(default_factory=list)
+    rooms: list[dict[str, Any]] = field(default_factory=list)
+    guest_modules: list[dict[str, Any]] = field(default_factory=list)
+    personality: dict[str, Any] = field(default_factory=dict)
+    guardrails: dict[str, Any] = field(default_factory=dict)
+    app_settings: dict[str, Any] = field(default_factory=dict)
     welcome: str = "How can I help?"
     design_draft: dict[str, Any] = field(default_factory=default_design_config)
     design_published: dict[str, Any] = field(default_factory=default_design_config)
@@ -329,8 +336,8 @@ class PropertyRecord:
     created_at: int = 0
     updated_at: int = 0
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
+    def to_dict(self, include_secrets: bool = False) -> dict[str, Any]:
+        payload = {
             "property_id": self.property_id,
             "hotel_name": self.hotel_name,
             "description": self.description,
@@ -360,6 +367,11 @@ class PropertyRecord:
             "ai_settings": self.ai_settings,
             "antlabs_config": self.antlabs_config,
             "knowledge_sources": self.knowledge_sources,
+            "rooms": self.rooms,
+            "guest_modules": self.guest_modules,
+            "personality": self.personality,
+            "guardrails": self.guardrails,
+            "app_settings": self.app_settings,
             "welcome": self.welcome,
             "design_draft": self.design_draft,
             "design_published": self.design_published,
@@ -367,6 +379,9 @@ class PropertyRecord:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
+        if not include_secrets:
+            payload["guardrails"] = public_guardrails(self.guardrails)
+        return payload
 
     @property
     def public_profile(self) -> dict[str, Any]:
@@ -410,6 +425,14 @@ class PropertyRecord:
             "policies": self.policies,
             "support_contacts": self.support_contacts,
             "quick_actions": self.quick_actions,
+            "rooms": self.rooms,
+            "guest_modules": [item for item in self.guest_modules if item.get("enabled", True)],
+            "locations": [item for item in (self.app_settings.get("locations") or []) if item.get("guest_visible", True)],
+            "application": {
+                "default_language": (self.app_settings.get("application") or {}).get("default_language", self.languages[0] if self.languages else "en"),
+                "maintenance_enabled": bool((self.app_settings.get("application") or {}).get("maintenance_enabled", False)),
+                "maintenance_message": (self.app_settings.get("application") or {}).get("maintenance_message", ""),
+            },
             "welcome": self.welcome,
             "ai": self.ai_settings,
             "authentication": {
@@ -435,6 +458,11 @@ class PropertyStore:
         "ai_settings",
         "antlabs_config",
         "knowledge_sources",
+        "rooms",
+        "guest_modules",
+        "personality",
+        "guardrails",
+        "app_settings",
         "design_draft",
         "design_published",
         "design_versions",
@@ -470,6 +498,11 @@ class PropertyStore:
         "ai_settings",
         "antlabs_config",
         "knowledge_sources",
+        "rooms",
+        "guest_modules",
+        "personality",
+        "guardrails",
+        "app_settings",
         "welcome",
         "design_draft",
         "design_published",
@@ -522,6 +555,11 @@ class PropertyStore:
                     ai_settings TEXT NOT NULL DEFAULT '{}',
                     antlabs_config TEXT NOT NULL DEFAULT '{}',
                     knowledge_sources TEXT NOT NULL DEFAULT '[]',
+                    rooms TEXT NOT NULL DEFAULT '[]',
+                    guest_modules TEXT NOT NULL DEFAULT '[]',
+                    personality TEXT NOT NULL DEFAULT '{}',
+                    guardrails TEXT NOT NULL DEFAULT '{}',
+                    app_settings TEXT NOT NULL DEFAULT '{}',
                     welcome TEXT NOT NULL DEFAULT 'How can I help?',
                     design_draft TEXT NOT NULL DEFAULT '{}',
                     design_published TEXT NOT NULL DEFAULT '{}',
@@ -534,6 +572,11 @@ class PropertyStore:
             self._ensure_column(db, "design_draft", "TEXT NOT NULL DEFAULT '{}'")
             self._ensure_column(db, "design_published", "TEXT NOT NULL DEFAULT '{}'")
             self._ensure_column(db, "design_versions", "TEXT NOT NULL DEFAULT '[]'")
+            self._ensure_column(db, "rooms", "TEXT NOT NULL DEFAULT '[]'")
+            self._ensure_column(db, "guest_modules", "TEXT NOT NULL DEFAULT '[]'")
+            self._ensure_column(db, "personality", "TEXT NOT NULL DEFAULT '{}'")
+            self._ensure_column(db, "guardrails", "TEXT NOT NULL DEFAULT '{}'")
+            self._ensure_column(db, "app_settings", "TEXT NOT NULL DEFAULT '{}'")
 
     def list(self) -> list[PropertyRecord]:
         with self._connect() as db:
@@ -652,7 +695,7 @@ class PropertyStore:
         return self.upsert(record)
 
     def _serialize_record(self, record: PropertyRecord) -> dict[str, Any]:
-        data = record.to_dict()
+        data = record.to_dict(include_secrets=True)
         for column in self.JSON_COLUMNS:
             data[column] = json.dumps(data[column], separators=(",", ":"))
         return data

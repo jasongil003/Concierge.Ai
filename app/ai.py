@@ -39,7 +39,7 @@ class GeminiProvider:
         system, prompt = build_prompt(user_message, hotel_name, context, live_context)
         url = (
             "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{model}:generateContent?key={settings.gemini_api_key}"
+            f"{model}:generateContent"
         )
         payload = {
             "systemInstruction": {"parts": [{"text": system}]},
@@ -50,7 +50,7 @@ class GeminiProvider:
             },
         }
         async with httpx.AsyncClient(timeout=45) as client:
-            response = await client.post(url, json=payload)
+            response = await client.post(url, json=payload, headers={"x-goog-api-key": settings.gemini_api_key})
             response.raise_for_status()
             body = response.json()
 

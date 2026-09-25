@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Admin Portal · Concierge.AI</title>
+  <link rel="stylesheet" href="/static/admin-login.css?v=2">
+</head>
+<body>
+  <main class="login-shell">
+    <section class="login-panel" aria-labelledby="login-title">
+      <header>
+        <span class="brand-mark" aria-hidden="true">C</span>
+        <div><strong>Concierge.AI</strong><span>Admin Portal</span></div>
+      </header>
+      <div class="login-copy">
+        <h1 id="login-title">Sign in</h1>
+        <p>Use your administrator username and password.</p>
+      </div>
+      <form id="login-form" novalidate>
+        <label for="username">Username</label>
+        <input id="username" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus>
+        <label for="password">Password</label>
+        <div class="password-field">
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+          <button id="toggle-password" type="button" aria-label="Show password">Show</button>
+        </div>
+        <div class="login-options">
+          <label class="check"><input id="remember-me" type="checkbox"><span>Remember me</span></label>
+          <button class="text-button" id="forgot-password" type="button">Forgot password?</button>
+        </div>
+        <p class="form-message" id="login-message" role="alert" aria-live="polite"></p>
+        <button class="submit-button" id="sign-in" type="submit">Sign In</button>
+      </form>
+      <form id="reset-form" hidden novalidate>
+        <p class="form-message" id="reset-message" role="alert" aria-live="polite"></p>
+        <label for="reset-password">New password</label>
+        <input id="reset-password" type="password" autocomplete="new-password" minlength="12" required>
+        <label for="reset-password-confirm">Confirm password</label>
+        <input id="reset-password-confirm" type="password" autocomplete="new-password" minlength="12" required>
+        <button class="submit-button" id="complete-reset" type="submit">Update Password</button>
+      </form>
+      <footer>Authorized hotel personnel only</footer>
+    </section>
+  </main>
+  <dialog id="recovery-dialog">
+    <form method="dialog" id="recovery-form">
+      <div class="dialog-heading"><div><span>Account recovery</span><h2>Reset password</h2></div><button value="cancel" aria-label="Close">×</button></div>
+      <p>Enter your username. If recovery is configured, instructions will be sent to the optional email on your account.</p>
+      <label for="recovery-username">Username</label>
+      <input id="recovery-username" type="text" autocomplete="username" autocapitalize="none">
+      <p class="form-message" id="recovery-message" aria-live="polite"></p>
+      <div class="dialog-actions"><button value="cancel" class="secondary">Cancel</button><button id="send-recovery" value="default">Request reset</button></div>
+    </form>
+  </dialog>
+  <script src="/static/admin-login.js?v=3"></script>
+</body>
+</html>

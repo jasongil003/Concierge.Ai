@@ -7,6 +7,13 @@ const state = {
   room: null,
   draftKey: "concierge-draft",
   mode: "auto",
+  intro: null,
+  services: [],
+  recommendations: [],
+  restaurants: [],
+  personalization: null,
+  staffMessageIds: new Set(),
+  pendingAttachment: null,
 };
 
 let startupPromise = null;
@@ -19,24 +26,6 @@ const defaultSuggestions = [
   { label: "What time does the pool close?", prompt: "What time does the pool close?" },
   { label: "Recommend somewhere nearby to eat", prompt: "Recommend somewhere nearby to eat" },
   { label: "Can I request a late checkout?", prompt: "Can I request a late checkout?" },
-];
-
-const recommendationResults = [
-  {
-    name: "Lusso Bistro",
-    meta: "Italian · 350 m · Open until 11 PM",
-    detail: "Quiet dining room, good for a relaxed dinner after check-in.",
-  },
-  {
-    name: "Harbor Kitchen",
-    meta: "Seafood · 600 m · Open until 10:30 PM",
-    detail: "Casual, nearby, and usually easy to get a table.",
-  },
-  {
-    name: "Matsuya Table",
-    meta: "Japanese · 900 m · Open until 10 PM",
-    detail: "Good option for sushi, rice bowls, and lighter dishes.",
-  },
 ];
 
 function setText(id, value) {
@@ -90,13 +79,48 @@ function createClientId() {
 function renderWelcomeState() {
   const list = $("suggestion-list");
   list.innerHTML = "";
-  for (const item of activeSuggestions()) {
+  for (const [index, item] of activeSuggestions().entries()) {
     const button = document.createElement("button");
     button.type = "button";
-    button.textContent = item.label;
+    button.dataset.kind = suggestionKind(item.prompt || item.label, index);
+
+    const icon = document.createElement("span");
+    icon.className = "suggestion-icon";
+    icon.innerHTML = suggestionIcon(button.dataset.kind);
+
+    const label = document.createElement("span");
+    label.className = "suggestion-label";
+    label.textContent = item.label;
+
+    const arrow = document.createElement("span");
+    arrow.className = "suggestion-arrow";
+    arrow.setAttribute("aria-hidden", "true");
+    arrow.innerHTML = '<svg viewBox="0 0 20 20"><path d="m7.5 4.5 5 5.5-5 5.5"/></svg>';
+
+    button.append(icon, label, arrow);
     button.addEventListener("click", () => handleGuestInput(item.prompt));
     list.appendChild(button);
   }
+}
+
+function suggestionKind(value, index) {
+  const prompt = String(value || "").toLowerCase();
+  if (prompt.includes("breakfast") || prompt.includes("eat") || prompt.includes("restaurant") || prompt.includes("dining")) return "dining";
+  if (prompt.includes("wi-fi") || prompt.includes("wifi") || prompt.includes("internet")) return "wifi";
+  if (prompt.includes("pool") || prompt.includes("spa") || prompt.includes("gym")) return "wellness";
+  if (prompt.includes("checkout") || prompt.includes("check-out") || prompt.includes("room")) return "stay";
+  return ["concierge", "dining", "wellness", "stay"][index % 4];
+}
+
+function suggestionIcon(kind) {
+  const icons = {
+    dining: '<svg viewBox="0 0 24 24"><path d="M7 3v8M4.5 3v5.5A2.5 2.5 0 0 0 7 11v10M9.5 3v5.5A2.5 2.5 0 0 1 7 11M17 3c-2 2.2-2.5 5.8-1.1 8.3.4.7 1.1 1.1 1.9 1.1H19V21"/></svg>',
+    wifi: '<svg viewBox="0 0 24 24"><path d="M3.5 8.8a13 13 0 0 1 17 0M6.5 12.2a8.5 8.5 0 0 1 11 0M9.6 15.6a3.8 3.8 0 0 1 4.8 0"/><circle cx="12" cy="19" r="1"/></svg>',
+    wellness: '<svg viewBox="0 0 24 24"><path d="M3 15.5c1.5-1.3 3-1.3 4.5 0s3 1.3 4.5 0 3-1.3 4.5 0 3 1.3 4.5 0M3 19c1.5-1.3 3-1.3 4.5 0s3 1.3 4.5 0 3-1.3 4.5 0 3 1.3 4.5 0"/><path d="M5 12h14l-1.2-5H6.2L5 12Z"/></svg>',
+    stay: '<svg viewBox="0 0 24 24"><path d="M4 20V7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v13M8 9h3v3H8zM15.5 10.5h.01M8 16h8"/></svg>',
+    concierge: '<svg viewBox="0 0 24 24"><path d="M4 18h16M6 18a6 6 0 0 1 12 0M12 8V5M10 5h4"/><path d="M8.5 13.5c1.8-1.4 5.2-1.4 7 0"/></svg>',
+  };
+  return icons[kind] || icons.concierge;
 }
 
 function activeSuggestions() {
@@ -139,7 +163,7 @@ function renderMessage(message) {
   if (message.role === "assistant") {
     const label = document.createElement("div");
     label.className = "message-label";
-    label.textContent = "Concierge";
+    label.textContent = message.sender_label || "Concierge";
     row.appendChild(label);
   }
 
@@ -183,25 +207,101 @@ function renderText(text) {
   return body;
 }
 
+const guestAuthFieldDefinitions = {
+  complimentary: [{ name: "code", label: "Access code", autocomplete: "off" }],
+  local: [{ name: "username", label: "Username", autocomplete: "username" }, { name: "password", label: "Password", type: "password", autocomplete: "current-password" }],
+  radius: [{ name: "username", label: "Username", autocomplete: "username" }, { name: "password", label: "Password", type: "password", autocomplete: "current-password" }],
+  pms: [{ name: "room", label: "Room number", autocomplete: "off", inputmode: "numeric", placeholder: "1503" }, { name: "last_name", label: "Last name or PMS password", autocomplete: "family-name", placeholder: "Surname" }],
+  credit_card: [],
+  access_code: [{ name: "access_code", label: "Access code", autocomplete: "off" }],
+  global_account: [{ name: "username", label: "Username", autocomplete: "username" }, { name: "password", label: "Password", type: "password", autocomplete: "current-password" }],
+  global_code: [{ name: "global_code", label: "Global access code", autocomplete: "off" }],
+  user_form: [{ name: "name", label: "Full name", autocomplete: "name" }, { name: "email", label: "Email", type: "email", autocomplete: "email" }],
+  social_network: [{ name: "social_provider", label: "Social login provider", type: "select", options: ["Facebook", "Google", "Line", "WeChat"] }],
+};
+
 function renderAuthenticationCard() {
   const card = document.createElement("form");
   card.className = "inline-card auth-card";
-  card.innerHTML = `
-    <label>Room number<input name="room" autocomplete="off" inputmode="numeric" placeholder="1503"></label>
-    <label>Last name<input name="lastName" autocomplete="family-name" placeholder="Surname"></label>
-    <button type="submit">Continue</button>
-  `;
+  const enabled = enabledAuthenticationTypes();
+  if (!enabled.length) {
+    const note = document.createElement("p");
+    note.textContent = "No Wi-Fi authentication methods are enabled for this hotel.";
+    card.appendChild(note);
+    return card;
+  }
+  const methodLabel = document.createElement("label");
+  methodLabel.textContent = "Login method";
+  const methodSelect = document.createElement("select");
+  methodSelect.name = "authType";
+  methodSelect.required = true;
+  for (const method of enabled) {
+    const option = document.createElement("option");
+    option.value = method.id;
+    option.textContent = method.label;
+    methodSelect.appendChild(option);
+  }
+  methodLabel.appendChild(methodSelect);
+  card.appendChild(methodLabel);
+
+  const fields = document.createElement("div");
+  fields.className = "auth-fields";
+  card.appendChild(fields);
+  const renderFields = () => {
+    fields.replaceChildren();
+    const method = enabled.find((item) => item.id === methodSelect.value);
+    const definitions = guestAuthFieldDefinitions[methodSelect.value] || [];
+    if (methodSelect.value === "credit_card") {
+      const note = document.createElement("p");
+      note.textContent = "Payment details will be entered on the ANTlabs secure payment page.";
+      fields.appendChild(note);
+    } else if (!definitions.length) {
+      const note = document.createElement("p");
+      note.textContent = method?.guest_guidance || "Continue to the hotel's configured login page.";
+      fields.appendChild(note);
+    }
+    for (const definition of definitions) {
+      const label = document.createElement("label");
+      label.textContent = definition.label;
+      let input;
+      if (definition.type === "select") {
+        input = document.createElement("select");
+        for (const optionValue of definition.options || []) {
+          const option = document.createElement("option");
+          option.value = optionValue.toLowerCase();
+          option.textContent = optionValue;
+          input.appendChild(option);
+        }
+      } else {
+        input = document.createElement("input");
+        input.type = definition.type || "text";
+        input.autocomplete = definition.autocomplete || "off";
+        if (definition.inputmode) input.inputMode = definition.inputmode;
+        if (definition.placeholder) input.placeholder = definition.placeholder;
+      }
+      input.name = definition.name;
+      label.appendChild(input);
+      fields.appendChild(label);
+    }
+  };
+  methodSelect.addEventListener("change", renderFields);
+  renderFields();
+
+  const submit = document.createElement("button");
+  submit.type = "submit";
+  submit.textContent = "Continue";
+  card.appendChild(submit);
   card.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const room = card.elements.room.value.trim();
-    const lastName = card.elements.lastName.value.trim();
-    if (!room || !lastName) {
-      showToast("Enter room number and last name.", "warning");
+    const credentials = Object.fromEntries([...fields.querySelectorAll("input, select")].map((input) => [input.name, input.value.trim()]));
+    const required = methodSelect.value === "complimentary" ? [] : (guestAuthFieldDefinitions[methodSelect.value] || []);
+    if (required.some((definition) => !credentials[definition.name])) {
+      showToast(methodSelect.value === "pms" ? "Enter room number and last name." : "Complete the required fields and try again.", "warning");
       return;
     }
-    card.querySelector("button").disabled = true;
-    card.querySelector("button").textContent = "Checking...";
-    await authenticateGuest(room, lastName, card);
+    submit.disabled = true;
+    submit.textContent = "Checking...";
+    await authenticateGuest(methodSelect.value, credentials, card);
   });
   return card;
 }
@@ -217,20 +317,28 @@ function renderRecommendationResults(results) {
     name.textContent = result.name;
 
     const meta = document.createElement("span");
-    meta.textContent = result.meta;
+    meta.textContent = [result.category, result.address, result.open_now === true ? "Open now" : result.open_now === false ? "Closed now" : ""].filter(Boolean).join(" · ");
 
     const detail = document.createElement("p");
-    detail.textContent = result.detail;
+    detail.hidden = true;
+    detail.textContent = result.description || result.detail || "No additional description supplied.";
 
     const actions = document.createElement("div");
     const directionsBtn = document.createElement("button");
     directionsBtn.type = "button";
     directionsBtn.textContent = "Directions";
-    directionsBtn.addEventListener("click", () => showToast("Directions will connect to maps and booking integrations."));
+    const mapUrl = result.map_url || result.maps_url;
+    directionsBtn.disabled = !mapUrl;
+    directionsBtn.addEventListener("click", () => {
+      if (mapUrl) window.open(mapUrl, "_blank", "noopener,noreferrer");
+    });
     const detailsBtn = document.createElement("button");
     detailsBtn.type = "button";
     detailsBtn.textContent = "Details";
-    detailsBtn.addEventListener("click", () => showToast("Details will connect to maps and booking integrations."));
+    detailsBtn.addEventListener("click", () => {
+      detail.hidden = !detail.hidden;
+      detailsBtn.textContent = detail.hidden ? "Details" : "Hide details";
+    });
     actions.appendChild(directionsBtn);
     actions.appendChild(detailsBtn);
 
@@ -248,25 +356,42 @@ function renderConfirmationCard(message) {
   card.className = "inline-card confirmation-card";
   const button = document.createElement("button");
   button.type = "button";
-  button.textContent = message.actionLabel || "Confirm";
-  button.addEventListener("click", () => {
+  button.disabled = Boolean(message.submitting || message.confirmed);
+  button.textContent = message.confirmed ? "Confirmed" : message.submitting ? "Creating..." : message.actionLabel || "Confirm";
+  button.addEventListener("click", async () => {
+    if (message.submitting || message.confirmed) return;
+    message.submitting = true;
     button.disabled = true;
-    button.textContent = "Confirmed";
-    addMessage({ role: "assistant", type: "status", text: "Request confirmed. Hotel staff will follow up shortly." });
+    button.textContent = "Creating...";
+    try {
+      const result = await jsonFetch("/api/guest/service-requests", {
+        method: "POST",
+        body: JSON.stringify({ session_id: state.sessionId, service_id: message.service.service_id, description: message.description, room: state.room, client_request_id: message.clientRequestId, confirmed: true }),
+      });
+      message.submitting = false;
+      message.confirmed = true;
+      message.requestId = result.request.request_id;
+      addMessage({ role: "assistant", type: "status", text: `Request ${result.request.request_id} was created. Hotel staff can now track it.` });
+    } catch (error) {
+      message.submitting = false;
+      button.disabled = false;
+      button.textContent = message.actionLabel || "Confirm";
+      addMessage({ role: "assistant", type: "error", text: error.message });
+    }
   });
   card.appendChild(button);
   return card;
 }
 
-async function authenticateGuest(room, lastName, card) {
+async function authenticateGuest(authType, credentials, card) {
   try {
     await ensureStarted();
     const result = await jsonFetch("/api/authenticate", {
       method: "POST",
       body: JSON.stringify({
         session_id: state.sessionId,
-        room,
-        last_name: lastName,
+        auth_type: authType,
+        credentials,
       }),
     });
 
@@ -277,9 +402,9 @@ async function authenticateGuest(room, lastName, card) {
 
     if (result.status === "authenticated") {
       state.authenticated = true;
-      state.room = room;
+      state.room = credentials.room || state.room;
       state.messages = state.messages.filter((message) => message.type !== "authentication");
-      addMessage({ role: "assistant", type: "text", text: "You're connected. You can continue using the internet." });
+      addMessage({ role: "assistant", type: "text", text: result.message || "Authentication was accepted." });
       return;
     }
 
@@ -288,8 +413,11 @@ async function authenticateGuest(room, lastName, card) {
     addMessage({ role: "assistant", type: "error", text: error.message });
   } finally {
     if (card.isConnected) {
-      card.querySelector("button").disabled = false;
-      card.querySelector("button").textContent = "Continue";
+      const submit = card.querySelector("button[type='submit']");
+      if (submit) {
+        submit.disabled = false;
+        submit.textContent = "Continue";
+      }
     }
   }
 }
@@ -330,32 +458,35 @@ async function handleGuestInput(rawMessage) {
     return;
   }
 
-  if (isServiceRequest(message)) {
+  const matchedService = isInformationRequest(message) ? null : matchService(message);
+  if (matchedService) {
     addMessage({
       role: "assistant",
       type: "confirmation",
-      text: "I can send that request to housekeeping. Please confirm before I create it.",
+      text: `Absolutely — I can arrange ${matchedService.name.toLowerCase()} for you. Please confirm and I’ll send it to the hotel team.`,
       actionLabel: "Confirm request",
+      service: matchedService,
+      description: message,
+      clientRequestId: createClientId(),
     });
     return;
   }
 
-  if (isRestaurantRequest(message)) {
-    addMessage({
-      role: "assistant",
-      type: "recommendation",
-      text: "Here are a few nearby options that should work well. I can narrow these by cuisine, budget, or walking distance.",
-      results: recommendationResults,
-    });
-    return;
-  }
-
-  await sendChat(message);
+  const messageForAI = state.pendingAttachment ? `${message}\n\n${state.pendingAttachment}` : message;
+  state.pendingAttachment = null;
+  await sendChat(messageForAI);
 }
 
 async function sendChat(message) {
-  addMessage({ role: "assistant", type: "status", text: "Thinking..." });
-  const thinking = state.messages[state.messages.length - 1];
+  const initialRecommendations = isRestaurantRequest(message) ? state.recommendations : [];
+  const thinking = {
+    role: "assistant",
+    type: initialRecommendations.length ? "recommendation" : "status",
+    text: initialRecommendations.length ? "Here are the hotel's verified dining recommendations. I’m also checking for current options." : "Thinking...",
+    results: initialRecommendations.map((place) => ({ ...place, category: place.category || "Hotel recommendation", description: place.description || place.address })),
+  };
+  state.messages.push(thinking);
+  renderMessages();
   try {
     const result = await jsonFetch("/api/chat", {
       method: "POST",
@@ -365,12 +496,41 @@ async function sendChat(message) {
         mode: state.mode,
       }),
     });
-    thinking.type = "text";
+    if (result.human_takeover) {
+      thinking.type = "status";
+      thinking.text = "Your message is with the restaurant team. A staff member can reply here.";
+      renderMessages();
+      return;
+    }
+    if (result.ai_paused) {
+      thinking.type = "status";
+      thinking.text = "This conversation is closed. Start a new chat if you need more help.";
+      renderMessages();
+      return;
+    }
+    const livePlaces = result.places || [];
+    const savedRecommendations = isRestaurantRequest(message) && !result.personalized_recommendations ? state.recommendations : [];
+    const recommendationResults = livePlaces.length ? livePlaces : savedRecommendations;
+    thinking.type = recommendationResults.length ? "recommendation" : "text";
     thinking.text = result.answer;
+    thinking.results = recommendationResults.map((place) => ({ ...place, category: place.category || "Live Places result", description: place.description || place.address }));
     renderMessages();
+    if (result.source === "personalization") {
+      jsonFetch(`/api/guest/personalization?session_id=${encodeURIComponent(state.sessionId)}`)
+        .then(renderPersonalization)
+        .catch(() => {});
+    }
   } catch (error) {
-    thinking.type = "error";
-    thinking.text = error.message;
+    const savedRecommendations = isRestaurantRequest(message) ? state.recommendations : [];
+    thinking.type = savedRecommendations.length ? "recommendation" : "error";
+    thinking.text = savedRecommendations.length
+      ? "The AI service is temporarily unavailable. Here are the hotel's saved recommendations."
+      : error.message;
+    thinking.results = savedRecommendations.map((place) => ({
+      ...place,
+      category: place.category || "Hotel recommendation",
+      description: place.description || place.address,
+    }));
     renderMessages();
   }
 }
@@ -395,17 +555,8 @@ function handleWifiRequest() {
     return;
   }
   const names = enabled.map((item) => item.label).join(", ");
-  addMessage({ role: "assistant", type: "text", text: `This hotel currently supports: ${names}.` });
-  if (enabled.some((item) => item.id === "pms")) {
-    addMessage({ role: "assistant", type: "text", text: "Please verify your stay with your room number and last name." });
-    addMessage({ role: "assistant", type: "authentication" });
-    return;
-  }
-  addMessage({
-    role: "assistant",
-    type: "text",
-    text: "Please use one of the enabled login methods shown on the hotel Wi-Fi portal. I can explain the available options, but this prototype only submits PMS room login from chat.",
-  });
+  addMessage({ role: "assistant", type: "text", text: `Choose an enabled Wi-Fi login method: ${names}.` });
+  addMessage({ role: "assistant", type: "authentication" });
 }
 
 function isRestaurantRequest(message) {
@@ -413,9 +564,17 @@ function isRestaurantRequest(message) {
   return ["restaurant", "dining", "eat", "food", "nearby", "japanese"].some((word) => normalized.includes(word));
 }
 
-function isServiceRequest(message) {
+function matchService(message) {
   const normalized = message.toLowerCase();
-  return ["towel", "towels", "housekeeping", "room service", "maintenance", "send"].some((word) => normalized.includes(word));
+  return state.services.find((service) => [service.name, ...(service.keywords || [])].some((word) => normalized.includes(String(word).toLowerCase())));
+}
+
+function isInformationRequest(message) {
+  const normalized = String(message || "").toLowerCase();
+  const asksForFacts = /\b(what|where|when|which|hours?|open|opening|close|closing|located|location)\b/.test(normalized)
+    || /\bhow\s+(late|early|long)\b/.test(normalized);
+  const asksForAction = /\b(book|reserve|schedule|send|bring|deliver|request|fix|repair|clean|replace)\b/.test(normalized);
+  return asksForFacts && !asksForAction;
 }
 
 function setDraft(value) {
@@ -454,12 +613,33 @@ function setupComposer() {
     handleGuestInput(input.value);
   });
 
-  $("plus-button").addEventListener("click", () => {
-    showToast("Photo upload and location sharing are disabled for this POC.", "warning");
+  $("upload-button").addEventListener("click", () => $("upload-input").click());
+  $("upload-input").addEventListener("change", async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      await ensureStarted();
+      if (file.size > 1_000_000) throw new Error("Guest uploads are limited to 1 MB.");
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let binary = "";
+      for (const byte of bytes) binary += String.fromCharCode(byte);
+      const result = await jsonFetch("/api/guest/uploads", {
+        method: "POST",
+        body: JSON.stringify({ session_id: state.sessionId, filename: file.name, content_type: file.type || "text/plain", content_base64: btoa(binary) }),
+      });
+      addMessage({ role: "user", type: "text", text: `Uploaded ${result.filename}` });
+      state.pendingAttachment = result.message_context;
+      addMessage({ role: "assistant", type: "text", text: `${result.filename} is ready. Ask me a question about the document.` });
+    } catch (error) {
+      showToast(error.message, "error");
+    }
   });
+
 }
 
 function setupMenu() {
+  $("personalize-cta").addEventListener("click", () => openMemoryPanel().catch((error) => showToast(error.message, "warning")));
   $("menu-button").addEventListener("click", () => {
     $("hotel-menu").classList.add("open");
     $("hotel-menu").setAttribute("aria-hidden", "false");
@@ -473,8 +653,27 @@ function setupMenu() {
     if (event.target === $("hotel-menu")) closeMenu();
   });
   for (const button of document.querySelectorAll("[data-menu-action]")) {
-    button.addEventListener("click", () => handleMenuAction(button.dataset.menuAction));
+    button.addEventListener("click", () => handleMenuAction(button.dataset.menuAction).catch((error) => showToast(error.message, "warning")));
   }
+  $("close-map-button").addEventListener("click", closePropertyMap);
+  $("close-memory-button").addEventListener("click", closeMemoryPanel);
+  $("memory-modal").addEventListener("click", (event) => {
+    if (event.target === $("memory-modal")) closeMemoryPanel();
+  });
+  $("memory-level").addEventListener("change", changePersonalizationLevel);
+  $("memory-preference-form").addEventListener("submit", saveMemoryPreference);
+  $("restaurant-staff-request-form").addEventListener("submit", requestRestaurantStaff);
+  $("close-restaurant-staff-dialog").addEventListener("click", () => $("restaurant-staff-dialog").close());
+  $("cancel-restaurant-staff-dialog").addEventListener("click", () => $("restaurant-staff-dialog").close());
+  $("clear-memory-button").addEventListener("click", clearMemoryPreferences);
+  $("disable-memory-button").addEventListener("click", () => setPersonalization(false, "stay").catch((error) => showToast(error.message, "warning")));
+  $("property-map-modal").addEventListener("click", (event) => {
+    if (event.target === $("property-map-modal")) closePropertyMap();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !$("property-map-modal").hidden) closePropertyMap();
+    if (event.key === "Escape" && !$("memory-modal").hidden) closeMemoryPanel();
+  });
 }
 
 function closeMenu() {
@@ -482,22 +681,267 @@ function closeMenu() {
   $("hotel-menu").setAttribute("aria-hidden", "true");
 }
 
-function handleMenuAction(action) {
+const memoryCategoryLabels = {
+  food: "Food or cuisine", dietary: "Dietary need", budget: "Budget", travel_party: "Travel party",
+  transportation: "Getting around", interests: "Interests", activities: "Activities", accessibility: "Accessibility",
+  language: "Language", response_style: "Response style", trip_purpose: "Trip purpose", activity_time: "Activity time",
+  preferred_name: "Preferred name",
+};
+
+async function openMemoryPanel() {
+  if (!state.sessionId) await ensureStarted();
+  $("memory-modal").hidden = false;
+  $("memory-level").disabled = true;
+  setText("memory-status", "Loading your settings…");
+  const data = await jsonFetch(`/api/guest/personalization?session_id=${encodeURIComponent(state.sessionId)}`);
+  renderPersonalization(data);
+  $("close-memory-button").focus();
+}
+
+function closeMemoryPanel() {
+  $("memory-modal").hidden = true;
+  $("memory-preference-key").value = "";
+  $("memory-preference-form").reset();
+}
+
+function renderPersonalization(data) {
+  state.personalization = data;
+  updatePersonalizedWelcome(data);
+  const level = $("memory-level");
+  level.value = data.enabled ? data.level : "private";
+  level.disabled = !data.personalization_available;
+  const personalOption = level.querySelector('option[value="personal"]');
+  if (personalOption) personalOption.disabled = !data.allow_guest_profile;
+  const nameOption = $("memory-category").querySelector('option[value="preferred_name"]');
+  if (nameOption) nameOption.disabled = !data.allow_guest_profile || data.level !== "personal";
+  setText("memory-status", data.personalization_available
+    ? (data.enabled ? `Personalization is on for this ${data.level === "personal" ? "concierge session" : "stay/session"}.` : `Private mode is on. Saved preferences aren't used while this is selected.${data.suggested_level && data.suggested_level !== "private" ? ` You can choose ${data.suggested_level} to opt in.` : ""}`)
+    : "Personalization is turned off by this hotel.");
+  const list = $("memory-preference-list");
+  list.replaceChildren();
+  const preferences = data.preferences || [];
+  setText("memory-count", preferences.length ? `${preferences.length} saved` : "Nothing saved");
+  for (const preference of preferences) {
+    const row = document.createElement("div");
+    row.className = "memory-preference-row";
+    const copy = document.createElement("div");
+    const label = document.createElement("strong");
+    label.textContent = memoryCategoryLabels[preference.category] || preference.category;
+    const value = document.createElement("span");
+    value.textContent = preference.value;
+    const source = document.createElement("small");
+    source.textContent = preference.persistence === "temporary" ? "Temporary" : preference.source === "inferred" ? "Inferred, lower confidence" : "Saved for this stay/session";
+    copy.append(label, value, source);
+    const actions = document.createElement("div");
+    actions.className = "memory-preference-actions";
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "memory-link-button";
+    edit.textContent = "Edit";
+    edit.addEventListener("click", () => {
+      $("memory-category").value = preference.category;
+      $("memory-value").value = preference.value;
+      $("memory-preference-key").value = preference.preference_key;
+      $("memory-value").focus();
+    });
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "memory-link-button";
+    remove.textContent = "Remove";
+    remove.addEventListener("click", () => removeMemoryPreference(preference.preference_key).catch((error) => showToast(error.message, "error")));
+    actions.append(edit, remove);
+    row.append(copy, actions);
+    list.appendChild(row);
+  }
+  $("memory-preference-form").hidden = !data.personalization_available;
+  $("clear-memory-button").disabled = !preferences.length;
+  $("disable-memory-button").disabled = !data.personalization_available || !data.enabled;
+}
+
+function updatePersonalizedWelcome(data) {
+  const baseGreeting = state.hotel?.design?.welcome?.greeting || "Good evening.";
+  const preferredName = (data?.enabled && data.level === "personal" ? data.preferences || [] : [])
+    .find((item) => item.category === "preferred_name")?.value;
+  if (!preferredName || !document.documentElement.lang.toLowerCase().startsWith("en")) {
+    setText("welcome-greeting", baseGreeting);
+    return;
+  }
+  const hour = new Date().getHours();
+  const timeGreeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  setText("welcome-greeting", `${timeGreeting}, ${preferredName}.`);
+}
+
+async function setPersonalization(enabled, level) {
+  const data = await jsonFetch("/api/guest/personalization", {
+    method: "PUT",
+    body: JSON.stringify({ session_id: state.sessionId, enabled, level }),
+  });
+  renderPersonalization(data);
+  return data;
+}
+
+async function changePersonalizationLevel() {
+  const level = $("memory-level").value;
+  try {
+    await setPersonalization(level !== "private", level);
+    showToast(level === "private" ? "Private mode enabled." : "Personalization enabled for this stay.");
+  } catch (error) {
+    showToast(error.message, "warning");
+    await openMemoryPanel().catch(() => {});
+  }
+}
+
+async function saveMemoryPreference(event) {
+  event.preventDefault();
+  if (!state.sessionId) return;
+  try {
+    if (!state.personalization?.enabled) await setPersonalization(true, "stay");
+    const preference = await jsonFetch("/api/guest/personalization/preferences", {
+      method: "PUT",
+      body: JSON.stringify({
+        session_id: state.sessionId,
+        category: $("memory-category").value,
+        value: $("memory-value").value.trim(),
+        preference_key: $("memory-preference-key").value || null,
+      }),
+    });
+    renderPersonalization(preference);
+    $("memory-preference-form").reset();
+    $("memory-preference-key").value = "";
+    showToast("Preference saved.");
+  } catch (error) {
+    showToast(error.message, "warning");
+  }
+}
+
+async function removeMemoryPreference(key) {
+  const data = await jsonFetch(`/api/guest/personalization/preferences/${encodeURIComponent(key)}?session_id=${encodeURIComponent(state.sessionId)}`, { method: "DELETE" });
+  renderPersonalization(data);
+  showToast("Preference removed.");
+}
+
+async function clearMemoryPreferences() {
+  const data = await jsonFetch(`/api/guest/personalization/preferences?session_id=${encodeURIComponent(state.sessionId)}`, { method: "DELETE" });
+  renderPersonalization(data);
+  showToast("Saved preferences cleared.");
+}
+
+async function handleMenuAction(action) {
   closeMenu();
   if (action === "new-chat") {
     state.messages = [];
+    state.sessionId = null;
+    sessionStorage.removeItem("concierge-session-id");
+    state.staffMessageIds.clear();
+    await startGuestSession();
     renderMessages();
     showToast("Started a new conversation.");
     return;
   }
-  const labels = {
-    "hotel-info": "Hotel information",
-    language: "Language preferences",
-    accessibility: "Accessibility controls",
-    privacy: "Privacy information",
-    help: "Help",
-  };
-  showToast((labels[action] || "Menu item") + " will open in the next POC pass.");
+  if (action === "property-map") {
+    await openPropertyMap();
+  } else if (action === "restaurant-staff") {
+    openRestaurantStaffRequest();
+  } else if (action === "memory") {
+    await openMemoryPanel();
+  } else if (action === "hotel-info") {
+    const location = state.hotel?.location?.address || "Address not configured";
+    addMessage({ role: "assistant", type: "text", text: `${state.hotel?.name || "Hotel"}\n${state.hotel?.description || "Property description not configured."}\n${location}` });
+  } else if (action === "language") {
+    const languages = state.hotel?.languages || ["en"];
+    const current = Math.max(0, languages.indexOf(document.documentElement.lang));
+    const next = languages[(current + 1) % languages.length];
+    document.documentElement.lang = next;
+    localStorage.setItem("concierge-language", next);
+    try {
+      const memory = await jsonFetch(`/api/guest/personalization?session_id=${encodeURIComponent(state.sessionId)}`);
+      if (memory.enabled) {
+        await jsonFetch("/api/guest/personalization/preferences", {
+          method: "PUT",
+          body: JSON.stringify({ session_id: state.sessionId, category: "language", value: next.toUpperCase(), preference_key: "language.preferred" }),
+        });
+      }
+    } catch { /* The visible language switch remains available in private mode. */ }
+    addMessage({ role: "assistant", type: "status", text: `Language preference set to ${next}. Available: ${languages.join(", ")}.` });
+  } else if (action === "accessibility") {
+    const enabled = document.body.classList.toggle("accessibility-mode");
+    localStorage.setItem("concierge-accessibility", enabled ? "1" : "0");
+    addMessage({ role: "assistant", type: "status", text: `Accessibility display mode ${enabled ? "enabled" : "disabled"}.` });
+  } else if (action === "privacy") {
+    addMessage({ role: "assistant", type: "text", text: "Your chat session is temporary and expires after inactivity under this hotel's session settings. Personalization starts private. Saved preferences are used only after you opt in, and you can review, remove, or clear them in Personalization / Memory. Avoid sharing payment details or passwords in chat." });
+  } else if (action === "help") {
+    addMessage({ role: "assistant", type: "text", text: "Ask about verified hotel information, enabled services, dining, facilities, Wi-Fi access, or local recommendations. Operational requests are created only after you confirm them." });
+  }
+}
+
+function openRestaurantStaffRequest() {
+  const select = $("restaurant-staff-select");
+  select.replaceChildren();
+  for (const restaurant of state.restaurants) {
+    if (["disabled", "archived"].includes(restaurant.status) || restaurant.archived) continue;
+    const option = document.createElement("option");
+    option.value = restaurant.restaurant_id;
+    option.textContent = restaurant.name;
+    select.appendChild(option);
+  }
+  $("restaurant-staff-status").textContent = "";
+  if (!select.options.length) {
+    addMessage({ role: "assistant", type: "status", text: "No restaurant staff contact is configured for this property yet." });
+    return;
+  }
+  $("restaurant-staff-dialog").showModal();
+}
+
+async function requestRestaurantStaff(event) {
+  event.preventDefault();
+  if (!state.sessionId) throw new Error("Your concierge session has expired.");
+  const button = $("restaurant-staff-request-form").querySelector('button[type="submit"]');
+  button.disabled = true;
+  try {
+    await jsonFetch("/api/guest/conversations/" + encodeURIComponent(state.sessionId) + "/escalate", {
+      method: "POST",
+      body: JSON.stringify({
+        restaurant_id: $("restaurant-staff-select").value,
+        reason: $("restaurant-staff-reason").value.trim(),
+      }),
+    });
+    $("restaurant-staff-dialog").close();
+    $("restaurant-staff-reason").value = "";
+    addMessage({ role: "assistant", type: "status", text: "Your request is with the restaurant team. A team member can reply in this chat." });
+  } catch (error) {
+    $("restaurant-staff-status").textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function openPropertyMap() {
+  const modal = $("property-map-modal");
+  const markers = $("property-map-markers");
+  markers.innerHTML = "";
+  const data = await jsonFetch(`/api/guest/zones?property_id=${encodeURIComponent(state.hotel?.property_id || "")}`);
+  for (const zone of data.zones || []) {
+    const geometry = zone.geometry || {};
+    if (geometry.type !== "ellipse" || !geometry.sourceCanvas) continue;
+    const marker = document.createElement("button");
+    marker.type = "button";
+    marker.className = "property-map-marker";
+    marker.style.left = `${((geometry.x + geometry.width / 2) / geometry.sourceCanvas.width) * 100}%`;
+    marker.style.top = `${((geometry.y + geometry.height / 2) / geometry.sourceCanvas.height) * 100}%`;
+    marker.textContent = geometry.mapNumber || "•";
+    marker.setAttribute("aria-label", zone.name);
+    marker.title = zone.name;
+    marker.addEventListener("click", () => showToast(zone.name));
+    markers.appendChild(marker);
+  }
+  modal.hidden = false;
+  document.body.classList.add("map-open");
+  $("close-map-button").focus();
+}
+
+function closePropertyMap() {
+  $("property-map-modal").hidden = true;
+  document.body.classList.remove("map-open");
 }
 
 function applyHotelProfile(profile) {
@@ -517,7 +961,51 @@ function applyHotelProfile(profile) {
   setText("welcome-headline", welcome.headline || "How can I help with your stay?");
   $("composer-input").placeholder = composer.placeholder || "Ask your concierge...";
   applyDesignTokens(design);
+  renderConfiguredModules(profile.guest_modules || []);
+  const maintenance = $("maintenance-banner");
+  const application = profile.application || {};
+  maintenance.hidden = !application.maintenance_enabled;
+  maintenance.textContent = application.maintenance_message || "Concierge maintenance is in progress. Some requests may take longer than usual.";
   renderWelcomeState();
+}
+
+function renderConfiguredModules(modules) {
+  const list = $("configured-module-list");
+  list.innerHTML = "";
+  for (const module of [...modules].sort((a, b) => Number(a.order || 0) - Number(b.order || 0))) {
+    const button = document.createElement("button"); button.type = "button"; button.textContent = module.name;
+    button.addEventListener("click", () => { closeMenu(); sendChat(module.prompt).catch((error) => showToast(error.message, "warning")); });
+    list.appendChild(button);
+  }
+}
+
+async function maybeShowIntro() {
+  try {
+    const intro = await jsonFetch("/api/guest/intro");
+    state.intro = intro;
+    if (!intro || intro.mode === "none") return;
+    if (intro.first_visit_only && localStorage.getItem("concierge-intro-seen") === "1") return;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const overlay = $("intro-overlay");
+    const stage = $("intro-stage");
+    overlay.dataset.preset = reducedMotion ? "none" : intro.preset;
+    overlay.style.background = intro.background || "#fbfbfa";
+    overlay.style.color = intro.brand_color || "#18181b";
+    $("intro-logo").style.background = intro.brand_color || "#18181b";
+    $("intro-logo").textContent = (state.hotel?.name || "Concierge").slice(0, 1).toUpperCase();
+    $("intro-message").textContent = intro.welcome_message || state.hotel?.welcome || "Welcome";
+    $("intro-skip").hidden = !intro.allow_skip;
+    overlay.hidden = false;
+    const finish = () => {
+      overlay.hidden = true;
+      localStorage.setItem("concierge-intro-seen", "1");
+    };
+    $("intro-skip").onclick = finish;
+    window.setTimeout(finish, reducedMotion ? 450 : intro.duration_ms || 1400);
+    stage.addEventListener("animationend", () => {}, { once: true });
+  } catch {
+    $("intro-overlay").hidden = true;
+  }
 }
 
 function applyDesignTokens(design) {
@@ -537,6 +1025,7 @@ function applyDesignTokens(design) {
   root.style.setProperty("--text-primary", theme.textPrimary || "#18181b");
   root.style.setProperty("--text-secondary", theme.textSecondary || "#71717a");
   root.style.setProperty("--accent", theme.accent || "#18181b");
+  root.style.setProperty("--button-color", theme.buttonColor || theme.accent || "#18181b");
   root.style.setProperty("--accent-text", theme.accentText || "#ffffff");
   root.style.setProperty("--border", theme.border || "#e4e4e7");
   root.style.setProperty("--user-message-bg", theme.userMessageBackground || "#eeeeee");
@@ -546,7 +1035,7 @@ function applyDesignTokens(design) {
   root.style.setProperty("--composer-max", (layout.composerWidth || 840) + "px");
   root.style.setProperty("--message-width", (layout.messageWidth || 680) + "px");
   root.style.setProperty("--message-spacing", (messages.messageSpacing || layout.messageSpacing || 24) + "px");
-  root.style.setProperty("--message-radius", (messages.radius || 18) + "px");
+  root.style.setProperty("--message-radius", (messages.radius || theme.radius || 18) + "px");
   root.style.setProperty("--composer-radius", (composer.radius || 24) + "px");
   root.style.setProperty("--base-font-size", (typography.baseFontSize || 15) + "px");
   root.style.setProperty("--heading-weight", typography.headingWeight || 600);
@@ -562,6 +1051,7 @@ function applyDesignTokens(design) {
   const logoDisplay = design.branding?.logoDisplay || "mark_name";
   document.body.classList.toggle("hotel-logo-hidden", header.showLogo === false || logoDisplay === "name_only");
   document.body.classList.toggle("hotel-name-hidden", header.showHotelName === false || logoDisplay === "logo_only");
+  document.body.classList.toggle("concierge-name-hidden", header.showConciergeName === false);
 }
 
 function fontStack(font) {
@@ -583,20 +1073,71 @@ function fontStack(font) {
 async function start() {
   setupComposer();
   setupMenu();
-  const profile = await jsonFetch("/api/hotel");
+  const [profile, catalog, recommendations] = await Promise.all([
+    jsonFetch("/api/hotel"),
+    jsonFetch("/api/guest/service-catalog"),
+    jsonFetch("/api/guest/recommendations"),
+  ]);
+  state.services = catalog.services || [];
+  state.recommendations = recommendations.recommendations || [];
+  try {
+    const hospitality = await jsonFetch("/api/guest/facilities");
+    state.restaurants = hospitality.restaurants || [];
+  } catch { state.restaurants = []; }
   applyHotelProfile(profile);
+  await maybeShowIntro();
 
   state.clientId = localStorage.getItem("concierge-client-id") || createClientId();
   localStorage.setItem("concierge-client-id", state.clientId);
 
-  const session = await jsonFetch("/api/session/start", {
-    method: "POST",
-    body: JSON.stringify({
-      client_id: state.clientId,
-      gateway_context: gatewayContext(),
-    }),
-  });
+  if (localStorage.getItem("concierge-accessibility") === "1") document.body.classList.add("accessibility-mode");
+  document.documentElement.lang = localStorage.getItem("concierge-language") || document.documentElement.lang;
+  await startGuestSession();
+}
+
+async function startGuestSession() {
+  let session = null;
+  const previousSessionId = sessionStorage.getItem("concierge-session-id");
+  if (previousSessionId) {
+    try {
+      session = await jsonFetch("/api/session/resume", {
+        method: "POST",
+        body: JSON.stringify({ client_id: state.clientId, session_id: previousSessionId }),
+      });
+    } catch {
+      sessionStorage.removeItem("concierge-session-id");
+    }
+  }
+  if (!session) {
+    session = await jsonFetch("/api/session/start", {
+      method: "POST",
+      body: JSON.stringify({
+        client_id: state.clientId,
+        property_id: state.hotel?.property_id,
+        gateway_context: gatewayContext(),
+      }),
+    });
+  }
   state.sessionId = session.session_id;
+  sessionStorage.setItem("concierge-session-id", session.session_id);
+  try {
+    const memory = await jsonFetch(`/api/guest/personalization?session_id=${encodeURIComponent(state.sessionId)}`);
+    renderPersonalization(memory);
+  } catch { /* The concierge remains available if optional personalization can't load. */ }
+}
+
+async function pollStaffMessages() {
+  if (!state.sessionId || document.hidden) return;
+  try {
+    const data = await jsonFetch(`/api/guest/conversations/${encodeURIComponent(state.sessionId)}/staff-messages`);
+    for (const message of data.messages || []) {
+      if (state.staffMessageIds.has(message.message_id)) continue;
+      state.staffMessageIds.add(message.message_id);
+      addMessage({ role: "assistant", sender_label: "Restaurant Staff", type: "text", text: message.content });
+    }
+  } catch (error) {
+    if (!String(error.message).toLowerCase().includes("expired")) console.warn("Unable to refresh staff replies", error);
+  }
 }
 
 function ensureStarted() {
@@ -607,3 +1148,4 @@ function ensureStarted() {
 ensureStarted().catch((error) => {
   addMessage({ role: "assistant", type: "error", text: "Unable to start the concierge: " + error.message });
 });
+window.setInterval(pollStaffMessages, 3000);

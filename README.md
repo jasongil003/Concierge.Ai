@@ -21,6 +21,11 @@ The `feature/onprem-mvp` branch now includes:
 - ANTlabs integration adapter
 - mock gateway authentication
 - browser-based ANTlabs authentication handoff scaffold
+- admin zone/facility/floor-map foundation with AP-to-zone mapping and deterministic route graph
+- privacy-first guest stay memory with property-scoped pseudonymous device identity
+- location analytics foundation for live zone occupancy, dwell time, movement, and aggregate reports
+- configurable intro experience with logo-generated presets and validated web animation uploads
+- structured facilities, restaurants, menus, hotel events, service requests, notification guardrails, and guest journey events
 - SQLite prototype state
 - Docker deployment
 - phased architecture/security documentation
@@ -101,6 +106,19 @@ http://localhost:8080/admin
 Settings -> AI Models
 ```
 
+New roadmap administration sections are available in the same admin platform:
+
+```text
+Zones
+Sessions
+Location Analytics
+Branding -> Intro Experience
+```
+
+The V1 location model is intentionally aggregate: `Device -> Associated AP -> Zone -> Facility`. Concierge.Ai does not infer exact indoor X/Y guest position from a single AP and guest-facing APIs never expose AP identifiers or WLAN infrastructure.
+
+Commercial data foundations are now normalized rather than stored in one blob. AI responses and proactive notifications should use these verified records for facility status, opening hours, menus, prices, event times, service-request status, and notification eligibility.
+
 For Docker-based local AI, use an endpoint reachable from the container, commonly `http://host.docker.internal:11434`.
 
 ### 3. Run browser tests
@@ -162,3 +180,7 @@ The commercial roadmap is **on-prem first, cloud/hybrid later**. The immediate o
 ## License
 
 No license has been selected yet. Do not assume commercial redistribution rights until a project license is added.
+# Hotel Knowledge Management
+
+Admin AI document ingestion, review, publishing, source citations, and the Guest AI retrieval boundary are described in [Hotel Knowledge Management](docs/KNOWLEDGE_MANAGEMENT.md). Use the [manual QA checklist](docs/KNOWLEDGE_MANAGEMENT_QA.md) after deployment.
+

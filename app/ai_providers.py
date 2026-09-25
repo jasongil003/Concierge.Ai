@@ -3,6 +3,7 @@ import hashlib
 import json
 import sqlite3
 import time
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, AsyncIterator, Protocol
@@ -11,6 +12,7 @@ import httpx
 from cryptography.fernet import Fernet
 
 from .config import settings
+from .guardrails import AIInputSanitizer, AIOutputValidator
 from .llm import build_prompt
 
 
@@ -113,6 +115,10 @@ class AIChatResponse:
     output_tokens: int | None = None
 
 
+class AIUsageLimitError(RuntimeError):
+    pass
+
+
 class AIProvider(Protocol):
     provider_id: str
 
@@ -138,7 +144,11 @@ class AIProvider(Protocol):
 
 class SecretBox:
     def __init__(self, secret: str) -> None:
-        self.secret = secret or "local-development-secret"
+        if not secret:
+            if settings.app_environment in ("production", "staging"):
+                raise RuntimeError("CREDENTIAL_ENCRYPTION_SECRET must be set in production/staging.")
+            secret = "local-development-secret"
+        self.secret = secret
         digest = hashlib.sha256(self.secret.encode("utf-8")).digest()
         self._fernet = Fernet(base64.urlsafe_b64encode(digest))
 
@@ -253,6 +263,16 @@ class AIProviderStore:
                 )
                 """
             )
+            db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS ai_request_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    property_id TEXT NOT NULL,
+                    created_at INTEGER NOT NULL
+                )
+                """
+            )
+            db.execute("CREATE INDEX IF NOT EXISTS idx_ai_requests_property_time ON ai_request_events(property_id, created_at)")
 
     def get_settings(self, property_id: str) -> dict[str, Any]:
         with self._connect() as db:
@@ -291,6 +311,16 @@ class AIProviderStore:
         routing_mode = str(payload.get("routing_mode") or current["routing_mode"]).strip().lower()
         if routing_mode not in {"fixed", "automatic", "privacy_first", "cloud_first"}:
             raise ValueError("Unsupported routing mode.")
+        fallback_chain = payload.get("fallback_chain", current["fallback_chain"])
+        if not isinstance(fallback_chain, list) or any(item not in PROVIDER_DEFINITIONS for item in fallback_chain):
+            raise ValueError("Fallback chain contains an unsupported provider.")
+        limits = payload.get("limits", current["limits"])
+        if not isinstance(limits, dict):
+            raise ValueError("AI usage limits must be an object.")
+        supported_limits = {"requests_per_minute", "requests_per_day", "monthly_request_limit", "token_budget", "monthly_token_budget"}
+        for key, value in limits.items():
+            if key not in supported_limits or isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+                raise ValueError(f"Invalid AI usage limit: {key}.")
         now = int(time.time())
         with self._connect() as db:
             db.execute(
@@ -313,8 +343,8 @@ class AIProviderStore:
                     default_provider,
                     routing_mode,
                     1 if local_only else 0,
-                    json.dumps(payload.get("fallback_chain", current["fallback_chain"]), separators=(",", ":")),
-                    json.dumps(payload.get("limits", current["limits"]), separators=(",", ":")),
+                    json.dumps(fallback_chain, separators=(",", ":")),
+                    json.dumps(limits, separators=(",", ":")),
                     now,
                 ),
             )
@@ -349,6 +379,11 @@ class AIProviderStore:
         for provider_id, definition in PROVIDER_DEFINITIONS.items():
             row = rows.get(provider_id)
             config = json.loads(row["config_json"]) if row else {}
+            discovered_models = config.get("discovered_models", []) if isinstance(config, dict) else []
+            model_catalog = list(dict.fromkeys([
+                *definition.get("model_catalog", []),
+                *[item.get("id") for item in discovered_models if isinstance(item, dict) and item.get("id")],
+            ]))
             connection = {
                 "provider_id": provider_id,
                 "name": definition["name"],
@@ -357,7 +392,17 @@ class AIProviderStore:
                 "status": row["status"] if row else ("local" if provider_id == "local" else "not_configured"),
                 "enabled": bool(row["enabled"]) if row else provider_id == settings_payload["default_provider"],
                 "selected_model": row["selected_model"] if row and row["selected_model"] else definition["default_model"],
-                "model_catalog": definition.get("model_catalog", []),
+                "model_catalog": model_catalog,
+                "model_options": [
+                    {
+                        "id": model_id,
+                        "name": next(
+                            (item.get("name") for item in discovered_models if isinstance(item, dict) and item.get("id") == model_id),
+                            None,
+                        ) or model_id,
+                    }
+                    for model_id in model_catalog
+                ],
                 "endpoint_url": row["endpoint_url"] if row else ("http://host.docker.internal:11434" if provider_id == "local" else ""),
                 "temperature": row["temperature"] if row else 0.2,
                 "max_output_tokens": row["max_output_tokens"] if row else settings.max_output_tokens,
@@ -390,7 +435,10 @@ class AIProviderStore:
         enabled = bool(payload.get("enabled", False))
         if definition.get("unavailable"):
             enabled = False
-        config = payload.get("config") if isinstance(payload.get("config"), dict) else {}
+        current = self.get_connection(property_id, provider_id)
+        config = dict(current.get("config") or {})
+        if isinstance(payload.get("config"), dict):
+            config.update({key: value for key, value in payload["config"].items() if value is not None})
         now = int(time.time())
         with self._connect() as db:
             db.execute(
@@ -427,6 +475,20 @@ class AIProviderStore:
             )
         self.audit(property_id, "provider_configuration_saved", provider_id, {"model": selected_model, "enabled": enabled})
         return self.get_connection(property_id, provider_id)
+
+    def save_discovered_models(self, property_id: str, provider_id: str, models: list[dict[str, Any]]) -> None:
+        connection = self.get_connection(property_id, provider_id)
+        config = dict(connection.get("config") or {})
+        config["discovered_models"] = [
+            {"id": str(item.get("id")), "name": str(item.get("name") or item.get("id"))}
+            for item in models
+            if item.get("id")
+        ]
+        with self._connect() as db:
+            db.execute(
+                "UPDATE ai_provider_connections SET config_json=?,updated_at=? WHERE property_id=? AND provider_id=?",
+                (json.dumps(config, separators=(",", ":")), int(time.time()), property_id, provider_id),
+            )
 
     def save_credential(self, property_id: str, provider_id: str, credential_type: str, value: str) -> None:
         encrypted = self.secrets.encrypt(value)
@@ -509,6 +571,42 @@ class AIProviderStore:
                 """,
                 (property_id, provider_id, model, input_tokens, output_tokens, total, latency_ms, 1 if success else 0, error_type, int(time.time())),
             )
+
+    def reserve_request(self, property_id: str) -> None:
+        """Atomically enforce property-scoped request and token limits once per guest request."""
+        limits = self.get_settings(property_id)["limits"]
+        now = int(time.time())
+        month_start = int(datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0).timestamp())
+        windows = {
+            "requests_per_minute": now - 60,
+            "requests_per_day": now - 86_400,
+            "monthly_request_limit": month_start,
+        }
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            for key, cutoff in windows.items():
+                limit = limits.get(key)
+                if limit is None:
+                    continue
+                count = db.execute(
+                    "SELECT COUNT(*) FROM ai_request_events WHERE property_id=? AND created_at>=?",
+                    (property_id, cutoff),
+                ).fetchone()[0]
+                if count >= int(limit):
+                    raise AIUsageLimitError(f"AI usage limit reached: {key}.")
+            monthly_tokens = limits.get("monthly_token_budget")
+            if monthly_tokens is not None:
+                used = db.execute(
+                    "SELECT COALESCE(SUM(total_tokens),0) FROM ai_usage WHERE property_id=? AND success=1 AND created_at>=?",
+                    (property_id, month_start),
+                ).fetchone()[0]
+                if used >= int(monthly_tokens):
+                    raise AIUsageLimitError("AI usage limit reached: monthly_token_budget.")
+            db.execute("INSERT INTO ai_request_events(property_id, created_at) VALUES (?, ?)", (property_id, now))
+
+    def usage_rows(self, property_id: str) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            return [dict(row) for row in db.execute("SELECT * FROM ai_usage WHERE property_id=? ORDER BY id", (property_id,))]
 
 
 def sanitize_config(value: Any) -> Any:
@@ -768,6 +866,26 @@ class AIModelService:
         connection = self.store.get_connection(property_id, provider_id)
         return connection
 
+    def resolve_connections(self, property_id: str) -> list[dict[str, Any]]:
+        ai_settings = self.store.get_settings(property_id)
+        default = ai_settings["default_provider"]
+        chain = [item for item in ai_settings["fallback_chain"] if item in PROVIDER_DEFINITIONS]
+        mode = ai_settings["routing_mode"]
+        if mode == "fixed":
+            ordered = [default]
+        elif mode == "privacy_first":
+            ordered = ["local", *chain, default]
+        elif mode == "cloud_first":
+            ordered = [*chain, default, "local"]
+            ordered.sort(key=lambda item: PROVIDER_DEFINITIONS[item]["cloud"], reverse=True)
+        else:
+            ordered = [default, *chain]
+        unique = list(dict.fromkeys(ordered))
+        if ai_settings["local_only"]:
+            unique = [item for item in unique if not PROVIDER_DEFINITIONS[item]["cloud"]]
+        connections = [self.store.get_connection(property_id, item) for item in unique]
+        return [item for index, item in enumerate(connections) if item["enabled"] or index == 0]
+
     async def concierge_chat(
         self,
         property_id: str,
@@ -776,41 +894,54 @@ class AIModelService:
         context: list[dict[str, Any]],
         live_context: str = "",
         requested_mode: str = "auto",
+        conversation_history: list[dict[str, Any]] | None = None,
+        guest_context: dict[str, Any] | None = None,
+        system_prompt_override: str | None = None,
     ) -> AIChatResponse:
-        connection = self.resolve_connection(property_id)
-        provider_id = connection["provider_id"]
         ai_settings = self.store.get_settings(property_id)
-        if ai_settings["local_only"] and PROVIDER_DEFINITIONS[provider_id]["cloud"]:
-            raise RuntimeError("Local-only mode is enabled. Cloud AI providers cannot be used.")
-        model = connection["selected_model"] or PROVIDER_DEFINITIONS[provider_id]["default_model"]
-        system, prompt = build_prompt(user_message, hotel_name, context, live_context)
-        request = AIChatRequest(
-            property_id=property_id,
-            provider_id=provider_id,
-            model=model,
-            messages=[AIMessage("system", system), AIMessage("user", prompt)],
-            temperature=float(connection["temperature"]),
-            max_tokens=int(connection["max_output_tokens"]),
-            timeout_seconds=int(connection["timeout_seconds"]),
-        )
-        adapter = self.adapter_for(provider_id, connection["endpoint_url"])
-        credential = self.store.credentials_for(property_id, provider_id)
-        started = time.perf_counter()
-        try:
-            response = await adapter.send_message(request, credential)
-        except Exception as exc:
-            self.store.record_usage(property_id, provider_id, model, int((time.perf_counter() - started) * 1000), False, error_type=exc.__class__.__name__)
-            raise
-        self.store.record_usage(
-            property_id,
-            provider_id,
-            model,
-            int((time.perf_counter() - started) * 1000),
-            True,
-            response.input_tokens,
-            response.output_tokens,
-        )
-        return response
+        self.store.reserve_request(property_id)
+        clean_message = AIInputSanitizer.sanitize_text(user_message)
+        clean_context = AIInputSanitizer.sanitize_context(context)
+        clean_history = AIInputSanitizer.sanitize_context(conversation_history or [])
+        system, prompt = build_prompt(clean_message, hotel_name, clean_context, AIInputSanitizer.sanitize_text(live_context), clean_history, guest_context)
+        if system_prompt_override:
+            system = system_prompt_override[:8000]
+        failures: list[Exception] = []
+        for index, connection in enumerate(self.resolve_connections(property_id)):
+            provider_id = connection["provider_id"]
+            model = connection["selected_model"] or PROVIDER_DEFINITIONS[provider_id]["default_model"]
+            max_tokens = int(connection["max_output_tokens"])
+            if ai_settings["limits"].get("token_budget"):
+                max_tokens = min(max_tokens, int(ai_settings["limits"]["token_budget"]))
+            request = AIChatRequest(
+                property_id=property_id,
+                provider_id=provider_id,
+                model=model,
+                messages=[AIMessage("system", system), AIMessage("user", prompt)],
+                temperature=float(connection["temperature"]),
+                max_tokens=max_tokens,
+                timeout_seconds=int(connection["timeout_seconds"]),
+            )
+            adapter = self.adapter_for(provider_id, connection["endpoint_url"])
+            credential = self.store.credentials_for(property_id, provider_id)
+            started = time.perf_counter()
+            try:
+                response = await adapter.send_message(request, credential)
+            except Exception as exc:
+                failures.append(exc)
+                self.store.record_usage(property_id, provider_id, model, int((time.perf_counter() - started) * 1000), False, error_type=exc.__class__.__name__)
+                if index + 1 < len(self.resolve_connections(property_id)):
+                    self.store.audit(property_id, "provider_fallback", provider_id, {"error_type": exc.__class__.__name__})
+                continue
+            self.store.record_usage(
+                property_id, provider_id, model, int((time.perf_counter() - started) * 1000), True,
+                response.input_tokens, response.output_tokens,
+            )
+            response.text = AIOutputValidator.validate(response.text)
+            return response
+        if failures:
+            raise failures[-1]
+        raise RuntimeError("No enabled AI provider is available for this property.")
 
     async def list_models(self, property_id: str, provider_id: str) -> list[dict[str, Any]]:
         connection = self.store.get_connection(property_id, provider_id)
@@ -831,6 +962,74 @@ class AIModelService:
             result = {"ok": False, "provider": provider_id, "error": friendly_error(provider_id, exc)}
         self.store.save_test_result(property_id, provider_id, result)
         return result
+
+    def validate_direct_connection(self, property_id: str, provider_id: str, model: str) -> None:
+        if provider_id not in PROVIDER_DEFINITIONS:
+            raise ValueError(f"Unknown AI provider '{provider_id}'.")
+        if PROVIDER_DEFINITIONS[provider_id].get("unavailable"):
+            raise ValueError(f"Provider '{provider_id}' is unavailable.")
+        connection = self.store.get_connection(property_id, provider_id)
+        if not connection.get("enabled"):
+            raise RuntimeError(f"Enable {connection['name']} before using it in the improvement loop.")
+        ai_settings = self.store.get_settings(property_id)
+        if ai_settings.get("local_only") and PROVIDER_DEFINITIONS[provider_id].get("cloud"):
+            raise RuntimeError("Local-only mode is enabled. Cloud AI providers cannot be used.")
+        if not model or not model.strip():
+            raise ValueError("A model must be specified.")
+
+    async def direct_chat(
+        self,
+        property_id: str,
+        provider_id: str,
+        model: str,
+        messages: list[AIMessage],
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        timeout_seconds: int | None = None,
+    ) -> AIChatResponse:
+        self.validate_direct_connection(property_id, provider_id, model)
+        self.store.reserve_request(property_id)
+        connection = self.store.get_connection(property_id, provider_id)
+        temp = float(connection["temperature"]) if temperature is None else float(temperature)
+        tokens = int(connection["max_output_tokens"]) if max_tokens is None else int(max_tokens)
+        timeout = int(connection["timeout_seconds"]) if timeout_seconds is None else int(timeout_seconds)
+
+        safe_messages = [AIMessage(message.role, AIInputSanitizer.sanitize_text(message.content)) for message in messages]
+        request = AIChatRequest(
+            property_id=property_id,
+            provider_id=provider_id,
+            model=model,
+            messages=safe_messages,
+            temperature=temp,
+            max_tokens=tokens,
+            timeout_seconds=timeout,
+        )
+        adapter = self.adapter_for(provider_id, connection.get("endpoint_url", ""))
+        credential = self.store.credentials_for(property_id, provider_id)
+        started = time.perf_counter()
+        try:
+            response = await adapter.send_message(request, credential)
+        except Exception as exc:
+            self.store.record_usage(
+                property_id,
+                provider_id,
+                model,
+                int((time.perf_counter() - started) * 1000),
+                False,
+                error_type=exc.__class__.__name__,
+            )
+            raise
+        self.store.record_usage(
+            property_id,
+            provider_id,
+            model,
+            int((time.perf_counter() - started) * 1000),
+            True,
+            response.input_tokens,
+            response.output_tokens,
+        )
+        response.text = AIOutputValidator.validate(response.text)
+        return response
 
 
 def friendly_http_error(status_code: int) -> str:

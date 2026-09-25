@@ -1,0 +1,54 @@
+:root {
+  color-scheme: light;
+  --black: #111111;
+  --dark: #2a2a2a;
+  --mid: #6c6c6c;
+  --line: #dedede;
+  --soft: #f5f5f5;
+  --white: #ffffff;
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; color: var(--black); background: var(--soft); -webkit-font-smoothing: antialiased; }
+button, input { font: inherit; }
+button { cursor: pointer; }
+.login-shell { display: grid; min-height: 100dvh; place-items: center; padding: 32px 20px; }
+.login-panel { width: min(100%, 390px); }
+.login-panel > header { display: flex; align-items: center; gap: 12px; margin-bottom: 54px; }
+.brand-mark { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid #2b2b2b; border-radius: 8px; color: var(--white); background: var(--black); font-size: 16px; font-weight: 700; }
+.login-panel header div { display: grid; gap: 1px; }
+.login-panel header strong { font-size: 15px; letter-spacing: 0; }
+.login-panel header span { color: var(--mid); font-size: 12px; }
+.login-copy { margin-bottom: 28px; }
+h1 { margin: 0 0 8px; font-size: 28px; font-weight: 650; letter-spacing: 0; }
+.login-copy p, dialog p { margin: 0; color: var(--mid); font-size: 14px; line-height: 1.55; }
+form { display: grid; }
+form > label, dialog label { margin: 0 0 8px; color: var(--dark); font-size: 13px; font-weight: 600; }
+input { width: 100%; height: 44px; margin-bottom: 18px; padding: 0 13px; border: 1px solid #cacaca; border-radius: 7px; outline: 0; color: var(--black); background: var(--white); transition: border-color .15s, box-shadow .15s; }
+input:focus { border-color: #6b6b6b; box-shadow: 0 0 0 3px rgba(0, 0, 0, .07); }
+.password-field { position: relative; }
+.password-field input { padding-right: 64px; }
+.password-field button { position: absolute; top: 6px; right: 7px; height: 32px; border: 0; color: var(--mid); background: transparent; font-size: 12px; font-weight: 600; }
+.login-options { display: flex; align-items: center; justify-content: space-between; margin: 0 0 22px; }
+.check { display: inline-flex; align-items: center; gap: 8px; margin: 0; color: var(--dark); font-size: 13px; font-weight: 500; }
+.check input { width: 15px; height: 15px; margin: 0; accent-color: var(--black); }
+.text-button { padding: 0; border: 0; color: var(--dark); background: transparent; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
+.submit-button, .dialog-actions button:not(.secondary) { height: 44px; border: 1px solid var(--black); border-radius: 7px; color: var(--white); background: var(--black); font-weight: 650; }
+.submit-button:hover, .dialog-actions button:not(.secondary):hover { background: #2a2a2a; }
+.submit-button:disabled { cursor: wait; opacity: .6; }
+.form-message { min-height: 20px; margin: -8px 0 10px; color: #3d3d3d; font-size: 12px; }
+.form-message.error { color: #111; font-weight: 600; }
+.login-panel > footer { margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--line); color: #8a8a8a; font-size: 11px; text-align: center; }
+dialog { width: min(calc(100% - 32px), 430px); padding: 24px; border: 1px solid #cfcfcf; border-radius: 10px; color: var(--black); background: var(--white); box-shadow: 0 24px 80px rgba(0, 0, 0, .18); }
+dialog::backdrop { background: rgba(0, 0, 0, .35); }
+.dialog-heading { display: flex; align-items: start; justify-content: space-between; margin-bottom: 12px; }
+.dialog-heading span { color: var(--mid); font-size: 11px; font-weight: 700; text-transform: uppercase; }
+.dialog-heading h2 { margin: 3px 0 0; font-size: 20px; }
+.dialog-heading button { border: 0; color: var(--mid); background: transparent; font-size: 24px; }
+dialog p { margin-bottom: 20px; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.dialog-actions button { min-height: 38px; padding: 0 15px; border-radius: 7px; }
+.dialog-actions .secondary { border: 1px solid var(--line); color: var(--dark); background: var(--white); }
+@media (max-width: 520px) { .login-shell { place-items: start center; padding-top: 48px; } .login-panel > header { margin-bottom: 42px; } }

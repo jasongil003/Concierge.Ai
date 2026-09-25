@@ -1,19 +1,70 @@
 import { expect, test } from "@playwright/test";
 
+const csrfByRequest = new WeakMap();
+
+async function loginAdmin(request) {
+  if (csrfByRequest.has(request)) return csrfByRequest.get(request);
+  const response = await request.post("/api/admin/auth/login", {
+    data: { username: "admin", password: "ChangeMe123!", remember_me: false },
+  });
+  expect(response.ok()).toBeTruthy();
+  const csrf = (await response.json()).user.csrf_token;
+  csrfByRequest.set(request, csrf);
+  return csrf;
+}
+
 async function setAuthTypes(request, enabledIds) {
+  const csrf = await loginAdmin(request);
   const propertyId = (await (await request.get("/api/admin/properties")).json()).properties[0].property_id;
   const prop = await (await request.get(`/api/admin/properties/${propertyId}`)).json();
   const labels = {
+    complimentary: "Complimentary",
+    local: "Local",
+    radius: "RADIUS",
     pms: "PMS / Room Login",
+    credit_card: "Credit Card",
     access_code: "Access Code",
+    global_account: "Global Account",
+    global_code: "Global Code",
+    user_form: "User Form",
+    social_network: "Social Network",
   };
   prop.antlabs_config = {
     ...(prop.antlabs_config || {}),
     authentication_types: Object.fromEntries(
-      ["pms", "access_code"].map((id) => [id, { label: labels[id], enabled: enabledIds.includes(id) }])
+      Object.entries(labels).map(([id, label]) => [id, { label, enabled: enabledIds.includes(id) }])
     ),
   };
-  await request.put(`/api/admin/properties/${propertyId}`, { data: prop });
+  const response = await request.put(`/api/admin/properties/${propertyId}`, {
+    headers: { "X-CSRF-Token": csrf },
+    data: prop,
+  });
+  expect(response.ok()).toBeTruthy();
+}
+
+async function ensureGuestData(request) {
+  const csrf = await loginAdmin(request);
+  const propertyId = (await (await request.get("/api/admin/properties")).json()).properties[0].property_id;
+  let catalog = await (await request.get(`/api/admin/properties/${propertyId}/service-catalog`)).json();
+  let department = catalog.departments.find((item) => item.name === "Housekeeping");
+  if (!department) {
+    department = await (await request.put(`/api/admin/properties/${propertyId}/departments`, {
+      headers: { "X-CSRF-Token": csrf }, data: { data: { name: "Housekeeping", default_sla_minutes: 15 } },
+    })).json();
+  }
+  if (!catalog.services.some((item) => item.name === "Towels")) {
+    await request.put(`/api/admin/properties/${propertyId}/service-catalog`, {
+      headers: { "X-CSRF-Token": csrf },
+      data: { data: { name: "Towels", department_id: department.department_id, keywords: ["towel", "towels"], sla_minutes: 15 } },
+    });
+  }
+  const recommendations = await (await request.get(`/api/admin/properties/${propertyId}/recommendations`)).json();
+  if (!recommendations.recommendations.some((item) => item.name === "Verified Bistro")) {
+    await request.put(`/api/admin/properties/${propertyId}/recommendations`, {
+      headers: { "X-CSRF-Token": csrf },
+      data: { data: { name: "Verified Bistro", category: "Dining", address: "100 Hotel Street", map_url: "https://maps.example/bistro", description: "Property-verified nearby dining.", enabled: true } },
+    });
+  }
 }
 
 // --- 1. Guest initial load ---
@@ -36,6 +87,7 @@ test("guest: hotel name and concierge name are displayed", async ({ page }) => {
 test("guest: suggestion buttons exist and are clickable", async ({ page }) => {
   await page.goto("/");
   const suggestions = page.locator("#suggestion-list button");
+  await expect(suggestions.first()).toBeVisible();
   const count = await suggestions.count();
   expect(count).toBeGreaterThan(0);
 
@@ -117,13 +169,13 @@ test("guest: pool hours question returns fast-path answer", async ({ page }) => 
 test.describe("wi-fi authentication flow", () => {
 test.describe.configure({ mode: "serial" });
 
-test("guest: wi-fi flow shows auth card with room/last name fields", async ({ page, request }) => {
+test("guest: wi-fi flow shows only the enabled authentication type and its fields", async ({ page, request }) => {
   await setAuthTypes(request, ["pms"]);
   await page.goto("/");
   await page.getByLabel("Ask your concierge").fill("Connect me to Wi-Fi");
   await page.getByRole("button", { name: "Send message" }).click();
 
-  await expect(page.getByText("Please verify your stay with your room number and last name.")).toBeVisible();
+  await expect(page.getByLabel("Login method")).toHaveValue("pms");
   await expect(page.getByPlaceholder("1503")).toBeVisible();
   await expect(page.getByPlaceholder("Surname")).toBeVisible();
   await expect(page.getByRole("button", { name: "Continue" })).toBeVisible();
@@ -149,7 +201,7 @@ test("guest: wi-fi flow authenticates successfully in mock mode", async ({ page,
   await page.getByPlaceholder("Surname").fill("Smith");
   await page.getByRole("button", { name: "Continue" }).click();
 
-  await expect(page.getByText("You're connected")).toBeVisible();
+  await expect(page.getByText("Demo authentication accepted. Internet access is simulated in mock mode.")).toBeVisible();
 });
 
 test("guest: wi-fi flow only lists enabled non-PMS methods", async ({ page, request }) => {
@@ -158,60 +210,172 @@ test("guest: wi-fi flow only lists enabled non-PMS methods", async ({ page, requ
   await page.getByLabel("Ask your concierge").fill("Connect me to Wi-Fi");
   await page.getByRole("button", { name: "Send message" }).click();
 
-  await expect(page.getByText("This hotel currently supports: Access Code.")).toBeVisible();
+  await expect(page.getByText("Choose an enabled Wi-Fi login method: Access Code.")).toBeVisible();
   await expect(page.getByPlaceholder("1503")).toHaveCount(0);
+  await expect(page.getByLabel("Login method")).toHaveValue("access_code");
+  await expect(page.getByRole("textbox", { name: "Access code" })).toBeVisible();
+});
+
+test("guest API rejects an authentication type disabled for the property", async ({ request }) => {
+  await setAuthTypes(request, ["pms"]);
+  const sessionResponse = await request.post("/api/session/start", {
+    data: { client_id: "disabled-auth-method-test" },
+  });
+  expect(sessionResponse.ok()).toBeTruthy();
+  const session = await sessionResponse.json();
+  const response = await request.post("/api/authenticate", {
+    data: { session_id: session.session_id, auth_type: "access_code", credentials: { access_code: "test-code" } },
+  });
+  expect(response.status()).toBe(403);
+  await expect(response.json()).resolves.toMatchObject({ detail: "This authentication method is disabled for this hotel." });
+});
+
+test("guest login selector contains every enabled authentication type and no disabled type", async ({ page, request }) => {
+  await setAuthTypes(request, ["pms", "access_code", "global_code"]);
+  await page.goto("/");
+  await page.getByLabel("Ask your concierge").fill("Connect me to Wi-Fi");
+  await page.getByRole("button", { name: "Send message" }).click();
+  const method = page.getByLabel("Login method");
+  await expect(method.locator("option")).toHaveCount(3);
+  await expect(method.locator("option[value='pms']")).toHaveCount(1);
+  await expect(method.locator("option[value='access_code']")).toHaveCount(1);
+  await expect(method.locator("option[value='global_code']")).toHaveCount(1);
+  await expect(method.locator("option[value='local']")).toHaveCount(0);
+});
+
+test("guest mock flow accepts each enabled authentication type", async ({ request }) => {
+  const authTypes = ["complimentary", "local", "radius", "pms", "credit_card", "access_code", "global_account", "global_code", "user_form", "social_network"];
+  await setAuthTypes(request, authTypes);
+  const sessionResponse = await request.post("/api/session/start", {
+    data: { client_id: "all-auth-methods-test" },
+  });
+  expect(sessionResponse.ok()).toBeTruthy();
+  const session = await sessionResponse.json();
+  const credentialsByType = {
+    complimentary: { code: "free" },
+    local: { username: "guest", password: "secret" },
+    radius: { username: "guest", password: "secret" },
+    pms: { room: "412", last_name: "Smith" },
+    credit_card: {},
+    access_code: { access_code: "hotel-code" },
+    global_account: { username: "guest", password: "secret" },
+    global_code: { global_code: "global-code" },
+    user_form: { name: "Guest Example", email: "guest@example.test" },
+    social_network: { social_provider: "facebook" },
+  };
+  for (const authType of authTypes) {
+    const response = await request.post("/api/authenticate", {
+      data: { session_id: session.session_id, auth_type: authType, credentials: credentialsByType[authType] },
+    });
+    expect(response.ok(), `${authType} was not accepted by the mock flow`).toBeTruthy();
+    expect(await response.json()).toMatchObject({ status: "authenticated" });
+  }
 });
 });
 
 // --- 5. Nearby dining / restaurant cards ---
 
-test("guest: nearby dining shows recommendation cards", async ({ page }) => {
+test("guest: nearby dining shows persisted recommendation cards", async ({ page, request }) => {
+  await ensureGuestData(request);
   await page.goto("/");
   await page.getByLabel("Ask your concierge").fill("Recommend somewhere nearby to eat");
   await page.getByRole("button", { name: "Send message" }).click();
 
-  await expect(page.locator(".recommendation-card")).toHaveCount(3);
-  await expect(page.locator(".recommendation-card").first()).toContainText("Lusso Bistro");
+  await expect(page.locator(".recommendation-card")).toHaveCount(1);
+  await expect(page.locator(".recommendation-card").first()).toContainText("Verified Bistro");
 });
 
-test("guest: restaurant card directions button shows toast", async ({ page }) => {
+test("guest: restaurant card directions button opens configured map", async ({ page, request }) => {
+  await ensureGuestData(request);
+  let openedUrl = null;
+  await page.exposeFunction("__testCaptureUrl", (url) => { openedUrl = url; });
+  await page.addInitScript(() => {
+    const realOpen = window.open.bind(window);
+    window.open = (url, ...args) => { window.__testCaptureUrl(String(url)); return realOpen(url, ...args); };
+  });
   await page.goto("/");
   await page.getByLabel("Ask your concierge").fill("Recommend somewhere nearby to eat");
   await page.getByRole("button", { name: "Send message" }).click();
 
   const directionsBtn = page.locator(".recommendation-card").first().getByRole("button", { name: "Directions" });
   await directionsBtn.click();
-  await expect(page.locator(".toast")).toBeVisible();
+  expect(openedUrl).toContain("maps.example/bistro");
 });
 
-test("guest: restaurant card details button shows toast", async ({ page }) => {
+test("guest: restaurant card details button toggles verified details", async ({ page, request }) => {
+  await ensureGuestData(request);
   await page.goto("/");
   await page.getByLabel("Ask your concierge").fill("Recommend somewhere nearby to eat");
   await page.getByRole("button", { name: "Send message" }).click();
 
   const detailsBtn = page.locator(".recommendation-card").first().getByRole("button", { name: "Details" });
   await detailsBtn.click();
-  await expect(page.locator(".toast")).toBeVisible();
+  await expect(page.locator(".recommendation-card").first()).toContainText("Property-verified nearby dining.");
+  await expect(detailsBtn).toHaveText("Hide details");
+});
+
+test("guest can request restaurant staff from the hotel menu", async ({ page, request }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "The escalation creates persistent conversation state.");
+  const csrf = await loginAdmin(request);
+  const properties = await (await request.get("/api/admin/properties")).json();
+  const propertyId = properties.properties[0].property_id;
+  const restaurantName = `Guest Staff ${Date.now().toString(36)}`;
+  const created = await request.post(`/api/admin/properties/${propertyId}/restaurants`, {
+    headers: { "X-CSRF-Token": csrf },
+    data: { data: { name: restaurantName, opening_hours: { monday: "06:30-22:00" }, internal_notes: "Never shown to guests." } },
+  });
+  expect(created.ok()).toBeTruthy();
+  const restaurant = await created.json();
+
+  const facilitiesLoaded = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/guest/facilities");
+  const sessionStarted = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/session/start" && response.request().method() === "POST");
+  await page.goto("/");
+  expect((await facilitiesLoaded).ok()).toBeTruthy();
+  expect((await sessionStarted).ok()).toBeTruthy();
+  await page.getByRole("button", { name: "Open hotel menu" }).click();
+  await page.getByRole("button", { name: "Talk to Restaurant Staff" }).click();
+  await expect(page.locator("#restaurant-staff-dialog")).toBeVisible();
+  await page.locator("#restaurant-staff-select").selectOption({ label: restaurantName });
+  await expect(page.locator("#restaurant-staff-select")).toHaveValue(restaurant.restaurant_id);
+  await page.locator("#restaurant-staff-reason").fill("Please confirm the dinner menu.");
+
+  const escalation = page.waitForResponse((response) => new URL(response.url()).pathname.endsWith("/escalate") && response.request().method() === "POST");
+  await page.getByRole("button", { name: "Request staff" }).click();
+  const response = await escalation;
+  expect(response.ok()).toBeTruthy();
+  await expect(page.locator("#restaurant-staff-dialog")).not.toBeVisible();
+  await expect(page.locator("#message-list")).toContainText("Your request is with the restaurant team");
 });
 
 // --- 6. Service request confirmation ---
 
-test("guest: housekeeping request shows confirmation card", async ({ page }) => {
+test("guest: configured service request shows confirmation card", async ({ page, request }) => {
+  await ensureGuestData(request);
   await page.goto("/");
   await page.getByLabel("Ask your concierge").fill("Send two towels to my room");
   await page.getByRole("button", { name: "Send message" }).click();
 
-  await expect(page.getByText("Please confirm before I create it.")).toBeVisible();
+  await expect(page.getByText(/Please confirm.*send it/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Confirm request" })).toBeVisible();
 });
 
-test("guest: confirm request shows confirmed status", async ({ page }) => {
+test("guest: confirm request persists and returns a request id", async ({ page, request }) => {
+  await ensureGuestData(request);
   await page.goto("/");
   await page.getByLabel("Ask your concierge").fill("Send two towels to my room");
   await page.getByRole("button", { name: "Send message" }).click();
 
   await page.getByRole("button", { name: "Confirm request" }).click();
-  await expect(page.getByText("Request confirmed.")).toBeVisible();
+  await expect(page.getByText(/Request req_[a-f0-9]+ was created/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Confirmed" })).toBeDisabled();
+});
+
+test("guest: facility-hours question answers instead of creating a booking", async ({ page }) => {
+  await page.goto("/");
+  await page.getByLabel("Ask your concierge").fill("What are the pool, gym, and spa hours?");
+  await page.getByRole("button", { name: "Send message" }).click();
+  await expect(page.getByText(/Infinity Pool.*6:00 AM-10:00 PM.*Fitness Center.*24 hours.*Lunara Spa.*10:00 AM-10:00 PM/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Confirm request" })).toHaveCount(0);
 });
 
 // --- 7. Hotel menu ---
@@ -224,6 +388,38 @@ test("guest: menu opens and closes", async ({ page }) => {
   await page.getByRole("button", { name: "Close menu" }).click();
   await expect(page.locator("#hotel-menu")).not.toHaveClass(/open/);
 });
+
+test("guest: options button opens the same working menu", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open options" }).click();
+  await expect(page.locator("#hotel-menu")).toHaveClass(/open/);
+  await page.getByRole("button", { name: "Close menu" }).click();
+  await expect(page.locator("#hotel-menu")).not.toHaveClass(/open/);
+});
+
+test("guest: hotel information menu action responds with configured property details", async ({ page, request }) => {
+  const hotel = await (await request.get("/api/hotel")).json();
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open hotel menu" }).click();
+  await page.getByRole("button", { name: "Hotel information", exact: true }).click();
+  await expect(page.locator(".message-row.assistant").last()).toContainText(hotel.description || hotel.name);
+  await expect(page.locator("#hotel-menu")).not.toHaveClass(/open/);
+});
+
+for (const [label, expectedText] of [
+  ["Language", "Language preference set"],
+  ["Accessibility", "Accessibility display mode"],
+  ["Privacy", "session is temporary"],
+  ["Help", "Ask about verified hotel information"],
+]) {
+  test(`guest: ${label.toLowerCase()} menu action responds`, async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Open hotel menu" }).click();
+    await page.getByRole("button", { name: label, exact: true }).click();
+    await expect(page.locator(".message-row.assistant").last()).toContainText(expectedText);
+    await expect(page.locator("#hotel-menu")).not.toHaveClass(/open/);
+  });
+}
 
 test("guest: new conversation resets messages", async ({ page }) => {
   await page.goto("/");
@@ -255,13 +451,20 @@ test("guest: mobile layout shows all core elements", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Send message" })).toBeVisible();
 });
 
-// --- 9. Plus button shows POC warning ---
-
-test("guest: plus button shows POC warning", async ({ page }) => {
+test("guest: composer input uses the available width", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "More actions" }).click();
-  await expect(page.locator(".toast")).toBeVisible();
-  await expect(page.locator(".toast")).toContainText("disabled for this POC");
+  const sizes = await page.locator("#composer-form").evaluate((form) => {
+    const input = form.querySelector("textarea");
+    return { form: form.getBoundingClientRect().width, input: input.getBoundingClientRect().width };
+  });
+  expect(sizes.input).toBeGreaterThan(sizes.form * 0.7);
+});
+
+// --- 9. Unsupported attachment control is not exposed ---
+
+test("guest: unsupported attachment control is not exposed", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "More actions" })).toHaveCount(0);
 });
 
 // --- 10. Dark mode (if supported) ---
@@ -296,6 +499,10 @@ test("admin: no console errors on load", async ({ page }) => {
   });
   page.on("pageerror", (err) => errors.push(err.message));
 
+  const login = await page.request.post("/api/admin/auth/login", {
+    data: { username: "admin", password: "ChangeMe123!", remember_me: false },
+  });
+  expect(login.ok()).toBeTruthy();
   await page.goto("/admin");
   await page.waitForLoadState("networkidle");
 
