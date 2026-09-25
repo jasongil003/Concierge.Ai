@@ -2,6 +2,8 @@
 
 ## Product direction
 
+For the broader commercial product vision, proactive-stay design, hotel operations, analytics, notification guardrails, and long-term expansion, see [Master Product Expansion Plan](MASTER_PRODUCT_PLAN.md).
+
 Concierge.Ai will be built **on-premise first** and designed so the same property can later move to **cloud or hybrid deployment without changing the guest-facing URL**.
 
 ### Core commercial principles
@@ -217,6 +219,30 @@ The commercial product should not require Concierge.Ai engineering to redesign e
 - [ ] Knowledge uploads
 - [ ] ANTlabs integration settings
 
+### Intro experience / motion branding
+
+Give each property an optional short branded experience before the Concierge chat appears. The animation must never block guest access.
+
+- [ ] Intro mode: none / generated preset / custom upload
+- [ ] Generate intro from uploaded PNG/JPG/SVG logo
+- [ ] Built-in presets: minimal fade, fade + scale, luxury reveal, particle assemble, line draw, glass/blur, split reveal
+- [ ] Logo-to-chat-header transition
+- [ ] Duration, background/brand color, welcome message, and transition controls
+- [ ] First-visit-only playback
+- [ ] Optional Skip control
+- [ ] Respect `prefers-reduced-motion`
+- [ ] Mobile and desktop preview before publish
+- [ ] Custom `.lottie` and Lottie `.json` upload
+- [ ] Custom `.webm` upload
+- [ ] Optional `.mp4` fallback
+- [ ] Validate animation assets and file size
+- [ ] Graceful fallback directly to chat if animation fails
+- [ ] Initialize guest/chat session while intro is playing where possible
+- [ ] Keep After Effects `.aep` as a source-project format only; require export to a supported web format
+- [ ] Later: PNG/JPG vectorization and AI-generated custom motion from logo + prompt
+
+Implementation tracking: #14
+
 ### Template builder
 
 Provide hospitality-specific templates:
@@ -300,44 +326,155 @@ Use n8n for hotel-specific workflow integration and notifications. Do not place 
 
 ---
 
-## Phase 6 - indoor location and hotel navigation
+## Phase 6 - Property Intelligence & Guest Location Analytics
 
-Start with AP/zone location, not precise indoor positioning.
+Build this as three connected capabilities. **Zones** are the spatial source of truth, **Sessions** provide stay/device identity, and **Location Analytics** aggregates behavior from both.
 
-### Work
-
-- [ ] Define `WiFiLocationProvider` interface
-- [ ] Correlate Concierge/ANTlabs session with Wi-Fi client
-- [ ] Retrieve current associated AP from WLAN controller
-- [ ] Property AP -> hotel zone mapping
-- [ ] Current-zone API
-- [ ] Hotel route graph
-- [ ] Directions between zones/facilities
-- [ ] AI explanation of deterministic route
-- [ ] Aruba adapter
-- [ ] Ruckus adapter
-- [ ] Cisco/Meraki adapter as demand requires
-- [ ] UniFi adapter as demand requires
-- [ ] Optional RSSI/multi-AP enhancement later
-- [ ] Guest privacy notice/consent where required
-- [ ] Do not keep long-term movement history by default
-- [ ] Delete temporary location association at session expiry/checkout
-
-### Example
+### Architecture
 
 ```text
-Guest session
-   ->
-Current AP
-   ->
-Floor 3 East Wing
-   ->
-Destination: Pool
-   ->
-Route graph
-   ->
-Elevator -> Lobby -> Garden Corridor -> Pool
+ANTlabs / WLAN / PMS
+          |
+          +-- device/session identity
+          +-- associated AP
+          +-- guest/stay context
+                    |
+                    v
+               Concierge.AI
+                    |
+       +------------+------------+
+       |            |            |
+       v            v            v
+     Zones       Sessions      Location
+                              Analytics
+       |            |            |
+       +------------+------------+
+                    |
+                    v
+             Property Intelligence
 ```
+
+### 6A - Zones & Facility Mapping
+
+Tracking: #10
+
+- [ ] Add Buildings / Floors / Facilities / Access Points / Map Editor
+- [ ] Upload floor plan: PNG/JPG/SVG/PDF
+- [ ] Lock floor plan as the background layer
+- [ ] Trace meaningful areas with rectangle/polygon/circle tools
+- [ ] Map public facilities and aggregate guestroom wings/floors
+- [ ] Do not require individual guest-room mapping for location analytics
+- [ ] Place WLAN APs on the floor plan
+- [ ] AP -> zone/facility mapping
+- [ ] Navigation paths, entrances, elevators, and stairs
+- [ ] Operations View with technical/AP information
+- [ ] Guest View with public facilities/navigation only
+- [ ] Current-zone API
+- [ ] Deterministic hotel route graph
+- [ ] AI explanation of deterministic routes
+- [ ] Later: assisted area detection/OCR and multi-AP precision positioning
+
+### 6B - Sessions & Stay Memory
+
+Tracking: #15
+
+- [ ] Sessions tab: Active / History / Devices / Guest Stay / AI Memory / Location History
+- [ ] Correlate ANTlabs and WLAN session data
+- [ ] Convert raw MAC/network identity into a property-scoped pseudonymous device ID
+- [ ] Create Concierge Stay ID
+- [ ] Optional PMS Guest ID / room association
+- [ ] Current AP and current zone in active session
+- [ ] Resume the same active stay after reconnect
+- [ ] Summarized AI stay memory instead of unlimited conversation history
+- [ ] Stay-based guest preferences/context
+- [ ] Configurable retention
+- [ ] Delete/anonymize memory and location history at checkout/session expiry by default
+- [ ] Do not create permanent cross-stay identity by default
+
+### 6C - Location Analytics & Behavior Reporting
+
+Tracking: #16
+
+Views:
+
+- [ ] Live
+- [ ] Heatmap
+- [ ] Areas
+- [ ] Behavior
+- [ ] Movement
+- [ ] Dwell Time
+- [ ] Peak Hours
+- [ ] Reports
+
+Metrics:
+
+- [ ] live zone occupancy
+- [ ] unique visitors/devices by zone
+- [ ] average dwell time
+- [ ] peak occupancy and peak periods
+- [ ] visit frequency
+- [ ] repeat zone visits
+- [ ] previous/next zone
+- [ ] aggregated movement paths
+- [ ] entry/exit areas
+- [ ] historical trends
+- [ ] most/least visited public areas
+
+### AI intent -> physical behavior
+
+Where privacy policy and data quality allow, add aggregate reporting that connects Concierge interaction with observed facility visits:
+
+```text
+Guest asks where the spa is
+      ->
+Concierge provides directions
+      ->
+same active stay later appears in Spa zone
+      ->
+aggregate observed conversion
+```
+
+Potential metrics:
+
+- [ ] facility inquiry -> directions
+- [ ] directions -> observed zone visit
+- [ ] AI recommendation -> observed facility visit
+- [ ] facility inquiry -> booking/service request
+
+Treat these as observed correlations/conversions, not proof of causation.
+
+### Location accuracy policy
+
+V1 uses:
+
+```text
+Device -> associated AP -> mapped zone -> facility
+```
+
+This is **zone-level location**.
+
+Do not present V1 heatmaps as exact guest coordinates.
+
+Later precision phase may add:
+- multiple-AP RSSI
+- controller location APIs
+- calibration
+- approximate X/Y
+- high-resolution floor-plan heatmaps
+
+### Privacy / security
+
+- Prefer public/common-area analytics.
+- Pseudonymize network device identifiers.
+- Do not expose raw MAC addresses unnecessarily.
+- Aggregate movement analytics by default instead of exposing individual trails.
+- Apply configurable retention and audit controls.
+- Respect private/randomized MAC behavior.
+- Remove temporary stay/location context according to checkout/session-expiry policy.
+
+### Exit criteria
+
+A hotel can upload and trace its public/aggregate floor areas, map APs and facilities, resume an active guest stay safely, view current zone occupancy, and produce useful dwell/movement/behavior reports without representing AP-level location as precise indoor positioning.
 
 ---
 
@@ -483,6 +620,32 @@ A property should retain:
 - same hotel configuration
 
 Migration should primarily be a routing/DNS and deployment change.
+
+---
+
+## Phase 9A - proactive stay assistant and notification engine
+
+Tracking: #17
+
+Build a policy-controlled assistant that can proactively help during an active stay using verified property, weather, event, restaurant, reservation, facility, and service-request context.
+
+Core rules:
+
+- [ ] verified data determines facts
+- [ ] notification policy determines whether contact is allowed
+- [ ] AI generates wording only after approval
+- [ ] quiet hours, consent, frequency caps, and suppression rules
+- [ ] event notifications
+- [ ] weather-aware assistance
+- [ ] restaurant/menu notifications
+- [ ] reservation reminders
+- [ ] service-request status updates
+- [ ] stay-lifecycle assistance
+- [ ] notification delivery history
+- [ ] engagement/conversion analytics
+- [ ] privacy-safe context use
+
+Detailed design: [Master Product Expansion Plan](MASTER_PRODUCT_PLAN.md)
 
 ---
 
