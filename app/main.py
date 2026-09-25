@@ -272,6 +272,40 @@ def _admin_principal(request: Request) -> AdminPrincipal:
     return principal
 
 
+def _department_scope_name(principal: AdminPrincipal, property_id: str) -> str | None:
+    if principal.role_slug != "department-manager":
+        return None
+    if not principal.department_id:
+        raise HTTPException(status_code=403, detail="A department assignment is required for this operation.")
+    department = hospitality.get_department(property_id, principal.department_id)
+    if department is None:
+        raise HTTPException(status_code=403, detail="The assigned department is not available in this property.")
+    return str(department["name"])
+
+
+def _require_department_request_scope(
+    principal: AdminPrincipal, property_id: str, request_id: str
+) -> dict[str, Any] | None:
+    department_name = _department_scope_name(principal, property_id)
+    if department_name is None:
+        return None
+    request_record = hospitality.get_service_request(property_id, request_id)
+    if request_record is None:
+        raise HTTPException(status_code=404, detail="Service request not found.")
+    if str(request_record.get("department") or "").casefold() != department_name.casefold():
+        raise HTTPException(status_code=403, detail="This account is not assigned to that department.")
+    return request_record
+
+
+def _require_department_service_scope(principal: AdminPrincipal, property_id: str, service_id: str) -> None:
+    if principal.role_slug != "department-manager":
+        return
+    _department_scope_name(principal, property_id)
+    service = hospitality.get_service(property_id, service_id)
+    if service is None or service.get("department_id") != principal.department_id:
+        raise HTTPException(status_code=403, detail="This account is not assigned to that service department.")
+
+
 def _request_id(request: Request) -> str:
     return getattr(request.state, "request_id", uuid.uuid4().hex)
 
@@ -1236,18 +1270,22 @@ def _build_operations_dashboard(property_id: str, period: str, principal: AdminP
     analytics_full = _analytics_for_principal(property_id, period, principal, start_at, end_at)
     summary = analytics_full["summary"]
     ai_summary = analytics_full["ai"]
-    session_metrics = store.metrics(property_id)
-    for metric, value, unit in (
-        ("service_requests", summary["service_requests"], "request"),
-        ("overdue_requests", summary["overdue_requests"], "request"),
-        ("ai_errors", ai_summary["errors"], "error"),
-        ("ai_latency_ms", ai_summary["average_latency_ms"], "ms"),
-        ("guest_auth_success_rate", analytics_full["guest_auth"]["success_rate"], "%"),
-        ("active_sessions", session_metrics.get("active_guests", 0), "session"),
-    ):
-        observability.record(property_id, metric, value, unit, "available" if value is not None else "unavailable", "application")
+    department_scoped = principal.role_slug == "department-manager"
+    session_metrics = {"active_guests": 0} if department_scoped else store.metrics(property_id)
+    if not department_scoped:
+        for metric, value, unit in (
+            ("service_requests", summary["service_requests"], "request"),
+            ("overdue_requests", summary["overdue_requests"], "request"),
+            ("ai_errors", ai_summary["errors"], "error"),
+            ("ai_latency_ms", ai_summary["average_latency_ms"], "ms"),
+            ("guest_auth_success_rate", analytics_full["guest_auth"]["success_rate"], "%"),
+            ("active_sessions", session_metrics.get("active_guests", 0), "session"),
+        ):
+            observability.record(property_id, metric, value, unit, "available" if value is not None else "unavailable", "application")
 
     infrastructure_allowed = principal.can("infrastructure.view")
+    ai_allowed = principal.can("ai.view")
+    integrations_allowed = principal.can("integrations.view")
     system_metrics = observability.collect_system(property_id) if infrastructure_allowed else {
         metric: {"value": None, "unit": "", "availability": "restricted"}
         for metric in ("cpu_utilization", "memory_utilization", "disk_utilization", "network_rx_bytes", "network_tx_bytes", "application_uptime_seconds")
@@ -1256,8 +1294,8 @@ def _build_operations_dashboard(property_id: str, period: str, principal: AdminP
         "state": "unavailable", "latency_ms": None, "size_bytes": None,
         "evidence": "Infrastructure telemetry is not available to this role.",
     }
-    ai_settings = ai_provider_store.get_settings(property_id)
-    providers = ai_provider_store.list_connections(property_id)
+    ai_settings = ai_provider_store.get_settings(property_id) if ai_allowed else {}
+    providers = ai_provider_store.list_connections(property_id) if ai_allowed else []
     enabled_providers = [item for item in providers if item.get("enabled")]
     configured_providers = [item for item in enabled_providers if item.get("provider_id") == "local" or item.get("credentials")]
     provider_states = []
@@ -1276,35 +1314,39 @@ def _build_operations_dashboard(property_id: str, period: str, principal: AdminP
         provider_states.append(state)
         provider_health.append({"id": provider["provider_id"], "name": provider["name"], "state": state, "evidence": evidence, "last_test": last_test.get("tested_at")})
     ai_state = _component_state(provider_states) if enabled_providers else "unavailable"
-    antlabs_status = antlabs.configuration_status()
-    antlabs_state = "simulation" if antlabs_status["status"] == "simulation" else ("healthy" if antlabs_status["configured"] else "unavailable")
+    antlabs_status = antlabs.configuration_status() if integrations_allowed else {"mode": "restricted", "status": "restricted", "configured": False}
+    antlabs_state = ("simulation" if antlabs_status["status"] == "simulation" else ("healthy" if antlabs_status["configured"] else "unavailable")) if integrations_allowed else "restricted"
     request_state = "warning" if summary["overdue_requests"] else "healthy"
     auth_rate = analytics_full["guest_auth"]["success_rate"]
     auth_state = "unavailable" if auth_rate is None else ("warning" if auth_rate < 90 else "healthy")
-    knowledge_count = len(operations.list_knowledge(property_id))
-    recent_errors = observability.recent_errors(property_id, period)
+    knowledge_count = len(operations.list_knowledge(property_id)) if principal.can("knowledge.view") else None
+    recent_errors = observability.recent_errors(property_id, period) if principal.can("audit.view") else []
     application_state = "warning" if recent_errors else "healthy"
     components = [
         {"id": "application", "name": "Application", "state": application_state, "evidence": f"The API is responding; {len(recent_errors)} recorded integration or AI error(s) were found in this period."},
         {"id": "database", "name": "Database", "state": database["state"], "evidence": database["evidence"]},
-        {"id": "ai_providers", "name": "AI providers", "state": ai_state, "evidence": f"{len(configured_providers)} of {len(enabled_providers)} enabled providers have credentials or local execution."},
-        {"id": "antlabs", "name": "ANTlabs gateway", "state": antlabs_state, "evidence": f"Mode: {antlabs_status['mode']}; status: {antlabs_status['status']}."},
+        {"id": "ai_providers", "name": "AI providers", "state": ai_state if ai_allowed else "restricted", "evidence": f"{len(configured_providers)} of {len(enabled_providers)} enabled providers have credentials or local execution." if ai_allowed else "AI provider status is restricted for this role."},
+        {"id": "antlabs", "name": "ANTlabs gateway", "state": antlabs_state, "evidence": f"Mode: {antlabs_status['mode']}; status: {antlabs_status['status']}." if integrations_allowed else "Integration status is restricted for this role."},
         {"id": "guest_auth", "name": "Guest authentication", "state": auth_state, "evidence": "No authentication attempts in this period." if auth_rate is None else f"{auth_rate}% of attempts succeeded."},
         {"id": "request_queue", "name": "Service request queue", "state": request_state, "evidence": f"{summary['open_requests']} open; {summary['overdue_requests']} overdue."},
-        {"id": "knowledge", "name": "Knowledge index", "state": "healthy" if knowledge_count else "warning", "evidence": f"{knowledge_count} indexed knowledge item(s)."},
+        {"id": "knowledge", "name": "Knowledge index", "state": ("healthy" if knowledge_count else "warning") if knowledge_count is not None else "restricted", "evidence": f"{knowledge_count} indexed knowledge item(s)." if knowledge_count is not None else "Knowledge status is restricted for this role."},
     ]
     overall = _component_state([item["state"] for item in components])
     analytics = {key: value for key, value in analytics_full.items() if key != "raw_requests"}
     selected_provider = next((item for item in providers if item["provider_id"] == ai_settings.get("default_provider")), None)
     analytics["summary"]["active_sessions"] = session_metrics.get("active_guests", 0)
-    analytics["ai"]["selected_provider"] = ai_settings.get("default_provider")
-    analytics["ai"]["selected_model"] = selected_provider.get("selected_model") if selected_provider else None
-    histories = {
-        metric: observability.history(property_id, metric, period, start_at, end_at)
-        for metric in ("api_latency_ms", "http_errors", "request_queue_depth", "active_sessions", "service_requests", "overdue_requests", "ai_latency_ms", "ai_errors", "guest_auth_success_rate", "cpu_utilization", "memory_utilization", "disk_utilization", "network_rx_bytes", "network_tx_bytes")
-    }
+    analytics["ai"]["selected_provider"] = ai_settings.get("default_provider") if ai_allowed else None
+    analytics["ai"]["selected_model"] = selected_provider.get("selected_model") if selected_provider and ai_allowed else None
+    history_metrics = ("api_latency_ms", "http_errors", "request_queue_depth", "active_sessions", "service_requests", "overdue_requests", "ai_latency_ms", "ai_errors", "guest_auth_success_rate", "cpu_utilization", "memory_utilization", "disk_utilization", "network_rx_bytes", "network_tx_bytes")
+    histories = (
+        {metric: [] for metric in history_metrics}
+        if department_scoped
+        else {metric: observability.history(property_id, metric, period, start_at, end_at) for metric in history_metrics}
+    )
     infrastructure_metrics = {"cpu_utilization", "memory_utilization", "disk_utilization", "network_rx_bytes", "network_tx_bytes", "request_queue_depth", "http_errors", "api_latency_ms"}
     history_availability = {metric: "available" for metric in histories}
+    if department_scoped:
+        history_availability = {metric: "restricted" for metric in histories}
     if not infrastructure_allowed:
         for metric in infrastructure_metrics:
             histories[metric] = []
@@ -1334,7 +1376,7 @@ def _build_operations_dashboard(property_id: str, period: str, principal: AdminP
             "Estimated AI cost is unavailable until verified billable usage and provider pricing are configured.",
         ],
     }
-    payload["alerts"] = observability.evaluate_alerts(property_id, payload)
+    payload["alerts"] = [] if department_scoped else observability.evaluate_alerts(property_id, payload)
     return payload
 
 
@@ -2608,7 +2650,15 @@ async def hospitality_overview(property_id: str, request: Request) -> dict[str, 
     principal = _admin_principal(request)
     all_restaurants = principal.can("properties.all") or principal.can("properties.edit")
     assigned_ids = None if all_restaurants else _assigned_restaurant_ids(principal, property_id)
-    overview = hospitality.overview(property_id, assigned_ids)
+    department_id = principal.department_id if principal.role_slug == "department-manager" else None
+    overview = hospitality.overview(property_id, assigned_ids, department_id)
+    if department_id is not None:
+        catalog = hospitality.catalog(property_id, department_id=department_id)
+        return {
+            "service_requests": overview.get("service_requests", []),
+            "departments": catalog["departments"],
+            "services": catalog["services"],
+        }
     if not all_restaurants:
         allowed_facilities = {item.get("facility_id") for item in overview.get("restaurants", []) if item.get("facility_id")}
         facilities = [item for item in overview.get("facilities", []) if item.get("facility_id") in allowed_facilities]
@@ -2627,9 +2677,11 @@ async def hospitality_overview(property_id: str, request: Request) -> dict[str, 
 
 
 @app.get("/api/admin/properties/{property_id}/service-catalog")
-async def admin_service_catalog(property_id: str) -> dict[str, Any]:
+async def admin_service_catalog(property_id: str, request: Request) -> dict[str, Any]:
     _require_property(property_id)
-    return hospitality.catalog(property_id)
+    principal = _admin_principal(request)
+    department_id = principal.department_id if principal.role_slug == "department-manager" else None
+    return hospitality.catalog(property_id, department_id=department_id)
 
 
 @app.put("/api/admin/properties/{property_id}/departments")
@@ -2950,8 +3002,18 @@ async def create_hotel_event(property_id: str, payload: GenericPayload) -> dict[
 
 
 @app.post("/api/admin/properties/{property_id}/service-requests")
-async def create_service_request(property_id: str, payload: GenericPayload) -> dict[str, Any]:
+async def create_service_request(property_id: str, payload: GenericPayload, request: Request) -> dict[str, Any]:
     _require_property(property_id)
+    principal = _admin_principal(request)
+    department_name = _department_scope_name(principal, property_id)
+    if department_name is not None:
+        requested_department = str(payload.data.get("department") or "").strip()
+        if requested_department and requested_department.casefold() != department_name.casefold():
+            raise HTTPException(status_code=403, detail="This account is not assigned to that department.")
+        if payload.data.get("service_id"):
+            _require_department_service_scope(principal, property_id, str(payload.data["service_id"]))
+        else:
+            payload.data["department"] = department_name
     try:
         request_record = hospitality.create_service_request(property_id, payload.data)
         await _dispatch_webhooks(property_id, "guest.request.created", {"request": request_record})
@@ -2961,8 +3023,11 @@ async def create_service_request(property_id: str, payload: GenericPayload) -> d
 
 
 @app.put("/api/admin/properties/{property_id}/service-requests/{request_id}/status")
-async def update_service_request_status(property_id: str, request_id: str, payload: ServiceStatusPayload) -> dict[str, Any]:
+async def update_service_request_status(
+    property_id: str, request_id: str, payload: ServiceStatusPayload, request: Request
+) -> dict[str, Any]:
     _require_property(property_id)
+    _require_department_request_scope(_admin_principal(request), property_id, request_id)
     try:
         request_record = hospitality.update_service_status(property_id, request_id, payload.status)
         await _dispatch_webhooks(property_id, "guest.request.updated", {"request": request_record})
@@ -2993,8 +3058,24 @@ async def delete_facility_profile(property_id: str, facility_id: str) -> dict[st
 
 
 @app.put("/api/admin/properties/{property_id}/service-requests/{request_id}")
-async def update_service_request(property_id: str, request_id: str, payload: ServiceRequestUpdatePayload) -> dict[str, Any]:
+async def update_service_request(
+    property_id: str, request_id: str, payload: ServiceRequestUpdatePayload, request: Request
+) -> dict[str, Any]:
     _require_property(property_id)
+    principal = _admin_principal(request)
+    _require_department_request_scope(principal, property_id, request_id)
+    department_name = _department_scope_name(principal, property_id)
+    if department_name is not None and payload.department and payload.department.casefold() != department_name.casefold():
+        raise HTTPException(status_code=403, detail="This account is not assigned to that department.")
+    if department_name is not None and payload.assigned_to:
+        assigned_user = admin_auth.get_user(payload.assigned_to)
+        if (
+            assigned_user is None
+            or assigned_user.get("property_id") != property_id
+            or assigned_user.get("department_id") != principal.department_id
+            or assigned_user.get("status") != "active"
+        ):
+            raise HTTPException(status_code=403, detail="The assignee is outside this department.")
     try:
         return hospitality.update_service_request(property_id, request_id, payload.model_dump(exclude_none=True))
     except KeyError as exc:
@@ -3002,14 +3083,20 @@ async def update_service_request(property_id: str, request_id: str, payload: Ser
 
 
 @app.get("/api/admin/properties/{property_id}/service-requests/{request_id}/history")
-async def service_request_history(property_id: str, request_id: str) -> dict[str, Any]:
+async def service_request_history(property_id: str, request_id: str, request: Request) -> dict[str, Any]:
     _require_property(property_id)
+    _require_department_request_scope(_admin_principal(request), property_id, request_id)
     return {"history": hospitality.request_history(property_id, request_id)}
 
 
 @app.post("/api/admin/properties/{property_id}/feedback")
-async def add_guest_feedback(property_id: str, payload: GenericPayload) -> dict[str, Any]:
+async def add_guest_feedback(property_id: str, payload: GenericPayload, request: Request) -> dict[str, Any]:
     _require_property(property_id)
+    principal = _admin_principal(request)
+    if payload.data.get("request_id"):
+        _require_department_request_scope(principal, property_id, str(payload.data["request_id"]))
+    elif principal.role_slug == "department-manager":
+        raise HTTPException(status_code=403, detail="Department-scoped feedback must reference an assigned service request.")
     try:
         return hospitality.add_feedback(property_id, payload.data)
     except ValueError as exc:

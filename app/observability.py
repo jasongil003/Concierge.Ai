@@ -207,22 +207,27 @@ class ObservabilityStore:
         previous_start = start - seconds
         with self._connect() as db:
             department_name = None
-            if department_id and self._table_exists(db, "departments"):
+            if department_id:
+                if not self._table_exists(db, "departments"):
+                    raise ValueError("Department scope is not available for this property.")
                 row = db.execute("SELECT name FROM departments WHERE property_id=? AND department_id=?", (property_id, department_id)).fetchone()
-                department_name = row["name"] if row else "__unauthorized_department__"
+                if row is None:
+                    raise ValueError("Department scope is not valid for this property.")
+                department_name = row["name"]
             department_sql = " AND department=?" if department_name else ""
             department_params: tuple[Any, ...] = (department_name,) if department_name else ()
-            sessions = db.execute("SELECT COUNT(*) FROM sessions WHERE property_id=? AND created_at>=? AND created_at<=?", (property_id, start, end)).fetchone()[0] if self._table_exists(db, "sessions") else 0
-            conversations = db.execute("SELECT COUNT(DISTINCT session_id) FROM conversation_messages WHERE property_id=? AND created_at>=? AND created_at<=?", (property_id, start, end)).fetchone()[0] if self._table_exists(db, "conversation_messages") else 0
+            # Property-wide activity cannot be safely attributed to one department; return no such data.
+            sessions = db.execute("SELECT COUNT(*) FROM sessions WHERE property_id=? AND created_at>=? AND created_at<=?", (property_id, start, end)).fetchone()[0] if not department_id and self._table_exists(db, "sessions") else 0
+            conversations = db.execute("SELECT COUNT(DISTINCT session_id) FROM conversation_messages WHERE property_id=? AND created_at>=? AND created_at<=?", (property_id, start, end)).fetchone()[0] if not department_id and self._table_exists(db, "conversation_messages") else 0
             requests = db.execute(f"SELECT COUNT(*) FROM service_requests WHERE property_id=? AND created_at>=? AND created_at<=?{department_sql}", (property_id, start, end, *department_params)).fetchone()[0] if self._table_exists(db, "service_requests") else 0  # nosec B608
             previous_requests = db.execute(f"SELECT COUNT(*) FROM service_requests WHERE property_id=? AND created_at>=? AND created_at<?{department_sql}", (property_id, previous_start, start, *department_params)).fetchone()[0] if self._table_exists(db, "service_requests") else 0  # nosec B608
             request_rows = db.execute(f"SELECT * FROM service_requests WHERE property_id=? AND created_at>=? AND created_at<=?{department_sql} ORDER BY created_at", (property_id, start, end, *department_params)).fetchall() if self._table_exists(db, "service_requests") else []  # nosec B608
-            ai_row = db.execute("SELECT COUNT(*) total,SUM(CASE WHEN success=0 THEN 1 ELSE 0 END) errors,AVG(latency_ms) latency,SUM(total_tokens) tokens FROM ai_usage WHERE property_id=? AND created_at>=? AND created_at<=?", (property_id, start, end)).fetchone() if self._table_exists(db, "ai_usage") else None
-            ai_time_rows = db.execute("SELECT (created_at / ?) * ? bucket_at,COUNT(*) count FROM ai_usage WHERE property_id=? AND created_at>=? AND created_at<=? GROUP BY bucket_at ORDER BY bucket_at", (bucket, bucket, property_id, start, end)).fetchall() if self._table_exists(db, "ai_usage") else []
-            ai_provider_rows = db.execute("SELECT provider_id,model,COUNT(*) count FROM ai_usage WHERE property_id=? AND created_at>=? AND created_at<=? GROUP BY provider_id,model ORDER BY count DESC", (property_id, start, end)).fetchall() if self._table_exists(db, "ai_usage") else []
-            auth_row = db.execute("SELECT COUNT(*) total,SUM(success) success FROM authentication_attempts WHERE property_id=? AND created_at>=? AND created_at<=?", (property_id, start, end)).fetchone() if self._table_exists(db, "authentication_attempts") else None
-            message_rows = db.execute("SELECT provider,COUNT(*) count FROM conversation_messages WHERE property_id=? AND role='assistant' AND created_at>=? AND created_at<=? GROUP BY provider", (property_id, start, end)).fetchall() if self._table_exists(db, "conversation_messages") else []
-            question_rows = db.execute("SELECT content,COUNT(*) count FROM conversation_messages WHERE property_id=? AND role='guest' AND created_at>=? AND created_at<=? GROUP BY lower(trim(content)) ORDER BY count DESC LIMIT 10", (property_id, start, end)).fetchall() if self._table_exists(db, "conversation_messages") else []
+            ai_row = db.execute("SELECT COUNT(*) total,SUM(CASE WHEN success=0 THEN 1 ELSE 0 END) errors,AVG(latency_ms) latency,SUM(total_tokens) tokens FROM ai_usage WHERE property_id=? AND created_at>=? AND created_at<=?", (property_id, start, end)).fetchone() if not department_id and self._table_exists(db, "ai_usage") else None
+            ai_time_rows = db.execute("SELECT (created_at / ?) * ? bucket_at,COUNT(*) count FROM ai_usage WHERE property_id=? AND created_at>=? AND created_at<=? GROUP BY bucket_at ORDER BY bucket_at", (bucket, bucket, property_id, start, end)).fetchall() if not department_id and self._table_exists(db, "ai_usage") else []
+            ai_provider_rows = db.execute("SELECT provider_id,model,COUNT(*) count FROM ai_usage WHERE property_id=? AND created_at>=? AND created_at<=? GROUP BY provider_id,model ORDER BY count DESC", (property_id, start, end)).fetchall() if not department_id and self._table_exists(db, "ai_usage") else []
+            auth_row = db.execute("SELECT COUNT(*) total,SUM(success) success FROM authentication_attempts WHERE property_id=? AND created_at>=? AND created_at<=?", (property_id, start, end)).fetchone() if not department_id and self._table_exists(db, "authentication_attempts") else None
+            message_rows = db.execute("SELECT provider,COUNT(*) count FROM conversation_messages WHERE property_id=? AND role='assistant' AND created_at>=? AND created_at<=? GROUP BY provider", (property_id, start, end)).fetchall() if not department_id and self._table_exists(db, "conversation_messages") else []
+            question_rows = db.execute("SELECT content,COUNT(*) count FROM conversation_messages WHERE property_id=? AND role='guest' AND created_at>=? AND created_at<=? GROUP BY lower(trim(content)) ORDER BY count DESC LIMIT 10", (property_id, start, end)).fetchall() if not department_id and self._table_exists(db, "conversation_messages") else []
 
         completed = [row for row in request_rows if row["status"] == "completed"]
         resolution_times = [max(0, int(row["updated_at"]) - int(row["created_at"])) for row in completed]

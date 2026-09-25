@@ -631,6 +631,8 @@ class AdminAuthStore:
             raise ValueError("A property is required for this role.")
         if role["slug"] == "department-manager" and not department_id:
             raise ValueError("A department is required for the Department Manager role.")
+        if role["slug"] == "department-manager" and not self._department_belongs(property_id, department_id):
+            raise ValueError("The Department Manager assignment must reference a department in the user's property.")
         if role["slug"] != "department-manager":
             department_id = None
         status = str(payload.get("status", "active")).strip().lower()
@@ -688,6 +690,8 @@ class AdminAuthStore:
         self.assert_role_assignment_allowed(actor, role, property_id)
         if role["slug"] == "department-manager" and not department_id:
             raise ValueError("A department is required for the Department Manager role.")
+        if role["slug"] == "department-manager" and not self._department_belongs(property_id, department_id):
+            raise ValueError("The Department Manager assignment must reference a department in the user's property.")
         if role["slug"] != "department-manager":
             department_id = None
         status = str(payload.get("status", current["status"])).lower()
@@ -922,6 +926,21 @@ class AdminAuthStore:
     @staticmethod
     def _role_has_restaurant_access(role: dict[str, Any]) -> bool:
         return bool({"restaurant.view", "restaurant.manage"} & set(role.get("permissions") or []))
+
+    def _department_belongs(self, property_id: str | None, department_id: str | None) -> bool:
+        if not property_id or not department_id:
+            return False
+        with self._connect() as db:
+            table = db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='departments'"
+            ).fetchone()
+            if table is None:
+                return False
+            row = db.execute(
+                "SELECT 1 FROM departments WHERE property_id=? AND department_id=?",
+                (property_id, department_id),
+            ).fetchone()
+        return row is not None
 
     def _set_restaurant_assignments(
         self,
