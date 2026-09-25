@@ -502,14 +502,48 @@ class HospitalityStore:
             cursor = db.execute("DELETE FROM recommendations WHERE property_id=? AND recommendation_id=?", (property_id, recommendation_id))
         return cursor.rowcount > 0
 
-    def catalog(self, property_id: str, guest: bool = False) -> dict[str, Any]:
+    def catalog(self, property_id: str, guest: bool = False, department_id: str | None = None) -> dict[str, Any]:
         with self._connect() as db:
-            departments = db.execute("SELECT * FROM departments WHERE property_id=? ORDER BY name", (property_id,)).fetchall()
-            services = db.execute("SELECT * FROM service_catalog WHERE property_id=? ORDER BY sort_order,name", (property_id,)).fetchall()
+            if department_id is None:
+                departments = db.execute("SELECT * FROM departments WHERE property_id=? ORDER BY name", (property_id,)).fetchall()
+                services = db.execute("SELECT * FROM service_catalog WHERE property_id=? ORDER BY sort_order,name", (property_id,)).fetchall()
+            else:
+                departments = db.execute(
+                    "SELECT * FROM departments WHERE property_id=? AND department_id=? ORDER BY name",
+                    (property_id, department_id),
+                ).fetchall()
+                services = db.execute(
+                    "SELECT * FROM service_catalog WHERE property_id=? AND department_id=? ORDER BY sort_order,name",
+                    (property_id, department_id),
+                ).fetchall()
         if guest:
             departments = [row for row in departments if row["enabled"]]
             services = [row for row in services if row["enabled"] and not row["archived"]]
         return {"departments": [self._department_dict(row) for row in departments], "services": [self._service_catalog_dict(row) for row in services]}
+
+    def get_department(self, property_id: str, department_id: str) -> dict[str, Any] | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM departments WHERE property_id=? AND department_id=?",
+                (property_id, department_id),
+            ).fetchone()
+        return self._department_dict(row) if row else None
+
+    def get_service(self, property_id: str, service_id: str) -> dict[str, Any] | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM service_catalog WHERE property_id=? AND service_id=?",
+                (property_id, service_id),
+            ).fetchone()
+        return self._service_catalog_dict(row) if row else None
+
+    def get_service_request(self, property_id: str, request_id: str) -> dict[str, Any] | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM service_requests WHERE property_id=? AND request_id=?",
+                (property_id, request_id),
+            ).fetchone()
+        return self._service_dict(row) if row else None
 
     def recommendations(self, property_id: str, guest: bool = False) -> list[dict[str, Any]]:
         query = "SELECT * FROM recommendations WHERE property_id=?"
@@ -1242,7 +1276,7 @@ class HospitalityStore:
         if service_id:
             with self._connect() as db:
                 catalog_service = db.execute(
-                    "SELECT s.*, d.name AS department_name FROM service_catalog s LEFT JOIN departments d ON d.department_id=s.department_id WHERE s.property_id=? AND s.service_id=? AND s.enabled=1 AND s.archived=0",
+                    "SELECT s.*, d.name AS department_name FROM service_catalog s LEFT JOIN departments d ON d.department_id=s.department_id AND d.property_id=s.property_id WHERE s.property_id=? AND s.service_id=? AND s.enabled=1 AND s.archived=0",
                     (property_id, service_id),
                 ).fetchone()
             if not catalog_service:
@@ -1437,7 +1471,12 @@ class HospitalityStore:
         record["metadata"] = _load(record["metadata"])
         return record
 
-    def overview(self, property_id: str, restaurant_ids: set[str] | None = None) -> dict[str, Any]:
+    def overview(
+        self,
+        property_id: str,
+        restaurant_ids: set[str] | None = None,
+        department_id: str | None = None,
+    ) -> dict[str, Any]:
         with self._connect() as db:
             restaurants = [
                 self._restaurant_dict(row)
@@ -1454,13 +1493,28 @@ class HospitalityStore:
                 item["restaurant_id"]: self.restaurant_menus(property_id, item["restaurant_id"])
                 for item in restaurants
             }
+            if department_id is None:
+                service_requests = db.execute(
+                    "SELECT * FROM service_requests WHERE property_id=? ORDER BY created_at DESC",
+                    (property_id,),
+                ).fetchall()
+            else:
+                department = db.execute(
+                    "SELECT name FROM departments WHERE property_id=? AND department_id=?",
+                    (property_id, department_id),
+                ).fetchone()
+                scoped_department = department["name"] if department else "__unauthorized_department__"
+                service_requests = db.execute(
+                    "SELECT * FROM service_requests WHERE property_id=? AND department=? ORDER BY created_at DESC",
+                    (property_id, scoped_department),
+                ).fetchall()
             return {
                 "facilities": [self._facility_dict(row) for row in db.execute("SELECT * FROM facility_profiles WHERE property_id=? ORDER BY name", (property_id,))],
                 "restaurants": restaurants,
                 "menus": menus,
                 "promotions": promotions,
                 "events": [self._event_dict(row) for row in db.execute("SELECT * FROM hotel_events WHERE property_id=? ORDER BY starts_at", (property_id,))],
-                "service_requests": [self._service_dict(row) for row in db.execute("SELECT * FROM service_requests WHERE property_id=? ORDER BY created_at DESC", (property_id,))],
+                "service_requests": [self._service_dict(row) for row in service_requests],
                 "notification_rules": [self._notification_rule_dict(row) for row in db.execute("SELECT * FROM notification_rules WHERE property_id=? ORDER BY name", (property_id,))],
                 "departments": [self._department_dict(row) for row in db.execute("SELECT * FROM departments WHERE property_id=? ORDER BY name", (property_id,))],
                 "services": [self._service_catalog_dict(row) for row in db.execute("SELECT * FROM service_catalog WHERE property_id=? ORDER BY sort_order,name", (property_id,))],

@@ -213,6 +213,31 @@ def test_manual_account_lock_is_indefinite_until_unlocked(auth_store: AdminAuthS
     assert auth_store.login("manual.lock", "InitialPass123!", "10.0.0.9", "test")[1].status == "active"
 
 
+def test_disabled_users_and_revoked_sessions_are_rejected(auth_store: AdminAuthStore):
+    _, administrator = auth_store.login("admin", ADMIN_PASSWORD, "10.0.0.1", "test")
+    user = auth_store.create_user(
+        {
+            "username": "disabled.user",
+            "display_name": "Disabled User",
+            "password": "DisabledPass123!",
+            "role_id": "role-property-administrator",
+            "property_id": "demo-hotel",
+            "status": "active",
+        },
+        administrator,
+    )
+    token, principal = auth_store.login("disabled.user", "DisabledPass123!", "10.0.0.8", "test")
+    auth_store.update_user(user["id"], {"status": "disabled"}, administrator)
+    assert auth_store.authenticate(token) is None
+    with pytest.raises(AuthenticationError, match="Invalid username or password"):
+        auth_store.login("disabled.user", "DisabledPass123!", "10.0.0.8", "test")
+
+    auth_store.update_user(user["id"], {"status": "active"}, administrator)
+    token, principal = auth_store.login("disabled.user", "DisabledPass123!", "10.0.0.8", "test")
+    assert auth_store.revoke_sessions(user["id"], administrator) == 1
+    assert auth_store.authenticate(token) is None
+
+
 def test_property_admin_cannot_delegate_global_permissions_even_with_spoofed_role_slug(auth_store: AdminAuthStore):
     _, global_admin = auth_store.login("admin", ADMIN_PASSWORD, "10.0.0.1", "test")
     user = auth_store.create_user(

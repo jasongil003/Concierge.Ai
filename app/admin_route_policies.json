@@ -13,7 +13,7 @@
   },
   "DELETE /api/admin/properties/{property_id}/departments/{department_id}": {
     "authentication": "required",
-    "permission": "requests.manage"
+    "permission": "properties.edit"
   },
   "DELETE /api/admin/properties/{property_id}/hospitality/facilities/{facility_id}": {
     "authentication": "required",
@@ -37,7 +37,7 @@
   },
   "DELETE /api/admin/properties/{property_id}/service-catalog/{service_id}": {
     "authentication": "required",
-    "permission": "requests.manage"
+    "permission": "properties.edit"
   },
   "DELETE /api/admin/properties/{property_id}/webhooks/{webhook_id}": {
     "authentication": "required",
@@ -473,11 +473,11 @@
   },
   "POST /api/admin/properties/{property_id}/notifications/rules": {
     "authentication": "required",
-    "permission": "requests.manage"
+    "permission": "properties.edit"
   },
   "POST /api/admin/properties/{property_id}/notifications/rules/{rule_id}/evaluate": {
     "authentication": "required",
-    "permission": "requests.manage"
+    "permission": "properties.edit"
   },
   "POST /api/admin/properties/{property_id}/promotions/{promotion_id}/approve": {
     "authentication": "required",
@@ -501,7 +501,7 @@
   },
   "POST /api/admin/properties/{property_id}/service-catalog/{service_id}/duplicate": {
     "authentication": "required",
-    "permission": "requests.manage"
+    "permission": "properties.edit"
   },
   "POST /api/admin/properties/{property_id}/service-requests": {
     "authentication": "required",
@@ -561,7 +561,7 @@
   },
   "PUT /api/admin/properties/{property_id}/departments": {
     "authentication": "required",
-    "permission": "requests.manage"
+    "permission": "properties.edit"
   },
   "PUT /api/admin/properties/{property_id}/design/draft": {
     "authentication": "required",
@@ -617,7 +617,7 @@
   },
   "PUT /api/admin/properties/{property_id}/service-catalog": {
     "authentication": "required",
-    "permission": "requests.manage"
+    "permission": "properties.edit"
   },
   "PUT /api/admin/properties/{property_id}/service-requests/{request_id}": {
     "authentication": "required",

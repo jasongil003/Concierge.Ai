@@ -148,6 +148,38 @@ def test_every_system_role_is_present_and_limited_to_known_permissions(tmp_path:
     assert set(auth.get_role("role-super-admin")["permissions"]) == set(PERMISSIONS)
 
 
+def test_system_role_matrix_matches_every_admin_route_capability(tmp_path: Path):
+    database = tmp_path / "role-route-matrix.db"
+    HospitalityStore(database).upsert_department("hotel-a", {"department_id": "housekeeping", "name": "Housekeeping"})
+    auth = AdminAuthStore(database)
+    auth.ensure_bootstrap_admin("root", "MatrixRoot123!")
+    _, root = auth.login("root", "MatrixRoot123!", "127.0.0.1", "rbac-matrix")
+
+    for slug, definition in DEFAULT_ROLES.items():
+        username = f"matrix-{slug}"
+        payload = {
+            "username": username,
+            "display_name": definition["name"],
+            "password": "MatrixUser123!",
+            "role_id": f"role-{slug}",
+            "property_id": None if slug == "super-admin" else "hotel-a",
+            "status": "active",
+        }
+        if slug == "department-manager":
+            payload["department_id"] = "housekeeping"
+        user = auth.create_user(payload, root)
+        token, principal = auth.login(user["username"], "MatrixUser123!", "127.0.0.1", "rbac-matrix")
+        assert auth.authenticate(token) is not None
+        expected_permissions = set(definition["permissions"])
+        assert set(principal.permissions) == expected_permissions
+        for permission in PERMISSIONS:
+            assert principal.can(permission) is (permission in expected_permissions), (slug, permission)
+        for route in app.routes:
+            for policy in getattr(route, "admin_policies", {}).values():
+                if policy.permission is not None:
+                    assert principal.can(policy.permission) is (policy.permission in expected_permissions)
+
+
 @pytest.mark.parametrize("method,path", _authenticated_route_inventory(), ids=lambda value: str(value))
 def test_every_authenticated_admin_route_rejects_anonymous_requests(
     unauthenticated_admin_client: TestClient,
