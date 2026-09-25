@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import re
 from typing import Any
 
 
@@ -43,7 +44,7 @@ class HotelKnowledge:
         normalized = query.lower()
         for item in self.data.get("knowledge", []):
             keywords = item.get("keywords", [])
-            if any(keyword.lower() in normalized for keyword in keywords):
+            if any(re.search(rf"(?<!\w){re.escape(keyword.lower())}(?!\w)", normalized) for keyword in keywords if keyword):
                 if item.get("fast_path", False):
                     return item["answer"]
         return None

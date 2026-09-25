@@ -27,6 +27,8 @@ PERMISSIONS: dict[str, str] = {
     "roles.manage": "Create and edit custom roles",
     "knowledge.view": "View knowledge",
     "knowledge.edit": "Manage knowledge",
+    "knowledge.publish": "Approve and publish hotel knowledge",
+    "knowledge.delete": "Delete hotel knowledge and source files",
     "concierge.view": "View concierge configuration",
     "concierge.edit": "Edit concierge configuration",
     "conversations.view": "View guest conversations",
@@ -65,7 +67,7 @@ DEFAULT_ROLES: dict[str, dict[str, Any]] = {
         "name": "Property Manager",
         "description": "Hotel operations, content, requests, conversations, knowledge, and analytics.",
         "permissions": [
-            "dashboard.view", "properties.view", "properties.edit", "knowledge.view", "knowledge.edit",
+            "dashboard.view", "properties.view", "properties.edit", "knowledge.view", "knowledge.edit", "knowledge.publish",
             "concierge.view", "concierge.edit", "conversations.view", "conversations.reply",
             "requests.view", "requests.manage", "analytics.view", "assistant.use", "diagnostics.view",
             "reports.export", "ai.view", "integrations.view",
@@ -92,7 +94,7 @@ DEFAULT_ROLES: dict[str, dict[str, Any]] = {
         "name": "Content Manager",
         "description": "Hotel content, knowledge, facilities, dining, and concierge responses.",
         "permissions": [
-            "dashboard.view", "properties.view", "properties.edit", "knowledge.view", "knowledge.edit",
+            "dashboard.view", "properties.view", "properties.edit", "knowledge.view", "knowledge.edit", "knowledge.publish",
             "concierge.view", "concierge.edit", "analytics.view", "assistant.use", "reports.export",
         ],
     },

@@ -85,6 +85,8 @@ jobs:
       - name: Run functional and visual browser tests
         env:
           PLAYWRIGHT_SERVER_COMMAND: python -m uvicorn app.main:app --host 127.0.0.1 --port 8092
+          PROPERTY_ID: lunara-mnl-001
+          HOTEL_CONFIG_PATH: data/lunara.json
         run: npm run test:e2e
 
       - name: Upload browser report on failure

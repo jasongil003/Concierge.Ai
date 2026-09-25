@@ -839,6 +839,19 @@ class HospitalityStore:
             ).fetchone()
         return {"total_requests": int(row["total"] or 0), "open_requests": int(row["open_count"] or 0), "overdue_requests": int(row["overdue_count"] or 0)}
 
+    def guest_requests_for_stay(self, property_id: str, stay_ids: set[str]) -> list[dict[str, Any]]:
+        """Return service requests scoped to known guest session/stay handles."""
+        ids = [value for value in stay_ids if value]
+        if not ids:
+            return []
+        marks = ",".join("?" for _ in ids)
+        with self._connect() as db:
+            rows = db.execute(
+                f"SELECT * FROM service_requests WHERE property_id=? AND stay_id IN ({marks}) ORDER BY created_at DESC LIMIT 20",
+                (property_id, *ids),
+            ).fetchall()
+        return [self._service_dict(row) for row in rows]
+
     def _notification_allowed(self, rule: dict[str, Any], payload: dict[str, Any], prefs: dict[str, Any], current_zone_id: str | None, moment: int) -> tuple[bool, str]:
         policy = rule.get("policy") or {}
         if not rule["enabled"]:

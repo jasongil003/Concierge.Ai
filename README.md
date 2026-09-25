@@ -179,3 +179,7 @@ The commercial roadmap is **on-prem first, cloud/hybrid later**. The immediate o
 ## License
 
 No license has been selected yet. Do not assume commercial redistribution rights until a project license is added.
+# Hotel Knowledge Management
+
+Admin AI document ingestion, review, publishing, source citations, and the Guest AI retrieval boundary are described in [Hotel Knowledge Management](docs/KNOWLEDGE_MANAGEMENT.md). Use the [manual QA checklist](docs/KNOWLEDGE_MANAGEMENT_QA.md) after deployment.
+

@@ -1,9 +1,10 @@
 const form = document.getElementById("login-form");
 const message = document.getElementById("login-message");
 const password = document.getElementById("password");
-const resetToken = new URLSearchParams(window.location.search).get("reset_token");
+const resetToken = new URLSearchParams(window.location.hash.slice(1)).get("reset_token");
 
 if (resetToken) {
+  window.history.replaceState({}, "", "/admin/login");
   form.hidden = true;
   document.getElementById("reset-form").hidden = false;
   document.getElementById("login-title").textContent = "Choose a new password";

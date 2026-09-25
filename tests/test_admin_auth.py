@@ -64,6 +64,100 @@ def test_admin_page_and_api_require_authentication(auth_client: TestClient):
     assert auth_client.get("/admin/login").status_code == 200
 
 
+def test_password_reset_request_is_throttled_without_exposing_username(monkeypatch: pytest.MonkeyPatch):
+    calls: list[tuple[str, int, int]] = []
+
+    class DenyAccountLimiter:
+        def allow(self, key: str, limit: int, seconds: int) -> bool:
+            calls.append((key, limit, seconds))
+            return not key.startswith("password-reset:account:")
+
+    monkeypatch.setattr(main_module, "rate_limiter", DenyAccountLimiter())
+
+    def should_not_continue(*args, **kwargs):
+        raise AssertionError("throttled reset request continued into account or email processing")
+
+    monkeypatch.setattr(main_module.admin_auth, "audit", should_not_continue)
+    monkeypatch.setattr(main_module.operations, "get_email_settings", should_not_continue)
+    client = TestClient(app)
+
+    response = client.post("/api/admin/auth/password-reset/request", json={"username": "private.staff"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "message": "If recovery is configured for this account, reset instructions will be sent."
+    }
+    assert len(calls) == 2
+    assert calls[0][0].startswith("password-reset:ip:")
+    assert calls[0][1:] == (12, 3600)
+    assert calls[1][0].startswith("password-reset:account:")
+    assert "private.staff" not in calls[1][0]
+    assert calls[1][1:] == (3, 3600)
+
+
+def test_password_reset_confirmation_is_throttled_with_hashed_token_key(monkeypatch: pytest.MonkeyPatch):
+    calls: list[tuple[str, int, int]] = []
+
+    class DenyTokenLimiter:
+        def allow(self, key: str, limit: int, seconds: int) -> bool:
+            calls.append((key, limit, seconds))
+            return not key.startswith("password-reset-confirm:token:")
+
+    monkeypatch.setattr(main_module, "rate_limiter", DenyTokenLimiter())
+
+    def should_not_consume(*args, **kwargs):
+        raise AssertionError("throttled confirmation continued into token processing")
+
+    monkeypatch.setattr(main_module.admin_auth, "consume_password_reset", should_not_consume)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/admin/auth/password-reset/confirm",
+        json={"token": "sensitive-reset-token-value", "new_password": "StrongReplacement123!"},
+    )
+
+    assert response.status_code == 429
+    assert response.json()["detail"] == "Too many password reset attempts. Try again later."
+    assert len(calls) == 2
+    assert calls[0][0].startswith("password-reset-confirm:ip:")
+    assert calls[0][1:] == (30, 3600)
+    assert calls[1][0].startswith("password-reset-confirm:token:")
+    assert "sensitive-reset-token-value" not in calls[1][0]
+    assert calls[1][1:] == (10, 3600)
+
+
+def test_password_reset_email_places_token_in_url_fragment(monkeypatch: pytest.MonkeyPatch):
+    sent_urls: list[str] = []
+
+    class AllowLimiter:
+        def allow(self, key: str, limit: int, seconds: int) -> bool:
+            return True
+
+    monkeypatch.setattr(main_module, "rate_limiter", AllowLimiter())
+    monkeypatch.setattr(main_module.admin_auth, "audit", lambda *args, **kwargs: None)
+    monkeypatch.setattr(main_module.operations, "get_email_settings", lambda include_secret: {"enabled": True})
+    monkeypatch.setattr(
+        main_module.admin_auth,
+        "create_password_reset",
+        lambda username: {
+            "token": "one-time-secret-reset-token",
+            "email": "staff@example.test",
+            "display_name": "Staff",
+            "username": username,
+        },
+    )
+    monkeypatch.setattr(main_module, "_send_password_reset_email", lambda config, reset, url: sent_urls.append(url))
+
+    response = TestClient(app).post(
+        "/api/admin/auth/password-reset/request", json={"username": "private.staff"}
+    )
+
+    assert response.status_code == 200
+    assert len(sent_urls) == 1
+    assert "?reset_token=" not in sent_urls[0]
+    assert sent_urls[0].endswith("#reset_token=one-time-secret-reset-token")
+
+
 def test_login_logout_and_csrf(auth_client: TestClient):
     assert auth_client.post(
         "/api/admin/auth/login", json={"username": "missing", "password": "WrongPassword1!"}
@@ -212,6 +306,28 @@ def test_staff_cannot_export_or_run_infrastructure_tools(auth_store: AdminAuthSt
     )
     assert diagnostic.status_code == 403
     assert "infrastructure.view" in diagnostic.json()["detail"]
+
+
+def test_property_viewer_does_not_receive_service_request_records(auth_store: AdminAuthStore, auth_client: TestClient):
+    auth_store.create_user(
+        {
+            "username": "content-only",
+            "display_name": "Content Only",
+            "password": "ContentOnlyPass123!",
+            "role_id": "role-content-manager",
+            "property_id": "demo-hotel",
+            "status": "active",
+        },
+        actor=None,
+    )
+    login(auth_client, "content-only", "ContentOnlyPass123!")
+
+    response = auth_client.get("/api/admin/properties/demo-hotel/hospitality")
+
+    assert response.status_code == 200
+    assert "facilities" in response.json()
+    assert "service_requests" not in response.json()
+    assert "notification_rules" not in response.json()
 
 
 def test_audit_records_administrative_actions(auth_client: TestClient):

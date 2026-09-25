@@ -9,6 +9,7 @@ const state = {
   designPublished: null,
   versions: [],
   ai: null,
+  personalizationPolicy: null,
   improvementLoop: null,
   activeProvider: null,
   providerDirty: false,
@@ -27,12 +28,17 @@ const state = {
   mapBackgrounds: new Map(),
   freeformDraft: null,
   knowledge: { items: [], documents: [], faqs: [] },
+  managedKnowledge: { items: [], sources: [], categories: [] },
+  knowledgeHealth: null,
+  hotelAIFiles: [],
+  hotelAISubmitting: false,
   webhooks: { webhooks: [], deliveries: [] },
   deployment: null,
   operations: null,
   operationsPeriod: "24h",
   operationsStart: null,
   operationsEnd: null,
+  assistantConversationId: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -73,6 +79,7 @@ const NAV_SECTIONS = [
       { id: "conversations", label: "Conversations", panel: "conversations", permission: "conversations.view", status: "live", icon: "◫" },
       { id: "guest-requests", label: "Guest Requests", panel: "requests", permission: "requests.view", status: "live", icon: "☷" },
       { id: "guest-sessions", label: "Guest Sessions", panel: "sessions", permission: "conversations.view", status: "live", icon: "◎" },
+      { id: "personalization", label: "Personalization", panel: "personalization-settings", permission: "properties.view", status: "live", icon: "✧" },
       { id: "guest-preview", label: "Guest Preview", panel: "guest", permission: "concierge.view", status: "live", icon: "◐" },
     ],
   },
@@ -315,6 +322,7 @@ function activatePanel(panelId, navId = null) {
   }
   if (panelId === "zones" && currentPropertyId()) loadZones().catch((error) => showToast(error.message, "error"));
   if (panelId === "sessions" && currentPropertyId()) loadSessions().catch((error) => showToast(error.message, "error"));
+  if (panelId === "personalization-settings" && currentPropertyId()) loadPersonalizationPolicy().catch((error) => showToast(error.message, "error"));
   if (panelId === "location" && currentPropertyId()) loadLocationLive().catch((error) => showToast(error.message, "error"));
   if (panelId === "intro" && currentPropertyId()) loadIntro().catch((error) => showToast(error.message, "error"));
   if (panelId === "requests" && currentPropertyId()) loadServiceRequests().catch((error) => showToast(error.message, "error"));
@@ -341,6 +349,44 @@ function activatePanel(panelId, navId = null) {
 
 function currentPropertyId() {
   return state.property?.property_id || $("property-id").value;
+}
+
+async function loadPersonalizationPolicy() {
+  const config = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/personalization`);
+  state.personalizationPolicy = config;
+  $("personalization-enabled").checked = Boolean(config.enabled);
+  $("personalization-default-level").value = config.default_level || "private";
+  $("personalization-learning").checked = Boolean(config.allow_preference_learning);
+  $("personalization-profile").checked = Boolean(config.allow_guest_profile);
+  $("personalization-delete-checkout").checked = Boolean(config.delete_profile_at_checkout);
+  $("personalization-retention").value = config.memory_retention || "stay_only";
+  $("personalization-retention-days").value = config.memory_retention_days || 2;
+  $("personalization-pms").checked = Boolean(config.allow_pms_personalization);
+  $("personalization-location").checked = Boolean(config.allow_location_aware_recommendations);
+  $("personalization-internet").checked = Boolean(config.allow_internet_recommendations);
+  $("personalization-retention-days").disabled = $("personalization-retention").value !== "configurable";
+  const personalOption = $("personalization-default-level").querySelector('option[value="personal"]');
+  personalOption.disabled = !config.allow_guest_profile;
+}
+
+async function savePersonalizationPolicy() {
+  const payload = {
+    enabled: $("personalization-enabled").checked,
+    default_level: $("personalization-default-level").value,
+    allow_preference_learning: $("personalization-learning").checked,
+    allow_guest_profile: $("personalization-profile").checked,
+    delete_profile_at_checkout: $("personalization-delete-checkout").checked,
+    memory_retention: $("personalization-retention").value,
+    memory_retention_days: Number($("personalization-retention-days").value || 2),
+    allow_pms_personalization: $("personalization-pms").checked,
+    allow_location_aware_recommendations: $("personalization-location").checked,
+    allow_internet_recommendations: $("personalization-internet").checked,
+  };
+  state.personalizationPolicy = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/personalization`, {
+    method: "PUT",
+    body: JSON.stringify({ data: payload }),
+  });
+  showToast("Personalization settings saved.");
 }
 
 async function loadDashboard() {
@@ -610,7 +656,11 @@ async function saveRestaurant() {
 async function deleteRestaurant(id) { await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/restaurants/${encodeURIComponent(id)}`, { method: "DELETE" }); await loadHospitalityManagement(); showToast("Restaurant deleted."); }
 
 async function loadKnowledge() {
-  state.knowledge = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge`);
+  const base = `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge`;
+  const [legacy, managed, health] = await Promise.all([jsonFetch(base), jsonFetch(`${base}/managed`), jsonFetch(`${base}/health`)]);
+  state.knowledge = legacy;
+  state.managedKnowledge = managed;
+  state.knowledgeHealth = health;
   renderKnowledge();
 }
 
@@ -624,6 +674,9 @@ function makeActionButton(label, handler, secondary = false) {
 }
 
 function renderKnowledge() {
+  const health = state.knowledgeHealth;
+  if (health && $("knowledge-health")) $("knowledge-health").textContent = `${health.coverage_percent}% coverage · ${health.pending_review} pending review · ${health.open_conflicts} open conflicts · ${health.expired_items} expired items. Missing categories: ${health.missing_categories.join(", ") || "none"}. Missing facts: ${health.missing_fields.join(", ") || "none"}.`;
+  renderManagedKnowledge();
   const entryList = $("knowledge-list"); entryList.innerHTML = "";
   for (const item of state.knowledge.items || []) {
     const row = document.createElement("div"); row.className = "compact-row";
@@ -642,6 +695,31 @@ function renderKnowledge() {
     row.innerHTML = `<strong>${escapeHTML(item.source_name || item.title)}</strong><span>${escapeHTML(item.status)} · ${escapeHTML(item.content_type || "unknown type")}</span><span>${escapeHTML(item.error || "Ready for verified retrieval")}</span>`;
     row.append(makeActionButton("Delete", () => deleteKnowledgeItem(item.item_id), true)); documentList.appendChild(row);
   }
+  for (const source of state.managedKnowledge.sources || []) {
+    const row = document.createElement("div"); row.className = "compact-row";
+    row.innerHTML = `<strong>${escapeHTML(source.filename)}</strong><span>${escapeHTML(source.status.replaceAll("_", " "))} · version ${source.version}${source.previous_source_id ? ` · replaces ${escapeHTML(source.previous_source_id.slice(0, 8))}` : ""} · ${escapeHTML(source.extension)} · ${escapeHTML(formatDate(source.created_at))}</span><span>${escapeHTML(source.error || "Review extracted knowledge before publishing.")}</span>`;
+    row.append(makeActionButton("Review", () => { activatePanel("knowledge"); document.querySelector(`[data-source-id="${source.source_id}"]`)?.scrollIntoView({ block: "center" }); }));
+    row.append(makeActionButton("Versions", async () => {
+      const history = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge/sources/${source.source_id}/versions`);
+      showToast(history.versions.map((version) => `v${version.version} ${version.filename} (${version.status})`).join(" → "));
+    }, true));
+    if (can("knowledge.edit")) {
+      row.append(makeActionButton("Download original", () => window.location.assign(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge/sources/${source.source_id}/download`), true));
+      if (source.status === "processing_failed") row.append(makeActionButton("Retry", async () => { await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge/sources/${source.source_id}/retry`, { method: "POST" }); await loadKnowledge(); }, true));
+      row.append(makeActionButton("Replace", async () => {
+        if (!window.confirm(`Upload a new version of ${source.filename}? The previous version remains active until you supersede it.`)) return;
+        const picker = document.createElement("input"); picker.type = "file"; picker.accept = ".pdf,.docx,.xlsx,.csv,.txt,.md,.json,.pptx,.png,.jpg,.jpeg,.webp";
+        picker.addEventListener("change", async () => { if (picker.files?.[0]) try { await uploadKnowledgeDocument(picker.files[0], () => {}, `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge/sources/${source.source_id}/replace`); } catch (error) { showToast(error.message, "error"); } });
+        picker.click();
+      }, true));
+    }
+    if (source.previous_source_id && can("knowledge.publish") && source.status === "ready_review") row.append(makeActionButton("Supersede previous", async () => {
+      if (!window.confirm("Archive the previous document version and remove its published knowledge from Guest AI?")) return;
+      await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge/sources/${source.source_id}/supersede`, { method: "POST" }); await loadKnowledge();
+    }, true));
+    if (can("knowledge.delete")) row.append(makeActionButton("Delete source", async () => { if (!window.confirm(`Permanently delete ${source.filename} and all derived knowledge?`)) return; await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge/sources/${source.source_id}`, { method: "DELETE" }); await loadKnowledge(); }, true));
+    documentList.appendChild(row);
+  }
   if (!documentList.children.length) documentList.textContent = "No documents uploaded.";
 
   const faqList = $("faq-list"); faqList.innerHTML = "";
@@ -657,6 +735,48 @@ function renderKnowledge() {
   if (!faqList.children.length) faqList.textContent = "No managed FAQs.";
 }
 
+function renderManagedKnowledge() {
+  const target = $("managed-knowledge-list");
+  if (!target) return;
+  target.replaceChildren();
+  const query = $("managed-knowledge-search")?.value.trim().toLowerCase() || "";
+  const items = (state.managedKnowledge.items || []).filter((item) => !query || `${item.title} ${item.content}`.toLowerCase().includes(query));
+  for (const item of items) {
+    const row = document.createElement("article"); row.className = "compact-row knowledge-review"; row.dataset.sourceId = item.source_id || "";
+    const source = state.managedKnowledge.sources.find((candidate) => candidate.source_id === item.source_id);
+    row.innerHTML = `<strong>${escapeHTML(item.title)}</strong><span>${escapeHTML(item.category)} · ${escapeHTML(item.status.replaceAll("_", " "))} · ${escapeHTML(item.visibility)}${item.conflict ? " · Conflict" : ""}${item.risk_flags?.length ? ` · Review: ${escapeHTML(item.risk_flags.join(", "))}` : ""}</span><span>${escapeHTML(source?.filename || "Admin Knowledge Entry")} · ${escapeHTML(JSON.stringify(item.location))}</span><p>${escapeHTML(item.content)}</p>`;
+    const details = document.createElement("div"); details.className = "knowledge-review-details"; details.hidden = true;
+    const title = document.createElement("input"); title.value = item.title; title.setAttribute("aria-label", "Knowledge title");
+    const content = document.createElement("textarea"); content.value = item.content; content.rows = 4; content.setAttribute("aria-label", "Knowledge content");
+    const category = document.createElement("select"); category.setAttribute("aria-label", "Knowledge category");
+    for (const value of state.managedKnowledge.categories || []) { const option = document.createElement("option"); option.value = value; option.textContent = value; category.append(option); } category.value = item.category;
+    const visibility = document.createElement("select"); visibility.setAttribute("aria-label", "Knowledge visibility");
+    for (const [value, label] of [["admin", "Admin Only"], ["guest", "Guest + Admin"], ["manager", "Manager Only"], ["engineering", "Engineering Only"], ["staff", "Staff Only"]]) { const option = document.createElement("option"); option.value = value; option.textContent = label; visibility.append(option); } visibility.value = item.visibility;
+    const effective = document.createElement("input"); effective.type = "date"; effective.setAttribute("aria-label", "Effective date"); if (item.effective_at) effective.value = new Date(item.effective_at * 1000).toISOString().slice(0, 10);
+    const expires = document.createElement("input"); expires.type = "date"; expires.setAttribute("aria-label", "Expiration date"); if (item.expires_at) expires.value = new Date(item.expires_at * 1000).toISOString().slice(0, 10);
+    details.append(title, content, category, visibility, effective, expires);
+    const base = `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge/items/${item.item_id}`;
+    if (can("knowledge.edit") && item.status !== "published") details.append(makeActionButton("Save changes", async () => {
+      await jsonFetch(base, { method: "PATCH", body: JSON.stringify({ title: title.value, content: content.value, category: category.value, visibility: visibility.value, effective_at: effective.value ? Math.floor(Date.parse(`${effective.value}T00:00:00Z`) / 1000) : null, expires_at: expires.value ? Math.floor(Date.parse(`${expires.value}T00:00:00Z`) / 1000) : null }) }); await loadKnowledge();
+    }));
+    row.append(makeActionButton("Review", () => { details.hidden = !details.hidden; }));
+    if (can("knowledge.publish")) {
+      if (item.status === "ready_review") row.append(makeActionButton("Approve", () => transitionKnowledge(item.item_id, "approve")));
+      if (item.status === "approved") row.append(makeActionButton("Publish", () => transitionKnowledge(item.item_id, "publish")));
+      if (item.status === "published") row.append(makeActionButton("Unpublish", () => transitionKnowledge(item.item_id, "unpublish"), true));
+      if (item.status !== "archived") row.append(makeActionButton("Archive", () => transitionKnowledge(item.item_id, "archive"), true));
+    }
+    row.append(details); target.append(row);
+  }
+  if (!items.length) target.textContent = "No matching extracted knowledge.";
+}
+
+async function transitionKnowledge(itemId, action) {
+  if (["publish", "archive", "unpublish"].includes(action) && !window.confirm(`${action[0].toUpperCase() + action.slice(1)} this knowledge item?`)) return;
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge/items/${itemId}/${action}`, { method: "POST" });
+  await loadKnowledge();
+}
+
 async function saveKnowledgeEntry() {
   await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge`, { method: "PUT", body: JSON.stringify({ item_id: $("knowledge-id").value || null, kind: "entry", title: $("knowledge-title").value.trim(), body: $("knowledge-body").value.trim(), enabled: $("knowledge-enabled").checked }) });
   $("knowledge-id").value = ""; $("knowledge-title").value = ""; $("knowledge-body").value = ""; await loadKnowledge(); showToast("Knowledge entry saved.");
@@ -667,12 +787,43 @@ async function saveFAQ() {
   $("faq-id").value = ""; $("faq-question").value = ""; $("faq-answer").value = ""; await loadKnowledge(); showToast("FAQ saved.");
 }
 
-async function uploadKnowledgeDocument(file) {
+async function uploadKnowledgeDocument(file, onProgress = () => {}, endpoint = null) {
   if (!file) return;
   const content = new Uint8Array(await file.arrayBuffer()); let binary = "";
-  for (const byte of content) binary += String.fromCharCode(byte);
-  const item = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge/documents`, { method: "POST", body: JSON.stringify({ filename: file.name, content_type: file.type || "application/octet-stream", content_base64: btoa(binary) }) });
-  await loadKnowledge(); showToast(item.status === "ready" ? "Document ingested." : item.error, item.status === "ready" ? "default" : "error");
+  for (let offset = 0; offset < content.length; offset += 8192) binary += String.fromCharCode(...content.subarray(offset, offset + 8192));
+  const body = JSON.stringify({ filename: file.name, content_type: file.type || "application/octet-stream", content_base64: btoa(binary) });
+  const item = await new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", endpoint || `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge/sources`);
+    xhr.setRequestHeader("Content-Type", "application/json");
+    xhr.setRequestHeader("X-CSRF-Token", state.auth?.csrf_token || "");
+    xhr.upload.onprogress = (event) => { if (event.lengthComputable) onProgress(Math.round(100 * event.loaded / event.total)); };
+    xhr.onload = () => { const payload = JSON.parse(xhr.responseText || "{}"); if (xhr.status >= 200 && xhr.status < 300) resolve(payload); else reject(new Error(payload.detail || "Upload failed.")); };
+    xhr.onerror = () => reject(new Error("Upload failed. Check your connection and retry."));
+    xhr.send(body);
+  });
+  await loadKnowledge(); showToast(`${item.filename} queued for review.`);
+  return item;
+}
+
+function addHotelAIFiles(files) {
+  if (!can("knowledge.edit")) { showToast("Permission required: knowledge.edit", "error"); return; }
+  const limit = state.managedKnowledge.limits?.max_files_per_upload || 5;
+  for (const file of files) {
+    if (state.hotelAIFiles.length >= limit) { showToast(`Choose up to ${limit} files per message.`, "error"); break; }
+    if (!state.hotelAIFiles.some((candidate) => candidate.name === file.name && candidate.size === file.size)) state.hotelAIFiles.push(file);
+  }
+  renderHotelAIFiles();
+}
+
+function renderHotelAIFiles() {
+  const target = $("hotel-ai-attachments"); target.replaceChildren();
+  for (const [index, file] of state.hotelAIFiles.entries()) {
+    const chip = document.createElement("span"); chip.className = "knowledge-file-chip";
+    chip.textContent = `${file.name} (${Math.ceil(file.size / 1024)} KB)`;
+    chip.append(makeActionButton("Remove", () => { state.hotelAIFiles.splice(index, 1); renderHotelAIFiles(); }, true));
+    target.append(chip);
+  }
 }
 
 async function deleteKnowledgeItem(itemId) { await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge/${encodeURIComponent(itemId)}`, { method: "DELETE" }); await loadKnowledge(); showToast("Knowledge item deleted."); }
@@ -739,6 +890,52 @@ async function loadGuardrailDiagnostics() {
   $("guardrail-diagnostic-proxy").textContent = result.trusted_proxy ? "Trusted forwarded address" : "Direct source address";
   $("guardrail-diagnostic-result").textContent = result.network_policy_result;
   $("guardrail-diagnostic-sessions").textContent = result.active_guest_sessions;
+  renderNetworkSetupGuidance(result);
+}
+
+function renderNetworkSetupGuidance(result) {
+  const status = $("network-setup-status");
+  const addButton = $("trust-detected-ip");
+  const hotelWifiCheck = $("confirm-hotel-wifi-test");
+  if (!status || !addButton) return;
+  const ip = result.detected_client_ip || "";
+  status.className = "network-setup-status";
+  addButton.hidden = true;
+  addButton.dataset.ip = "";
+  if (hotelWifiCheck) hotelWifiCheck.checked = false;
+  if (!ip) {
+    status.textContent = "Could not determine the client address. Check the server connection and refresh.";
+    status.classList.add("warning");
+    return;
+  }
+  const isPrivateVmAddress = /^(172\.(1[6-9]|2\d|3[01])|10\.|192\.168\.)/.test(ip);
+  if (result.matched_network) {
+    status.textContent = `This connection is allowed: ${ip} matches ${result.matched_network}. Test the guest page from a phone on hotel Wi-Fi to verify guest access.`;
+    status.classList.add("success");
+  } else if (isPrivateVmAddress) {
+    status.textContent = `Concierge sees ${ip}, but it is a private network address and does not match your approved guest network. A VM, WSL, NAT, or proxy may be hiding the guest device address. Fix client-IP forwarding before allowing guests.`;
+    status.classList.add("warning");
+  } else {
+    status.textContent = `Concierge sees ${ip}, which is not in an approved network. If this check was made from a test device on the hotel guest Wi-Fi, you can add this exact address as a /32 rule.`;
+    status.classList.add("warning");
+    addButton.dataset.ip = ip;
+    status.textContent += isPrivateVmAddress ? " This is a private VM or proxy address, so it cannot be added here." : " Confirm the test device was on hotel guest Wi-Fi to enable the rule.";
+  }
+  if ($("guardrail-antlabs").checked && !$("guardrail-antlabs-secret").value && $("guardrail-antlabs-secret").placeholder === "Not configured") {
+    status.textContent += " Signed ANTlabs validation is enabled but no signing secret is configured; turn it off unless your gateway is set up to sign requests.";
+    status.classList.add("warning");
+  }
+}
+
+function addDetectedAddressRule() {
+  const ip = $("trust-detected-ip")?.dataset.ip;
+  if (!ip || !$("confirm-hotel-wifi-test")?.checked || !/^\d{1,3}(?:\.\d{1,3}){3}$/.test(ip)) return;
+  const textarea = $("guardrail-cidrs");
+  const rules = textarea.value.split("\n").map((line) => line.trim()).filter(Boolean);
+  const rule = `${ip}/32`;
+  if (!rules.includes(rule)) rules.push(rule);
+  textarea.value = rules.join("\n");
+  showToast(`Added ${rule}. Click Save Guardrails to apply it.`);
 }
 
 async function loadWebhooks() { state.webhooks = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/webhooks`); renderWebhooks(); }
@@ -907,6 +1104,11 @@ function modelOptions(provider) {
   const models = new Set(provider.model_catalog || []);
   if (provider.selected_model) models.add(provider.selected_model);
   return [...models].filter(Boolean);
+}
+
+async function saveAuthenticationTypes() {
+  await savePropertyBasics();
+  showToast("Authentication methods saved. Guest login now reflects the enabled methods.");
 }
 
 function namedModelOptions(provider) {
@@ -1767,6 +1969,7 @@ async function switchProperty(propertyId) {
   hydrateProperty(property);
   state.ai = null;
   state.improvementLoop = null;
+  state.personalizationPolicy = null;
   state.catalog = { departments: [], services: [] };
   state.recommendations = [];
   state.knowledge = { items: [], documents: [], faqs: [] };
@@ -1776,6 +1979,7 @@ async function switchProperty(propertyId) {
   if (can("concierge.view")) tasks.push(loadDesign());
   if (can("ai.view")) tasks.push(loadAI());
   if (can("dashboard.view")) tasks.push(loadDashboard());
+  if (can("properties.view") && state.activeNavId === "personalization") tasks.push(loadPersonalizationPolicy());
   await Promise.all(tasks);
   showToast(`Switched to ${property.hotel_name}.`);
 }
@@ -2215,6 +2419,7 @@ async function loadServiceCatalog() {
   const departmentSelect = $("catalog-service-department");
   const requestSelect = $("service-type");
   const requestDepartment = $("service-department");
+  const selectedService = requestSelect.value;
   departmentSelect.innerHTML = '<option value="">Unassigned</option>';
   requestSelect.innerHTML = '<option value="">Select a configured service</option>';
   requestDepartment.innerHTML = '<option value="">Select a department</option>';
@@ -2224,6 +2429,9 @@ async function loadServiceCatalog() {
   }
   for (const service of state.catalog.services.filter((item) => item.enabled && !item.archived)) {
     requestSelect.appendChild(new Option(service.name, service.service_id));
+  }
+  if (state.catalog.services.some((item) => item.service_id === selectedService && item.enabled && !item.archived)) {
+    requestSelect.value = selectedService;
   }
   renderDepartments();
   renderCatalogServices();
@@ -2846,7 +3054,9 @@ function renderAssistantAnswer(container, payload) {
   question.textContent = payload.question;
   const answer = document.createElement("article");
   answer.className = "assistant-message answer";
-  answer.innerHTML = `<span>${escapeHTML(payload.component.replaceAll("_", " "))} · ${escapeHTML(payload.timeframe)}</span><h3>${escapeHTML(payload.finding)}</h3><p><strong>Evidence</strong></p><pre>${escapeHTML(JSON.stringify(payload.evidence, null, 2))}</pre>${payload.likely_cause ? `<p><strong>Likely cause</strong><br>${escapeHTML(payload.likely_cause)}</p>` : ""}${payload.confirmation_required ? `<p class="confirmation-note">${escapeHTML(payload.action_status)}</p>` : ""}<p><strong>Recommended next step</strong></p><ul>${payload.recommendations.map((item) => `<li>${escapeHTML(item)}</li>`).join("")}</ul><div class="assistant-links">${payload.links.map((item) => `<button class="secondary" type="button" data-assistant-panel="${escapeHTML(item.panel)}">${escapeHTML(item.label)}</button>`).join("")}</div><small>Diagnostic tool: ${escapeHTML(payload.tool)} · Request ${escapeHTML(payload.request_id)}</small>`;
+  state.assistantConversationId = payload.conversation_id || state.assistantConversationId;
+  const activity = (payload.tool_activity || (payload.tool ? [payload.tool] : [])).map((item) => escapeHTML(item.replaceAll("_", " "))).join(" · ");
+  answer.innerHTML = `<span>${escapeHTML((payload.component || "diagnostics").replaceAll("_", " "))} · ${escapeHTML(payload.timeframe || "current period")}</span><h3>${escapeHTML(payload.finding || "Investigation complete")}</h3>${payload.answer ? `<p>${escapeHTML(payload.answer)}</p>` : ""}${activity ? `<p><strong>Diagnostic tool${activity.includes(" · ") ? "s" : ""}</strong><br>${activity}</p>` : ""}<p><strong>Evidence</strong></p><pre>${escapeHTML(JSON.stringify(payload.evidence, null, 2))}</pre>${payload.likely_cause ? `<p><strong>Likely cause</strong><br>${escapeHTML(payload.likely_cause)}</p>` : ""}${payload.confirmation_required ? `<p class="confirmation-note">${escapeHTML(payload.action_status)}</p>` : ""}<p><strong>Recommended next step</strong></p><ul>${(payload.recommendations || []).map((item) => `<li>${escapeHTML(item)}</li>`).join("")}</ul><div class="assistant-links">${(payload.links || []).map((item) => `<button class="secondary" type="button" data-assistant-panel="${escapeHTML(item.panel)}">${escapeHTML(item.label)}</button>`).join("")}</div>${payload.request_id ? `<small>Request ${escapeHTML(payload.request_id)}</small>` : ""}`;
   container.append(question, answer);
   for (const button of answer.querySelectorAll("[data-assistant-panel]")) button.addEventListener("click", () => {
     closeAssistant();
@@ -2857,22 +3067,101 @@ function renderAssistantAnswer(container, payload) {
 
 async function submitAssistant(event, inputId, messagesId) {
   event.preventDefault();
+  if (event.currentTarget.dataset.busy === "true") return;
   const input = $(inputId);
   const question = input.value.trim();
   if (!question) return;
   const button = event.currentTarget.querySelector("button[type='submit']");
+  event.currentTarget.dataset.busy = "true";
   button.disabled = true;
   button.textContent = "Investigating…";
+  const container = $(messagesId);
+  container.querySelector(".assistant-empty")?.remove();
+  const progress = document.createElement("article");
+  progress.className = "assistant-message loading";
+  progress.textContent = "Checking property evidence and available diagnostics…";
+  container.appendChild(progress);
+  container.scrollTop = container.scrollHeight;
   try {
     const payload = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/assistant/query`, {
       method: "POST",
-      body: JSON.stringify({ question, period: state.operationsPeriod === "custom" ? "30d" : state.operationsPeriod, current_page: state.activeNavId || "overview" }),
+      body: JSON.stringify({ question, period: state.operationsPeriod === "custom" ? "30d" : state.operationsPeriod, current_page: state.activeNavId || "overview", conversation_id: state.assistantConversationId }),
     });
     renderAssistantAnswer($(messagesId), payload);
     input.value = "";
   } finally {
+    progress.remove();
+    event.currentTarget.dataset.busy = "false";
     button.disabled = false;
     button.textContent = inputId.includes("drawer") ? "Ask" : "Investigate";
+  }
+}
+
+async function submitHotelAI(event) {
+  event.preventDefault();
+  if (state.hotelAISubmitting) return;
+  const input = $("hotel-ai-input");
+  const question = input.value.trim();
+  const files = [...state.hotelAIFiles];
+  if (!question && !files.length) return;
+  state.hotelAISubmitting = true;
+  const button = event.currentTarget.querySelector("button[type='submit']");
+  button.disabled = true;
+  button.textContent = files.length ? "Uploading…" : "Thinking…";
+  const container = $("hotel-ai-messages");
+  container.querySelector(".assistant-empty")?.remove();
+  const user = document.createElement("article");
+  user.className = "assistant-message user";
+  user.textContent = [question, ...files.map((file) => `Attached: ${file.name}`)].filter(Boolean).join("\n");
+  const answer = document.createElement("article");
+  answer.className = "assistant-message answer";
+  answer.textContent = files.length ? "Preparing upload…" : "Thinking…";
+  container.append(user, answer);
+  try {
+    const uploaded = [];
+    for (const file of files) {
+      answer.textContent = `Uploading ${file.name}…`;
+      const source = await uploadKnowledgeDocument(file, (percent) => { answer.textContent = `Uploading ${file.name}… ${percent}%`; });
+      uploaded.push(source);
+      answer.textContent = `Processing ${file.name}…`;
+    }
+    state.hotelAIFiles = []; renderHotelAIFiles();
+    if (question) {
+      const payload = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/assistant/hotel-chat`, { method: "POST", body: JSON.stringify({ question }) });
+      answer.textContent = payload.answer;
+      for (const source of payload.sources || []) {
+        const citation = document.createElement("small");
+        citation.className = "knowledge-citation";
+        citation.textContent = `${source.source} · ${Object.entries(source.location || {}).map(([key, value]) => `${key} ${value}`).join(" · ")} · ${source.status}`;
+        answer.append(citation);
+        if (source.source_id && can("knowledge.edit")) {
+          const link = document.createElement("a"); link.href = `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge/sources/${encodeURIComponent(source.source_id)}/download`; link.textContent = "Open original"; link.className = "knowledge-citation"; answer.append(link);
+        }
+      }
+      if (payload.proposed_draft && can("knowledge.edit")) {
+        answer.append(makeActionButton("Save as draft", async () => {
+          if (!window.confirm(`Save “${payload.proposed_draft.title}” as an Admin Only draft for review?`)) return;
+          await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge/items`, { method: "POST", body: JSON.stringify(payload.proposed_draft) });
+          await loadKnowledge(); activatePanel("knowledge"); showToast("Knowledge draft saved for review.");
+        }));
+      }
+    } else {
+      answer.textContent = `${uploaded.length} document(s) uploaded. Processing will produce reviewable knowledge; nothing has been published to Guest AI.`;
+    }
+    if (uploaded.length) {
+      const review = makeActionButton("Review knowledge", () => activatePanel("knowledge"), true);
+      answer.append(review);
+      window.setTimeout(() => loadKnowledge().catch(() => {}), 1500);
+    }
+    input.value = "";
+  } catch (error) {
+    answer.textContent = error.message;
+    answer.classList.add("error");
+  } finally {
+    state.hotelAISubmitting = false;
+    button.disabled = false;
+    button.textContent = "Send";
+    container.scrollTop = container.scrollHeight;
   }
 }
 
@@ -2913,6 +3202,36 @@ function setup() {
   $("assistant-drawer-backdrop").addEventListener("click", closeAssistant);
   $("assistant-drawer-form").addEventListener("submit", (event) => submitAssistant(event, "assistant-drawer-input", "assistant-drawer-messages").catch((error) => showToast(error.message, "error")));
   $("assistant-page-form").addEventListener("submit", (event) => submitAssistant(event, "assistant-page-input", "assistant-page-messages").catch((error) => showToast(error.message, "error")));
+  for (const button of document.querySelectorAll("[data-assistant-new], [data-assistant-clear]")) button.addEventListener("click", async () => {
+    if (button.hasAttribute("data-assistant-clear") && state.assistantConversationId) {
+      await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/assistant/conversation`, { method: "DELETE", body: JSON.stringify({ conversation_id: state.assistantConversationId }) });
+    }
+    state.assistantConversationId = null;
+    for (const id of ["assistant-page-messages", "assistant-drawer-messages"]) {
+      const target = $(id);
+      if (target) target.innerHTML = `<div class="assistant-empty"><strong>Ask about this property</strong><p>Investigate operations using evidence from permission-checked tools.</p></div>`;
+    }
+  });
+  $("hotel-ai-form")?.addEventListener("submit", submitHotelAI);
+  for (const inputId of ["assistant-page-input", "assistant-drawer-input", "hotel-ai-input"]) {
+    $(inputId)?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+        event.preventDefault();
+        event.currentTarget.form.requestSubmit();
+      }
+    });
+  }
+  $("hotel-ai-attach")?.addEventListener("click", () => $("hotel-ai-files").click());
+  $("hotel-ai-files")?.addEventListener("change", (event) => { addHotelAIFiles(event.target.files || []); event.target.value = ""; });
+  const knowledgeComposer = $("hotel-ai-form");
+  knowledgeComposer?.addEventListener("dragover", (event) => { event.preventDefault(); knowledgeComposer.classList.add("dragover"); });
+  knowledgeComposer?.addEventListener("dragleave", () => knowledgeComposer.classList.remove("dragover"));
+  knowledgeComposer?.addEventListener("drop", (event) => { event.preventDefault(); knowledgeComposer.classList.remove("dragover"); addHotelAIFiles(event.dataTransfer?.files || []); });
+  $("hotel-ai-input")?.addEventListener("paste", (event) => {
+    const files = [...(event.clipboardData?.files || [])];
+    if (files.length) { event.preventDefault(); addHotelAIFiles(files); }
+  });
+  if (!can("knowledge.edit")) $("hotel-ai-attach").hidden = true;
   for (const select of document.querySelectorAll(".operations-period")) select.addEventListener("change", async (event) => {
     state.operationsPeriod = event.target.value;
     for (const candidate of document.querySelectorAll(".operations-period")) candidate.value = state.operationsPeriod;
@@ -3039,11 +3358,21 @@ function setup() {
     updatePreview();
   });
   $("save-draft").addEventListener("click", () => saveDraft().catch((error) => showToast(error.message, "error")));
+  $("save-auth-types").addEventListener("click", () => saveAuthenticationTypes().catch((error) => showToast(error.message, "error")));
   $("publish-design").addEventListener("click", () => publishDesign().catch((error) => showToast(error.message, "error")));
   $("discard-design").addEventListener("click", () => discardDesign().catch((error) => showToast(error.message, "error")));
   $("ai-default-provider").addEventListener("change", handleDefaultProviderChange);
   $("ai-local-only").addEventListener("change", handleLocalOnlyChange);
   $("save-ai-settings").addEventListener("click", () => saveAISettings().catch((error) => showToast(error.message, "error")));
+  $("save-personalization-policy").addEventListener("click", () => savePersonalizationPolicy().catch((error) => showToast(error.message, "error")));
+  $("personalization-retention").addEventListener("change", () => {
+    $("personalization-retention-days").disabled = $("personalization-retention").value !== "configurable";
+  });
+  $("personalization-profile").addEventListener("change", () => {
+    const option = $("personalization-default-level").querySelector('option[value="personal"]');
+    option.disabled = !$("personalization-profile").checked;
+    if (option.disabled && $("personalization-default-level").value === "personal") $("personalization-default-level").value = "stay";
+  });
   $("close-provider-drawer").addEventListener("click", closeProviderDrawer);
   $("provider-drawer-backdrop").addEventListener("click", closeProviderDrawer);
   for (const id of [
@@ -3147,10 +3476,33 @@ function setup() {
   $("test-antlabs").addEventListener("click", () => testAntlabs().catch((error) => showToast(error.message, "error")));
   $("save-knowledge").addEventListener("click", () => saveKnowledgeEntry().catch((error) => showToast(error.message, "error")));
   $("save-faq").addEventListener("click", () => saveFAQ().catch((error) => showToast(error.message, "error")));
-  $("knowledge-document-upload").addEventListener("change", (event) => uploadKnowledgeDocument(event.target.files?.[0]).catch((error) => showToast(error.message, "error")));
+  $("knowledge-document-upload").addEventListener("change", async (event) => {
+    const selected = [...(event.target.files || [])];
+    const limit = state.managedKnowledge.limits?.max_files_per_upload || 5;
+    if (selected.length > limit) showToast(`Choose up to ${limit} files at a time.`, "error");
+    for (const file of selected.slice(0, limit)) {
+      try { await uploadKnowledgeDocument(file); } catch (error) { showToast(`${file.name}: ${error.message}`, "error"); }
+    }
+    event.target.value = "";
+  });
+  $("managed-knowledge-search")?.addEventListener("input", renderManagedKnowledge);
   $("save-personality").addEventListener("click", () => savePersonality().catch((error) => showToast(error.message, "error")));
   $("save-guardrails").addEventListener("click", () => saveGuardrails().catch((error) => showToast(error.message, "error")));
   $("refresh-guardrail-diagnostics").addEventListener("click", () => loadGuardrailDiagnostics().catch((error) => showToast(error.message, "error")));
+  const guardrailsPanel = $("guardrails");
+  if (guardrailsPanel && !$("network-setup-card")) {
+    const card = document.createElement("section");
+    card.id = "network-setup-card";
+    card.className = "card network-setup-card";
+    card.innerHTML = `<div class="network-setup-heading"><div><p class="eyebrow">GUIDED SETUP</p><h2>Guest Wi-Fi access</h2><p>Connect a phone to hotel guest Wi-Fi, open the guest page, then choose Detect connection. Concierge checks the address that reaches the server.</p></div><button class="secondary" id="refresh-network-setup" type="button">Detect connection</button></div><div id="network-setup-status" class="network-setup-status" role="status" aria-live="polite">Refresh diagnostics to check the current connection.</div><div class="network-setup-actions"><label class="check-row network-test-confirm"><input id="confirm-hotel-wifi-test" type="checkbox"> I tested from a device on hotel guest Wi-Fi</label><button class="secondary" id="trust-detected-ip" type="button" hidden>Add detected address (/32)</button></div><p class="field-note">A /32 rule trusts one source IP. If ANTlabs NATs all guests to one shared address, it will match all traffic using that address. Confirm that behavior with your network administrator before saving.</p><p class="field-note">If the detected address is a private VM or WSL address, or differs from the guest device address, configure the network or trusted proxy to pass the real client address. Do not approve a shared server address as a guest subnet.</p><p class="field-note">Changes take effect when you click Save Guardrails. The top-page Publish button is for the guest-page design.</p>`;
+    guardrailsPanel.insertBefore(card, guardrailsPanel.querySelector(".two-col"));
+    $("refresh-network-setup").addEventListener("click", () => loadGuardrailDiagnostics().catch((error) => showToast(error.message, "error")));
+    $("trust-detected-ip").addEventListener("click", addDetectedAddressRule);
+    $("confirm-hotel-wifi-test").addEventListener("change", (event) => {
+      const button = $("trust-detected-ip");
+      button.hidden = !event.target.checked || !button.dataset.ip;
+    });
+  }
   $("save-webhook").addEventListener("click", () => saveWebhook().catch((error) => showToast(error.message, "error")));
   $("save-location").addEventListener("click", () => saveManagedLocation().catch((error) => showToast(error.message, "error")));
   $("save-deployment").addEventListener("click", () => saveDeploymentSettings().catch((error) => showToast(error.message, "error")));

@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from app.ai_providers import AIChatResponse, AIModelService, AIProviderStore, AIUsageLimitError
 from app.llm import build_prompt
 from app.main import app
+import app.main as main_module
 
 
 def test_provider_store_redacts_and_encrypts_credentials(tmp_path: Path):
@@ -43,6 +44,22 @@ def test_local_only_rejects_cloud_default(tmp_path: Path):
         assert "Local-only" in str(exc)
     else:
         raise AssertionError("Cloud provider should be rejected in local-only mode")
+
+
+def test_guest_chat_does_not_escape_property_provider_chain_on_outage(admin_client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    async def unavailable_provider(**kwargs):
+        raise RuntimeError("configured provider unavailable")
+
+    monkeypatch.setattr(main_module.ai_models, "concierge_chat", unavailable_provider)
+    started = admin_client.post("/api/session/start", json={"client_id": "provider-outage-guest"})
+    assert started.status_code == 200, started.text
+
+    response = admin_client.post(
+        "/api/chat",
+        json={"session_id": started.json()["session_id"], "message": "Where can I find a quiet reading spot?", "mode": "advanced"},
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"] == "The AI service is temporarily unavailable. Please try again."
 
 
 def test_admin_ai_provider_api_does_not_return_secret(admin_client: TestClient):

@@ -22,6 +22,11 @@ class Settings:
     hotel_config_path: Path = Path(os.getenv("HOTEL_CONFIG_PATH", "data/hotel.json"))
     db_path: Path = Path(os.getenv("DB_PATH", "state/concierge.db"))
     upload_root: Path = Path(os.getenv("UPLOAD_ROOT", "")) if os.getenv("UPLOAD_ROOT") else Path("")  # resolved below
+    knowledge_max_file_bytes: int = int(os.getenv("KNOWLEDGE_MAX_FILE_BYTES", str(25 * 1024 * 1024)))
+    knowledge_max_files_per_upload: int = int(os.getenv("KNOWLEDGE_MAX_FILES_PER_UPLOAD", "5"))
+    knowledge_max_files_per_property: int = int(os.getenv("KNOWLEDGE_MAX_FILES_PER_PROPERTY", "500"))
+    knowledge_storage_quota_bytes: int = int(os.getenv("KNOWLEDGE_STORAGE_QUOTA_BYTES", str(2 * 1024 * 1024 * 1024)))
+    knowledge_max_extracted_chars: int = int(os.getenv("KNOWLEDGE_MAX_EXTRACTED_CHARS", "500000"))
     session_ttl_minutes: int = int(os.getenv("SESSION_TTL_MINUTES", "30"))
     admin_session_ttl_minutes: int = int(os.getenv("ADMIN_SESSION_TTL_MINUTES", "480"))
     admin_lockout_attempts: int = int(os.getenv("ADMIN_LOCKOUT_ATTEMPTS", "5"))
@@ -64,8 +69,8 @@ class Settings:
     antlabs_mode: str = os.getenv("ANTLABS_MODE", "mock").strip().lower()
     antlabs_auth_url: str = os.getenv("ANTLABS_AUTH_URL", "").strip()
     antlabs_auth_method: str = os.getenv("ANTLABS_AUTH_METHOD", "POST").strip().upper()
-    antlabs_room_field: str = os.getenv("ANTLABS_ROOM_FIELD", "room").strip()
-    antlabs_last_name_field: str = os.getenv("ANTLABS_LAST_NAME_FIELD", "last_name").strip()
+    antlabs_room_field: str = os.getenv("ANTLABS_ROOM_FIELD", "uid").strip()
+    antlabs_last_name_field: str = os.getenv("ANTLABS_LAST_NAME_FIELD", "pwd").strip()
     antlabs_session_field: str = os.getenv("ANTLABS_SESSION_FIELD", "").strip()
     antlabs_session_context_key: str = os.getenv("ANTLABS_SESSION_CONTEXT_KEY", "").strip()
     antlabs_passthrough_fields: tuple[str, ...] = tuple(

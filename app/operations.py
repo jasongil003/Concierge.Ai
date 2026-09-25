@@ -219,13 +219,15 @@ class OperationsStore:
             )
         return cursor.rowcount > 0
 
-    def search_knowledge(self, property_id: str, query: str, limit: int = 5) -> list[dict[str, str]]:
+    def search_knowledge(self, property_id: str, query: str, limit: int = 5, *, include_documents: bool = True) -> list[dict[str, str]]:
         stop = {"the", "a", "an", "is", "are", "what", "when", "where", "how", "can", "i", "to", "of", "for"}
         terms = {term for term in re.findall(r"[a-z0-9]+", query.casefold()) if len(term) > 1 and term not in stop}
         if not terms:
             return []
         scored: list[tuple[int, dict[str, str]]] = []
         for item in self.list_knowledge(property_id):
+            if item["kind"] == "document" and not include_documents:
+                continue
             if not item["enabled"] or item["status"] != "ready":
                 continue
             haystack = " ".join([item["title"], item["question"], item["answer"], item["body"]]).casefold()

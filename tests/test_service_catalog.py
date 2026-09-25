@@ -107,6 +107,31 @@ def test_facility_hours_answer_combines_every_requested_facility(monkeypatch):
     )
 
 
+def test_facility_hours_answer_uses_saved_facility_profiles(tmp_path: Path, monkeypatch):
+    store = HospitalityStore(tmp_path / "facility-profiles.db")
+    for name, facility_type, hours in (
+        ("Infinity Pool", "pool", "06:00-22:00"),
+        ("Fitness Center", "fitness", "24 hours"),
+        ("Lunara Spa", "spa", "10:00-22:00"),
+    ):
+        store.upsert_facility_profile("lunara-test", {
+            "name": name,
+            "facility_type": facility_type,
+            "description": f"{name}, Level 3.",
+            "opening_hours": {"display": hours},
+            "live_status": "open",
+        })
+    monkeypatch.setattr(main_module, "hospitality", store)
+    record = PropertyRecord(property_id="lunara-test", hotel_name="Lunara")
+
+    answer = main_module._property_fast_answer(record, "What are the pool, gym, and spa hours?")
+
+    assert answer is not None
+    assert "Infinity Pool" in answer and "6:00 AM-10:00 PM" in answer
+    assert "Fitness Center" in answer and "24 hours" in answer
+    assert "Lunara Spa" in answer and "10:00 AM-10:00 PM" in answer
+
+
 def test_follow_up_query_resolves_recent_facility_context():
     history = [
         {"role": "guest", "content": "Where is the pool?"},

@@ -18,13 +18,21 @@ async function setAuthTypes(request, enabledIds) {
   const propertyId = (await (await request.get("/api/admin/properties")).json()).properties[0].property_id;
   const prop = await (await request.get(`/api/admin/properties/${propertyId}`)).json();
   const labels = {
+    complimentary: "Complimentary",
+    local: "Local",
+    radius: "RADIUS",
     pms: "PMS / Room Login",
+    credit_card: "Credit Card",
     access_code: "Access Code",
+    global_account: "Global Account",
+    global_code: "Global Code",
+    user_form: "User Form",
+    social_network: "Social Network",
   };
   prop.antlabs_config = {
     ...(prop.antlabs_config || {}),
     authentication_types: Object.fromEntries(
-      ["pms", "access_code"].map((id) => [id, { label: labels[id], enabled: enabledIds.includes(id) }])
+      Object.entries(labels).map(([id, label]) => [id, { label, enabled: enabledIds.includes(id) }])
     ),
   };
   const response = await request.put(`/api/admin/properties/${propertyId}`, {
@@ -161,13 +169,13 @@ test("guest: pool hours question returns fast-path answer", async ({ page }) => 
 test.describe("wi-fi authentication flow", () => {
 test.describe.configure({ mode: "serial" });
 
-test("guest: wi-fi flow shows auth card with room/last name fields", async ({ page, request }) => {
+test("guest: wi-fi flow shows only the enabled authentication type and its fields", async ({ page, request }) => {
   await setAuthTypes(request, ["pms"]);
   await page.goto("/");
   await page.getByLabel("Ask your concierge").fill("Connect me to Wi-Fi");
   await page.getByRole("button", { name: "Send message" }).click();
 
-  await expect(page.getByText("Please verify your stay with your room number and last name.")).toBeVisible();
+  await expect(page.getByLabel("Login method")).toHaveValue("pms");
   await expect(page.getByPlaceholder("1503")).toBeVisible();
   await expect(page.getByPlaceholder("Surname")).toBeVisible();
   await expect(page.getByRole("button", { name: "Continue" })).toBeVisible();
@@ -193,7 +201,7 @@ test("guest: wi-fi flow authenticates successfully in mock mode", async ({ page,
   await page.getByPlaceholder("Surname").fill("Smith");
   await page.getByRole("button", { name: "Continue" }).click();
 
-  await expect(page.getByText("You're connected")).toBeVisible();
+  await expect(page.getByText("Demo authentication accepted. Internet access is simulated in mock mode.")).toBeVisible();
 });
 
 test("guest: wi-fi flow only lists enabled non-PMS methods", async ({ page, request }) => {
@@ -202,8 +210,66 @@ test("guest: wi-fi flow only lists enabled non-PMS methods", async ({ page, requ
   await page.getByLabel("Ask your concierge").fill("Connect me to Wi-Fi");
   await page.getByRole("button", { name: "Send message" }).click();
 
-  await expect(page.getByText("This hotel currently supports: Access Code.")).toBeVisible();
+  await expect(page.getByText("Choose an enabled Wi-Fi login method: Access Code.")).toBeVisible();
   await expect(page.getByPlaceholder("1503")).toHaveCount(0);
+  await expect(page.getByLabel("Login method")).toHaveValue("access_code");
+  await expect(page.getByRole("textbox", { name: "Access code" })).toBeVisible();
+});
+
+test("guest API rejects an authentication type disabled for the property", async ({ request }) => {
+  await setAuthTypes(request, ["pms"]);
+  const sessionResponse = await request.post("/api/session/start", {
+    data: { client_id: "disabled-auth-method-test" },
+  });
+  expect(sessionResponse.ok()).toBeTruthy();
+  const session = await sessionResponse.json();
+  const response = await request.post("/api/authenticate", {
+    data: { session_id: session.session_id, auth_type: "access_code", credentials: { access_code: "test-code" } },
+  });
+  expect(response.status()).toBe(403);
+  await expect(response.json()).resolves.toMatchObject({ detail: "This authentication method is disabled for this hotel." });
+});
+
+test("guest login selector contains every enabled authentication type and no disabled type", async ({ page, request }) => {
+  await setAuthTypes(request, ["pms", "access_code", "global_code"]);
+  await page.goto("/");
+  await page.getByLabel("Ask your concierge").fill("Connect me to Wi-Fi");
+  await page.getByRole("button", { name: "Send message" }).click();
+  const method = page.getByLabel("Login method");
+  await expect(method.locator("option")).toHaveCount(3);
+  await expect(method.locator("option[value='pms']")).toHaveCount(1);
+  await expect(method.locator("option[value='access_code']")).toHaveCount(1);
+  await expect(method.locator("option[value='global_code']")).toHaveCount(1);
+  await expect(method.locator("option[value='local']")).toHaveCount(0);
+});
+
+test("guest mock flow accepts each enabled authentication type", async ({ request }) => {
+  const authTypes = ["complimentary", "local", "radius", "pms", "credit_card", "access_code", "global_account", "global_code", "user_form", "social_network"];
+  await setAuthTypes(request, authTypes);
+  const sessionResponse = await request.post("/api/session/start", {
+    data: { client_id: "all-auth-methods-test" },
+  });
+  expect(sessionResponse.ok()).toBeTruthy();
+  const session = await sessionResponse.json();
+  const credentialsByType = {
+    complimentary: { code: "free" },
+    local: { username: "guest", password: "secret" },
+    radius: { username: "guest", password: "secret" },
+    pms: { room: "412", last_name: "Smith" },
+    credit_card: {},
+    access_code: { access_code: "hotel-code" },
+    global_account: { username: "guest", password: "secret" },
+    global_code: { global_code: "global-code" },
+    user_form: { name: "Guest Example", email: "guest@example.test" },
+    social_network: { social_provider: "facebook" },
+  };
+  for (const authType of authTypes) {
+    const response = await request.post("/api/authenticate", {
+      data: { session_id: session.session_id, auth_type: authType, credentials: credentialsByType[authType] },
+    });
+    expect(response.ok(), `${authType} was not accepted by the mock flow`).toBeTruthy();
+    expect(await response.json()).toMatchObject({ status: "authenticated" });
+  }
 });
 });
 

@@ -163,6 +163,18 @@ class GuestIdentityStore:
             raise KeyError("Stay not found.")
         return self._stay_dict(row)
 
+    def active_stay_for_session(self, property_id: str, concierge_session_id: str) -> dict[str, Any] | None:
+        """Return only the active stay explicitly linked to this property/session."""
+        with self._connect() as db:
+            row = db.execute(
+                """SELECT s.* FROM guest_sessions gs
+                JOIN concierge_stays s ON s.stay_id=gs.stay_id AND s.property_id=gs.property_id
+                WHERE gs.property_id=? AND gs.concierge_session_id=? AND s.status='active'
+                ORDER BY gs.last_seen_at DESC LIMIT 1""",
+                (property_id, concierge_session_id),
+            ).fetchone()
+        return self._stay_dict(row) if row else None
+
     def checkout(self, property_id: str, stay_id: str, anonymize: bool = True) -> dict[str, Any]:
         now = _now()
         memory = "{}" if anonymize else None
@@ -181,6 +193,16 @@ class GuestIdentityStore:
         if not row:
             raise KeyError("Stay not found.")
         return self._stay_dict(row)
+
+    def sessions_for_stay(self, property_id: str, stay_id: str) -> list[str]:
+        """Return explicitly linked Concierge sessions for a property-scoped stay."""
+        with self._connect() as db:
+            rows = db.execute(
+                """SELECT concierge_session_id FROM guest_sessions
+                WHERE property_id=? AND stay_id=? AND concierge_session_id IS NOT NULL""",
+                (property_id, stay_id),
+            ).fetchall()
+        return list(dict.fromkeys(str(row["concierge_session_id"]) for row in rows if row["concierge_session_id"]))
 
     def cleanup_retention(self, property_id: str | None = None) -> int:
         now = _now()
