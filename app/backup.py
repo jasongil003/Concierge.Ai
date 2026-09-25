@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
 import hashlib
 import json
 import os
@@ -34,7 +35,7 @@ def create_backup(db_path: Path, upload_root: Path, destination: Path) -> dict[s
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="concierge-backup-") as temporary:
         snapshot = Path(temporary) / DATABASE_MEMBER
-        with sqlite3.connect(db_path) as source, sqlite3.connect(snapshot) as target:
+        with closing(sqlite3.connect(db_path)) as source, closing(sqlite3.connect(snapshot)) as target:
             source.backup(target)
             result = target.execute("PRAGMA integrity_check").fetchone()[0]
             if result != "ok":
@@ -85,7 +86,7 @@ def verify_backup(archive_path: Path) -> dict[str, object]:
     with tempfile.TemporaryDirectory(prefix="concierge-verify-") as temporary:
         snapshot = Path(temporary) / DATABASE_MEMBER
         snapshot.write_bytes(database)
-        with sqlite3.connect(snapshot) as db:
+        with closing(sqlite3.connect(snapshot)) as db:
             if db.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                 raise RuntimeError("Backup database integrity check failed.")
     return {"valid": True, "files": len(files), "created_at": manifest.get("created_at")}

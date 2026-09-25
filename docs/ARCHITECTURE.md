@@ -133,6 +133,14 @@ The WLAN integration boundary is `WiFiLocationProvider`. Vendor adapters should 
 
 ## Stay Memory
 
+### Guest-controlled personalization
+
+Guest preference memory lives in the separate `guest_personalization` and `guest_preferences` SQLite tables. It is scoped to both `property_id` and the opaque Concierge session id; guest endpoints first revalidate that session against the hotel's configured network and property boundary. The default is private. A hotel may suggest a default level, but the guest must opt in before saved preferences are collected or supplied to an AI provider.
+
+Preference rows retain category, key, value, source, confidence, persistence, creation/update timestamps, and last use. Episodic language such as "tonight" creates a temporary preference with a six-hour expiry. Stay and profile entries expire under the hotel's configured retention policy and are removed at checkout when `delete_profile_at_checkout` is enabled. Profile-level preferences require the guest to choose Personal Concierge and remain scoped to that session; a durable returning-guest profile requires a future authenticated PMS or guest-account identity and is not inferred from a device identifier.
+
+The guest can inspect, edit, remove, or clear preferences in Personalization / Memory or through conversational memory commands. Turning personalization off leaves entries available for the guest to review or clear but excludes them from future AI context. Hotel admins configure policy through RBAC-protected property settings; the settings API does not expose individual guest preferences. PMS data remains distinct from explicit and inferred preference rows.
+
 Raw WLAN MAC addresses are not Concierge identities. When WLAN or ANTlabs provides a MAC server-side, Concierge.Ai normalizes it and derives:
 
 ```text

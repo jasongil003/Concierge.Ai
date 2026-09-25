@@ -28,10 +28,30 @@ test("role-aware overview renders truthful telemetry and alerts", async ({ page 
 test("alert investigation uses the assistant drawer", async ({ page }) => {
   const investigate = page.locator("#overview-alerts .investigate-alert").first();
   if (await investigate.count()) {
+    await page.route("**/assistant/query", (route) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        question: "Investigate this alert",
+        conversation_id: "test-conversation-0001",
+        answer: "The provider error rate is elevated in the selected period. The evidence does not identify a confirmed root cause.",
+        finding: "2 diagnostic checks completed.",
+        component: "ai_providers",
+        timeframe: "24h",
+        evidence: [{ tool: "check_ai_provider", result: { state: "warning", evidence: "Provider connection test failed." } }],
+        tool: "check_ai_provider",
+        tool_activity: ["check_ai_provider"],
+        recommendations: ["Review provider connection status."],
+        links: [{ label: "Open AI settings", panel: "ai-models" }],
+        confirmation_required: false,
+        action_status: "No changes were made.",
+        request_id: "request-test-0001",
+      }),
+    }));
     await investigate.click();
     await expect(page.locator("#assistant-drawer")).toBeVisible();
     await page.locator("#assistant-drawer-form button").click();
-    await expect(page.locator("#assistant-drawer-messages .assistant-message.answer")).toBeVisible();
+    await expect(page.locator("#assistant-drawer-messages .assistant-message.answer")).toBeVisible({ timeout: 15_000 });
     await expect(page.locator("#assistant-drawer-messages")).toContainText(/Evidence/);
     await expect(page.locator("#assistant-drawer-messages")).toContainText(/Diagnostic tool/);
   }

@@ -895,13 +895,17 @@ class AIModelService:
         live_context: str = "",
         requested_mode: str = "auto",
         conversation_history: list[dict[str, Any]] | None = None,
+        guest_context: dict[str, Any] | None = None,
+        system_prompt_override: str | None = None,
     ) -> AIChatResponse:
         ai_settings = self.store.get_settings(property_id)
         self.store.reserve_request(property_id)
         clean_message = AIInputSanitizer.sanitize_text(user_message)
         clean_context = AIInputSanitizer.sanitize_context(context)
         clean_history = AIInputSanitizer.sanitize_context(conversation_history or [])
-        system, prompt = build_prompt(clean_message, hotel_name, clean_context, AIInputSanitizer.sanitize_text(live_context), clean_history)
+        system, prompt = build_prompt(clean_message, hotel_name, clean_context, AIInputSanitizer.sanitize_text(live_context), clean_history, guest_context)
+        if system_prompt_override:
+            system = system_prompt_override[:8000]
         failures: list[Exception] = []
         for index, connection in enumerate(self.resolve_connections(property_id)):
             provider_id = connection["provider_id"]

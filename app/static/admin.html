@@ -87,8 +87,9 @@
       </section>
 
       <section class="panel" id="ai-assistant">
-        <div class="page-title"><div><p>AI operations</p><h1>Operations Assistant</h1><span>Read-only diagnostics using permission-checked server tools.</span></div></div>
+        <div class="page-title"><div><p>AI operations</p><h1>Operations Assistant</h1><span>Read-only diagnostics using permission-checked server tools.</span></div><div class="assistant-toolbar"><button class="secondary" type="button" data-assistant-new>New conversation</button><button class="secondary" type="button" data-assistant-clear>Clear conversation</button></div></div>
         <section class="assistant-page"><div class="assistant-messages" id="assistant-page-messages"><div class="assistant-empty"><strong>Ask about this property</strong><p>Try “Why are service requests delayed?”, “Check all AI providers”, or “Compare requests with the previous period”.</p></div></div><form class="assistant-composer" id="assistant-page-form"><textarea id="assistant-page-input" rows="2" maxlength="1200" placeholder="Ask about operations, health, or trends"></textarea><button type="submit">Investigate</button></form></section>
+        <section class="card admin-hotel-ai"><h2>Hotel Knowledge AI</h2><p class="field-note">Ask about this property's knowledge or attach documents for review. Only approved, published guest-visible items reach Guest AI.</p><div class="assistant-messages" id="hotel-ai-messages" aria-live="polite"><div class="assistant-empty"><strong>Ask about hotel knowledge</strong><p>Find sources, identify gaps, or upload a document to extract knowledge.</p></div></div><form class="assistant-composer knowledge-composer" id="hotel-ai-form"><div id="hotel-ai-attachments" class="knowledge-attachments" aria-live="polite"></div><textarea id="hotel-ai-input" rows="2" maxlength="1200" aria-label="Message to Hotel Knowledge AI" placeholder="Ask about hotel information or drop files here"></textarea><input id="hotel-ai-files" type="file" multiple hidden accept=".pdf,.docx,.xlsx,.csv,.txt,.md,.json,.pptx,.png,.jpg,.jpeg,.webp"><button class="secondary" id="hotel-ai-attach" type="button">Attach files</button><button type="submit">Send</button><small>Enter to send · Shift+Enter for a new line</small></form></section>
       </section>
 
       <section class="panel" id="analytics">
@@ -199,6 +200,30 @@
       <section class="panel" id="guest">
         <div class="page-title"><div><p>Guest experience</p><h1>Conversation modules</h1><span>Enabled modules appear in the guest menu in the configured order.</span></div></div>
         <div class="two-col"><section class="card"><h2>Module</h2><input id="guest-module-id" type="hidden"><label>Name<input id="guest-module-name" maxlength="80"></label><label>Guest prompt<textarea id="guest-module-prompt" rows="3" placeholder="What time is breakfast?"></textarea></label><label>Order<input id="guest-module-order" type="number" min="0" max="99" value="0"></label><label class="check-row"><input id="guest-module-enabled" type="checkbox" checked> Enabled</label><button id="save-guest-module" type="button">Save Module</button></section><section class="card"><h2>Published modules</h2><div id="guest-module-list" class="compact-list"></div></section></div>
+      </section>
+
+      <section class="panel" id="personalization-settings">
+        <div class="page-title"><div><p>Guest experience</p><h1>Personalization</h1><span>Set property-wide memory rules. Guests can always choose a more private level for themselves.</span></div></div>
+        <div class="two-col">
+          <section class="card settings-form">
+            <h2>Guest memory</h2>
+            <label class="check-row"><input id="personalization-enabled" type="checkbox"> Personalization enabled</label>
+            <label>Default level<select id="personalization-default-level"><option value="private">Private / Anonymous</option><option value="stay">Stay Personalization</option><option value="personal">Personal Concierge</option></select></label>
+            <label class="check-row"><input id="personalization-learning" type="checkbox"> Learn preferences from conversation</label>
+            <label class="check-row"><input id="personalization-profile" type="checkbox"> Allow Personal Concierge profile</label>
+            <label class="check-row"><input id="personalization-delete-checkout" type="checkbox"> Delete profile at checkout</label>
+            <div class="inline-fields"><label>Memory retention<select id="personalization-retention"><option value="stay_only">Stay only</option><option value="configurable">Configurable</option></select></label><label>Retention days<input id="personalization-retention-days" type="number" min="1" max="365" value="2"></label></div>
+            <label class="check-row"><input id="personalization-pms" type="checkbox"> Allow authorized PMS personalization</label>
+          </section>
+          <section class="card settings-form">
+            <h2>Recommendation context</h2>
+            <label class="check-row"><input id="personalization-location" type="checkbox"> Allow location-aware recommendations</label>
+            <label class="check-row"><input id="personalization-internet" type="checkbox"> Allow internet recommendations</label>
+            <p class="field-note">Internet and location recommendations also remain subject to the property's network, guardrail, provider, and location configuration.</p>
+            <button id="save-personalization-policy" type="button" data-permission="properties.edit">Save Personalization Settings</button>
+            <p class="field-note">Guest preferences are private to their property and session. This settings page does not expose guest conversation contents or preference values.</p>
+          </section>
+        </div>
       </section>
 
       <section class="panel" id="zones">
@@ -370,6 +395,8 @@
 
       <section class="panel" id="knowledge">
         <div class="page-title"><div><p>Knowledge</p><h1>Hotel source library</h1><span>Approved property facts are retrieved as verified context for guest answers.</span></div></div>
+        <section class="card"><h2>Knowledge Health</h2><div id="knowledge-health" class="knowledge-health">Loading measured coverage…</div><p class="field-note">Coverage uses eight required categories and six core facts found in published, active items.</p></section>
+        <section class="card"><div class="card-heading"><div><span>Review queue</span><h2>Extracted knowledge</h2></div></div><label>Search knowledge<input id="managed-knowledge-search" type="search" placeholder="Search titles and content"></label><div id="managed-knowledge-list" class="compact-list"></div></section>
         <div class="two-col"><section class="card"><h2>Knowledge entry</h2><input id="knowledge-id" type="hidden"><label>Title<input id="knowledge-title" maxlength="200"></label><label>Approved content<textarea id="knowledge-body" rows="8" maxlength="50000"></textarea></label><label class="check-row"><input id="knowledge-enabled" type="checkbox" checked> Available to Concierge AI</label><button id="save-knowledge" type="button">Save Knowledge</button></section><section class="card"><h2>Managed entries</h2><div id="knowledge-list" class="compact-list"></div></section></div>
       </section>
 
@@ -380,8 +407,9 @@
 
       <section class="panel" id="auth-types">
         <div class="page-title"><p>Authentication</p><h1>Enabled login methods</h1></div>
-        <p class="poc-note">Turn on the authentication methods available for this hotel. The concierge will use this summary when explaining how guests can connect.</p>
+        <p class="poc-note">Guests can submit only the methods enabled here. Save changes to apply them to the guest login form.</p>
         <section class="auth-type-list" id="auth-type-list" aria-label="Authentication type list"></section>
+        <button id="save-auth-types" type="button">Save Authentication Methods</button>
       </section>
 
       <section class="panel" id="conversations">
@@ -524,7 +552,7 @@
           <section class="card"><h2>Managed recommendations</h2><div id="recommendation-list" class="compact-list"></div></section>
         </div>
       </section>
-      <section class="panel" id="documents"><div class="page-title"><div><p>Knowledge</p><h1>Documents</h1><span>Upload trusted text sources. Unsupported formats remain visible with an explicit ingestion error.</span></div></div><section class="card"><label>Document<input id="knowledge-document-upload" type="file" accept=".txt,.md,.csv,.json,.html,text/plain,text/markdown,text/csv,application/json,text/html,application/pdf"></label><p class="field-note">Supported ingestion: TXT, Markdown, CSV, JSON, and HTML up to 8 MB. PDF is reported as unsupported until a trusted extractor is configured.</p><div id="document-list" class="compact-list"></div></section></section>
+      <section class="panel" id="documents"><div class="page-title"><div><p>Knowledge</p><h1>Documents</h1><span>Source files are processed into reviewable knowledge. Nothing uploads directly to Guest AI.</span></div></div><section class="card"><label>Documents<input id="knowledge-document-upload" type="file" multiple accept=".pdf,.docx,.xlsx,.csv,.txt,.md,.json,.pptx,.png,.jpg,.jpeg,.webp"></label><p class="field-note">PDF, DOCX, XLSX, CSV, TXT, Markdown, JSON, PPTX, PNG, JPEG, WEBP. Limits are configurable. Images require Tesseract OCR.</p><div id="document-list" class="compact-list"></div></section></section>
       <section class="panel" id="faqs"><div class="page-title"><div><p>Knowledge</p><h1>FAQs</h1><span>Approved questions and answers available to the concierge retrieval layer.</span></div></div><div class="two-col"><section class="card"><h2>FAQ</h2><input id="faq-id" type="hidden"><label>Question<input id="faq-question" maxlength="500"></label><label>Approved answer<textarea id="faq-answer" rows="6" maxlength="12000"></textarea></label><label class="check-row"><input id="faq-enabled" type="checkbox" checked> Available to Concierge AI</label><button id="save-faq" type="button">Save FAQ</button></section><section class="card"><h2>Managed FAQs</h2><div id="faq-list" class="compact-list"></div></section></div></section>
       <section class="panel" id="ai-personality"><div class="page-title"><div><p>AI</p><h1>AI personality</h1><span>Property-specific response style. System safety rules always take precedence.</span></div></div><section class="card settings-form"><div class="form-grid"><label>Concierge identity<input id="personality-name" maxlength="80"></label><label>Tone<select id="personality-tone"><option value="warm">Warm</option><option value="professional">Professional</option><option value="friendly">Friendly</option><option value="luxury">Luxury</option></select></label><label>Formality<select id="personality-formality"><option value="balanced">Balanced</option><option value="formal">Formal</option><option value="casual">Casual</option></select></label><label>Response length<select id="personality-length"><option value="concise">Concise</option><option value="balanced">Balanced</option><option value="detailed">Detailed</option></select></label><label>Greeting behavior<select id="personality-greeting"><option value="first_message">First message only</option><option value="when_helpful">When helpful</option><option value="never">Never</option></select></label></div><label>Property-specific instructions<textarea id="personality-instructions" rows="5" maxlength="4000"></textarea></label><button id="save-personality" type="button">Save Personality</button></section></section>
       <section class="panel placeholder-panel" id="system-prompt"><div class="page-title"><div><p>AI</p><h1>System prompt</h1><span>Controlled prompt policy and approved hotel context.</span></div></div><div class="empty-state"><strong>System prompts are server-managed</strong><p>This prevents accidental exposure or unsafe browser-side prompt editing.</p></div></section>
@@ -634,7 +662,7 @@
     <div class="assistant-messages" id="assistant-drawer-messages"><div class="assistant-empty"><strong>Investigate with evidence</strong><p>Answers cite the component, timeframe, and data returned by server-side diagnostic tools.</p></div></div>
     <form class="assistant-composer" id="assistant-drawer-form"><textarea id="assistant-drawer-input" rows="2" maxlength="1200" placeholder="Why are requests delayed?"></textarea><button type="submit">Ask</button></form>
   </aside>
-  <div class="toast" id="toast"></div>
-  <script src="/static/admin.js?v=13"></script>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="/static/admin.js?v=14"></script>
 </body>
 </html>

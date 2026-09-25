@@ -14,11 +14,13 @@ import ssl
 import time
 import uuid
 from typing import Any
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from email.message import EmailMessage
 from urllib.parse import urlparse
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -31,13 +33,15 @@ from .admin_auth import (
     AdminPrincipal,
     AuthenticationError,
 )
-from .ai import AIOrchestrator
 from .ai_providers import AIModelService, AIProviderStore
 from .antlabs import AntlabsAdapter
 from .config import settings
 from .hotel import HotelKnowledge
 from .improvement_loop import ImprovementLoopManager, ImprovementLoopStore
 from .guest_identity import GuestIdentityStore
+from .guest_context import build_guest_context
+from .personalization import PREFERENCE_CATEGORIES, PersonalizationStore, extract_preferences, preference_commands
+from .admin_copilot import ADMIN_POLICY, AdminCopilotStore, available_tools, parse_tool_plan, planner_prompt, synthesis_prompt
 from .guardrails import (
     AIInputSanitizer,
     AIOutputValidator,
@@ -59,10 +63,11 @@ from .intro import IntroExperienceStore
 from .location_analytics import LocationAnalyticsStore
 from .lunara_seed import PROPERTY_ID as LUNARA_PROPERTY_ID, seed_lunara_demo
 from .operations import OperationsStore
+from .knowledge_management import KnowledgeStore, CATEGORIES
 from .observability import DiagnosticContext, DiagnosticToolRegistry, ObservabilityStore, PERIODS
 from .outbound_http import OutboundRequestBroker, OutboundRequestError
-from .places import GooglePlaces, format_places_for_ai
-from .properties import PropertyRecord, PropertyStore, validate_design_config
+from .places import GooglePlaces, format_places_for_ai, rank_places
+from .properties import AUTHENTICATION_RULES, PropertyRecord, PropertyStore, validate_design_config
 from .reporting import ReportService
 from .session_store import SessionStore
 from .zones import ZoneStore
@@ -76,14 +81,15 @@ properties = PropertyStore(settings.db_path)
 properties.seed_from_hotel_json(settings.property_id, settings.hotel_config_path)
 zones = ZoneStore(settings.db_path)
 guest_identities = GuestIdentityStore(settings.db_path)
+personalization = PersonalizationStore(settings.db_path)
 location_analytics = LocationAnalyticsStore(settings.db_path)
 intro_experiences = IntroExperienceStore(settings.db_path)
 hospitality = HospitalityStore(settings.db_path)
-ai = AIOrchestrator()
 ai_provider_store = AIProviderStore(settings.db_path)
 ai_models = AIModelService(ai_provider_store)
 improvement_loop_store = ImprovementLoopStore(settings.db_path)
 improvement_loops = ImprovementLoopManager(improvement_loop_store, ai_models)
+admin_copilot_store = AdminCopilotStore(settings.db_path)
 admin_auth = AdminAuthStore(
     settings.db_path,
     session_ttl_minutes=settings.admin_session_ttl_minutes,
@@ -97,6 +103,7 @@ admin_auth.ensure_bootstrap_admin(
 places = GooglePlaces()
 antlabs = AntlabsAdapter()
 operations = OperationsStore(settings.db_path)
+knowledge_management = KnowledgeStore(settings.db_path, settings.upload_root)
 observability = ObservabilityStore(settings.db_path)
 diagnostic_tools = DiagnosticToolRegistry()
 report_service = ReportService()
@@ -116,8 +123,20 @@ if settings.property_id == LUNARA_PROPERTY_ID:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    personalization.cleanup_expired()
     improvement_loops.resume_persisted()
+    async def process_pending_knowledge():
+        while True:
+            for property_id, source_id in knowledge_management.pending_sources():
+                await asyncio.to_thread(knowledge_management.process, property_id, source_id)
+            await asyncio.sleep(10)
+    knowledge_worker = asyncio.create_task(process_pending_knowledge())
     yield
+    knowledge_worker.cancel()
+    try:
+        await knowledge_worker
+    except asyncio.CancelledError:
+        pass
     improvement_loops.shutdown()
 
 
@@ -161,6 +180,10 @@ def _required_admin_permission(method: str, path: str) -> str | None:
     if "/guardrails" in path:
         return "security.view" if method == "GET" else "security.configure"
     if "/knowledge" in path:
+        if method == "DELETE":
+            return "knowledge.delete"
+        if path.endswith(("/publish", "/approve", "/unpublish", "/supersede", "/resolve")):
+            return "knowledge.publish"
         return "knowledge.view" if method == "GET" else "knowledge.edit"
     if "/webhooks" in path:
         return "integrations.view" if method == "GET" else "integrations.configure"
@@ -178,6 +201,8 @@ def _required_admin_permission(method: str, path: str) -> str | None:
         return "concierge.view" if method == "GET" else "concierge.edit"
     if "/service-requests" in path or "/feedback" in path or "/notifications" in path:
         return "requests.view" if method == "GET" else "requests.manage"
+    if "/antlabs/" in path:
+        return "integrations.view"
     if "/sessions" in path or "/stays/" in path:
         return "conversations.view" if method == "GET" else "conversations.reply"
     if "/location/" in path:
@@ -379,16 +404,37 @@ class StartSessionRequest(BaseModel):
     gateway_context: dict[str, Any] = Field(default_factory=dict)
 
 
+class ResumeSessionRequest(BaseModel):
+    client_id: str = Field(min_length=1, max_length=200)
+    session_id: str = Field(min_length=1, max_length=200)
+
+
 class AuthRequest(BaseModel):
     session_id: str
-    room: str = Field(min_length=1, max_length=64)
-    last_name: str = Field(min_length=1, max_length=128)
+    auth_type: str = Field(default="pms", min_length=1, max_length=40)
+    credentials: dict[str, str] = Field(default_factory=dict)
+    # Kept temporarily for older guest clients that still submit the PMS shape.
+    room: str | None = Field(default=None, max_length=64)
+    last_name: str | None = Field(default=None, max_length=128)
 
 
 class ChatRequest(BaseModel):
     session_id: str
     message: str = Field(min_length=1, max_length=2000)
     mode: str = "auto"
+
+
+class GuestPersonalizationPayload(BaseModel):
+    session_id: str = Field(min_length=1, max_length=200)
+    enabled: bool = True
+    level: str = "stay"
+
+
+class GuestPreferencePayload(BaseModel):
+    session_id: str = Field(min_length=1, max_length=200)
+    category: str = Field(min_length=1, max_length=40)
+    value: str = Field(min_length=1, max_length=160)
+    preference_key: str | None = Field(default=None, max_length=100)
 
 
 class PropertyPayload(BaseModel):
@@ -479,6 +525,27 @@ class UploadPayload(BaseModel):
     content_base64: str = Field(min_length=1)
     width: float | None = None
     height: float | None = None
+
+
+class KnowledgeItemUpdatePayload(BaseModel):
+    title: str | None = None
+    content: str | None = None
+    category: str | None = None
+    visibility: str | None = None
+    role_slug: str | None = None
+    effective_at: int | None = None
+    expires_at: int | None = None
+
+
+class KnowledgeDraftPayload(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    content: str = Field(min_length=1, max_length=4000)
+    category: str = "Other"
+
+
+class ConflictResolutionPayload(BaseModel):
+    winner_id: str
+    note: str = ""
 
 
 class GuestUploadPayload(BaseModel):
@@ -630,6 +697,15 @@ class AssistantQueryPayload(BaseModel):
     question: str = Field(min_length=2, max_length=1200)
     period: str = Field(default="24h", pattern=r"^(1h|6h|24h|7d|30d|today|yesterday)$")
     current_page: str = Field(default="overview", max_length=80)
+    conversation_id: str | None = Field(default=None, max_length=80)
+
+
+class AssistantConversationPayload(BaseModel):
+    conversation_id: str = Field(min_length=16, max_length=80)
+
+
+class HotelAssistantPayload(BaseModel):
+    question: str = Field(min_length=2, max_length=1200)
 
 
 class KnowledgePayload(BaseModel):
@@ -782,6 +858,51 @@ async def guest_recommendations(request: Request, property_id: str | None = None
     return {"recommendations": hospitality.recommendations(record.property_id, guest=True)}
 
 
+@app.get("/api/guest/personalization")
+async def get_guest_personalization(session_id: str, request: Request) -> dict[str, Any]:
+    session, _ = _guest_session(request, session_id)
+    return personalization.guest_state(session.property_id, session.session_id)
+
+
+@app.put("/api/guest/personalization")
+async def set_guest_personalization(payload: GuestPersonalizationPayload, request: Request) -> dict[str, Any]:
+    session, _ = _guest_session(request, payload.session_id)
+    try:
+        return personalization.set_guest_state(session.property_id, session.session_id, payload.enabled, payload.level)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.put("/api/guest/personalization/preferences")
+async def save_guest_preference(payload: GuestPreferencePayload, request: Request) -> dict[str, Any]:
+    session, _ = _guest_session(request, payload.session_id)
+    state = personalization.guest_state(session.property_id, session.session_id)
+    try:
+        preference = personalization.save_preference(
+            session.property_id, session.session_id, payload.category, payload.value,
+            preference_key=payload.preference_key,
+            source="explicit", confidence=1.0,
+            persistence="profile" if state["level"] == "personal" else "stay",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"preference": preference, **personalization.guest_state(session.property_id, session.session_id)}
+
+
+@app.delete("/api/guest/personalization/preferences")
+async def clear_guest_preferences(session_id: str, request: Request) -> dict[str, Any]:
+    session, _ = _guest_session(request, session_id)
+    deleted = personalization.clear_preferences(session.property_id, session.session_id)
+    return {"deleted": deleted, **personalization.guest_state(session.property_id, session.session_id)}
+
+
+@app.delete("/api/guest/personalization/preferences/{preference_key}")
+async def delete_guest_preference(preference_key: str, session_id: str, request: Request) -> dict[str, Any]:
+    session, _ = _guest_session(request, session_id)
+    deleted = personalization.delete_preference(session.property_id, session.session_id, preference_key)
+    return {"deleted": deleted, **personalization.guest_state(session.property_id, session.session_id)}
+
+
 @app.post("/api/guest/uploads")
 async def upload_guest_document(payload: GuestUploadPayload, request: Request) -> dict[str, Any]:
     session, _ = _guest_session(request, payload.session_id)
@@ -871,17 +992,23 @@ async def admin_login(payload: AdminLoginPayload, request: Request, response: Re
 
 @app.post("/api/admin/auth/password-reset/request")
 async def request_admin_password_reset(payload: AdminPasswordResetRequestPayload, request: Request) -> dict[str, str]:
+    client_ip = request.client.host if request.client else ""
+    account_key = hashlib.sha256(payload.username.strip().casefold().encode("utf-8")).hexdigest()[:16]
+    ip_allowed = rate_limiter.allow(f"password-reset:ip:{client_ip}", 12, 3600)
+    account_allowed = rate_limiter.allow(f"password-reset:account:{account_key}", 3, 3600)
+    if not ip_allowed or not account_allowed:
+        return {"message": "If recovery is configured for this account, reset instructions will be sent."}
     admin_auth.audit(
         None,
         "auth.password_reset_requested",
         "user",
         payload.username.casefold(),
-        ip_address=request.client.host if request.client else "",
+        ip_address=client_ip,
     )
     smtp_config = operations.get_email_settings(include_secret=True)
     reset = admin_auth.create_password_reset(payload.username) if smtp_config.get("enabled") else None
     if reset:
-        reset_url = str(request.url_for("admin_login_page")) + f"?reset_token={reset['token']}"
+        reset_url = str(request.url_for("admin_login_page")) + f"#reset_token={reset['token']}"
         try:
             await asyncio.to_thread(_send_password_reset_email, smtp_config, reset, reset_url)
         except Exception:
@@ -890,7 +1017,13 @@ async def request_admin_password_reset(payload: AdminPasswordResetRequestPayload
 
 
 @app.post("/api/admin/auth/password-reset/confirm")
-async def confirm_admin_password_reset(payload: AdminPasswordResetConfirmPayload) -> dict[str, str]:
+async def confirm_admin_password_reset(payload: AdminPasswordResetConfirmPayload, request: Request) -> dict[str, str]:
+    client_ip = request.client.host if request.client else ""
+    token_key = hashlib.sha256(payload.token.encode("utf-8")).hexdigest()[:16]
+    ip_allowed = rate_limiter.allow(f"password-reset-confirm:ip:{client_ip}", 30, 3600)
+    token_allowed = rate_limiter.allow(f"password-reset-confirm:token:{token_key}", 10, 3600)
+    if not ip_allowed or not token_allowed:
+        raise HTTPException(status_code=429, detail="Too many password reset attempts. Try again later.")
     try:
         admin_auth.consume_password_reset(payload.token, payload.new_password)
     except (AuthenticationError, ValueError) as exc:
@@ -1322,43 +1455,147 @@ def _choose_diagnostic_tool(question: str) -> str:
 @app.post("/api/admin/properties/{property_id}/assistant/query")
 async def operations_assistant(property_id: str, payload: AssistantQueryPayload, request: Request) -> dict[str, Any]:
     principal = _admin_principal(request)
-    dashboard = _build_operations_dashboard(property_id, payload.period, principal)
+    if not principal.can("assistant.use"):
+        raise HTTPException(status_code=403, detail="You do not have permission to use the assistant.")
+    if not principal.can_access_property(property_id):
+        raise HTTPException(status_code=403, detail="Property access denied.")
     record = _require_property_record(property_id)
-    destructive = bool(re.search(r"\b(restart|delete|disable|enable|change|rotate|reset|deploy|update|remove)\b", payload.question, re.I))
-    tool = _choose_diagnostic_tool(payload.question)
+    destructive = bool(re.search(r"\b(restart|delete|disable|enable|change|rotate|reset|deploy|update|remove|configure|publish)\b", payload.question, re.I))
     context = DiagnosticContext(property_id, principal.role_slug, principal.department_id, principal.permissions, _request_id(request))
+    requested_tool = _choose_diagnostic_tool(payload.question)
+    required_permission = diagnostic_tools._tools.get(requested_tool, ("diagnostics.view", None))[0]
+    if not principal.can(required_permission):
+        raise HTTPException(status_code=403, detail=f"Permission required: {required_permission}")
+    tools_allowed = available_tools(diagnostic_tools, principal.permissions)
+    if not tools_allowed:
+        raise HTTPException(status_code=403, detail="This role has no permission to run read-only diagnostics.")
+    conversation_id = payload.conversation_id or admin_copilot_store.new_conversation_id()
+    history = admin_copilot_store.history(conversation_id, property_id, principal.user_id)
+    question = AIInputSanitizer.sanitize_text(payload.question)
     try:
-        result = diagnostic_tools.run(tool, context, dashboard=dashboard, record=record, period=payload.period)
-    except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
-    state = str(result.get("state", "unavailable"))
-    finding = f"{result['component'].replace('_', ' ').title()} is {state}."
-    recommendations = _recommendations(_analytics_for_principal(property_id, payload.period, principal), dashboard["alerts"])
-    links = [{"label": "Open system health", "panel": "system-health"}, {"label": "View alerts", "panel": "alerts"}]
-    if tool == "prepare_management_report":
-        links = [{"label": "Open reports", "panel": "reports"}, {"label": "Choose export format", "panel": "exports"}]
-    elif tool in {"analyze_business_operations", "compare_time_periods"}:
-        links = [{"label": "Open analytics", "panel": "analytics"}, {"label": "Open reports", "panel": "reports"}]
+        planned = await ai_models.concierge_chat(
+            property_id=property_id, user_message=planner_prompt(question, tools_allowed, history),
+            hotel_name="Operations Copilot", context=[], requested_mode="advanced",
+            conversation_history=history, system_prompt_override=ADMIN_POLICY + " Return only the requested JSON object when selecting tools.",
+        )
+        selected_tools = parse_tool_plan(planned.text, tools_allowed)
+        if not selected_tools:
+            selected_tools = ["get_system_health"] if "get_system_health" in tools_allowed else []
+        dashboard = _build_operations_dashboard(property_id, payload.period, principal) if selected_tools else {}
+        evidence = []
+        for tool_name in selected_tools:
+            # Registry.run checks the principal's permission again on every tool call.
+            result = diagnostic_tools.run(tool_name, context, dashboard=dashboard, record=record, period=payload.period)
+            evidence.append({"tool": tool_name, "result": result})
+        if destructive:
+            synthesis = "I can prepare the recommended change, but it requires explicit confirmation through the appropriate administrative workflow. No configuration changes were made."
+        else:
+            synthesized = await ai_models.concierge_chat(
+                property_id=property_id, user_message=synthesis_prompt(question, evidence, history),
+                hotel_name="Operations Copilot", context=[], requested_mode="advanced",
+                conversation_history=history, system_prompt_override=ADMIN_POLICY,
+            )
+            synthesis = AIOutputValidator.validate(synthesized.text)
+    except Exception as exc:
+        # Preserve diagnostic truth when model planning/synthesis is unavailable.
+        try:
+            fallback_tool = _choose_diagnostic_tool(question)
+            fallback_names = [fallback_tool] if fallback_tool in tools_allowed else [name for name in ("get_system_health", "get_recent_errors") if name in tools_allowed]
+            dashboard = _build_operations_dashboard(property_id, payload.period, principal) if fallback_names else {}
+            evidence = [{"tool": name, "result": diagnostic_tools.run(name, context, dashboard=dashboard, record=record, period=payload.period)} for name in fallback_names]
+        except Exception:
+            evidence = []
+        admin_auth.audit(principal, "assistant.copilot_provider_failure", "assistant", "configured_provider", property_id=property_id, metadata={"error_type": exc.__class__.__name__})
+        deterministic_summary = "AI synthesis is unavailable. Raw deterministic diagnostic evidence is shown below; no changes were made."
+        return {"question": question, "conversation_id": conversation_id, "answer": deterministic_summary, "finding": deterministic_summary, "tool": evidence[0]["tool"] if evidence else "unavailable", "component": evidence[0]["result"].get("component", "diagnostics") if evidence else "diagnostics", "timeframe": payload.period, "evidence": evidence, "recommendations": [], "links": [{"label": "Open system health", "panel": "system-health"}], "tool_activity": [item["tool"] for item in evidence], "confirmation_required": destructive, "action_status": "No change was made."}
+    primary = evidence[0]["result"] if evidence else {"component": "diagnostics", "state": "unavailable", "evidence": []}
+    tool = evidence[0]["tool"] if len(evidence) == 1 else "multi_tool_investigation"
+    finding = f"{len(evidence)} diagnostic check(s) completed." if evidence else "No permitted diagnostic evidence was collected."
+    recommendations = ["Review the collected evidence and verify the likely cause against the relevant operational screen."] if evidence else []
+    links = [{"label": "Open system health", "panel": "system-health"}]
+    if any(item["tool"] in {"analyze_business_operations", "compare_time_periods", "check_guest_auth"} for item in evidence):
+        links = [{"label": "Open analytics", "panel": "analytics"}, *links]
+    if any(item["tool"] == "prepare_management_report" for item in evidence):
+        links = [{"label": "Open reports", "panel": "reports"}]
+    admin_copilot_store.append(conversation_id, property_id, principal.user_id, question, synthesis)
     response = {
-        "question": payload.question, "tool": tool, "finding": finding,
-        "component": result["component"], "timeframe": result.get("timeframe", payload.period),
-        "evidence": result.get("evidence"), "likely_cause": result.get("likely_cause"),
+        "question": question, "conversation_id": conversation_id, "answer": synthesis, "tool": tool, "finding": finding,
+        "component": primary.get("component", "diagnostics"), "timeframe": primary.get("timeframe", payload.period),
+        "evidence": evidence, "likely_cause": primary.get("likely_cause"), "tool_activity": [item["tool"] for item in evidence],
         "recommendations": recommendations,
         "links": links,
         "confirmation_required": destructive,
-        "action_status": "No change was made. Explicit confirmation in the relevant configuration screen is required." if destructive else "read_only",
+        "action_status": "No change was made. Explicit confirmation in the relevant configuration screen is required." if destructive else "No changes were made.",
         "request_id": context.request_id,
     }
     observability.log_diagnostic(context.request_id, property_id, principal.user_id, tool, payload.period, finding)
-    admin_auth.audit(principal, "assistant.diagnostic", "diagnostic", tool, property_id=property_id, metadata={"period": payload.period, "component": result["component"], "confirmation_required": destructive})
+    admin_auth.audit(principal, "assistant.diagnostic", "diagnostic", tool, property_id=property_id, metadata={"period": payload.period, "tools": [item["tool"] for item in evidence], "confirmation_required": destructive})
     return response
+
+
+@app.delete("/api/admin/properties/{property_id}/assistant/conversation")
+async def clear_operations_assistant(property_id: str, payload: AssistantConversationPayload, request: Request) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    if not principal.can("assistant.use") or not principal.can_access_property(property_id):
+        raise HTTPException(status_code=403, detail="Property access denied.")
+    admin_copilot_store.clear(payload.conversation_id, property_id, principal.user_id)
+    return {"status": "cleared"}
+
+
+@app.post("/api/admin/properties/{property_id}/assistant/hotel-chat")
+async def admin_hotel_assistant(property_id: str, payload: HotelAssistantPayload, request: Request) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    if not principal.can("assistant.use"):
+        raise HTTPException(status_code=403, detail="You do not have permission to use the assistant.")
+    if not principal.can("knowledge.view"):
+        raise HTTPException(status_code=403, detail="Permission required: knowledge.view")
+    if not principal.can_access_property(property_id):
+        raise HTTPException(status_code=403, detail="Property access denied.")
+    record = _require_property_record(property_id)
+    question = AIInputSanitizer.sanitize_text(payload.question)
+    lower_question = question.casefold()
+    if not question.endswith("?") and (lower_question.startswith("our ") or lower_question.startswith("the hotel ")) and any(token in lower_question for token in (" is ", " are ", " opens ", " closes ")):
+        category = next((category for category in CATEGORIES if category.casefold() in lower_question), "Other")
+        if "pool" in lower_question: category = "Pool"
+        elif "gym" in lower_question: category = "Gym"
+        elif "restaurant" in lower_question or "breakfast" in lower_question: category = "Dining"
+        proposal = {"title": question.split(" is ", 1)[0][:100].strip(" ."), "content": question, "category": category, "visibility": "admin"}
+        return {"question": question, "answer": f"I can save this as a {category} knowledge draft. Review the wording and visibility before approving or publishing it.", "provider": "knowledge_tools", "model": "deterministic", "sources": [], "proposed_draft": proposal}
+    if any(phrase in lower_question for phrase in ("knowledge health", "missing knowledge", "knowledge coverage")):
+        health = knowledge_management.health(property_id)
+        return {"question": question, "answer": f"Knowledge coverage is {health['coverage_percent']}%. Missing categories: {', '.join(health['missing_categories']) or 'none'}. Missing core facts: {', '.join(health['missing_fields']) or 'none'}. Pending review: {health['pending_review']}; open conflicts: {health['open_conflicts']}. {health['methodology']}", "provider": "knowledge_tools", "model": "deterministic", "sources": []}
+    if any(phrase in lower_question for phrase in ("find conflicts", "contradictory information", "show conflicts")):
+        conflicts = [item for item in knowledge_management.conflicts(property_id) if item["status"] == "open"]
+        return {"question": question, "answer": f"{len(conflicts)} unresolved knowledge conflict(s). Review them in Knowledge Management.", "provider": "knowledge_tools", "model": "deterministic", "sources": []}
+    if any(phrase in lower_question for phrase in ("pending review", "waiting for approval")):
+        pending = knowledge_management.list_items(property_id, status="ready_review")
+        pending = [item for item in pending if _knowledge_item_allowed(item, principal)]
+        return {"question": question, "answer": f"{len(pending)} knowledge item(s) are waiting for review.", "provider": "knowledge_tools", "model": "deterministic", "sources": [{"item_id": item["item_id"], "title": item["title"]} for item in pending[:20]]}
+    managed_context = knowledge_management.search(property_id, question, guest=False, role_slug=principal.role_slug)
+    context = managed_context + operations.search_knowledge(property_id, question, include_documents=False)
+    if property_id == settings.property_id:
+        context += knowledge.retrieve(question)
+    context.extend(_property_ai_context(record))
+    try:
+        result = await ai_models.concierge_chat(
+            property_id=property_id,
+            user_message=question,
+            hotel_name=record.hotel_name,
+            context=AIInputSanitizer.sanitize_context(context),
+            requested_mode="auto",
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="The configured AI provider could not answer. Check AI Models and provider status, then try again.") from exc
+    answer = AIOutputValidator.validate(result.text)
+    admin_auth.audit(principal, "assistant.hotel_chat", "assistant", result.provider, property_id=property_id, metadata={"model": result.model})
+    return {"question": question, "answer": answer, "provider": result.provider, "model": result.model, "sources": [{"title": item["title"], "source": item["source"], "source_id": item["source_id"], "item_id": item["item_id"], "location": item["location"], "status": item["status"]} for item in managed_context]}
 
 
 @app.middleware("http")
 async def enforce_guest_origin(request: Request, call_next):
     path = request.url.path
     guest_mutation = request.method not in {"GET", "HEAD", "OPTIONS"} and (
-        path.startswith("/api/guest/") or path in {"/api/session/start", "/api/authenticate", "/api/chat"}
+        path.startswith("/api/guest/") or path in {"/api/session/start", "/api/session/resume", "/api/authenticate", "/api/chat"}
     )
     origin = request.headers.get("origin")
     if guest_mutation and origin:
@@ -1395,6 +1632,21 @@ async def export_operations_pdf(property_id: str, request: Request, period: str 
 async def property_conversations(property_id: str) -> dict[str, Any]:
     _require_property(property_id)
     return {"conversations": store.conversations(property_id), "retention": store.retention(property_id)}
+
+
+@app.get("/api/admin/properties/{property_id}/personalization")
+async def get_personalization_policy(property_id: str) -> dict[str, Any]:
+    _require_property(property_id)
+    return personalization.policy(property_id)
+
+
+@app.put("/api/admin/properties/{property_id}/personalization")
+async def save_personalization_policy(property_id: str, payload: GenericPayload) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return personalization.save_policy(property_id, payload.data)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.put("/api/admin/properties/{property_id}/conversations/retention")
@@ -1487,14 +1739,235 @@ async def property_guardrail_diagnostics(property_id: str, request: Request) -> 
 
 
 @app.get("/api/admin/properties/{property_id}/knowledge")
-async def list_property_knowledge(property_id: str) -> dict[str, Any]:
+async def list_property_knowledge(property_id: str, request: Request) -> dict[str, Any]:
     _require_property(property_id)
     items = operations.list_knowledge(property_id)
     return {
         "items": [item for item in items if item["kind"] == "entry"],
-        "documents": [item for item in items if item["kind"] == "document"],
+        "documents": [item for item in items if item["kind"] == "document"] if _admin_principal(request).can("knowledge.edit") else [],
         "faqs": [item for item in items if item["kind"] == "faq"],
     }
+
+
+def _decode_knowledge_upload(payload: UploadPayload) -> bytes:
+    if len(payload.content_base64) > (settings.knowledge_max_file_bytes + 2) * 4 // 3 + 16:
+        raise HTTPException(status_code=413, detail="File exceeds the configured upload limit.")
+    try:
+        return base64.b64decode(payload.content_base64, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise HTTPException(status_code=422, detail="File content is not valid base64.") from exc
+
+
+def _knowledge_item_allowed(item: dict[str, Any] | None, principal: AdminPrincipal) -> bool:
+    if item is None:
+        return False
+    if principal.role_slug == "super-admin":
+        return True
+    visibility = item["visibility"]
+    if visibility == "guest" or visibility == "staff":
+        return True
+    if visibility == "admin":
+        return principal.role_slug in {"property-administrator", "content-manager"}
+    if visibility == "manager":
+        return principal.role_slug in {"property-administrator", "property-manager"}
+    if visibility == "engineering":
+        return principal.role_slug == "engineering"
+    return visibility == "role" and item["role_slug"] == principal.role_slug
+
+
+@app.get("/api/admin/properties/{property_id}/knowledge/managed")
+async def managed_knowledge(property_id: str, request: Request, source_id: str | None = None, status: str | None = None, q: str = "") -> dict[str, Any]:
+    _require_property(property_id)
+    principal = _admin_principal(request)
+    items = [item for item in knowledge_management.list_items(property_id, source_id=source_id, status=status, query=q) if _knowledge_item_allowed(item, principal)]
+    return {"items": items, "sources": knowledge_management.list_sources(property_id), "categories": list(CATEGORIES), "limits": {"max_file_bytes": settings.knowledge_max_file_bytes, "max_files_per_upload": settings.knowledge_max_files_per_upload, "max_files_per_property": settings.knowledge_max_files_per_property, "storage_quota_bytes": settings.knowledge_storage_quota_bytes}}
+
+
+@app.post("/api/admin/properties/{property_id}/knowledge/items")
+async def create_managed_knowledge_draft(property_id: str, payload: KnowledgeDraftPayload, request: Request) -> dict[str, Any]:
+    _require_property(property_id)
+    principal = _admin_principal(request)
+    try:
+        item = knowledge_management.create_draft(property_id, payload.title, payload.content, payload.category, principal.user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    admin_auth.audit(principal, "knowledge.draft_created", "knowledge_item", item["item_id"], property_id=property_id, metadata={"category": item["category"]})
+    return item
+
+
+@app.get("/api/admin/properties/{property_id}/knowledge/health")
+async def knowledge_health(property_id: str) -> dict[str, Any]:
+    _require_property(property_id)
+    return knowledge_management.health(property_id)
+
+
+@app.get("/api/admin/properties/{property_id}/knowledge/conflicts")
+async def knowledge_conflicts(property_id: str) -> dict[str, Any]:
+    _require_property(property_id)
+    return {"conflicts": knowledge_management.conflicts(property_id)}
+
+
+@app.post("/api/admin/properties/{property_id}/knowledge/conflicts/{conflict_id}/resolve")
+async def resolve_knowledge_conflict(property_id: str, conflict_id: str, payload: ConflictResolutionPayload, request: Request) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    conflict = next((item for item in knowledge_management.conflicts(property_id) if item["conflict_id"] == conflict_id), None)
+    if conflict and any(not _knowledge_item_allowed(knowledge_management.get_item(property_id, item_id), principal) for item_id in (conflict["item_a"], conflict["item_b"])):
+        raise HTTPException(status_code=403, detail="Knowledge visibility denied.")
+    try:
+        result = knowledge_management.resolve_conflict(property_id, conflict_id, payload.winner_id, payload.note, principal.user_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    admin_auth.audit(principal, "knowledge.conflict_resolved", "conflict", conflict_id, property_id=property_id, metadata={"winner_id": payload.winner_id})
+    return result
+
+
+@app.post("/api/admin/properties/{property_id}/knowledge/sources")
+async def create_knowledge_source(property_id: str, payload: UploadPayload, request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
+    _require_property(property_id)
+    principal = _admin_principal(request)
+    try:
+        source = knowledge_management.upload(property_id, payload.filename, payload.content_type, _decode_knowledge_upload(payload), principal.user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    background_tasks.add_task(knowledge_management.process, property_id, source["source_id"])
+    admin_auth.audit(principal, "knowledge.source_uploaded", "knowledge_source", source["source_id"], property_id=property_id, metadata={"filename": source["filename"], "bytes": source["file_bytes"]})
+    return source
+
+
+@app.get("/api/admin/properties/{property_id}/knowledge/sources/{source_id}")
+async def get_knowledge_source(property_id: str, source_id: str, request: Request) -> dict[str, Any]:
+    source = knowledge_management.get_source(property_id, source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    principal = _admin_principal(request)
+    items = [item for item in knowledge_management.list_items(property_id, source_id=source_id) if _knowledge_item_allowed(item, principal)]
+    return {"source": source, "items": items}
+
+
+@app.get("/api/admin/properties/{property_id}/knowledge/sources/{source_id}/versions")
+async def get_knowledge_source_versions(property_id: str, source_id: str) -> dict[str, Any]:
+    if not knowledge_management.get_source(property_id, source_id):
+        raise HTTPException(status_code=404, detail="Document not found.")
+    sources = knowledge_management.list_sources(property_id)
+    lineage = {source_id}
+    changed = True
+    while changed:
+        changed = False
+        for source in sources:
+            if source["source_id"] in lineage and source["previous_source_id"] and source["previous_source_id"] not in lineage:
+                lineage.add(source["previous_source_id"]); changed = True
+            if source["previous_source_id"] in lineage and source["source_id"] not in lineage:
+                lineage.add(source["source_id"]); changed = True
+    return {"versions": sorted((source for source in sources if source["source_id"] in lineage), key=lambda source: source["version"])}
+
+
+@app.get("/api/admin/properties/{property_id}/knowledge/sources/{source_id}/download")
+async def download_knowledge_source(property_id: str, source_id: str, request: Request) -> FileResponse:
+    principal = _admin_principal(request)
+    if not principal.can("knowledge.edit") or principal.role_slug not in {"super-admin", "property-administrator", "content-manager"}:
+        raise HTTPException(status_code=403, detail="Original source download requires administrator access.")
+    source = knowledge_management.get_source(property_id, source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    return FileResponse(knowledge_management._file_path(property_id, source_id), media_type=source["content_type"], filename=source["filename"])
+
+
+@app.post("/api/admin/properties/{property_id}/knowledge/sources/{source_id}/retry")
+async def retry_knowledge_source(property_id: str, source_id: str, background_tasks: BackgroundTasks) -> dict[str, Any]:
+    source = knowledge_management.get_source(property_id, source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    if source["status"] != "processing_failed":
+        raise HTTPException(status_code=409, detail="Only failed documents can be retried.")
+    background_tasks.add_task(knowledge_management.process, property_id, source_id)
+    return {"status": "queued", "source_id": source_id}
+
+
+@app.post("/api/admin/properties/{property_id}/knowledge/sources/{source_id}/replace")
+async def replace_knowledge_source(property_id: str, source_id: str, payload: UploadPayload, request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    if any(not _knowledge_item_allowed(item, principal) for item in knowledge_management.list_items(property_id, source_id=source_id)):
+        raise HTTPException(status_code=403, detail="Knowledge visibility denied.")
+    if any(item["status"] == "published" for item in knowledge_management.list_items(property_id, source_id=source_id)) and not principal.can("knowledge.publish"):
+        raise HTTPException(status_code=403, detail="Permission required: knowledge.publish")
+    try:
+        source = knowledge_management.replace(property_id, source_id, payload.filename, payload.content_type, _decode_knowledge_upload(payload), principal.user_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    background_tasks.add_task(knowledge_management.process, property_id, source["source_id"])
+    admin_auth.audit(principal, "knowledge.source_replaced", "knowledge_source", source["source_id"], property_id=property_id, metadata={"previous_source_id": source_id})
+    return source
+
+
+@app.post("/api/admin/properties/{property_id}/knowledge/sources/{source_id}/supersede")
+async def supersede_knowledge_source(property_id: str, source_id: str, request: Request) -> dict[str, str]:
+    principal = _admin_principal(request)
+    if any(not _knowledge_item_allowed(item, principal) for item in knowledge_management.list_items(property_id, source_id=source_id)):
+        raise HTTPException(status_code=403, detail="Knowledge visibility denied.")
+    try:
+        knowledge_management.supersede(property_id, source_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    admin_auth.audit(principal, "knowledge.source_superseded", "knowledge_source", source_id, property_id=property_id)
+    return {"status": "superseded"}
+
+
+@app.delete("/api/admin/properties/{property_id}/knowledge/sources/{source_id}")
+async def delete_knowledge_source(property_id: str, source_id: str, request: Request) -> dict[str, str]:
+    if not knowledge_management.delete_source(property_id, source_id):
+        raise HTTPException(status_code=404, detail="Document not found.")
+    principal = _admin_principal(request)
+    admin_auth.audit(principal, "knowledge.source_deleted", "knowledge_source", source_id, property_id=property_id)
+    return {"status": "deleted"}
+
+
+@app.get("/api/admin/properties/{property_id}/knowledge/items/{item_id}")
+async def get_managed_knowledge_item(property_id: str, item_id: str, request: Request) -> dict[str, Any]:
+    item = knowledge_management.get_item(property_id, item_id)
+    if not item or not _knowledge_item_allowed(item, _admin_principal(request)):
+        raise HTTPException(status_code=404, detail="Knowledge item not found.")
+    return item
+
+
+@app.patch("/api/admin/properties/{property_id}/knowledge/items/{item_id}")
+async def edit_managed_knowledge_item(property_id: str, item_id: str, payload: KnowledgeItemUpdatePayload, request: Request) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    current = knowledge_management.get_item(property_id, item_id)
+    if not current or not _knowledge_item_allowed(current, principal):
+        raise HTTPException(status_code=404, detail="Knowledge item not found.")
+    try:
+        updated = knowledge_management.update_item(property_id, item_id, payload.model_dump(exclude_unset=True), principal.user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    admin_auth.audit(principal, "knowledge.item_edited", "knowledge_item", item_id, property_id=property_id, metadata={"fields": list(payload.model_fields_set), "before": {key: current[key] for key in ("category", "visibility", "effective_at", "expires_at")}, "after": {key: updated[key] for key in ("category", "visibility", "effective_at", "expires_at")}})
+    return updated
+
+
+@app.post("/api/admin/properties/{property_id}/knowledge/items/{item_id}/approve")
+@app.post("/api/admin/properties/{property_id}/knowledge/items/{item_id}/publish")
+@app.post("/api/admin/properties/{property_id}/knowledge/items/{item_id}/unpublish")
+@app.post("/api/admin/properties/{property_id}/knowledge/items/{item_id}/archive")
+async def transition_managed_knowledge_item(property_id: str, item_id: str, request: Request) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    current = knowledge_management.get_item(property_id, item_id)
+    if not current or not _knowledge_item_allowed(current, principal):
+        raise HTTPException(status_code=404, detail="Knowledge item not found.")
+    action = request.url.path.rsplit("/", 1)[-1]
+    if action == "archive" and not principal.can("knowledge.publish"):
+        raise HTTPException(status_code=403, detail="Permission required: knowledge.publish")
+    status = {"approve": "approved", "publish": "published", "unpublish": "ready_review", "archive": "archived"}[action]
+    try:
+        item = knowledge_management.set_status(property_id, item_id, status, principal.user_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    admin_auth.audit(principal, f"knowledge.item_{action}", "knowledge_item", item_id, property_id=property_id, metadata={"visibility": item["visibility"], "before_status": current["status"], "after_status": item["status"]})
+    return item
 
 
 @app.put("/api/admin/properties/{property_id}/knowledge")
@@ -1509,12 +1982,8 @@ async def save_property_knowledge(property_id: str, payload: KnowledgePayload) -
 
 
 @app.post("/api/admin/properties/{property_id}/knowledge/documents")
-async def upload_knowledge_document(property_id: str, payload: UploadPayload) -> dict[str, Any]:
-    _require_property(property_id)
-    try:
-        return operations.upload_document(property_id, payload.filename, payload.content_type, payload.content_base64)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+async def upload_knowledge_document(property_id: str, payload: UploadPayload, request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
+    return await create_knowledge_source(property_id, payload, request, background_tasks)
 
 
 @app.delete("/api/admin/properties/{property_id}/knowledge/{item_id}")
@@ -1947,7 +2416,11 @@ async def update_stay_memory(property_id: str, stay_id: str, payload: MemoryPayl
 async def checkout_stay(property_id: str, stay_id: str) -> dict[str, Any]:
     _require_property(property_id)
     try:
-        return guest_identities.checkout(property_id, stay_id, anonymize=True)
+        linked_sessions = guest_identities.sessions_for_stay(property_id, stay_id)
+        result = guest_identities.checkout(property_id, stay_id, anonymize=True)
+        policy = personalization.policy(property_id)
+        personalization.checkout(property_id, linked_sessions, delete_profile=bool(policy["delete_profile_at_checkout"]))
+        return result
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -2025,9 +2498,14 @@ async def intro_asset(property_id: str, filename: str) -> FileResponse:
 
 
 @app.get("/api/admin/properties/{property_id}/hospitality")
-async def hospitality_overview(property_id: str) -> dict[str, Any]:
+async def hospitality_overview(property_id: str, request: Request) -> dict[str, Any]:
     _require_property(property_id)
-    return hospitality.overview(property_id)
+    overview = hospitality.overview(property_id)
+    principal = _admin_principal(request)
+    if not principal.can("requests.view"):
+        overview.pop("service_requests", None)
+        overview.pop("notification_rules", None)
+    return overview
 
 
 @app.get("/api/admin/properties/{property_id}/service-catalog")
@@ -2334,7 +2812,10 @@ async def start_session(payload: StartSessionRequest, request: Request) -> dict[
             raise GuardrailDenied(decision)
         gateway_context = {
             key: value for key, value in payload.gateway_context.items()
-            if key in {"property_id", "authenticated_guest", "gateway_id", "guest_session_id", "client_ip", "guest_vlan", "session_state"}
+            if key in {
+                "property_id", "authenticated_guest", "gateway_id", "guest_session_id",
+                "client_ip", "client_mac", "location_index", "ppli", "guest_vlan", "session_state",
+            }
         }
     ip_rate_key = f"session-ip:{property_record.property_id}:{network.client_ip}"
     client_rate_key = f"session-client:{property_record.property_id}:{network.client_ip}:{payload.client_id}"
@@ -2356,13 +2837,38 @@ async def start_session(payload: StartSessionRequest, request: Request) -> dict[
     }
 
 
+@app.post("/api/session/resume")
+async def resume_session(payload: ResumeSessionRequest, request: Request) -> dict[str, Any]:
+    candidate = store.peek(payload.session_id)
+    if candidate is None or candidate.client_id != payload.client_id:
+        raise HTTPException(status_code=401, detail="Concierge session expired.")
+    if not rate_limiter.allow(f"session-resume:{candidate.property_id}:{candidate.session_id}", 30, 60):
+        raise HTTPException(status_code=429, detail="Too many resume attempts. Please wait a moment.")
+    session, property_record = _guest_session(request, payload.session_id)
+    policy = normalize_guardrails(property_record.guardrails)
+    return {"session_id": session.session_id, "expires_after_minutes": policy["guest_session_timeout"]}
+
+
 @app.post("/api/authenticate")
 async def authenticate(payload: AuthRequest, request: Request) -> dict[str, Any]:
-    session, _ = _guest_session(request, payload.session_id)
+    session, property_record = _guest_session(request, payload.session_id)
+    auth_type = payload.auth_type.strip().lower()
+    if auth_type not in AUTHENTICATION_RULES:
+        raise HTTPException(status_code=422, detail="Unsupported authentication type.")
+
+    configured_types = property_record.antlabs_config.get("authentication_types", {})
+    configured_type = configured_types.get(auth_type, {}) if isinstance(configured_types, dict) else {}
+    if not isinstance(configured_type, dict) or configured_type.get("enabled") is not True:
+        raise HTTPException(status_code=403, detail="This authentication method is disabled for this hotel.")
+
+    credentials = dict(payload.credentials)
+    if auth_type == "pms":
+        credentials.setdefault("room", payload.room or "")
+        credentials.setdefault("last_name", payload.last_name or "")
 
     result = antlabs.authenticate(
-        room=payload.room,
-        last_name=payload.last_name,
+        auth_type=auth_type,
+        credentials=credentials,
         concierge_session_id=session.session_id,
         gateway_context=session.gateway_context,
     )
@@ -2390,6 +2896,87 @@ async def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
     sanitized_message = AIInputSanitizer.sanitize_text(payload.message)
     contextual_query = _contextual_query(sanitized_message, conversation_history)
     store.record_message(session.session_id, session.property_id, "guest", sanitized_message)
+    personalization.cleanup_expired()
+    personalization_policy = personalization.policy(session.property_id)
+    command, command_detail = preference_commands(sanitized_message)
+    if command:
+        try:
+            if command == "disable":
+                personalization.set_guest_state(session.property_id, session.session_id, False)
+                answer = "Personalization is off. I won't use or add saved preferences until you turn it back on."
+            elif command == "enable":
+                personalization.set_guest_state(session.property_id, session.session_id, True, "stay")
+                answer = "Stay personalization is on. I can remember useful preferences until your session expires; you can review or remove them from Personalization / Memory."
+            elif command == "clear":
+                deleted = personalization.clear_preferences(session.property_id, session.session_id)
+                answer = "I've cleared your saved preferences." if deleted else "There weren't any saved preferences to clear."
+            elif command == "forget_last":
+                answer = "I've removed that preference." if personalization.delete_last_preference(session.property_id, session.session_id) else "I didn't have a recent saved preference to remove."
+            elif command == "forget_category":
+                categories = {"food", "budget"} if command_detail == "restaurant" else {str(command_detail)}
+                deleted = personalization.delete_category(session.property_id, session.session_id, categories)
+                answer = "I've forgotten those preferences." if deleted else "I didn't have a saved preference in that category."
+            elif command == "show":
+                known = personalization.list_preferences(session.property_id, session.session_id)
+                if not personalization_policy["enabled"]:
+                    answer = "Personalization is disabled for this hotel, so I don't use a saved guest profile."
+                elif known:
+                    lines = [f"- {PREFERENCE_CATEGORIES.get(item['category'], item['category'])}: {item['value']}" for item in known]
+                    answer = "Here's what I currently remember:\n" + "\n".join(lines)
+                else:
+                    answer = "I'm not storing any personal preferences. You can keep this private or turn on stay personalization from the menu."
+            elif command == "remember":
+                if not personalization_policy["enabled"]:
+                    answer = "Personalization is disabled for this hotel, so I can't save that preference."
+                else:
+                    detail = command_detail or ""
+                    extracted = extract_preferences(detail)
+                    if not extracted:
+                        answer = "I couldn't identify a preference to save. You can add or edit one in Personalization / Memory."
+                    else:
+                        target_level = "personal" if any(item["category"] == "preferred_name" for item in extracted) else "stay"
+                        if target_level == "personal" and not personalization_policy["allow_guest_profile"]:
+                            answer = "This hotel hasn't enabled optional guest profiles. I can still remember non-name preferences during your stay."
+                            extracted = [item for item in extracted if item["category"] != "preferred_name"]
+                            target_level = "stay"
+                        personalization.set_guest_state(session.property_id, session.session_id, True, target_level)
+                        for item in extracted:
+                            if item["persistence"] == "profile" and target_level != "personal":
+                                item["persistence"] = "stay"
+                            personalization.save_preference(session.property_id, session.session_id, **item)
+                        if extracted:
+                            answer = "I'll keep that in mind during this stay. You can review or remove it in Personalization / Memory."
+            else:
+                answer = "I couldn't update personalization just now."
+        except ValueError as exc:
+            answer = str(exc)
+        store.record_message(session.session_id, session.property_id, "assistant", answer, provider="personalization", model="memory-controls")
+        return {"answer": answer, "source": "personalization", "provider": "none", "model": "memory-controls", "mode": "fast", "escalated": False}
+
+    if personalization_policy["enabled"] and personalization_policy["allow_preference_learning"]:
+        initial_state = personalization.guest_state(session.property_id, session.session_id)
+        if initial_state["enabled"] and initial_state["level"] != "private":
+            last_assistant = next((str(item.get("content") or "") for item in reversed(conversation_history) if item.get("role") == "assistant"), "")
+            personalization.reinforce_feedback(session.property_id, session.session_id, sanitized_message, last_assistant)
+            for item in extract_preferences(sanitized_message):
+                if item["category"] == "preferred_name" and initial_state["level"] != "personal":
+                    continue
+                if initial_state["level"] == "personal" and item["persistence"] == "stay":
+                    item["persistence"] = "profile"
+                try:
+                    personalization.save_preference(session.property_id, session.session_id, **item)
+                except ValueError:
+                    continue
+    personalization_context = personalization.context_for(session.property_id, session.session_id, sanitized_message)
+    recommendation_text = sanitized_message.casefold()
+    dining_request = any(token in recommendation_text for token in ("restaurant", "eat", "food", "dinner", "lunch", "breakfast", "cafe", "café"))
+    activity_request = any(token in recommendation_text for token in ("activity", "things to do", "plan", "attraction", "visit", "tour", "surprise", "do this", "do today", "afternoon", "free tonight", "hours free", "free before", "free for", "what should i do"))
+    dining_preferences = {"food", "dietary", "budget", "travel_party", "transportation", "accessibility"}
+    activity_preferences = {"interests", "activities", "travel_party", "budget", "transportation", "accessibility", "activity_time", "trip_purpose"}
+    uses_guest_recommendations = any(
+        item["category"] in ((dining_preferences if dining_request else set()) | (activity_preferences if activity_request else set()))
+        for item in personalization_context["preferences"]
+    )
     started_at = time.perf_counter()
     conversation_state = store.conversation_state(session.session_id, session.property_id)
     if conversation_state["human_takeover"]:
@@ -2400,8 +2987,10 @@ async def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
     safety_reason = PrivacyGuard.classify(sanitized_message)
     if safety_reason:
         security_audit.record(_request_id(request), session.property_id, safety_reason, "blocked", getattr(request.state, "guardrail_decision").client_ip)
-    fast_answer = (PrivacyGuard.safe_response(safety_reason) if safety_reason else None) or _safety_fast_answer(sanitized_message) or _property_fast_answer(property_record, contextual_query) or knowledge.exact_fast_answer(contextual_query)
-    if fast_answer and (safety_reason or requested_mode != "advanced"):
+    # Fast answers must match the current turn. Using contextual_query here let
+    # a previous topic hijack an unrelated follow-up or greeting.
+    fast_answer = (PrivacyGuard.safe_response(safety_reason) if safety_reason else None) or _safety_fast_answer(sanitized_message) or _property_fast_answer(property_record, sanitized_message) or (knowledge.exact_fast_answer(sanitized_message) if session.property_id == settings.property_id else None)
+    if fast_answer and (safety_reason or (requested_mode != "advanced" and not uses_guest_recommendations)):
         answer = fast_answer
         if _is_authentication_question(sanitized_message):
             answer = f"{answer}\n\n{_authentication_guidance(auth_types)}"
@@ -2415,7 +3004,9 @@ async def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
             "escalated": False,
         }
 
-    context = operations.search_knowledge(session.property_id, contextual_query) + knowledge.retrieve(contextual_query)
+    context = knowledge_management.search(session.property_id, contextual_query, guest=True) + operations.search_knowledge(session.property_id, contextual_query, include_documents=False)
+    if session.property_id == settings.property_id:
+        context += knowledge.retrieve(contextual_query)
     context.extend(_property_ai_context(property_record))
     if auth_types:
         context.append(
@@ -2424,12 +3015,63 @@ async def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
                 "answer": _authentication_guidance(auth_types),
             }
         )
+    guest_context = build_guest_context(session.property_id, session, guest_identities, hospitality, conversation_history).prompt_data()
+    try:
+        local_now = datetime.now(ZoneInfo(property_record.timezone or "UTC"))
+    except Exception:
+        local_now = datetime.now(timezone.utc)
+    guest_context["current_context"] = {
+        "local_datetime": local_now.isoformat(timespec="minutes"),
+        "local_day": local_now.strftime("%A"),
+        "time_zone": local_now.tzname() or "UTC",
+    }
+    request_text = sanitized_message.casefold()
+    needs_room_context = any(token in request_text for token in ("my room", "room number", "in my room", "room service"))
+    needs_request_context = any(token in request_text for token in ("my request", "service request status", "where is my", "has my", "did you send", "request status"))
+    guest_context["room"] = guest_context.get("room") if needs_room_context and personalization_policy["allow_pms_personalization"] else None
+    if not needs_request_context:
+        guest_context["open_requests"] = []
+        guest_context["recent_requests"] = []
+    # The current message history is already passed separately. Never replay an
+    # old free-text stay summary as if it were a guest-approved profile.
+    guest_context["conversation_summary"] = ""
+    # Legacy stay memory was written without guest consent. It is hidden unless the
+    # current guest has explicitly enabled personalization for this session.
+    if personalization_context["personalization_level"] == "private":
+        guest_context["preferences"] = []
+    else:
+        relevant = personalization_context["preferences"]
+        guest_context["preferences"] = [
+            f"{PREFERENCE_CATEGORIES.get(item['category'], item['category'])}: {item['value']} ({item['source']}, confidence {float(item['confidence']):.2f})"
+            for item in relevant
+        ]
+    guest_context["personalization_level"] = personalization_context["personalization_level"]
+    guest_context["personalization"] = {"level": personalization_context["personalization_level"], "preferences": personalization_context["preferences"]}
+    context.append({"title": "Guest stay context", "answer": json.dumps(guest_context, ensure_ascii=False)[:5000]})
     context = AIInputSanitizer.sanitize_context(context)
     policy = normalize_guardrails(property_record.guardrails)
-    location = {"latitude": property_record.latitude, "longitude": property_record.longitude}
+    location = {
+        "latitude": property_record.latitude if personalization_policy["allow_location_aware_recommendations"] else None,
+        "longitude": property_record.longitude if personalization_policy["allow_location_aware_recommendations"] else None,
+    }
     place_results = []
-    if policy["internet_search_enabled"] and any(policy[key] for key in ("restaurant_search_enabled", "attractions_enabled")):
-        place_results = await places.search(sanitized_message, location.get("latitude"), location.get("longitude"))
+    allow_personalized_places = personalization_policy["enabled"] and personalization_policy["allow_internet_recommendations"]
+    place_query = sanitized_message
+    search_hints = personalization.search_hints(session.property_id, session.session_id, sanitized_message) if allow_personalized_places else ""
+    dining_search = any(token in sanitized_message.casefold() for token in ("restaurant", "eat", "food", "dinner", "lunch", "breakfast", "cafe", "café"))
+    activity_search = any(token in sanitized_message.casefold() for token in ("activity", "things to do", "plan", "attraction", "visit", "tour", "surprise", "do this", "do today", "afternoon", "free tonight", "hours free", "free before", "free for", "what should i do"))
+    if search_hints and dining_search:
+        place_query = f"{sanitized_message} {search_hints}"
+    elif search_hints and activity_search:
+        place_query = f"things to do near the hotel {search_hints}"
+    future_schedule_request = any(
+        token in sanitized_message.casefold()
+        for token in ("tonight", "tomorrow", "later", "this weekend", "next week", "saturday", "sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "free before", "hours free")
+    )
+    prefer_open_now = not future_schedule_request
+    if policy["internet_search_enabled"] and personalization_policy["allow_internet_recommendations"] and any(policy[key] for key in ("restaurant_search_enabled", "attractions_enabled")):
+        place_results = await places.search(place_query, location.get("latitude"), location.get("longitude"), open_now=prefer_open_now)
+        place_results = rank_places(place_results, personalization_context.get("preferences"), conversation_history, prefer_open_now=prefer_open_now)
     live_context = format_places_for_ai(place_results)
 
     try:
@@ -2441,35 +3083,15 @@ async def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
             live_context=live_context,
             requested_mode=requested_mode,
             conversation_history=conversation_history,
+            guest_context=guest_context,
         )
         provider = model_result.provider
         model = model_result.model
         answer = model_result.text
     except Exception as exc:
-        try:
-            result = await ai.chat(
-                user_message=sanitized_message,
-                hotel_name=property_record.hotel_name if property_record else knowledge.data["name"],
-                context=context,
-                live_context=live_context,
-                requested_mode=requested_mode,
-            )
-            provider = result.provider
-            model = result.model
-            answer = result.answer
-        except Exception:
-            if context:
-                answer = AIOutputValidator.validate(context[0].get("answer") or "")
-                store.record_message(session.session_id, session.property_id, "assistant", answer or "", provider="verified_fallback", model="none", latency_ms=int((time.perf_counter() - started_at) * 1000))
-                return {
-                    "answer": answer,
-                    "source": "verified_fallback",
-                    "provider": "none",
-                    "model": "none",
-                    "mode": requested_mode,
-                    "escalated": False,
-                }
-            raise HTTPException(status_code=503, detail="The AI service is temporarily unavailable. Please try again.") from exc
+        # Only the property-scoped provider service may route guest content.
+        # A separate legacy router would bypass local-only and fallback settings.
+        raise HTTPException(status_code=503, detail="The AI service is temporarily unavailable. Please try again.") from exc
 
     answer = AIOutputValidator.validate(answer)
     store.record_message(session.session_id, session.property_id, "assistant", answer, provider=provider, model=model, latency_ms=int((time.perf_counter() - started_at) * 1000))
@@ -2487,6 +3109,7 @@ async def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
         "mode": requested_mode,
         "escalated": requested_mode == "advanced",
         "live_places_used": bool(place_results),
+        "personalized_recommendations": uses_guest_recommendations,
         "places": place_results,
         "context_titles": [item.get("title") for item in context],
     }
@@ -2527,6 +3150,24 @@ def _property_fast_answer(property_record: PropertyRecord | None, message: str) 
     contact = property_record.contact_details or {}
     if "breakfast" in lowered and contact.get("breakfast"):
         return str(contact["breakfast"])
+    if "breakfast" in lowered:
+        restaurants = [
+            item for item in hospitality.guest_facilities(property_record.property_id).get("restaurants", [])
+            if any("breakfast" in str(period).casefold() for period in item.get("meal_periods", []))
+        ]
+        if restaurants:
+            venues = []
+            hours_available = True
+            for item in restaurants:
+                hours = (item.get("opening_hours") or {}).get("display", "")
+                hours_available = hours_available and bool(hours)
+                location = str(item.get("location") or "").strip()
+                details = [str(item.get("name") or "Dining venue"), location, f"hours: {hours}" if hours else ""]
+                venues.append(" — ".join(value for value in details if value))
+            answer = "Breakfast is listed at " + "; ".join(venues) + "."
+            if not hours_available:
+                answer += " Verified breakfast hours are not available; please confirm them with the Front Desk."
+            return answer
     if any(term in lowered for term in ("checkout", "check out", "departure")) and contact.get("checkout"):
         return f"Standard checkout is {contact['checkout']}."
     if any(term in lowered for term in ("wifi", "wi-fi", "internet")) and contact.get("wifi_guidance"):
@@ -2537,9 +3178,34 @@ def _property_fast_answer(property_record: PropertyRecord | None, message: str) 
         "gym": property_record.gym,
         "spa": property_record.spa,
     }
+    saved_facilities: list[dict[str, Any]] | None = None
     for term, facility in configured_facilities.items():
-        if term in lowered and facility:
+        if term not in lowered:
+            continue
+        if facility:
             requested_facilities.append(facility)
+            continue
+        if saved_facilities is None:
+            saved_facilities = hospitality.guest_facilities(property_record.property_id).get("facilities", [])
+        aliases = {
+            "pool": ("pool", "swimming"),
+            "gym": ("gym", "fitness"),
+            "spa": ("spa", "wellness"),
+        }[term]
+        saved = next(
+            (
+                item for item in saved_facilities
+                if any(alias in f"{item.get('name', '')} {item.get('facility_type', '')}".casefold() for alias in aliases)
+            ),
+            None,
+        )
+        if saved:
+            opening_hours = saved.get("opening_hours") or {}
+            requested_facilities.append({
+                "name": saved.get("name"),
+                "location": saved.get("description") or saved.get("location"),
+                "hours": opening_hours.get("display", "") if isinstance(opening_hours, dict) else "",
+            })
     if requested_facilities:
         details = []
         for facility in requested_facilities:

@@ -10,6 +10,7 @@ const state = {
   intro: null,
   services: [],
   recommendations: [],
+  personalization: null,
   staffMessageIds: new Set(),
   pendingAttachment: null,
 };
@@ -205,25 +206,101 @@ function renderText(text) {
   return body;
 }
 
+const guestAuthFieldDefinitions = {
+  complimentary: [{ name: "code", label: "Access code", autocomplete: "off" }],
+  local: [{ name: "username", label: "Username", autocomplete: "username" }, { name: "password", label: "Password", type: "password", autocomplete: "current-password" }],
+  radius: [{ name: "username", label: "Username", autocomplete: "username" }, { name: "password", label: "Password", type: "password", autocomplete: "current-password" }],
+  pms: [{ name: "room", label: "Room number", autocomplete: "off", inputmode: "numeric", placeholder: "1503" }, { name: "last_name", label: "Last name or PMS password", autocomplete: "family-name", placeholder: "Surname" }],
+  credit_card: [],
+  access_code: [{ name: "access_code", label: "Access code", autocomplete: "off" }],
+  global_account: [{ name: "username", label: "Username", autocomplete: "username" }, { name: "password", label: "Password", type: "password", autocomplete: "current-password" }],
+  global_code: [{ name: "global_code", label: "Global access code", autocomplete: "off" }],
+  user_form: [{ name: "name", label: "Full name", autocomplete: "name" }, { name: "email", label: "Email", type: "email", autocomplete: "email" }],
+  social_network: [{ name: "social_provider", label: "Social login provider", type: "select", options: ["Facebook", "Google", "Line", "WeChat"] }],
+};
+
 function renderAuthenticationCard() {
   const card = document.createElement("form");
   card.className = "inline-card auth-card";
-  card.innerHTML = `
-    <label>Room number<input name="room" autocomplete="off" inputmode="numeric" placeholder="1503"></label>
-    <label>Last name<input name="lastName" autocomplete="family-name" placeholder="Surname"></label>
-    <button type="submit">Continue</button>
-  `;
+  const enabled = enabledAuthenticationTypes();
+  if (!enabled.length) {
+    const note = document.createElement("p");
+    note.textContent = "No Wi-Fi authentication methods are enabled for this hotel.";
+    card.appendChild(note);
+    return card;
+  }
+  const methodLabel = document.createElement("label");
+  methodLabel.textContent = "Login method";
+  const methodSelect = document.createElement("select");
+  methodSelect.name = "authType";
+  methodSelect.required = true;
+  for (const method of enabled) {
+    const option = document.createElement("option");
+    option.value = method.id;
+    option.textContent = method.label;
+    methodSelect.appendChild(option);
+  }
+  methodLabel.appendChild(methodSelect);
+  card.appendChild(methodLabel);
+
+  const fields = document.createElement("div");
+  fields.className = "auth-fields";
+  card.appendChild(fields);
+  const renderFields = () => {
+    fields.replaceChildren();
+    const method = enabled.find((item) => item.id === methodSelect.value);
+    const definitions = guestAuthFieldDefinitions[methodSelect.value] || [];
+    if (methodSelect.value === "credit_card") {
+      const note = document.createElement("p");
+      note.textContent = "Payment details will be entered on the ANTlabs secure payment page.";
+      fields.appendChild(note);
+    } else if (!definitions.length) {
+      const note = document.createElement("p");
+      note.textContent = method?.guest_guidance || "Continue to the hotel's configured login page.";
+      fields.appendChild(note);
+    }
+    for (const definition of definitions) {
+      const label = document.createElement("label");
+      label.textContent = definition.label;
+      let input;
+      if (definition.type === "select") {
+        input = document.createElement("select");
+        for (const optionValue of definition.options || []) {
+          const option = document.createElement("option");
+          option.value = optionValue.toLowerCase();
+          option.textContent = optionValue;
+          input.appendChild(option);
+        }
+      } else {
+        input = document.createElement("input");
+        input.type = definition.type || "text";
+        input.autocomplete = definition.autocomplete || "off";
+        if (definition.inputmode) input.inputMode = definition.inputmode;
+        if (definition.placeholder) input.placeholder = definition.placeholder;
+      }
+      input.name = definition.name;
+      label.appendChild(input);
+      fields.appendChild(label);
+    }
+  };
+  methodSelect.addEventListener("change", renderFields);
+  renderFields();
+
+  const submit = document.createElement("button");
+  submit.type = "submit";
+  submit.textContent = "Continue";
+  card.appendChild(submit);
   card.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const room = card.elements.room.value.trim();
-    const lastName = card.elements.lastName.value.trim();
-    if (!room || !lastName) {
-      showToast("Enter room number and last name.", "warning");
+    const credentials = Object.fromEntries([...fields.querySelectorAll("input, select")].map((input) => [input.name, input.value.trim()]));
+    const required = methodSelect.value === "complimentary" ? [] : (guestAuthFieldDefinitions[methodSelect.value] || []);
+    if (required.some((definition) => !credentials[definition.name])) {
+      showToast(methodSelect.value === "pms" ? "Enter room number and last name." : "Complete the required fields and try again.", "warning");
       return;
     }
-    card.querySelector("button").disabled = true;
-    card.querySelector("button").textContent = "Checking...";
-    await authenticateGuest(room, lastName, card);
+    submit.disabled = true;
+    submit.textContent = "Checking...";
+    await authenticateGuest(methodSelect.value, credentials, card);
   });
   return card;
 }
@@ -305,15 +382,15 @@ function renderConfirmationCard(message) {
   return card;
 }
 
-async function authenticateGuest(room, lastName, card) {
+async function authenticateGuest(authType, credentials, card) {
   try {
     await ensureStarted();
     const result = await jsonFetch("/api/authenticate", {
       method: "POST",
       body: JSON.stringify({
         session_id: state.sessionId,
-        room,
-        last_name: lastName,
+        auth_type: authType,
+        credentials,
       }),
     });
 
@@ -324,9 +401,9 @@ async function authenticateGuest(room, lastName, card) {
 
     if (result.status === "authenticated") {
       state.authenticated = true;
-      state.room = room;
+      state.room = credentials.room || state.room;
       state.messages = state.messages.filter((message) => message.type !== "authentication");
-      addMessage({ role: "assistant", type: "text", text: "You're connected. You can continue using the internet." });
+      addMessage({ role: "assistant", type: "text", text: result.message || "Authentication was accepted." });
       return;
     }
 
@@ -335,8 +412,11 @@ async function authenticateGuest(room, lastName, card) {
     addMessage({ role: "assistant", type: "error", text: error.message });
   } finally {
     if (card.isConnected) {
-      card.querySelector("button").disabled = false;
-      card.querySelector("button").textContent = "Continue";
+      const submit = card.querySelector("button[type='submit']");
+      if (submit) {
+        submit.disabled = false;
+        submit.textContent = "Continue";
+      }
     }
   }
 }
@@ -391,18 +471,6 @@ async function handleGuestInput(rawMessage) {
     return;
   }
 
-  if (isRestaurantRequest(message)) {
-    if (state.recommendations.length) {
-      addMessage({
-        role: "assistant",
-        type: "recommendation",
-        text: "Here are property-verified recommendations.",
-        results: state.recommendations,
-      });
-      return;
-    }
-  }
-
   const messageForAI = state.pendingAttachment ? `${message}\n\n${state.pendingAttachment}` : message;
   state.pendingAttachment = null;
   await sendChat(messageForAI);
@@ -420,13 +488,29 @@ async function sendChat(message) {
         mode: state.mode,
       }),
     });
-    thinking.type = result.places?.length ? "recommendation" : "text";
+    const livePlaces = result.places || [];
+    const savedRecommendations = isRestaurantRequest(message) && !result.personalized_recommendations ? state.recommendations : [];
+    const recommendationResults = livePlaces.length ? livePlaces : savedRecommendations;
+    thinking.type = recommendationResults.length ? "recommendation" : "text";
     thinking.text = result.answer;
-    thinking.results = (result.places || []).map((place) => ({ ...place, category: "Live Places result", description: place.address }));
+    thinking.results = recommendationResults.map((place) => ({ ...place, category: place.category || "Live Places result", description: place.description || place.address }));
     renderMessages();
+    if (result.source === "personalization") {
+      jsonFetch(`/api/guest/personalization?session_id=${encodeURIComponent(state.sessionId)}`)
+        .then(renderPersonalization)
+        .catch(() => {});
+    }
   } catch (error) {
-    thinking.type = "error";
-    thinking.text = error.message;
+    const savedRecommendations = isRestaurantRequest(message) ? state.recommendations : [];
+    thinking.type = savedRecommendations.length ? "recommendation" : "error";
+    thinking.text = savedRecommendations.length
+      ? "The AI service is temporarily unavailable. Here are the hotel's saved recommendations."
+      : error.message;
+    thinking.results = savedRecommendations.map((place) => ({
+      ...place,
+      category: place.category || "Hotel recommendation",
+      description: place.description || place.address,
+    }));
     renderMessages();
   }
 }
@@ -451,17 +535,8 @@ function handleWifiRequest() {
     return;
   }
   const names = enabled.map((item) => item.label).join(", ");
-  addMessage({ role: "assistant", type: "text", text: `This hotel currently supports: ${names}.` });
-  if (enabled.some((item) => item.id === "pms")) {
-    addMessage({ role: "assistant", type: "text", text: "Please verify your stay with your room number and last name." });
-    addMessage({ role: "assistant", type: "authentication" });
-    return;
-  }
-  addMessage({
-    role: "assistant",
-    type: "text",
-    text: "Please use one of the enabled login methods shown on the hotel Wi-Fi portal. I can explain the available options, but this prototype only submits PMS room login from chat.",
-  });
+  addMessage({ role: "assistant", type: "text", text: `Choose an enabled Wi-Fi login method: ${names}.` });
+  addMessage({ role: "assistant", type: "authentication" });
 }
 
 function isRestaurantRequest(message) {
@@ -544,6 +619,7 @@ function setupComposer() {
 }
 
 function setupMenu() {
+  $("personalize-cta").addEventListener("click", () => openMemoryPanel().catch((error) => showToast(error.message, "warning")));
   $("menu-button").addEventListener("click", () => {
     $("hotel-menu").classList.add("open");
     $("hotel-menu").setAttribute("aria-hidden", "false");
@@ -560,11 +636,20 @@ function setupMenu() {
     button.addEventListener("click", () => handleMenuAction(button.dataset.menuAction).catch((error) => showToast(error.message, "warning")));
   }
   $("close-map-button").addEventListener("click", closePropertyMap);
+  $("close-memory-button").addEventListener("click", closeMemoryPanel);
+  $("memory-modal").addEventListener("click", (event) => {
+    if (event.target === $("memory-modal")) closeMemoryPanel();
+  });
+  $("memory-level").addEventListener("change", changePersonalizationLevel);
+  $("memory-preference-form").addEventListener("submit", saveMemoryPreference);
+  $("clear-memory-button").addEventListener("click", clearMemoryPreferences);
+  $("disable-memory-button").addEventListener("click", () => setPersonalization(false, "stay").catch((error) => showToast(error.message, "warning")));
   $("property-map-modal").addEventListener("click", (event) => {
     if (event.target === $("property-map-modal")) closePropertyMap();
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !$("property-map-modal").hidden) closePropertyMap();
+    if (event.key === "Escape" && !$("memory-modal").hidden) closeMemoryPanel();
   });
 }
 
@@ -573,11 +658,157 @@ function closeMenu() {
   $("hotel-menu").setAttribute("aria-hidden", "true");
 }
 
+const memoryCategoryLabels = {
+  food: "Food or cuisine", dietary: "Dietary need", budget: "Budget", travel_party: "Travel party",
+  transportation: "Getting around", interests: "Interests", activities: "Activities", accessibility: "Accessibility",
+  language: "Language", response_style: "Response style", trip_purpose: "Trip purpose", activity_time: "Activity time",
+  preferred_name: "Preferred name",
+};
+
+async function openMemoryPanel() {
+  if (!state.sessionId) await ensureStarted();
+  $("memory-modal").hidden = false;
+  $("memory-level").disabled = true;
+  setText("memory-status", "Loading your settings…");
+  const data = await jsonFetch(`/api/guest/personalization?session_id=${encodeURIComponent(state.sessionId)}`);
+  renderPersonalization(data);
+  $("close-memory-button").focus();
+}
+
+function closeMemoryPanel() {
+  $("memory-modal").hidden = true;
+  $("memory-preference-key").value = "";
+  $("memory-preference-form").reset();
+}
+
+function renderPersonalization(data) {
+  state.personalization = data;
+  updatePersonalizedWelcome(data);
+  const level = $("memory-level");
+  level.value = data.enabled ? data.level : "private";
+  level.disabled = !data.personalization_available;
+  const personalOption = level.querySelector('option[value="personal"]');
+  if (personalOption) personalOption.disabled = !data.allow_guest_profile;
+  const nameOption = $("memory-category").querySelector('option[value="preferred_name"]');
+  if (nameOption) nameOption.disabled = !data.allow_guest_profile || data.level !== "personal";
+  setText("memory-status", data.personalization_available
+    ? (data.enabled ? `Personalization is on for this ${data.level === "personal" ? "concierge session" : "stay/session"}.` : `Private mode is on. Saved preferences aren't used while this is selected.${data.suggested_level && data.suggested_level !== "private" ? ` You can choose ${data.suggested_level} to opt in.` : ""}`)
+    : "Personalization is turned off by this hotel.");
+  const list = $("memory-preference-list");
+  list.replaceChildren();
+  const preferences = data.preferences || [];
+  setText("memory-count", preferences.length ? `${preferences.length} saved` : "Nothing saved");
+  for (const preference of preferences) {
+    const row = document.createElement("div");
+    row.className = "memory-preference-row";
+    const copy = document.createElement("div");
+    const label = document.createElement("strong");
+    label.textContent = memoryCategoryLabels[preference.category] || preference.category;
+    const value = document.createElement("span");
+    value.textContent = preference.value;
+    const source = document.createElement("small");
+    source.textContent = preference.persistence === "temporary" ? "Temporary" : preference.source === "inferred" ? "Inferred, lower confidence" : "Saved for this stay/session";
+    copy.append(label, value, source);
+    const actions = document.createElement("div");
+    actions.className = "memory-preference-actions";
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "memory-link-button";
+    edit.textContent = "Edit";
+    edit.addEventListener("click", () => {
+      $("memory-category").value = preference.category;
+      $("memory-value").value = preference.value;
+      $("memory-preference-key").value = preference.preference_key;
+      $("memory-value").focus();
+    });
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "memory-link-button";
+    remove.textContent = "Remove";
+    remove.addEventListener("click", () => removeMemoryPreference(preference.preference_key).catch((error) => showToast(error.message, "error")));
+    actions.append(edit, remove);
+    row.append(copy, actions);
+    list.appendChild(row);
+  }
+  $("memory-preference-form").hidden = !data.personalization_available;
+  $("clear-memory-button").disabled = !preferences.length;
+  $("disable-memory-button").disabled = !data.personalization_available || !data.enabled;
+}
+
+function updatePersonalizedWelcome(data) {
+  const baseGreeting = state.hotel?.design?.welcome?.greeting || "Good evening.";
+  const preferredName = (data?.enabled && data.level === "personal" ? data.preferences || [] : [])
+    .find((item) => item.category === "preferred_name")?.value;
+  if (!preferredName || !document.documentElement.lang.toLowerCase().startsWith("en")) {
+    setText("welcome-greeting", baseGreeting);
+    return;
+  }
+  const hour = new Date().getHours();
+  const timeGreeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  setText("welcome-greeting", `${timeGreeting}, ${preferredName}.`);
+}
+
+async function setPersonalization(enabled, level) {
+  const data = await jsonFetch("/api/guest/personalization", {
+    method: "PUT",
+    body: JSON.stringify({ session_id: state.sessionId, enabled, level }),
+  });
+  renderPersonalization(data);
+  return data;
+}
+
+async function changePersonalizationLevel() {
+  const level = $("memory-level").value;
+  try {
+    await setPersonalization(level !== "private", level);
+    showToast(level === "private" ? "Private mode enabled." : "Personalization enabled for this stay.");
+  } catch (error) {
+    showToast(error.message, "warning");
+    await openMemoryPanel().catch(() => {});
+  }
+}
+
+async function saveMemoryPreference(event) {
+  event.preventDefault();
+  if (!state.sessionId) return;
+  try {
+    if (!state.personalization?.enabled) await setPersonalization(true, "stay");
+    const preference = await jsonFetch("/api/guest/personalization/preferences", {
+      method: "PUT",
+      body: JSON.stringify({
+        session_id: state.sessionId,
+        category: $("memory-category").value,
+        value: $("memory-value").value.trim(),
+        preference_key: $("memory-preference-key").value || null,
+      }),
+    });
+    renderPersonalization(preference);
+    $("memory-preference-form").reset();
+    $("memory-preference-key").value = "";
+    showToast("Preference saved.");
+  } catch (error) {
+    showToast(error.message, "warning");
+  }
+}
+
+async function removeMemoryPreference(key) {
+  const data = await jsonFetch(`/api/guest/personalization/preferences/${encodeURIComponent(key)}?session_id=${encodeURIComponent(state.sessionId)}`, { method: "DELETE" });
+  renderPersonalization(data);
+  showToast("Preference removed.");
+}
+
+async function clearMemoryPreferences() {
+  const data = await jsonFetch(`/api/guest/personalization/preferences?session_id=${encodeURIComponent(state.sessionId)}`, { method: "DELETE" });
+  renderPersonalization(data);
+  showToast("Saved preferences cleared.");
+}
+
 async function handleMenuAction(action) {
   closeMenu();
   if (action === "new-chat") {
     state.messages = [];
     state.sessionId = null;
+    sessionStorage.removeItem("concierge-session-id");
     state.staffMessageIds.clear();
     await startGuestSession();
     renderMessages();
@@ -586,6 +817,8 @@ async function handleMenuAction(action) {
   }
   if (action === "property-map") {
     await openPropertyMap();
+  } else if (action === "memory") {
+    await openMemoryPanel();
   } else if (action === "hotel-info") {
     const location = state.hotel?.location?.address || "Address not configured";
     addMessage({ role: "assistant", type: "text", text: `${state.hotel?.name || "Hotel"}\n${state.hotel?.description || "Property description not configured."}\n${location}` });
@@ -595,13 +828,22 @@ async function handleMenuAction(action) {
     const next = languages[(current + 1) % languages.length];
     document.documentElement.lang = next;
     localStorage.setItem("concierge-language", next);
+    try {
+      const memory = await jsonFetch(`/api/guest/personalization?session_id=${encodeURIComponent(state.sessionId)}`);
+      if (memory.enabled) {
+        await jsonFetch("/api/guest/personalization/preferences", {
+          method: "PUT",
+          body: JSON.stringify({ session_id: state.sessionId, category: "language", value: next.toUpperCase(), preference_key: "language.preferred" }),
+        });
+      }
+    } catch { /* The visible language switch remains available in private mode. */ }
     addMessage({ role: "assistant", type: "status", text: `Language preference set to ${next}. Available: ${languages.join(", ")}.` });
   } else if (action === "accessibility") {
     const enabled = document.body.classList.toggle("accessibility-mode");
     localStorage.setItem("concierge-accessibility", enabled ? "1" : "0");
     addMessage({ role: "assistant", type: "status", text: `Accessibility display mode ${enabled ? "enabled" : "disabled"}.` });
   } else if (action === "privacy") {
-    addMessage({ role: "assistant", type: "text", text: "Your concierge session is temporary. Hotel staff should only receive information needed to fulfill confirmed requests. Avoid sharing payment details or passwords in chat." });
+    addMessage({ role: "assistant", type: "text", text: "Your chat session is temporary and expires after inactivity under this hotel's session settings. Personalization starts private. Saved preferences are used only after you opt in, and you can review, remove, or clear them in Personalization / Memory. Avoid sharing payment details or passwords in chat." });
   } else if (action === "help") {
     addMessage({ role: "assistant", type: "text", text: "Ask about verified hotel information, enabled services, dining, facilities, Wi-Fi access, or local recommendations. Operational requests are created only after you confirm them." });
   }
@@ -784,14 +1026,33 @@ async function start() {
 }
 
 async function startGuestSession() {
-  const session = await jsonFetch("/api/session/start", {
-    method: "POST",
-    body: JSON.stringify({
-      client_id: state.clientId,
-      gateway_context: gatewayContext(),
-    }),
-  });
+  let session = null;
+  const previousSessionId = sessionStorage.getItem("concierge-session-id");
+  if (previousSessionId) {
+    try {
+      session = await jsonFetch("/api/session/resume", {
+        method: "POST",
+        body: JSON.stringify({ client_id: state.clientId, session_id: previousSessionId }),
+      });
+    } catch {
+      sessionStorage.removeItem("concierge-session-id");
+    }
+  }
+  if (!session) {
+    session = await jsonFetch("/api/session/start", {
+      method: "POST",
+      body: JSON.stringify({
+        client_id: state.clientId,
+        gateway_context: gatewayContext(),
+      }),
+    });
+  }
   state.sessionId = session.session_id;
+  sessionStorage.setItem("concierge-session-id", session.session_id);
+  try {
+    const memory = await jsonFetch(`/api/guest/personalization?session_id=${encodeURIComponent(state.sessionId)}`);
+    renderPersonalization(memory);
+  } catch { /* The concierge remains available if optional personalization can't load. */ }
 }
 
 async function pollStaffMessages() {

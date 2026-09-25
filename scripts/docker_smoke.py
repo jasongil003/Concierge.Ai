@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import ipaddress
 import os
 import urllib.error
 import urllib.request
@@ -48,6 +49,18 @@ def write_phase() -> None:
     record["domain"] = "hotel-a.test"
     record["hotel_name"] = "Docker Persistence Hotel"
     request(f"/api/admin/properties/{property_id}", "PUT", record, headers)
+    # The production default allows loopback guest traffic. CI reaches the
+    # container through Docker's bridge, so permit only this exact smoke-runner
+    # source address while retaining guest_network_only enforcement.
+    diagnostics = request(f"/api/admin/properties/{property_id}/guardrails/diagnostics", headers=headers)
+    source = ipaddress.ip_address(diagnostics["detected_client_ip"])
+    guardrails = request(f"/api/admin/properties/{property_id}/guardrails", headers=headers)["config"]
+    allowed = list(guardrails.get("allowed_cidrs") or [])
+    smoke_network = f"{source}/{source.max_prefixlen}"
+    if smoke_network not in allowed:
+        allowed.append(smoke_network)
+    guardrails["allowed_cidrs"] = allowed
+    request(f"/api/admin/properties/{property_id}/guardrails", "PUT", {"config": guardrails}, headers)
     request(
         f"/api/admin/properties/{property_id}/knowledge",
         "PUT",

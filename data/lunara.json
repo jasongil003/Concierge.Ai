@@ -15,7 +15,7 @@
     {"title": "Pool", "keywords": ["pool", "swimming", "children's pool"], "answer": "The Infinity Pool, children's pool, and pool deck are on Level 3 and are open from 6:00 AM to 10:00 PM.", "fast_path": true},
     {"title": "Fitness Center", "keywords": ["gym", "fitness", "workout"], "answer": "The Fitness Center is on Level 3 and is open 24 hours for registered guests.", "fast_path": true},
     {"title": "Lunara Spa", "keywords": ["spa", "massage", "sauna", "steam"], "answer": "Lunara Spa is on Level 3 and is open from 10:00 AM to 10:00 PM. Treatments require confirmation.", "fast_path": true},
-    {"title": "Dining", "keywords": ["restaurant", "dining", "breakfast", "cafe", "bar"], "answer": "Lunara dining includes Solace Kitchen and Drift Cafe on the Ground Floor, plus Halo Rooftop Bar and the Executive Lounge on Level 16.", "fast_path": true},
+    {"title": "Dining", "keywords": ["restaurant", "dining", "cafe", "bar"], "answer": "Lunara dining includes Solace Kitchen and Drift Cafe on the Ground Floor, plus Halo Rooftop Bar and the Executive Lounge on Level 16.", "fast_path": true},
     {"title": "Hotel services", "keywords": ["housekeeping", "towels", "amenities", "maintenance", "concierge"], "answer": "The Front Desk is available 24 hours, Concierge from 6:00 AM to 11:00 PM, and room service 24 hours. I can prepare a service request for your confirmation.", "fast_path": false},
     {"title": "Emergency assistance", "keywords": ["emergency", "fire", "medical", "police", "danger"], "answer": "For an emergency, contact local emergency services and hotel staff immediately. The concierge will escalate the matter without delay.", "fast_path": true}
   ],

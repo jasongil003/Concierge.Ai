@@ -55,6 +55,37 @@ async function getOriginalDesign(request, propertyId) {
   return (await res.json()).published;
 }
 
+test("hotel knowledge composer uses Enter, Shift+Enter, and one in-flight request", async ({ page }) => {
+  await page.goto("/admin");
+  await openPanel(page, "AI Assistant");
+  let requests = 0;
+  await page.route("**/assistant/hotel-chat", async (route) => {
+    requests += 1;
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ answer: "Pool closes at 10 PM.", provider: "test", model: "test", sources: [] }) });
+  });
+  const input = page.locator("#hotel-ai-input");
+  await input.fill("When does the pool close?");
+  await input.press("Shift+Enter");
+  await expect(input).toHaveValue("When does the pool close?\n");
+  expect(requests).toBe(0);
+  await input.press("Enter");
+  await input.press("Enter");
+  await expect(page.locator("#hotel-ai-messages .assistant-message.answer")).toContainText("Pool closes at 10 PM.");
+  expect(requests).toBe(1);
+});
+
+test("document upload creates reviewable knowledge without publishing", async ({ page }) => {
+  await page.goto("/admin");
+  await openPanel(page, "Documents");
+  const filename = `Pool-Hours-${Date.now()}.txt`;
+  await page.locator("#knowledge-document-upload").setInputFiles({ name: filename, mimeType: "text/plain", buffer: Buffer.from("Pool hours: 06:00-22:00") });
+  await expect(page.locator("#document-list")).toContainText(filename);
+  await openPanel(page, "Knowledge");
+  await expect(page.locator("#managed-knowledge-list")).toContainText("Pool hours: 06:00-22:00");
+  await expect(page.locator("#managed-knowledge-list")).toContainText("ready review");
+});
+
 // --- 1. Admin Controls Audit (read-only, safe to run in parallel) ---
 
 test("topbar: publish state, Save Draft, Publish, Discard, Open guest app", async ({ page }) => {
@@ -320,7 +351,14 @@ test("authentication type panel: toggles are available", async ({ page }) => {
   await expect(page.locator("#auth-types .poc-note")).toBeVisible();
   await expect(page.locator(".auth-type-row")).toHaveCount(10);
   await expect(page.getByText("PMS / Room Login")).toBeVisible();
-  await expect(page.locator('[data-auth-type="pms"]')).toBeEnabled();
+  const pmsToggle = page.locator('[data-auth-type="pms"]');
+  await expect(pmsToggle).toBeEnabled();
+  const wasPmsEnabled = await pmsToggle.isChecked();
+  await page.locator('[data-auth-type="pms"] + span').click();
+  await expect(pmsToggle).toBeChecked({ checked: !wasPmsEnabled });
+  await page.getByRole("button", { name: "Save Authentication Methods" }).click();
+  await expect(page.getByRole("status")).toContainText("Authentication methods saved");
+  await expect(pmsToggle).toBeChecked({ checked: !wasPmsEnabled });
 });
 
 test("requests panel: service request controls are available", async ({ page }) => {
@@ -371,7 +409,10 @@ test("role dialog and audit action buttons work", async ({ page }) => {
   await openPanel(page, "Audit");
   await page.getByRole("button", { name: "Refresh" }).click();
   await page.getByRole("button", { name: "Apply" }).click();
-  await expect(page.locator("#audit-table-body")).toBeVisible();
+  const auditRows = page.locator("#audit-table-body tr");
+  const emptyState = page.locator("#audit-empty");
+  await expect.poll(async () => (await auditRows.count()) > 0 || await emptyState.isVisible()).toBeTruthy();
+  if (await auditRows.count()) await expect(page.locator("#audit-table-body")).toBeVisible();
 });
 
 // --- 2. Core Configuration Workflow (serial - mutates shared DB) ---

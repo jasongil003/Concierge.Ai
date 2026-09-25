@@ -14,10 +14,12 @@ test("unauthenticated admin access redirects to username login", async ({ page }
 });
 
 test("password reset link shows only the reset form", async ({ page }) => {
-  await page.goto("/admin/login?reset_token=test-token");
+  await page.goto("/admin/login#reset_token=test-token");
 
   await expect(page.locator("#login-form")).toBeHidden();
   await expect(page.locator("#reset-form")).toBeVisible();
+  await expect(page).toHaveURL(/\/admin\/login$/);
+  await expect(page).not.toHaveURL(/test-token/);
   await expect(page.getByRole("heading", { name: "Choose a new password" })).toBeVisible();
   await expect(page.locator("#reset-password")).toBeVisible();
   await expect(page.getByRole("button", { name: "Update Password" })).toBeVisible();

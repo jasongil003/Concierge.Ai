@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import time
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 
@@ -31,17 +32,38 @@ class AntlabsAdapter:
 
     def authenticate(
         self,
-        room: str,
-        last_name: str,
+        auth_type: str,
+        credentials: dict[str, str],
         concierge_session_id: str,
         gateway_context: dict[str, Any],
     ) -> AuthResult:
+        if auth_type not in {
+            "complimentary", "local", "radius", "pms", "credit_card",
+            "access_code", "global_account", "global_code", "user_form",
+            "social_network",
+        }:
+            return AuthResult("failed", "Unsupported authentication method.")
+
+        credentials = {str(key): str(value).strip() for key, value in credentials.items()}
+        required_fields = {
+            "complimentary": [],
+            "local": ["username", "password"],
+            "radius": ["username", "password"],
+            "pms": ["room", "last_name"],
+            "credit_card": [],
+            "access_code": ["access_code"],
+            "global_account": ["username", "password"],
+            "global_code": ["global_code"],
+            "user_form": ["name", "email"],
+            "social_network": ["social_provider"],
+        }[auth_type]
+        if any(not credentials.get(name) for name in required_fields):
+            return AuthResult("failed", "Complete the required fields and try again.")
+
         if settings.antlabs_mode == "mock":
-            if not room.strip() or not last_name.strip():
-                return AuthResult("failed", "Room and last name are required.")
             return AuthResult(
                 "authenticated",
-                "Prototype authentication successful. Internet access is simulated in mock mode.",
+                "Demo authentication accepted. Internet access is simulated in mock mode.",
             )
 
         if settings.antlabs_mode != "browser_handoff":
@@ -56,10 +78,42 @@ class AntlabsAdapter:
                 "ANTLABS_AUTH_URL is not configured.",
             )
 
-        fields: dict[str, str] = {
-            settings.antlabs_room_field: room,
-            settings.antlabs_last_name_field: last_name,
-        }
+        auth_url = settings.antlabs_auth_url
+        fields: dict[str, str] = {}
+
+        if auth_type == "pms":
+            fields.update({
+                "p": "pms",
+                settings.antlabs_room_field: credentials.get("room", ""),
+                settings.antlabs_last_name_field: credentials.get("last_name", ""),
+            })
+        elif auth_type == "complimentary":
+            fields["p"] = "complimentary"
+            for key in ("code", "plan", "plan_name"):
+                if credentials.get(key):
+                    fields[key] = credentials[key]
+        elif auth_type == "local":
+            fields.update({"p": "local", "uid": credentials.get("username", ""), "pwd": credentials.get("password", "")})
+        elif auth_type == "access_code":
+            fields.update({"p": "code", "code": credentials.get("access_code", "")})
+        elif auth_type == "credit_card":
+            # Card entry remains on the gateway's configured secure payment page.
+            parsed = urlsplit(auth_url)
+            query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+            query["c"] = "cc"
+            auth_url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
+            if credentials.get("plan"):
+                fields["plan_name"] = credentials["plan"]
+        elif auth_type == "radius":
+            fields.update({"action": "auth_login", "type": "radius", "userid": credentials.get("username", ""), "password": credentials.get("password", "")})
+        elif auth_type == "global_account":
+            fields.update({"action": "auth_login", "type": "acs", "userid": credentials.get("username", ""), "password": credentials.get("password", "")})
+        elif auth_type == "global_code":
+            fields.update({"action": "auth_login", "type": "acs", "code": credentials.get("global_code", "")})
+        elif auth_type == "user_form":
+            fields.update({"action": "user_form", "name": credentials.get("name", ""), "email": credentials.get("email", "")})
+        elif auth_type == "social_network":
+            fields.update({"action": "social", "app": credentials.get("social_provider", "")})
 
         if settings.antlabs_session_field and settings.antlabs_session_context_key:
             gateway_session_value = gateway_context.get(settings.antlabs_session_context_key)
@@ -76,10 +130,10 @@ class AntlabsAdapter:
 
         return AuthResult(
             "handoff_required",
-            "Submitting authentication to the ANTlabs gateway.",
+            "Continue to the ANTlabs gateway to complete authentication.",
             handoff={
                 "method": settings.antlabs_auth_method,
-                "url": settings.antlabs_auth_url,
+                "url": auth_url,
                 "fields": fields,
             },
         )

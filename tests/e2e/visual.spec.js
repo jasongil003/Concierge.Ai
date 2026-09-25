@@ -32,6 +32,9 @@ test("admin design panel visual baseline", async ({ page }) => {
   await loginAdmin(page);
   await page.goto("/admin");
   await page.locator('body[data-admin-ready="true"]').waitFor();
+  if ((page.viewportSize()?.width || 1200) <= 620) {
+    await page.locator("#sidebar-toggle").click();
+  }
   const designButton = page.locator(".nav-item").filter({ hasText: "Design" }).first();
   await designButton.evaluate((element) => {
     const group = element.closest("details");

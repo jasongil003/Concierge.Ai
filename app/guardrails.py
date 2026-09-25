@@ -233,13 +233,16 @@ class PrivacyGuard:
     PRIVATE_PATTERNS = (
         r"\bwho (?:is|was) staying\b", r"\bis .{1,80} staying (?:here|at|in)\b",
         r"\bwhat room (?:is|does)\b", r"\bguest (?:name|room number|contact)\b",
-        r"\banother guest(?:'s)?\b", r"\bcredit card\b", r"\bcvv\b", r"\batm pin\b",
+        r"\b(?:list|show|name) (?:all )?guests\b", r"\banother guest(?:'s)?\b", r"\bcredit card\b", r"\bcvv\b", r"\batm pin\b",
         r"\bbanking password\b", r"\bone[- ]time password\b", r"\botp\b",
     )
     INJECTION_PATTERNS = (
         r"ignore (?:all |any |the )?(?:previous|prior|system|earlier)[^\n]{0,24}instructions",
-        r"(?:show|reveal|print|repeat).{0,40}(?:system prompt|api key|password|secret|database configuration)",
-        r"act as (?:an? )?(?:administrator|admin|system)", r"disable (?:security|guardrails|policy)",
+        r"(?:show|reveal|print|repeat|give|tell me|read|display).{0,60}(?:system prompt|api key|password|secret|database configuration|database url|environment variables?|\.env|admin logs|hidden hotel configuration)",
+        r"(?:i am|i'm) (?:the )?(?:hotel )?(?:administrator|admin|system)\b",
+        r"act as (?:an? )?(?:administrator|admin|system)",
+        r"(?:execute|run).{0,40}(?:shell|server|terminal)?\s*commands?",
+        r"disable (?:your )?(?:security|guardrails|policy|safety restrictions)",
     )
 
     @classmethod
