@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { ensureTestProperty } from "./support.js";
 
 const csrfByRequest = new WeakMap();
 
@@ -9,6 +10,7 @@ async function loginAdmin(api) {
   expect(response.ok()).toBeTruthy();
   const csrf = (await response.json()).user.csrf_token;
   csrfByRequest.set(api, csrf);
+  await ensureTestProperty(api, csrf);
   return csrf;
 }
 

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Concierge.Ai</title>
-  <link rel="stylesheet" href="/static/styles.css?v=9">
+  <link rel="stylesheet" href="/static/styles.css?v=10">
 </head>
 <body>
   <section class="intro-overlay" id="intro-overlay" hidden>
@@ -13,6 +13,9 @@
       <p id="intro-message">Welcome</p>
       <button id="intro-skip" type="button">Skip</button>
     </div>
+  </section>
+  <section class="property-unconfigured" id="property-unconfigured" hidden aria-labelledby="property-unconfigured-title">
+    <div><div class="property-unconfigured-mark" aria-hidden="true">C</div><h1 id="property-unconfigured-title">Property not configured</h1><p>The guest experience is not available at this address yet. Please contact the property administrator.</p></div>
   </section>
   <main class="concierge-shell" id="concierge-shell">
     <header class="concierge-header">
@@ -38,14 +41,13 @@
           <div class="welcome-copy">
             <div class="welcome-eyebrow">
               <p id="welcome-greeting">Good evening.</p>
-              <span class="availability-badge"><i aria-hidden="true"></i> Available now</span>
             </div>
-            <h1 id="welcome-headline">How can I help with your stay?</h1>
-            <p class="welcome-subtitle">Ask about hotel information, guest services, or nearby recommendations.</p>
+            <h1 id="welcome-headline">How can I help?</h1>
+            <p class="welcome-subtitle">Ask a question about this property. Answers use information configured for guests.</p>
           </div>
           <div class="suggestion-heading" aria-hidden="true">
-            <span>Popular requests</span>
-            <span>Choose one to get started</span>
+            <span>Suggested questions</span>
+            <span>Choose a starting point</span>
           </div>
           <div class="suggestion-list" id="suggestion-list" aria-label="Suggested prompts"></div>
           <div class="privacy-note">
@@ -70,14 +72,14 @@
           rows="1"
           maxlength="2000"
           autocomplete="off"
-          placeholder="Ask your concierge..."
+          placeholder="Ask a question..."
           aria-label="Ask your concierge"
         ></textarea>
         <button class="send-button" id="send-button" type="submit" aria-label="Send message" disabled>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4.8 14-2.7-5.5L5 12Z"/><path d="m11.5 13.5 3.6-3.6"/></svg>
         </button>
       </form>
-      <p class="composer-note" id="composer-note">Concierge can help with hotel information, Wi-Fi, dining, checkout, and requests.</p>
+      <p class="composer-note" id="composer-note">Answers use information configured for this property.</p>
     </footer>
 
     <aside class="hotel-menu" id="hotel-menu" aria-hidden="true" aria-label="Hotel menu">
@@ -91,8 +93,8 @@
         </div>
         <p class="menu-section-label">Concierge</p>
         <button type="button" data-menu-action="new-chat">New conversation</button>
-        <button type="button" data-menu-action="restaurant-staff">Talk to Restaurant Staff</button>
-        <button type="button" data-menu-action="property-map">Property map</button>
+        <button type="button" data-menu-action="restaurant-staff" hidden>Talk to Restaurant Staff</button>
+        <button type="button" data-menu-action="property-map" hidden>Property map</button>
         <button type="button" data-menu-action="hotel-info">Hotel information</button>
         <button type="button" data-menu-action="language">Language</button>
         <button type="button" data-menu-action="memory">Personalization / Memory</button>
@@ -175,6 +177,6 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </main>
-  <script src="/static/app.js?v=10"></script>
+  <script src="/static/app.js?v=11"></script>
 </body>
 </html>

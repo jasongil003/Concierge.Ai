@@ -205,7 +205,7 @@ Use aggregate zones such as:
 - Floor 15 East Wing
 - Floor 15 West Wing
 - Elevator Lobby
-- Executive Lounge
+- Configured lounge and shared spaces
 
 Maintain separate Operations and Guest views.
 

@@ -14,19 +14,12 @@ const state = {
   personalization: null,
   staffMessageIds: new Set(),
   pendingAttachment: null,
+  hasPropertyMap: false,
 };
 
 let startupPromise = null;
 
 const $ = (id) => document.getElementById(id);
-
-const defaultSuggestions = [
-  { label: "What time is breakfast?", prompt: "What time is breakfast?" },
-  { label: "Connect me to Wi-Fi", prompt: "Connect me to Wi-Fi" },
-  { label: "What time does the pool close?", prompt: "What time does the pool close?" },
-  { label: "Recommend somewhere nearby to eat", prompt: "Recommend somewhere nearby to eat" },
-  { label: "Can I request a late checkout?", prompt: "Can I request a late checkout?" },
-];
 
 function setText(id, value) {
   const element = $(id);
@@ -49,7 +42,11 @@ async function jsonFetch(url, options = {}) {
     ...options,
   });
   const data = await response.json();
-  if (!response.ok) throw new Error(errorMessage(data.detail));
+  if (!response.ok) {
+    const error = new Error(errorMessage(data.detail));
+    error.status = response.status;
+    throw error;
+  }
   return data;
 }
 
@@ -79,7 +76,9 @@ function createClientId() {
 function renderWelcomeState() {
   const list = $("suggestion-list");
   list.innerHTML = "";
-  for (const [index, item] of activeSuggestions().entries()) {
+  const suggestions = activeSuggestions();
+  document.querySelector(".suggestion-heading").hidden = suggestions.length === 0;
+  for (const [index, item] of suggestions.entries()) {
     const button = document.createElement("button");
     button.type = "button";
     button.dataset.kind = suggestionKind(item.prompt || item.label, index);
@@ -129,7 +128,7 @@ function activeSuggestions() {
     .filter((item) => item.enabled !== false)
     .sort((a, b) => (a.order || 0) - (b.order || 0))
     .map((item) => ({ label: item.label, prompt: item.prompt }));
-  return suggestions.length ? suggestions : defaultSuggestions;
+  return suggestions;
 }
 
 function addMessage(message) {
@@ -846,7 +845,7 @@ async function handleMenuAction(action) {
     await openMemoryPanel();
   } else if (action === "hotel-info") {
     const location = state.hotel?.location?.address || "Address not configured";
-    addMessage({ role: "assistant", type: "text", text: `${state.hotel?.name || "Hotel"}\n${state.hotel?.description || "Property description not configured."}\n${location}` });
+    addMessage({ role: "assistant", type: "text", text: `${state.hotel?.name || "Property not configured"}\n${state.hotel?.description || "Property description not configured."}\n${location}` });
   } else if (action === "language") {
     const languages = state.hotel?.languages || ["en"];
     const current = Math.max(0, languages.indexOf(document.documentElement.lang));
@@ -870,7 +869,7 @@ async function handleMenuAction(action) {
   } else if (action === "privacy") {
     addMessage({ role: "assistant", type: "text", text: "Your chat session is temporary and expires after inactivity under this hotel's session settings. Personalization starts private. Saved preferences are used only after you opt in, and you can review, remove, or clear them in Personalization / Memory. Avoid sharing payment details or passwords in chat." });
   } else if (action === "help") {
-    addMessage({ role: "assistant", type: "text", text: "Ask about verified hotel information, enabled services, dining, facilities, Wi-Fi access, or local recommendations. Operational requests are created only after you confirm them." });
+    addMessage({ role: "assistant", type: "text", text: "Ask a question about this property. The concierge uses information configured for guests." });
   }
 }
 
@@ -927,7 +926,7 @@ async function openPropertyMap() {
   empty.hidden = Boolean(map?.url);
   if (map?.url) {
     image.src = map.url;
-    image.alt = `${state.hotel?.name || "Hotel"} property map`;
+    image.alt = `${state.hotel?.name || "Property"} map`;
   } else {
     image.removeAttribute("src");
   }
@@ -961,7 +960,7 @@ function applyHotelProfile(profile) {
   const branding = design.branding || {};
   const welcome = design.welcome || {};
   const composer = design.composer || {};
-  const hotelName = profile.name || "Hotel";
+  const hotelName = profile.name || "Property not configured";
   const conciergeName = profile.concierge_name || "AI concierge";
   setText("hotel-name", branding.hotelName || hotelName);
   setText("concierge-name", branding.conciergeName || conciergeName);
@@ -969,8 +968,8 @@ function applyHotelProfile(profile) {
   $("hotel-mark").style.backgroundImage = branding.logoUrl ? `url("${branding.logoUrl}")` : "";
   $("hotel-mark").classList.toggle("has-image", Boolean(branding.logoUrl));
   setText("welcome-greeting", welcome.greeting || "Good evening.");
-  setText("welcome-headline", welcome.headline || "How can I help with your stay?");
-  $("composer-input").placeholder = composer.placeholder || "Ask your concierge...";
+  setText("welcome-headline", welcome.headline || "How can I help?");
+  $("composer-input").placeholder = composer.placeholder || "Ask a question...";
   applyDesignTokens(design);
   renderConfiguredModules(profile.guest_modules || []);
   const maintenance = $("maintenance-banner");
@@ -1084,17 +1083,32 @@ function fontStack(font) {
 async function start() {
   setupComposer();
   setupMenu();
-  const [profile, catalog, recommendations] = await Promise.all([
-    jsonFetch("/api/hotel"),
+  let profile;
+  try {
+    profile = await jsonFetch("/api/hotel");
+  } catch (error) {
+    if (error.status === 404) {
+      $("concierge-shell").hidden = true;
+      $("property-unconfigured").hidden = false;
+      document.title = "Property not configured | Concierge.Ai";
+      return;
+    }
+    throw error;
+  }
+  const [catalog, recommendations, zones] = await Promise.all([
     jsonFetch("/api/guest/service-catalog"),
     jsonFetch("/api/guest/recommendations"),
+    jsonFetch("/api/guest/zones").catch(() => ({ maps: [] })),
   ]);
   state.services = catalog.services || [];
   state.recommendations = recommendations.recommendations || [];
+  state.hasPropertyMap = Boolean(zones.maps?.length);
   try {
     const hospitality = await jsonFetch("/api/guest/facilities");
     state.restaurants = hospitality.restaurants || [];
   } catch { state.restaurants = []; }
+  document.querySelector('[data-menu-action="property-map"]').hidden = !state.hasPropertyMap;
+  document.querySelector('[data-menu-action="restaurant-staff"]').hidden = !state.restaurants.length;
   applyHotelProfile(profile);
   await maybeShowIntro();
 

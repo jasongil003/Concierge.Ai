@@ -32,8 +32,11 @@ def auth_store(tmp_path: Path) -> AdminAuthStore:
 
 
 @pytest.fixture
-def auth_client(auth_store: AdminAuthStore, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+def auth_client(auth_store: AdminAuthStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setattr(main_module, "admin_auth", auth_store)
+    properties = PropertyStore(tmp_path / "auth-properties.db")
+    properties.upsert(PropertyRecord(property_id="tenant-a", hotel_name="Test Tenant A"))
+    monkeypatch.setattr(main_module, "properties", properties)
     return TestClient(app)
 
 
@@ -236,7 +239,7 @@ def test_disabled_account_cannot_login(auth_store: AdminAuthStore):
             "display_name": "Disabled User",
             "password": "DisabledPass123!",
             "role_id": "role-property-administrator",
-            "property_id": "demo-hotel",
+            "property_id": "tenant-a",
             "status": "active",
         },
         administrator,
@@ -256,7 +259,7 @@ def test_revoked_sessions_are_rejected(auth_store: AdminAuthStore):
             "display_name": "Revoked User",
             "password": "RevokedPass123!",
             "role_id": "role-property-administrator",
-            "property_id": "demo-hotel",
+            "property_id": "tenant-a",
             "status": "active",
         },
         administrator,
@@ -275,7 +278,7 @@ def test_property_admin_cannot_delegate_global_permissions_even_with_spoofed_rol
             "display_name": "Property Administrator",
             "password": "PropertyPass123!",
             "role_id": "role-property-administrator",
-            "property_id": "demo-hotel",
+            "property_id": "tenant-a",
             "status": "active",
         },
         global_admin,
@@ -283,12 +286,12 @@ def test_property_admin_cannot_delegate_global_permissions_even_with_spoofed_rol
     _, property_admin = auth_store.login("property.admin", "PropertyPass123!", "10.0.0.2", "test")
     with pytest.raises(PermissionError, match="cannot delegate"):
         auth_store.save_role(
-            {"name": "Escalated", "property_id": "demo-hotel", "permissions": ["properties.view", "properties.all"]},
+            {"name": "Escalated", "property_id": "tenant-a", "permissions": ["properties.view", "properties.all"]},
             property_admin,
         )
-    forged_role = {"role_id": "role-forged", "slug": "super-admin", "property_id": "demo-hotel", "permissions": ["system.configure"]}
+    forged_role = {"role_id": "role-forged", "slug": "super-admin", "property_id": "tenant-a", "permissions": ["system.configure"]}
     with pytest.raises(PermissionError, match="cannot delegate"):
-        auth_store.assert_role_assignment_allowed(property_admin, forged_role, "demo-hotel")
+        auth_store.assert_role_assignment_allowed(property_admin, forged_role, "tenant-a")
 
 
 def test_restaurant_assignments_cannot_be_widened_beyond_actor_scope(tmp_path: Path):
@@ -349,7 +352,7 @@ def test_user_custom_role_and_password_management(auth_client: TestClient):
         json={
             "name": "Marketing",
             "description": "Property content and promotions",
-            "property_id": "demo-hotel",
+            "property_id": "tenant-a",
             "permissions": ["dashboard.view", "properties.view", "knowledge.view", "knowledge.edit"],
         },
     )
@@ -363,7 +366,7 @@ def test_user_custom_role_and_password_management(auth_client: TestClient):
             "username": "marketing.manager",
             "display_name": "Marketing Manager",
             "password": "Temporary123!",
-            "property_id": "demo-hotel",
+            "property_id": "tenant-a",
             "role_id": role_id,
             "email": None,
             "status": "active",
@@ -395,7 +398,7 @@ def test_property_role_cannot_cross_tenant(auth_store: AdminAuthStore, monkeypat
             "username": "hotelmanager",
             "display_name": "Hotel Manager",
             "password": "PropertyPass123!",
-            "property_id": "demo-hotel",
+            "property_id": "tenant-a",
             "role_id": "role-property-administrator",
             "email": None,
             "status": "active",
@@ -407,7 +410,7 @@ def test_property_role_cannot_cross_tenant(auth_store: AdminAuthStore, monkeypat
     assert csrf
     listed = client.get("/api/admin/properties")
     assert listed.status_code == 200
-    assert {item["property_id"] for item in listed.json()["properties"]} <= {"demo-hotel"}
+    assert {item["property_id"] for item in listed.json()["properties"]} <= {"tenant-a"}
     assert client.get("/api/admin/properties/another-hotel").status_code == 403
     assert client.put(
         "/api/admin/properties/another-hotel",
@@ -423,16 +426,16 @@ def test_staff_cannot_export_or_run_infrastructure_tools(auth_store: AdminAuthSt
             "display_name": "Front Desk",
             "password": "FrontDeskPass123!",
             "role_id": "role-concierge-front-desk",
-            "property_id": "demo-hotel",
+            "property_id": "tenant-a",
             "status": "active",
         },
         actor=None,
     )
     csrf = login(auth_client, "frontdesk", "FrontDeskPass123!")
 
-    assert auth_client.get("/api/admin/properties/demo-hotel/reports/export.xlsx").status_code == 403
+    assert auth_client.get("/api/admin/properties/tenant-a/reports/export.xlsx").status_code == 403
     diagnostic = auth_client.post(
-        "/api/admin/properties/demo-hotel/assistant/query",
+        "/api/admin/properties/tenant-a/assistant/query",
         headers={"X-CSRF-Token": csrf},
         json={"question": "Check the database", "period": "24h", "current_page": "overview"},
     )
@@ -447,14 +450,14 @@ def test_property_viewer_does_not_receive_service_request_records(auth_store: Ad
             "display_name": "Content Only",
             "password": "ContentOnlyPass123!",
             "role_id": "role-content-manager",
-            "property_id": "demo-hotel",
+            "property_id": "tenant-a",
             "status": "active",
         },
         actor=None,
     )
     login(auth_client, "content-only", "ContentOnlyPass123!")
 
-    response = auth_client.get("/api/admin/properties/demo-hotel/hospitality")
+    response = auth_client.get("/api/admin/properties/tenant-a/hospitality")
 
     assert response.status_code == 200
     assert "facilities" in response.json()

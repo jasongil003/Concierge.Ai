@@ -92,6 +92,21 @@ body {
   display: none;
 }
 
+.property-unconfigured {
+  display: grid;
+  width: 100%;
+  min-height: 100dvh;
+  place-items: center;
+  padding: 28px;
+  background: var(--background);
+  text-align: center;
+}
+.property-unconfigured[hidden] { display: none; }
+.property-unconfigured > div { width: min(100%, 420px); }
+.property-unconfigured-mark { display: grid; width: 40px; height: 40px; place-items: center; margin: 0 auto 22px; border-radius: 10px; color: #fff; background: #18181b; font-size: 17px; font-weight: 700; }
+.property-unconfigured h1 { margin: 0; font-size: clamp(23px, 5vw, 30px); font-weight: 600; }
+.property-unconfigured p { margin: 10px 0 0; color: var(--text-secondary); font-size: 14px; line-height: 1.55; }
+
 .intro-stage {
   display: grid;
   place-items: center;
@@ -1258,6 +1273,7 @@ body::after {
   letter-spacing: .08em;
   text-transform: uppercase;
 }
+.suggestion-heading[hidden] { display: none; }
 
 .suggestion-heading span:last-child {
   color: var(--text-muted);

@@ -174,12 +174,12 @@ def test_commercial_apis_property_scope_and_guest_facilities(admin_client: TestC
 
     facility = client.put(
         f"/api/admin/properties/{property_id}/hospitality/facilities",
-        json={"data": {"name": "Executive Lounge", "facility_type": "lounge", "live_status": "open"}},
+        json={"data": {"name": "Configured Lounge", "facility_type": "lounge", "live_status": "open"}},
     )
     assert facility.status_code == 200
     guest = client.get("/api/guest/facilities")
     assert guest.status_code == 200
-    assert any(item["name"] == "Executive Lounge" for item in guest.json()["facilities"])
+    assert any(item["name"] == "Configured Lounge" for item in guest.json()["facilities"])
 
     missing = client.put(
         "/api/admin/properties/missing-hotel/hospitality/facilities",
