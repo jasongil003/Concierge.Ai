@@ -111,8 +111,8 @@ jobs:
       - name: Run functional and visual browser tests
         env:
           PLAYWRIGHT_SERVER_COMMAND: python -m uvicorn app.main:app --host 127.0.0.1 --port 8092
-          PROPERTY_ID: lunara-mnl-001
-          HOTEL_CONFIG_PATH: data/lunara.json
+          PROPERTY_ID: ci-property
+          HOTEL_CONFIG_PATH: data/hotel.json
         run: npm run test:e2e
 
       - name: Upload browser report on failure
@@ -186,8 +186,8 @@ jobs:
       - name: Start deterministic AI and API for the load smoke
         run: |
           export APP_ENVIRONMENT=development
-          export PROPERTY_ID=lunara-mnl-001
-          export HOTEL_CONFIG_PATH=data/lunara.json
+          export PROPERTY_ID=ci-property
+          export HOTEL_CONFIG_PATH=data/hotel.json
           export DB_PATH=/tmp/concierge-load-smoke.sqlite
           export UPLOAD_ROOT=/tmp/concierge-load-smoke-uploads
           export ADMIN_BOOTSTRAP_PASSWORD="$(openssl rand -hex 16)A!"

@@ -211,7 +211,7 @@ const guestAuthFieldDefinitions = {
   complimentary: [{ name: "code", label: "Access code", autocomplete: "off" }],
   local: [{ name: "username", label: "Username", autocomplete: "username" }, { name: "password", label: "Password", type: "password", autocomplete: "current-password" }],
   radius: [{ name: "username", label: "Username", autocomplete: "username" }, { name: "password", label: "Password", type: "password", autocomplete: "current-password" }],
-  pms: [{ name: "room", label: "Room number", autocomplete: "off", inputmode: "numeric", placeholder: "1503" }, { name: "last_name", label: "Last name or PMS password", autocomplete: "family-name", placeholder: "Surname" }],
+  pms: [{ name: "room", label: "Room number", autocomplete: "off", inputmode: "numeric" }, { name: "last_name", label: "Last name or PMS password", autocomplete: "family-name" }],
   credit_card: [],
   access_code: [{ name: "access_code", label: "Access code", autocomplete: "off" }],
   global_account: [{ name: "username", label: "Username", autocomplete: "username" }, { name: "password", label: "Password", type: "password", autocomplete: "current-password" }],
@@ -918,9 +918,20 @@ async function requestRestaurantStaff(event) {
 async function openPropertyMap() {
   const modal = $("property-map-modal");
   const markers = $("property-map-markers");
+  const image = $("property-map-image");
+  const empty = $("property-map-empty");
   markers.innerHTML = "";
   const data = await jsonFetch(`/api/guest/zones?property_id=${encodeURIComponent(state.hotel?.property_id || "")}`);
-  for (const zone of data.zones || []) {
+  const map = data.maps?.[0];
+  image.hidden = !map?.url;
+  empty.hidden = Boolean(map?.url);
+  if (map?.url) {
+    image.src = map.url;
+    image.alt = `${state.hotel?.name || "Hotel"} property map`;
+  } else {
+    image.removeAttribute("src");
+  }
+  for (const zone of map ? (data.zones || []) : []) {
     const geometry = zone.geometry || {};
     if (geometry.type !== "ellipse" || !geometry.sourceCanvas) continue;
     const marker = document.createElement("button");
@@ -950,7 +961,7 @@ function applyHotelProfile(profile) {
   const branding = design.branding || {};
   const welcome = design.welcome || {};
   const composer = design.composer || {};
-  const hotelName = profile.name || "Concierge";
+  const hotelName = profile.name || "Hotel";
   const conciergeName = profile.concierge_name || "AI concierge";
   setText("hotel-name", branding.hotelName || hotelName);
   setText("concierge-name", branding.conciergeName || conciergeName);

@@ -1624,6 +1624,9 @@ body.concierge-name-hidden .identity-copy span { display: none; }
 
 .property-map-canvas { position: relative; line-height: 0; }
 .property-map-canvas > img { display: block; width: 100%; height: auto; }
+#property-map-image[hidden] { display: none; }
+.property-map-empty { display: grid; min-height: 230px; place-items: center; margin: 0; padding: 24px; color: #71717a; background: #f4f3ef; font-size: 13px; line-height: 1.5; text-align: center; }
+#property-map-empty[hidden] { display: none; }
 #property-map-markers { position: absolute; inset: 0; pointer-events: none; }
 
 .property-map-marker {

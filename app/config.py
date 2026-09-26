@@ -50,7 +50,7 @@ def _bool(name: str, default: bool = False) -> bool:
 class Settings:
     app_name: str = os.getenv("APP_NAME", "Concierge.Ai")
     app_environment: str = os.getenv("APP_ENVIRONMENT", "development").strip().lower()
-    property_id: str = os.getenv("PROPERTY_ID", "demo-hotel")
+    property_id: str = os.getenv("PROPERTY_ID", "unconfigured-property")
     hotel_config_path: Path = Path(os.getenv("HOTEL_CONFIG_PATH", "data/hotel.json"))
     db_path: Path = Path(os.getenv("DB_PATH", "state/concierge.db"))
     database_url: str = os.getenv("DATABASE_URL", "").strip()
@@ -166,8 +166,17 @@ def validate_production_settings(value: Settings, *, check_filesystem: bool = Tr
         errors.append("APP_DEBUG must be disabled")
     if value.allow_body_property_selection:
         errors.append("ALLOW_BODY_PROPERTY_SELECTION must be disabled")
-    if not value.allow_demo_settings and (value.property_id == "demo-hotel" or value.antlabs_mode == "mock"):
-        errors.append("demo property and mock guest authentication settings are not allowed")
+    placeholder_property_ids = {"demo-hotel", "unconfigured-property", "your-property-id"}
+    if not value.allow_demo_settings and (value.property_id.strip().casefold() in placeholder_property_ids or value.antlabs_mode == "mock"):
+        errors.append("placeholder property IDs and mock guest authentication settings are not allowed")
+    if check_filesystem:
+        try:
+            hotel_config = json.loads(value.hotel_config_path.read_text(encoding="utf-8"))
+            hotel_name = str(hotel_config.get("name", "")).strip() if isinstance(hotel_config, dict) else ""
+            if not hotel_name or hotel_name.casefold() in {"hotel", "your hotel", "demo hotel"}:
+                errors.append("HOTEL_CONFIG_PATH must contain the real property's name before production startup")
+        except (OSError, json.JSONDecodeError):
+            errors.append("HOTEL_CONFIG_PATH must point to a readable property JSON file before production startup")
     if value.database_url and not value.database_url.lower().startswith(("postgresql://", "postgresql+psycopg://", "postgres://")):
         errors.append("DATABASE_URL must use PostgreSQL when a server database is configured")
     if value.redis_url and not value.redis_url.lower().startswith(("redis://", "rediss://")):
