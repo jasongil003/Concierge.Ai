@@ -23,6 +23,8 @@ def _production_settings(tmp_path: Path, **overrides) -> Settings:
         credential_encryption_secret="a" * 32,
         antlabs_mode="browser_handoff",
         antlabs_auth_url="https://gateway.example.test/auth",
+        allow_body_property_selection=False,
+        metrics_token="m" * 40,
     )
     return replace(safe, **overrides)
 
@@ -45,6 +47,26 @@ def test_production_requires_secure_cookie(tmp_path: Path):
     with pytest.raises(RuntimeError, match="ADMIN_COOKIE_SECURE"):
         validate_production_settings(
             _production_settings(tmp_path, admin_cookie_secure=False)
+        )
+
+
+def test_production_allows_persistent_sqlite_without_external_database_services(tmp_path: Path):
+    settings = _production_settings(
+        tmp_path,
+        metrics_token="m" * 40,
+        database_url="",
+        redis_url="",
+    )
+    validate_production_settings(settings)
+
+
+def test_production_rejects_example_metrics_token(tmp_path: Path):
+    with pytest.raises(RuntimeError, match="METRICS_TOKEN"):
+        validate_production_settings(
+            _production_settings(
+                tmp_path,
+                metrics_token="replace-with-a-random-token-of-at-least-32-characters",
+            )
         )
 
 

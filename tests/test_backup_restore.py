@@ -79,7 +79,10 @@ def test_postgres_backup_archive_uses_secret_free_argv_and_restores_to_empty_tar
         database_url=database_url,
     )
     assert (restored_uploads / "source.txt").read_text(encoding="utf-8") == "verified source"
-    assert len([argv for argv in argv_seen if argv[0] == "pg_restore"]) == 2
+    restore_commands = [argv for argv in argv_seen if argv[0] == "pg_restore"]
+    assert len(restore_commands) == 3
+    assert sum("--list" in argv for argv in restore_commands) == 2
+    assert sum("--exit-on-error" in argv for argv in restore_commands) == 1
     assert all("unit@test" not in " ".join(argv) for argv in argv_seen)
     assert all(env["PGPASSWORD"] == "unit@test" for env in env_seen)
 
