@@ -20,7 +20,7 @@ from typing import Any
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from email.message import EmailMessage
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import httpx
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
@@ -68,7 +68,6 @@ from .guardrails import (
 from .hospitality import HospitalityStore
 from .intro import IntroExperienceStore
 from .location_analytics import LocationAnalyticsStore
-from .lunara_seed import PROPERTY_ID as LUNARA_PROPERTY_ID, seed_lunara_demo
 from .operations import OperationsStore
 from .knowledge_management import KnowledgeStore, CATEGORIES
 from .observability import DiagnosticContext, DiagnosticToolRegistry, ObservabilityStore, PERIODS
@@ -142,14 +141,6 @@ rate_limiter = RedisRateLimiter(settings.redis_url) if settings.redis_url else S
 if isinstance(rate_limiter, RedisRateLimiter):
     ai_models.set_distributed_redis(rate_limiter.client)
 security_audit = SecurityAuditLogger(settings.db_path)
-if settings.property_id == LUNARA_PROPERTY_ID:
-    seed_lunara_demo(
-        properties,
-        zones,
-        hospitality,
-        operations,
-        STATIC_DIR / "assets" / "lunara-property-map.png",
-    )
 
 
 @asynccontextmanager
@@ -896,7 +887,30 @@ async def hotel(request: Request) -> dict[str, Any]:
 async def guest_zones(request: Request, property_id: str | None = None) -> dict[str, Any]:
     record = _guest_property(request, property_id)
     _enforce_guest_network(request, record)
-    return zones.overview(record.property_id, guest=True)
+    overview = zones.overview(record.property_id, guest=True)
+    overview["maps"] = [
+        {
+            "map_id": item["map_id"],
+            "floor_id": item["floor_id"],
+            "original_filename": item["original_filename"],
+            "content_type": item["content_type"],
+            "width": item["width"],
+            "height": item["height"],
+            "url": f"/api/guest/floor-maps/{item['map_id']}/asset?property_id={quote(record.property_id, safe='')}",
+        }
+        for item in overview["maps"]
+    ]
+    return overview
+
+
+@app.get("/api/guest/floor-maps/{map_id}/asset")
+async def guest_floor_map_asset(request: Request, map_id: str, property_id: str | None = None) -> FileResponse:
+    record = _guest_property(request, property_id)
+    _enforce_guest_network(request, record)
+    try:
+        return FileResponse(zones.floor_map_path(record.property_id, map_id))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.get("/api/guest/intro")

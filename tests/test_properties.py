@@ -9,14 +9,14 @@ from app.properties import PropertyRecord, PropertyStore, default_design_config
 def test_property_seed_from_hotel_json(tmp_path: Path):
     store = PropertyStore(tmp_path / "concierge.db")
 
-    record = store.seed_from_hotel_json("demo-hotel", Path("data/hotel.json"))
+    record = store.seed_from_hotel_json("property-a", Path("data/hotel.json"))
 
-    assert record.property_id == "demo-hotel"
-    assert record.hotel_name == "Demo Hotel"
-    assert record.concierge_name == "Ava"
-    assert record.quick_actions
-    assert record.ai_settings["default_mode"] == "auto"
-    assert record.latitude == 14.5995
+    assert record.property_id == "property-a"
+    assert record.hotel_name == ""
+    assert record.concierge_name == ""
+    assert record.quick_actions == []
+    assert record.ai_settings == {}
+    assert record.latitude is None
 
 
 def test_property_round_trip_rich_configuration(tmp_path: Path):
@@ -89,25 +89,25 @@ def test_start_session_rejects_unknown_property():
 
 def test_design_draft_publish_and_restore(tmp_path: Path):
     store = PropertyStore(tmp_path / "concierge.db")
-    store.seed_from_hotel_json("demo-hotel", Path("data/hotel.json"))
+    store.seed_from_hotel_json("property-a", Path("data/hotel.json"))
 
     draft = default_design_config(hotel_name="Draft Hotel", concierge_name="Maya")
     draft["welcome"]["headline"] = "Draft headline"
     draft["theme"]["accent"] = "#123456"
 
-    record = store.save_design_draft("demo-hotel", draft)
+    record = store.save_design_draft("property-a", draft)
     assert record.design_draft["welcome"]["headline"] == "Draft headline"
     assert record.design_published["welcome"]["headline"] != "Draft headline"
 
-    published = store.publish_design("demo-hotel")
+    published = store.publish_design("property-a")
     assert published.design_published["theme"]["accent"] == "#123456"
     assert published.design_versions[-1]["version"] == 1
 
     second = default_design_config(hotel_name="Second Hotel", concierge_name="Maya")
     second["welcome"]["headline"] = "Second draft"
-    store.save_design_draft("demo-hotel", second)
-    store.restore_design_version("demo-hotel", 1)
-    restored = store.get("demo-hotel")
+    store.save_design_draft("property-a", second)
+    store.restore_design_version("property-a", 1)
+    restored = store.get("property-a")
 
     assert restored is not None
     assert restored.design_draft["theme"]["accent"] == "#123456"
@@ -115,12 +115,12 @@ def test_design_draft_publish_and_restore(tmp_path: Path):
 
 def test_design_validation_rejects_bad_theme(tmp_path: Path):
     store = PropertyStore(tmp_path / "concierge.db")
-    store.seed_from_hotel_json("demo-hotel", Path("data/hotel.json"))
+    store.seed_from_hotel_json("property-a", Path("data/hotel.json"))
     bad = default_design_config()
     bad["theme"]["accent"] = "purple"
 
     try:
-        store.save_design_draft("demo-hotel", bad)
+        store.save_design_draft("property-a", bad)
     except ValueError as exc:
         assert "accent" in str(exc)
     else:

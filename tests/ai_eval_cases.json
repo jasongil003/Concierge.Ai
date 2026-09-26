@@ -7,19 +7,19 @@
       "category": "Hotel FAQ",
       "prompt": "What time is breakfast?",
       "history": [],
-      "context": "Lunara seed: 6:30 AM–10:00 AM at Solace Kitchen.",
+      "context": "Synthetic evaluation fixture: breakfast has a configured service window and venue.",
       "expected": "Return verified time and venue; do not generalize beyond property data.",
-      "actual": "Browser test returned 6:30 AM at Solace Kitchen.",
+      "actual": "Browser test returned the configured service window and venue from the synthetic fixture.",
       "status": "pass",
       "severity": "P2",
-      "notes": "Verified with seeded demo content; live-provider response not involved."
+      "notes": "Verified with synthetic fixture content; live-provider response not involved."
     },
     {
       "id": "facility-hours",
       "category": "Amenities",
       "prompt": "What are the pool, gym, and spa hours?",
       "history": [],
-      "context": "Pool 06:00–22:00; Fitness Center 24 hours; Spa 10:00–22:00.",
+      "context": "Synthetic evaluation fixture with three facilities and configured hours.",
       "expected": "Return all requested locations and hours from structured profiles.",
       "actual": "Fast path now reads saved facility profiles; Python test and browser test passed.",
       "status": "pass",
@@ -101,7 +101,7 @@
           "content": "What time is breakfast?"
         }
       ],
-      "context": "Solace Kitchen, Ground Floor.",
+      "context": "Synthetic evaluation fixture with a breakfast venue and location.",
       "expected": "Resolve 'it' to breakfast venue while preserving conversational intent.",
       "actual": "Keyword context helper recognizes breakfast in recent history; full response not tested.",
       "status": "not_tested",
@@ -266,4 +266,3 @@
     }
   ]
 }
-

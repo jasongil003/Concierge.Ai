@@ -82,7 +82,7 @@ AUTHENTICATION_RULES = {
 
 
 def default_design_config(
-    hotel_name: str = "Demo Hotel",
+    hotel_name: str = "",
     concierge_name: str = "Concierge",
     welcome: str = "How can I help with your stay?",
     quick_actions: list[dict[str, Any]] | None = None,
@@ -99,15 +99,6 @@ def default_design_config(
                 "order": index,
             }
         )
-    if not suggestions:
-        suggestions = [
-            {"label": "Breakfast", "icon": "", "prompt": "What time is breakfast?", "enabled": True, "order": 0},
-            {"label": "Wi-Fi", "icon": "", "prompt": "Connect me to Wi-Fi", "enabled": True, "order": 1},
-            {"label": "Pool & gym", "icon": "", "prompt": "What time does the pool close?", "enabled": True, "order": 2},
-            {"label": "Nearby dining", "icon": "", "prompt": "Recommend somewhere nearby to eat", "enabled": True, "order": 3},
-            {"label": "Checkout", "icon": "", "prompt": "Can I request a late checkout?", "enabled": True, "order": 4},
-        ]
-
     return {
         "branding": {
             "hotelName": hotel_name,
@@ -666,7 +657,7 @@ class PropertyStore:
         location = data.get("location", {})
         record = PropertyRecord(
             property_id=property_id,
-            hotel_name=data.get("name", "Demo Hotel"),
+            hotel_name=data.get("name", ""),
             concierge_name=data.get("concierge_name", "Concierge"),
             welcome=data.get("welcome", "How can I help?"),
             quick_actions=data.get("quick_actions", []),
@@ -703,7 +694,7 @@ class PropertyStore:
             data[column] = json.loads(data[column])
         if not data.get("design_draft"):
             data["design_draft"] = default_design_config(
-                hotel_name=data.get("hotel_name", "Demo Hotel"),
+                hotel_name=data.get("hotel_name", ""),
                 concierge_name=data.get("concierge_name", "Concierge"),
                 welcome=data.get("welcome", "How can I help?"),
                 quick_actions=data.get("quick_actions", []),

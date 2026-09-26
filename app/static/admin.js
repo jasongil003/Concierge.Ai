@@ -235,11 +235,14 @@ function createNavButton(item) {
   button.dataset.navId = item.id;
   button.dataset.panel = item.panel;
   button.dataset.permission = item.permission;
-  button.title = `${item.label}: ${status.label}`;
+  button.title = item.status === "live" ? item.label : `${item.label}: ${status.label}`;
+  const statusMarkup = item.status === "live" ? "" : `
+    <span class="nav-status ${status.className}" aria-label="${status.label}" title="${status.label}">${escapeHTML(status.label)}</span>
+  `;
   button.innerHTML = `
     <span class="nav-icon" aria-hidden="true">${escapeHTML(item.icon || "•")}</span>
     <span class="nav-label">${escapeHTML(item.label)}</span>
-    <span class="nav-status ${status.className}" aria-label="${status.label}" title="${status.label}">${escapeHTML(status.label)}</span>
+    ${statusMarkup}
   `;
   button.addEventListener("click", () => {
     activatePanel(item.panel, item.id);
@@ -1188,7 +1191,7 @@ function hydrateProperty(property) {
   state.property = property;
   $("property-id").value = property.property_id;
   $("hotel-name-input").value = property.hotel_name;
-  $("overview-title").textContent = property.hotel_name;
+  $("overview-title").textContent = property.hotel_name || "Hotel";
   $("concierge-name-input").value = property.concierge_name;
   $("domain-input").value = property.domain || "";
   $("deployment-mode").value = property.deployment_mode || "on-prem";

@@ -188,7 +188,9 @@ test("sidebar: each visible navigation item has a feature status", async ({ page
     const label = (await item.locator(".nav-label").innerText()).trim();
     expect(labels.has(label)).toBeFalsy();
     labels.add(label);
-    await expect(item.locator(".nav-status")).toHaveText(/Live|Partial|Coming Soon|Configuration Required/);
+    await expect(item).not.toContainText(/\bLive\b/i);
+    const status = item.locator(".nav-status");
+    if (await status.count()) await expect(status).toHaveText(/Partial|Coming Soon|Configuration Required/);
   }
 });
 
@@ -218,7 +220,7 @@ test("appearance panel: all design controls are wired and update preview", async
   await page.goto("/admin");
   await openPanel(page, "Design");
 
-  await expect(page.locator("#design-hotel-name")).not.toHaveValue("");
+  await expect(page.locator("#design-hotel-name")).toHaveValue("");
   await expect(page.locator("#welcome-input")).toBeEnabled();
   await expect(page.locator("#greeting-input")).toBeEnabled();
   await expect(page.locator("#logo-display-input")).toBeEnabled();
@@ -239,7 +241,7 @@ test("appearance panel: all design controls are wired and update preview", async
   await expect(page.locator("#show-logo-input")).toBeEnabled();
   await expect(page.locator("#show-name-input")).toBeEnabled();
   await expect(page.getByRole("button", { name: "Add prompt" })).toBeEnabled();
-  await expect(page.getByText("Live guest chat preview")).toBeVisible();
+  await expect(page.getByText("Guest chat preview")).toBeVisible();
 });
 
 test("appearance panel: preview size buttons work", async ({ page }) => {

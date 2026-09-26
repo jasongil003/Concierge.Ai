@@ -24,8 +24,10 @@ def _production_settings(tmp_path: Path, **overrides) -> Settings:
         antlabs_mode="browser_handoff",
         antlabs_auth_url="https://gateway.example.test/auth",
         allow_body_property_selection=False,
+        hotel_config_path=tmp_path / "hotel.json",
         metrics_token="m" * 40,
     )
+    safe.hotel_config_path.write_text('{"name":"Test Property"}', encoding="utf-8")
     return replace(safe, **overrides)
 
 

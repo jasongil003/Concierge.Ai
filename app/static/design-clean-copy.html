@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Concierge.Ai — Clean Design Copy</title>
+  <link rel="stylesheet" href="/static/admin.css?v=17">
+  <style>
+    body { min-width: 320px; }
+    .clean-shell { min-height: 100vh; display: grid; grid-template-rows: 56px 1fr; grid-template-columns: 220px minmax(0, 1fr); background: var(--surface, #fff); }
+    .clean-topbar { grid-column: 1 / -1; display: flex; align-items: center; gap: 18px; padding: 0 18px; border-bottom: 1px solid var(--line, #e4e4e7); background: #fff; }
+    .clean-topbar .brand { width: auto; min-width: 220px; border: 0; }
+    .clean-topbar > span { color: #777; font-size: 11px; }
+    .clean-sidebar { padding: 20px 10px; border-right: 1px solid var(--line, #e4e4e7); background: #f7f7f7; }
+    .clean-sidebar p { margin: 16px 8px 8px; color: #888; font-size: 9px; font-weight: 750; text-transform: uppercase; }
+    .clean-sidebar p:first-child { margin-top: 0; }
+    .clean-sidebar span { display: block; padding: 8px; border-radius: 6px; color: #555; font-size: 11px; }
+    .clean-sidebar .selected { color: #111; background: #e4e4e4; font-weight: 700; }
+    .clean-main { min-width: 0; padding: 32px clamp(18px, 4vw, 64px); }
+    .clean-main .page-title { margin-bottom: 24px; }
+    .clean-main .page-title h1 { font-size: clamp(24px, 2.2vw, 32px); }
+    .clean-builder { display: grid; grid-template-columns: minmax(300px, 440px) minmax(0, 1fr); gap: 18px; align-items: start; }
+    .clean-controls { display: grid; gap: 14px; }
+    .clean-controls h2 { margin: 2px 0 0; font-size: 13px; }
+    .clean-controls label { display: grid; gap: 6px; color: #555; font-size: 10px; font-weight: 650; }
+    .clean-controls input, .clean-controls textarea, .clean-controls select { width: 100%; min-height: 36px; padding: 8px 10px; border: 1px solid #d4d4d8; border-radius: 6px; background: #fff; color: #444; font: inherit; }
+    .clean-controls textarea { min-height: 82px; resize: vertical; }
+    .clean-controls input[type="file"] { padding: 6px; }
+    .clean-controls .color-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .clean-controls .empty-line { height: 38px; border: 1px dashed #d4d4d8; border-radius: 6px; background: #fafafa; }
+    .clean-preview { min-height: 580px; padding: 18px; border: 1px solid #e4e4e7; border-radius: 8px; background: #f0f0f0; }
+    .clean-preview > header { margin-bottom: 18px; color: #777; font-size: 10px; }
+    .blank-phone { width: min(100%, 366px); min-height: 520px; margin: 0 auto; display: grid; grid-template-rows: 56px 1fr 56px; overflow: hidden; border: 1px solid #ddd; border-radius: 14px; background: #fff; box-shadow: 0 8px 24px #00000012; }
+    .blank-phone > header, .blank-phone > footer { display: flex; align-items: center; padding: 0 14px; border-bottom: 1px solid #eee; color: #777; font-size: 11px; }
+    .blank-phone > main { display: grid; place-items: center; padding: 22px; color: #aaa; font-size: 11px; }
+    .blank-phone > footer { border-top: 1px solid #eee; border-bottom: 0; }
+    @media (max-width: 850px) {
+      .clean-shell { grid-template-columns: 1fr; grid-template-rows: 56px auto 1fr; }
+      .clean-topbar { grid-column: 1; }
+      .clean-topbar .brand { min-width: 0; }
+      .clean-sidebar { display: none; }
+      .clean-builder { grid-template-columns: 1fr; }
+      .clean-preview { min-height: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="clean-shell">
+    <header class="clean-topbar">
+      <div class="brand">
+        <div class="brand-mark">C</div>
+        <div><strong>Concierge.Ai</strong><span>Admin Platform</span></div>
+      </div>
+      <span>Clean design copy · no property selected</span>
+    </header>
+    <aside class="clean-sidebar" aria-label="Administration">
+      <p>Overview</p><span>Dashboard</span><span>System Health</span><span>Alerts</span>
+      <p>Guest Experience</p><span>Conversations</span><span>Guest Requests</span><span>Guest Sessions</span><span>Personalization</span><span>Guest Preview</span>
+      <p>Property</p><span>Hotel Information</span><span>Rooms</span><span>Facilities</span><span>Restaurants</span><span>Service Catalog</span><span>Recommendations</span><span>Zones &amp; Maps</span><span class="selected">Design</span><span>Branding / Intro</span>
+    </aside>
+    <main class="clean-main">
+      <div class="page-title"><div><p>AI chat design</p><h1>Configure the guest concierge</h1></div></div>
+      <div class="clean-builder">
+        <section class="card clean-controls" aria-label="Blank design fields">
+          <h2>Brand</h2>
+          <label>Hotel name<input type="text" aria-label="Hotel name"></label>
+          <label>Concierge label<input type="text" aria-label="Concierge label"></label>
+          <label>Header display<select aria-label="Header display"><option value=""></option></select></label>
+          <label>Logo image<input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" aria-label="Logo image"></label>
+          <label>Greeting<input type="text" aria-label="Greeting"></label>
+          <label>Welcome headline<textarea aria-label="Welcome headline"></textarea></label>
+          <label>Composer placeholder<input type="text" aria-label="Composer placeholder"></label>
+          <div class="color-grid">
+            <label>Background<div class="empty-line"></div></label>
+            <label>Surface<div class="empty-line"></div></label>
+            <label>Text color<div class="empty-line"></div></label>
+            <label>Secondary text<div class="empty-line"></div></label>
+            <label>Accent<div class="empty-line"></div></label>
+            <label>User bubble<div class="empty-line"></div></label>
+            <label>Button color<div class="empty-line"></div></label>
+            <label>Composer<div class="empty-line"></div></label>
+          </div>
+          <label>Background picture<input type="file" accept="image/png,image/jpeg,image/webp" aria-label="Background picture"></label>
+          <label>Background overlay<div class="empty-line"></div></label>
+          <h2>Layout</h2>
+          <div class="empty-line" aria-hidden="true"></div>
+          <h2>Suggested prompts</h2>
+          <div class="empty-line" aria-hidden="true"></div>
+        </section>
+        <section class="clean-preview" aria-label="Empty guest chat preview">
+          <header>Guest chat preview</header>
+          <div class="blank-phone"><header></header><main>Preview will appear here</main><footer></footer></div>
+        </section>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

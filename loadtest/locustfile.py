@@ -8,7 +8,7 @@ import uuid
 from locust import HttpUser, between, task
 
 
-PROPERTY_ID = os.getenv("PROPERTY_ID", "lunara-mnl-001")
+PROPERTY_ID = os.getenv("PROPERTY_ID", "load-test-property")
 ADMIN_USERNAME = os.getenv("LOADTEST_ADMIN_USERNAME", "")
 ADMIN_PASSWORD = os.getenv("LOADTEST_ADMIN_PASSWORD", "")
 ADMIN_ENABLED = bool(ADMIN_USERNAME and ADMIN_PASSWORD)

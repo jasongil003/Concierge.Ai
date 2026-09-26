@@ -148,7 +148,7 @@ def test_discovered_models_persist_and_appear_in_full_catalog(tmp_path: Path):
 def test_concierge_prompt_includes_recent_conversation():
     system, prompt = build_prompt(
         "What time does it close?",
-        "Lunara",
+        "Example Hotel",
         [{"title": "Pool", "answer": "The pool closes at 10 PM."}],
         conversation_history=[
             {"role": "guest", "content": "Where is the pool?"},

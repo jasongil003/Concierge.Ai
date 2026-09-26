@@ -41,7 +41,7 @@
               <span class="availability-badge"><i aria-hidden="true"></i> Available now</span>
             </div>
             <h1 id="welcome-headline">How can I help with your stay?</h1>
-            <p class="welcome-subtitle">From a late checkout to local recommendations, consider it handled.</p>
+            <p class="welcome-subtitle">Ask about hotel information, guest services, or nearby recommendations.</p>
           </div>
           <div class="suggestion-heading" aria-hidden="true">
             <span>Popular requests</span>
@@ -146,16 +146,17 @@
       <div class="property-map-panel">
         <header>
           <div>
-            <span>Explore Lunara</span>
+            <span>Explore your property</span>
             <h2 id="property-map-title">Property map</h2>
           </div>
           <button class="icon-button" id="close-map-button" type="button" aria-label="Close property map">×</button>
         </header>
         <div class="property-map-canvas" id="property-map-canvas">
-          <img src="/static/assets/lunara-property-map.png" alt="Lunara Grand Hotel and Residences property map">
+          <img id="property-map-image" alt="" hidden>
+          <p class="property-map-empty" id="property-map-empty">A property map has not been added yet.</p>
           <div id="property-map-markers" aria-label="Mapped guest areas"></div>
         </div>
-        <p class="property-map-note">Select a numbered marker for its verified project label. Hotel knowledge-base details take precedence over text embedded in the visual.</p>
+        <p class="property-map-note">Select a marker to view its published property label.</p>
       </div>
     </section>
 

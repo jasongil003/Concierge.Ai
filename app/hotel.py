@@ -15,7 +15,7 @@ class HotelKnowledge:
     @property
     def public_profile(self) -> dict[str, Any]:
         return {
-            "name": self.data["name"],
+            "name": self.data.get("name", ""),
             "concierge_name": self.data.get("concierge_name", "Concierge"),
             "welcome": self.data.get("welcome", "How can I help?"),
             "quick_actions": self.data.get("quick_actions", []),
