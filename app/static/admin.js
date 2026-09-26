@@ -21,6 +21,11 @@ const state = {
   mapRedo: [],
   intro: null,
   catalog: { departments: [], services: [] },
+  serviceRequests: [],
+  guestSessions: [],
+  guestSessionLinks: [],
+  guestStays: [],
+  guestDevices: [],
   recommendations: [],
   conversations: [],
   selectedConversation: null,
@@ -361,7 +366,9 @@ async function loadPersonalizationPolicy() {
   $("personalization-profile").checked = Boolean(config.allow_guest_profile);
   $("personalization-delete-checkout").checked = Boolean(config.delete_profile_at_checkout);
   $("personalization-retention").value = config.memory_retention || "stay_only";
-  $("personalization-retention-days").value = config.memory_retention_days || 2;
+  const retentionDays = Number(config.memory_retention_days) || 2;
+  $("personalization-retention-days").dataset.configurableValue = String(retentionDays);
+  $("personalization-retention-days").value = $("personalization-retention").value === "configurable" ? retentionDays : 2;
   $("personalization-pms").checked = Boolean(config.allow_pms_personalization);
   $("personalization-location").checked = Boolean(config.allow_location_aware_recommendations);
   $("personalization-internet").checked = Boolean(config.allow_internet_recommendations);
@@ -371,6 +378,11 @@ async function loadPersonalizationPolicy() {
 }
 
 async function savePersonalizationPolicy() {
+  const retentionMode = $("personalization-retention").value;
+  const retentionDays = retentionMode === "configurable" ? Number($("personalization-retention-days").value) : 2;
+  if (retentionMode === "configurable" && (!Number.isInteger(retentionDays) || retentionDays < 1 || retentionDays > 365)) {
+    throw new Error("Configurable memory expiry must be between 1 and 365 days.");
+  }
   const payload = {
     enabled: $("personalization-enabled").checked,
     default_level: $("personalization-default-level").value,
@@ -378,7 +390,7 @@ async function savePersonalizationPolicy() {
     allow_guest_profile: $("personalization-profile").checked,
     delete_profile_at_checkout: $("personalization-delete-checkout").checked,
     memory_retention: $("personalization-retention").value,
-    memory_retention_days: Number($("personalization-retention-days").value || 2),
+    memory_retention_days: retentionDays,
     allow_pms_personalization: $("personalization-pms").checked,
     allow_location_aware_recommendations: $("personalization-location").checked,
     allow_internet_recommendations: $("personalization-internet").checked,
@@ -510,6 +522,40 @@ function renderAnalyticsPanel() {
   $("analytics-questions").innerHTML = listRows(data.top_questions, "No guest questions in this period.");
 }
 
+function normalizeHotelTime(value) {
+  const raw = String(value || "").trim();
+  const twentyFourHour = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (twentyFourHour) {
+    const hours = Number(twentyFourHour[1]);
+    const minutes = Number(twentyFourHour[2]);
+    if (hours <= 23 && minutes <= 59) return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+  }
+  const twelveHour = raw.match(/^(\d{1,2})(?::(\d{2}))?\s*([ap])\.?m?\.?$/i);
+  if (!twelveHour) return "";
+  const clockHour = Number(twelveHour[1]);
+  const minutes = Number(twelveHour[2] || 0);
+  if (clockHour < 1 || clockHour > 12 || minutes > 59) return "";
+  const hours = (clockHour % 12) + (twelveHour[3].toLowerCase() === "p" ? 12 : 0);
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function loadHotelTimeInput(inputId, noteId, value) {
+  const input = $(inputId);
+  const original = String(value || "").trim();
+  input.value = normalizeHotelTime(original);
+  input.dataset.legacyValue = original && !input.value ? original : "";
+  const note = $(noteId);
+  note.hidden = !input.dataset.legacyValue;
+  note.textContent = input.dataset.legacyValue
+    ? `Saved value “${input.dataset.legacyValue}” is preserved. Choose a time to replace it, or use Clear Optional Fields to remove it.`
+    : "";
+}
+
+function savedHotelTime(inputId) {
+  const input = $(inputId);
+  return input.value || input.dataset.legacyValue || "";
+}
+
 function loadHotelInformation() {
   const property = state.property;
   $("hotel-info-name").value = property.hotel_name || "";
@@ -518,8 +564,8 @@ function loadHotelInformation() {
   $("hotel-info-phone").value = property.contact_details?.phone || "";
   $("hotel-info-email").value = property.contact_details?.email || "";
   $("hotel-info-website").value = property.contact_details?.website || "";
-  $("hotel-info-checkin").value = property.contact_details?.check_in || "";
-  $("hotel-info-checkout").value = property.contact_details?.checkout || "";
+  loadHotelTimeInput("hotel-info-checkin", "hotel-info-checkin-note", property.contact_details?.check_in);
+  loadHotelTimeInput("hotel-info-checkout", "hotel-info-checkout-note", property.contact_details?.checkout);
   $("hotel-info-breakfast").value = property.contact_details?.breakfast || "";
   $("hotel-info-wifi").value = property.contact_details?.wifi_guidance || "";
   $("hotel-info-policies").value = (property.policies || []).map((item) => typeof item === "string" ? item : item.text || item.name || "").filter(Boolean).join("\n");
@@ -536,7 +582,7 @@ async function saveHotelInformation() {
     contact_details: {
       ...(state.property.contact_details || {}),
       phone: $("hotel-info-phone").value.trim(), email: $("hotel-info-email").value.trim(), website: $("hotel-info-website").value.trim(),
-      check_in: $("hotel-info-checkin").value.trim(), checkout: $("hotel-info-checkout").value.trim(),
+      check_in: savedHotelTime("hotel-info-checkin"), checkout: savedHotelTime("hotel-info-checkout"),
       breakfast: $("hotel-info-breakfast").value.trim(), wifi_guidance: $("hotel-info-wifi").value.trim(),
     },
     policies: $("hotel-info-policies").value.split("\n").map((text) => text.trim()).filter(Boolean).map((text) => ({ text })),
@@ -583,27 +629,50 @@ async function deleteRoom(id) {
 function renderGuestModules() {
   const list = $("guest-module-list"); list.innerHTML = "";
   const modules = [...(state.property.guest_modules || [])].sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+  const enabledCount = modules.filter((module) => module.enabled !== false).length;
+  $("guest-module-count").textContent = modules.length + (modules.length === 1 ? " module" : " modules") + " · " + enabledCount + " shown to guests";
   for (const module of modules) {
-    const row = document.createElement("div"); row.className = "compact-row"; row.innerHTML = `<strong>${escapeHTML(module.name)}</strong><span>${module.enabled ? "Enabled" : "Disabled"} · order ${Number(module.order || 0)}</span><span>${escapeHTML(module.prompt || "")}</span>`;
-    const edit = makeActionButton("Edit", () => { $("guest-module-id").value = module.id; $("guest-module-name").value = module.name; $("guest-module-prompt").value = module.prompt || ""; $("guest-module-order").value = module.order || 0; $("guest-module-enabled").checked = module.enabled !== false; });
-    const toggle = makeActionButton(module.enabled ? "Disable" : "Enable", () => toggleGuestModule(module.id), true);
+    const row = document.createElement("div"); row.className = "compact-row module-saved-row"; row.innerHTML = `<strong>${escapeHTML(module.name)}</strong><span>${module.enabled !== false ? "Shown to guests" : "Hidden"} · menu position ${Number(module.order || 0)}</span><span>${escapeHTML(module.prompt || "")}</span>`;
+    const edit = makeActionButton("Edit", () => {
+      $("guest-module-id").value = module.id;
+      $("guest-module-name").value = module.name;
+      $("guest-module-prompt").value = module.prompt || "";
+      $("guest-module-order").value = module.order || 0;
+      $("guest-module-enabled").checked = module.enabled !== false;
+      $("guest-module-form-title").textContent = "Edit module";
+      $("save-guest-module").textContent = "Update Module";
+      $("guest-module-name").scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    const toggle = makeActionButton(module.enabled !== false ? "Hide" : "Show", () => toggleGuestModule(module.id), true);
     const remove = makeActionButton("Delete", () => deleteGuestModule(module.id), true);
     row.append(edit, toggle, remove); list.appendChild(row);
   }
-  if (!list.children.length) list.textContent = "No guest modules configured.";
+  if (!list.children.length) list.textContent = "No guest menu actions yet. Create one with a guest-facing name and a complete prompt.";
+}
+
+function clearGuestModuleForm() {
+  $("guest-module-id").value = "";
+  $("guest-module-name").value = "";
+  $("guest-module-prompt").value = "";
+  $("guest-module-order").value = "0";
+  $("guest-module-enabled").checked = true;
+  $("guest-module-form-title").textContent = "Create a module";
+  $("save-guest-module").textContent = "Save Module";
 }
 
 async function saveGuestModule() {
   const name = $("guest-module-name").value.trim(); const prompt = $("guest-module-prompt").value.trim();
   if (!name || !prompt) throw new Error("Module name and guest prompt are required.");
+  const order = Number($("guest-module-order").value || 0);
+  if (!Number.isInteger(order) || order < 0 || order > 99) throw new Error("Menu order must be a whole number from 0 to 99.");
   const id = $("guest-module-id").value || `module_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
-  const modules = [...(state.property.guest_modules || [])]; const record = { id, name, prompt, order: Number($("guest-module-order").value || 0), enabled: $("guest-module-enabled").checked };
+  const modules = [...(state.property.guest_modules || [])]; const record = { id, name, prompt, order, enabled: $("guest-module-enabled").checked };
   const index = modules.findIndex((item) => item.id === id); if (index >= 0) modules[index] = record; else modules.push(record);
-  state.property.guest_modules = modules; await savePropertyBasics(); $("guest-module-id").value = ""; $("guest-module-name").value = ""; $("guest-module-prompt").value = ""; renderGuestModules(); showToast("Guest module published.");
+  state.property.guest_modules = modules; await savePropertyBasics(); clearGuestModuleForm(); renderGuestModules(); showToast("Guest menu action saved.");
 }
 
-async function toggleGuestModule(id) { state.property.guest_modules = (state.property.guest_modules || []).map((item) => item.id === id ? { ...item, enabled: !item.enabled } : item); await savePropertyBasics(); renderGuestModules(); showToast("Guest module updated."); }
-async function deleteGuestModule(id) { state.property.guest_modules = (state.property.guest_modules || []).filter((item) => item.id !== id); await savePropertyBasics(); renderGuestModules(); showToast("Guest module deleted."); }
+async function toggleGuestModule(id) { state.property.guest_modules = (state.property.guest_modules || []).map((item) => item.id === id ? { ...item, enabled: item.enabled === false } : item); await savePropertyBasics(); renderGuestModules(); showToast("Guest menu action updated."); }
+async function deleteGuestModule(id) { state.property.guest_modules = (state.property.guest_modules || []).filter((item) => item.id !== id); await savePropertyBasics(); if ($("guest-module-id").value === id) clearGuestModuleForm(); renderGuestModules(); showToast("Guest menu action deleted."); }
 
 async function loadHospitalityManagement() {
   state.hospitality = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/hospitality`);
@@ -687,7 +756,16 @@ async function deleteFacility(id, name) {
 }
 
 function renderRestaurants() {
-  const list = $("restaurant-list"); if (!list) return; list.innerHTML = "";
+  const list = $("restaurant-list"); if (!list) return; list.replaceChildren();
+  const activeRestaurants = (state.hospitality?.restaurants || []).filter((item) => !item.archived && item.status !== "archived");
+  const query = $("restaurant-search")?.value.trim().toLocaleLowerCase() || "";
+  const restaurants = activeRestaurants.filter((item) => [item.name, item.location, item.cuisine, item.status, ...(item.meal_periods || [])]
+    .some((value) => String(value || "").toLocaleLowerCase().includes(query)));
+  const isEmpty = activeRestaurants.length === 0;
+  $("restaurant-empty").hidden = !isEmpty;
+  $("restaurant-search").hidden = isEmpty;
+  $("restaurant-count").textContent = isEmpty ? "" : `${restaurants.length} of ${activeRestaurants.length} ${activeRestaurants.length === 1 ? "restaurant" : "restaurants"}`;
+  list.hidden = isEmpty;
   const workflowSelect = $("restaurant-workflow-select");
   const previousRestaurantId = workflowSelect?.value;
   const facilitySelect = $("restaurant-facility");
@@ -699,46 +777,80 @@ function renderRestaurants() {
   }
   if (workflowSelect) {
     workflowSelect.replaceChildren();
-    for (const restaurant of state.hospitality?.restaurants || []) workflowSelect.appendChild(new Option(restaurant.name, restaurant.restaurant_id));
-    if ((state.hospitality?.restaurants || []).some((item) => item.restaurant_id === previousRestaurantId)) workflowSelect.value = previousRestaurantId;
+    for (const restaurant of activeRestaurants) workflowSelect.appendChild(new Option(restaurant.name, restaurant.restaurant_id));
+    if (activeRestaurants.some((item) => item.restaurant_id === previousRestaurantId)) workflowSelect.value = previousRestaurantId;
   }
-  for (const item of state.hospitality?.restaurants || []) {
-    const row = document.createElement("div"); row.className = "compact-row"; row.innerHTML = `<strong>${escapeHTML(item.name)}</strong><span>${escapeHTML(item.location || "No location")} · ${escapeHTML(item.status)}</span><span>${escapeHTML(item.description || "")}</span>`;
+  if (!isEmpty && !restaurants.length) {
+    const noResults = document.createElement("div"); noResults.className = "compact-row restaurant-directory-row"; noResults.textContent = "No restaurants match your search."; list.appendChild(noResults);
+  }
+  for (const item of restaurants) {
+    const row = document.createElement("article"); row.className = "compact-row restaurant-directory-row";
+    const details = document.createElement("div"); details.className = "restaurant-directory-details";
+    const title = document.createElement("div"); title.className = "restaurant-directory-title";
+    const name = document.createElement("strong"); name.textContent = item.name;
+    const status = document.createElement("small"); status.textContent = String(item.status || "unknown").replaceAll("_", " ");
+    title.append(name, status);
+    const summary = document.createElement("span");
+    summary.textContent = [item.location || "Location not set", item.cuisine, (item.meal_periods || []).join(", ")].filter(Boolean).join(" · ");
+    const hours = document.createElement("span"); hours.textContent = `Hours: ${item.opening_hours?.display || "Not set"}`;
+    details.append(title, summary, hours);
+    const actions = document.createElement("div"); actions.className = "restaurant-directory-actions";
     if (can("restaurant.manage")) {
-      const edit = makeActionButton("Edit", () => editRestaurant(item));
-      row.append(edit);
+      actions.append(makeActionButton("Edit", () => editRestaurant(item)));
       if (can("properties.edit")) {
-        const remove = makeActionButton("Archive", () => deleteRestaurant(item.restaurant_id), true);
-        row.append(remove);
+        actions.append(makeActionButton("Delete", () => deleteRestaurant(item.restaurant_id, item.name), true));
       }
     }
-    list.appendChild(row);
+    row.append(details, actions); list.appendChild(row);
   }
-  if (!list.children.length) list.textContent = "No restaurants configured yet.";
-  if (workflowSelect?.value) loadRestaurantWorkflows().catch((error) => showToast(error.message, "error"));
+  if ($("restaurant-workflow-disclosure").open) {
+    if (workflowSelect?.value) loadRestaurantWorkflows().catch((error) => showToast(error.message, "error"));
+    else { state.restaurantMenus = []; state.restaurantPromotions = []; state.restaurantAnalytics = null; renderRestaurantWorkflows(); }
+  }
 }
 
 function editRestaurant(item) {
+  $("restaurant-dialog-title").textContent = "Edit Restaurant";
+  $("restaurant-form").reset();
   $("restaurant-id").value = item.restaurant_id; $("restaurant-name").value = item.name; $("restaurant-location").value = item.location || ""; $("restaurant-hours").value = item.opening_hours?.display || ""; $("restaurant-meals").value = (item.meal_periods || []).join(", "); $("restaurant-status").value = item.status; $("restaurant-description").value = item.description || ""; $("restaurant-reservations").checked = item.reservation_available;
   for (const day of ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]) $("restaurant-hours-" + day).value = item.opening_hours?.[day] || "";
   $("restaurant-facility").value = item.facility_id || ""; $("restaurant-cuisine").value = item.cuisine || ""; $("restaurant-dress-code").value = item.dress_code || ""; $("restaurant-capacity").value = item.capacity || ""; $("restaurant-phone-extension").value = item.phone_extension || ""; $("restaurant-reservation-url").value = item.external_reservation_url || ""; $("restaurant-contact-email").value = item.contact_details?.email || ""; $("restaurant-contact-phone").value = item.contact_details?.phone || ""; $("restaurant-contact-website").value = item.contact_details?.website || ""; $("restaurant-images").value = (item.images || []).join(", "); $("restaurant-guest-notes").value = item.guest_notes || ""; $("restaurant-internal-notes").value = item.internal_notes || "";
+  $("save-restaurant").textContent = "Save Changes";
+  $("restaurant-dialog").showModal();
+  $("restaurant-name").focus();
+}
+
+function openNewRestaurant() {
+  $("restaurant-form").reset();
+  $("restaurant-id").value = "";
+  $("restaurant-dialog-title").textContent = "Add Restaurant";
+  $("save-restaurant").textContent = "Add Restaurant";
+  $("restaurant-dialog").showModal();
+  $("restaurant-name").focus();
 }
 
 async function saveRestaurant() {
   const name = $("restaurant-name").value.trim(); if (!name) throw new Error("Restaurant name is required.");
   const id = $("restaurant-id").value;
   if (!id && !can("properties.edit")) throw new Error("Only a property administrator can add a restaurant.");
+  const submit = $("save-restaurant"); submit.disabled = true;
   const openingHours = { display: $("restaurant-hours").value.trim() };
   for (const day of ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]) {
     const hours = $("restaurant-hours-" + day).value.trim();
     if (hours) openingHours[day] = hours;
   }
   const data = { facility_id: $("restaurant-facility").value || null, name, location: $("restaurant-location").value.trim(), opening_hours: openingHours, meal_periods: $("restaurant-meals").value.split(",").map((item) => item.trim()).filter(Boolean), status: $("restaurant-status").value, description: $("restaurant-description").value.trim(), reservation_available: $("restaurant-reservations").checked, cuisine: $("restaurant-cuisine").value.trim(), dress_code: $("restaurant-dress-code").value.trim(), capacity: $("restaurant-capacity").value ? Number($("restaurant-capacity").value) : null, phone_extension: $("restaurant-phone-extension").value.trim(), external_reservation_url: $("restaurant-reservation-url").value.trim(), contact_details: { email: $("restaurant-contact-email").value.trim(), phone: $("restaurant-contact-phone").value.trim(), website: $("restaurant-contact-website").value.trim() }, images: $("restaurant-images").value.split(",").map((item) => item.trim()).filter(Boolean), guest_notes: $("restaurant-guest-notes").value.trim(), internal_notes: $("restaurant-internal-notes").value.trim() };
-  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/restaurants${id ? `/${encodeURIComponent(id)}` : ""}`, { method: id ? "PUT" : "POST", body: JSON.stringify({ data }) });
-  $("restaurant-id").value = ""; $("restaurant-name").value = ""; await loadHospitalityManagement(); showToast("Restaurant saved.");
+  try {
+    await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/restaurants${id ? `/${encodeURIComponent(id)}` : ""}`, { method: id ? "PUT" : "POST", body: JSON.stringify({ data }) });
+    $("restaurant-dialog").close(); await loadHospitalityManagement(); showToast("Restaurant saved.");
+  } finally { submit.disabled = false; }
 }
 
-async function deleteRestaurant(id) { await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/restaurants/${encodeURIComponent(id)}`, { method: "DELETE" }); await loadHospitalityManagement(); showToast("Restaurant archived."); }
+async function deleteRestaurant(id, name) {
+  if (!window.confirm(`Delete ${name} from the active restaurant list? Historical audit records will be retained.`)) return;
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/restaurants/${encodeURIComponent(id)}`, { method: "DELETE" });
+  await loadHospitalityManagement(); showToast("Restaurant removed from the active list.");
+}
 
 async function loadRestaurantWorkflows() {
   const restaurantId = $("restaurant-workflow-select")?.value;
@@ -2196,6 +2308,40 @@ function propertyIdFromName(name) {
     .replace(/[^a-z0-9_-]+/g, "-").replace(/^[^a-z0-9]+/g, "").replace(/-+$/g, "").slice(0, 80);
 }
 
+function populatePropertyTimezones() {
+  const fallbackTimezones = [
+    "Africa/Abidjan", "Africa/Cairo", "Africa/Johannesburg", "Africa/Lagos", "Africa/Nairobi",
+    "America/Anchorage", "America/Argentina/Buenos_Aires", "America/Chicago", "America/Denver",
+    "America/Halifax", "America/Los_Angeles", "America/Mexico_City", "America/New_York",
+    "America/Phoenix", "America/Sao_Paulo", "America/Toronto", "America/Vancouver",
+    "Asia/Bangkok", "Asia/Dubai", "Asia/Hong_Kong", "Asia/Jakarta", "Asia/Jerusalem",
+    "Asia/Karachi", "Asia/Kolkata", "Asia/Manila", "Asia/Riyadh", "Asia/Seoul",
+    "Asia/Shanghai", "Asia/Singapore", "Asia/Taipei", "Asia/Tokyo",
+    "Atlantic/Azores", "Australia/Adelaide", "Australia/Brisbane", "Australia/Perth",
+    "Australia/Sydney", "Europe/Amsterdam", "Europe/Athens", "Europe/Berlin", "Europe/Dublin",
+    "Europe/Helsinki", "Europe/Istanbul", "Europe/London", "Europe/Madrid", "Europe/Moscow",
+    "Europe/Paris", "Europe/Rome", "Europe/Zurich", "Pacific/Auckland", "Pacific/Fiji",
+    "Pacific/Honolulu", "UTC",
+  ];
+  const timezones = typeof Intl.supportedValuesOf === "function"
+    ? Intl.supportedValuesOf("timeZone")
+    : fallbackTimezones;
+  const grouped = new Map();
+  for (const timezone of [...new Set(["UTC", ...timezones])].sort((a, b) => a.localeCompare(b))) {
+    const region = timezone.includes("/") ? timezone.split("/")[0] : "Other";
+    if (!grouped.has(region)) grouped.set(region, []);
+    grouped.get(region).push(timezone);
+  }
+
+  const select = $("property-create-timezone");
+  for (const region of [...grouped.keys()].sort((a, b) => a.localeCompare(b))) {
+    const group = document.createElement("optgroup");
+    group.label = region;
+    for (const timezone of grouped.get(region)) group.appendChild(new Option(timezone, timezone));
+    select.appendChild(group);
+  }
+}
+
 function openPropertyCreation() {
   $("property-create-form").reset();
   $("property-create-message").textContent = "";
@@ -2522,45 +2668,256 @@ async function uploadFloorMap(file) {
   showToast("Floor plan uploaded as locked background.");
 }
 
+function sessionRecordElement(tag, className, text) {
+  const element = document.createElement(tag);
+  if (className) element.className = className;
+  if (text !== undefined) element.textContent = text;
+  return element;
+}
+
+function updateStayMemoryEditor(stay) {
+  const memory = stay?.memory_summary || {};
+  const editable = stay?.status === "active";
+  const fields = ["memory-summary", "memory-preferences", "memory-recent-requests", "memory-unresolved-requests", "memory-important-context"];
+  for (const id of fields) $(id).disabled = !editable;
+  $("save-stay-memory").disabled = !editable;
+  $("memory-summary").value = memory.conversation_summary || "";
+  $("memory-preferences").value = (memory.preferences || []).join("\n");
+  $("memory-recent-requests").value = (memory.recent_requests || []).join("\n");
+  $("memory-unresolved-requests").value = (memory.unresolved_service_requests || []).join("\n");
+  $("memory-important-context").value = memory.important_context || "";
+  $("session-memory-selection").textContent = !stay
+    ? "Choose a stay to view or update its saved notes."
+    : editable
+      ? `Editing active stay ${stay.stay_id}${stay.room ? ` · Room ${stay.room}` : ""}.`
+      : `Stay ${stay.stay_id} is checked out. Its notes are read-only.`;
+}
+
+function stayMemoryLabel(memory = {}) {
+  const parts = [];
+  if (String(memory.conversation_summary || "").trim()) parts.push("summary");
+  for (const [key, label] of [["preferences", "preference"], ["recent_requests", "recent request"], ["unresolved_service_requests", "unresolved request"]]) {
+    const count = Array.isArray(memory[key]) ? memory[key].filter((item) => String(item || "").trim()).length : 0;
+    if (count) parts.push(count + " " + label + (count === 1 ? "" : "s"));
+  }
+  if (String(memory.important_context || "").trim()) parts.push("staff context");
+  return parts.length ? parts.join(", ") : "No notes saved";
+}
+
+function sessionSearchText(record) {
+  return JSON.stringify(record || {}).toLowerCase();
+}
+
+function renderSessionSummary() {
+  const sessions = state.guestSessions || [];
+  const links = state.guestSessionLinks || [];
+  const stays = state.guestStays || [];
+  const devices = state.guestDevices || [];
+  const counts = {
+    total: sessions.length + links.length + stays.length + devices.length,
+    active: sessions.filter((session) => session.session_status === "active").length,
+    stays: stays.filter((stay) => stay.status === "active").length,
+    expired: sessions.filter((session) => session.session_status !== "active").length,
+    devices: devices.length,
+  };
+  for (const [key, value] of Object.entries(counts)) $(`session-count-${key}`).textContent = value;
+  const activeFilter = $("session-record-filter").value;
+  for (const card of document.querySelectorAll("[data-session-filter]")) {
+    card.classList.toggle("selected", card.dataset.sessionFilter === activeFilter);
+  }
+}
+
+function renderSessionRecords() {
+  const list = $("session-list");
+  const filter = $("session-record-filter").value;
+  const query = $("session-record-search").value.trim().toLowerCase();
+  const sessions = (state.guestSessions || []).filter((item) => (filter === "all" || filter === "active-sessions" && item.session_status === "active" || filter === "expired-sessions" && item.session_status !== "active") && (!query || sessionSearchText(item).includes(query)));
+  const links = (state.guestSessionLinks || []).filter((item) => (filter === "all" || filter === "guest-links") && (!query || sessionSearchText(item).includes(query)));
+  const stays = (state.guestStays || []).filter((item) => (filter === "all" || filter === "active-stays" && item.status === "active" || filter === "checked-out-stays" && item.status !== "active") && (!query || sessionSearchText(item).includes(query)));
+  const devices = (state.guestDevices || []).filter((item) => (filter === "all" || filter === "devices") && (!query || sessionSearchText(item).includes(query)));
+  const total = sessions.length + links.length + stays.length + devices.length;
+  $("session-result-count").textContent = `${total} ${total === 1 ? "record" : "records"}`;
+  list.replaceChildren();
+  renderSessionSummary();
+
+  const appendGroup = (label, items, renderItem) => {
+    if (!items.length) return;
+    const group = sessionRecordElement("section", "session-record-group");
+    group.appendChild(sessionRecordElement("h3", "", `${label} · ${items.length}`));
+    const records = sessionRecordElement("div", "session-record-group-list");
+    for (const item of items) records.appendChild(renderItem(item));
+    group.appendChild(records);
+    list.appendChild(group);
+  };
+
+  appendGroup("Guest sessions", sessions, (session) => {
+    const card = sessionRecordElement("article", "session-record-card");
+    const header = sessionRecordElement("header", "session-record-header");
+    const title = sessionRecordElement("div", "session-record-title");
+    title.append(sessionRecordElement("p", "", "CONCIERGE SESSION"), sessionRecordElement("h4", "", session.session_id));
+    const badge = sessionRecordElement("span", `session-record-badge ${session.session_status}`, session.session_status === "active" ? "Active" : "Expired");
+    header.append(title, badge);
+    const facts = sessionRecordElement("div", "session-record-facts");
+    const add = (label, value) => {
+      const cell = sessionRecordElement("div", "session-record-detail");
+      cell.append(sessionRecordElement("span", "", label), sessionRecordElement("strong", "", String(value || "Not set")));
+      facts.appendChild(cell);
+    };
+    add("Authentication", session.authenticated ? "Authenticated" : "Not authenticated");
+    add("Conversation state", String(session.interaction_status || "open").replaceAll("_", " "));
+    add("Staff takeover", session.human_takeover ? "Active" : "No");
+    add("Messages", `${Number(session.message_count || 0)} messages`);
+    add("Started", formatDate(session.created_at));
+    add("Last activity", formatDate(session.last_seen_at));
+    if (session.last_provider) add("Last AI provider", session.last_provider);
+    card.append(header, facts);
+    return card;
+  });
+
+  appendGroup("WLAN and integration links", links, (link) => {
+    const card = sessionRecordElement("article", "session-record-card");
+    const header = sessionRecordElement("header", "session-record-header");
+    const title = sessionRecordElement("div", "session-record-title");
+    title.append(sessionRecordElement("p", "", "WLAN / INTEGRATION LINK"), sessionRecordElement("h4", "", link.guest_session_id));
+    const status = link.stay_status === "active" ? "Active stay" : "Checked out";
+    header.append(title, sessionRecordElement("span", "session-record-badge", status));
+    const facts = sessionRecordElement("div", "session-record-facts");
+    const add = (label, value) => {
+      const cell = sessionRecordElement("div", "session-record-detail");
+      cell.append(sessionRecordElement("span", "", label), sessionRecordElement("strong", "", String(value || "Not linked")));
+      facts.appendChild(cell);
+    };
+    add("Stay ID", link.stay_id);
+    add("Room", link.room || "Not recorded");
+    add("Device identity", link.device_id);
+    add("Concierge session ID", link.concierge_session_id);
+    add("ANTlabs session ID", link.antlabs_session_id);
+    add("Browser session ID", link.browser_session_id);
+    add("Created", formatDate(link.created_at));
+    add("Last activity", formatDate(link.last_seen_at));
+    card.append(header, facts);
+    return card;
+  });
+
+  appendGroup("Guest stays", stays, (stay) => {
+    const card = sessionRecordElement("article", "session-record-card");
+    const header = sessionRecordElement("header", "session-record-header");
+    const title = sessionRecordElement("div", "session-record-title");
+    title.append(sessionRecordElement("p", "", "GUEST STAY"), sessionRecordElement("h4", "", stay.stay_id));
+    const badge = sessionRecordElement("span", `session-record-badge ${stay.status}`, stay.status === "active" ? "Active" : "Checked out");
+    header.append(title, badge);
+    const facts = sessionRecordElement("div", "session-record-facts");
+    const add = (label, value) => {
+      const cell = sessionRecordElement("div", "session-record-detail");
+      cell.append(sessionRecordElement("span", "", label), sessionRecordElement("strong", "", String(value || "Not set")));
+      facts.appendChild(cell);
+    };
+    add("Room", stay.room || "Not recorded");
+    add("Device identity", stay.device_id || "Not linked");
+    add("PMS guest ID", stay.pms_guest_id || "Not linked");
+    add("Stay notes", stayMemoryLabel(stay.memory_summary));
+    add("Created", formatDate(stay.created_at));
+    add("Last updated", formatDate(stay.updated_at));
+    add("Retention until", stay.retention_until ? formatDate(stay.retention_until) : "No expiry set");
+    if (stay.checked_out_at) add("Checked out", formatDate(stay.checked_out_at));
+    const action = sessionRecordElement("button", "secondary", stay.status === "active" ? "Edit stay notes" : "View stay notes");
+    action.type = "button";
+    action.title = stay.status === "active" ? "Load this stay in the notes editor" : "Checked-out stay notes are read-only";
+    action.addEventListener("click", () => {
+      $("memory-stay-id").value = stay.stay_id;
+      updateStayMemoryEditor(stay);
+      $("memory-stay-id").scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    card.append(header, facts, action);
+    return card;
+  });
+
+  appendGroup("Pseudonymous device identities", devices, (device) => {
+    const card = sessionRecordElement("article", "session-record-card device-record-card");
+    const header = sessionRecordElement("header", "session-record-header");
+    const title = sessionRecordElement("div", "session-record-title");
+    title.append(sessionRecordElement("p", "", "DEVICE IDENTITY · RAW MAC NOT DISPLAYED"), sessionRecordElement("h4", "", device.device_id));
+    header.append(title, sessionRecordElement("span", "session-record-badge", String(device.source || "wlan").toUpperCase()));
+    const facts = sessionRecordElement("div", "session-record-facts");
+    const add = (label, value) => {
+      const cell = sessionRecordElement("div", "session-record-detail");
+      cell.append(sessionRecordElement("span", "", label), sessionRecordElement("strong", "", String(value || "Not set")));
+      facts.appendChild(cell);
+    };
+    add("First seen", formatDate(device.first_seen_at));
+    add("Last seen", formatDate(device.last_seen_at));
+    card.append(header, facts);
+    return card;
+  });
+
+  if (!total) {
+    const empty = sessionRecordElement("div", "session-record-empty");
+    empty.append(sessionRecordElement("strong", "", query ? "No records match this search" : "No guest records yet"));
+    empty.append(sessionRecordElement("span", "", query ? "Try a different session, stay, room, or device search." : "Guest sessions, stays, and pseudonymous WLAN identities will appear here.") );
+    list.appendChild(empty);
+  }
+}
+
 async function loadSessions() {
   const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/sessions`);
-  const list = $("session-list");
-  list.innerHTML = "";
-  for (const session of data.sessions || []) {
-    const row = document.createElement("div"); row.className = "compact-row";
-    row.innerHTML = `<strong>${escapeHTML(session.session_id)}</strong><span>${escapeHTML(session.session_status)} · ${session.authenticated ? "authenticated" : "not authenticated"} · ${escapeHTML(session.interaction_status)} · ${session.message_count} messages</span><span>Started ${escapeHTML(formatDate(session.created_at))} · last activity ${escapeHTML(formatDate(session.last_seen_at))}${session.last_provider ? ` · ${escapeHTML(session.last_provider)}` : ""}</span>`;
-    list.appendChild(row);
+  state.guestSessions = data.sessions || [];
+  state.guestSessionLinks = data.guest_sessions || [];
+  state.guestStays = data.stays || [];
+  state.guestDevices = data.devices || [];
+  const selector = $("memory-stay-id");
+  const previousSelection = selector.value;
+  selector.replaceChildren(new Option("Select a stay", ""));
+  for (const stay of state.guestStays) {
+    const description = [stay.room ? `Room ${stay.room}` : "No room", stay.status === "active" ? "Active" : "Checked out", stay.stay_id].join(" · ");
+    selector.appendChild(new Option(description, stay.stay_id));
   }
-  for (const stay of data.stays) {
-    const row = document.createElement("div");
-    row.className = "compact-row";
-    row.innerHTML = `<strong>Stay ${escapeHTML(stay.stay_id)}</strong><span>${escapeHTML(stay.status)} · room ${escapeHTML(stay.room || "none")} · memory ${stay.memory_summary ? "stored" : "empty"}</span>`;
-    row.addEventListener("click", () => {
-      $("memory-stay-id").value = stay.stay_id;
-      $("memory-summary").value = stay.memory_summary?.conversation_summary || "";
-    });
-    list.appendChild(row);
-  }
-  if (!list.children.length) list.textContent = "No guest sessions or stays yet.";
+  selector.value = state.guestStays.some((stay) => stay.stay_id === previousSelection) ? previousSelection : "";
+  updateStayMemoryEditor(state.guestStays.find((stay) => stay.stay_id === selector.value) || null);
+  renderSessionRecords();
 }
 
 async function createStaySession() {
+  const rawMac = $("session-raw-mac").value.trim();
+  if (!rawMac) throw new Error("Enter an authorized WLAN MAC address to create or restore a stay.");
+  const retentionDays = Number($("session-retention-days").value || 2);
+  if (!Number.isInteger(retentionDays) || retentionDays < 1 || retentionDays > 60) throw new Error("Set stay retention between 1 and 60 days.");
   const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/sessions/reconnect`, {
     method: "POST",
-    body: JSON.stringify({ raw_mac: $("session-raw-mac").value.trim(), room: $("session-room").value.trim() || null }),
+    body: JSON.stringify({
+      raw_mac: rawMac,
+      room: $("session-room").value.trim() || null,
+      concierge_session_id: $("session-concierge-id").value.trim() || null,
+      antlabs_session_id: $("session-antlabs-id").value.trim() || null,
+      browser_session_id: $("session-browser-id").value.trim() || null,
+      pms_guest_id: $("session-pms-guest-id").value.trim() || null,
+      retention_days: retentionDays,
+    }),
   });
-  $("memory-stay-id").value = result.stay.stay_id;
+  $("session-raw-mac").value = "";
   await loadSessions();
+  $("memory-stay-id").value = result.stay.stay_id;
+  updateStayMemoryEditor(result.stay);
   showToast("Stay restored with pseudonymous device identity.");
 }
 
 async function saveStayMemory() {
-  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/stays/${encodeURIComponent($("memory-stay-id").value)}/memory`, {
+  const stayId = $("memory-stay-id").value;
+  const stay = state.guestStays.find((item) => item.stay_id === stayId);
+  if (!stayId || !stay) throw new Error("Select a guest stay first.");
+  if (stay.status !== "active") throw new Error("Stay notes can only be changed for an active stay.");
+  const lines = (id) => $(id).value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean).slice(0, 20);
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/stays/${encodeURIComponent(stayId)}/memory`, {
     method: "PUT",
-    body: JSON.stringify({ memory: { conversation_summary: $("memory-summary").value } }),
+    body: JSON.stringify({ memory: {
+      conversation_summary: $("memory-summary").value.trim(),
+      preferences: lines("memory-preferences"),
+      recent_requests: lines("memory-recent-requests"),
+      unresolved_service_requests: lines("memory-unresolved-requests"),
+      important_context: $("memory-important-context").value.trim(),
+    } }),
   });
   await loadSessions();
-  showToast("Compact stay memory saved.");
+  showToast("Stay notes saved.");
 }
 
 async function loadLocationLive() {
@@ -2653,60 +3010,240 @@ async function uploadIntroAsset(file) {
 }
 
 async function loadConversations() {
-  const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations`);
-  state.conversations = data.conversations;
-  $("conversation-retention-days").value = data.retention?.retention_days || 30;
-  renderConversations();
-  if (state.selectedConversation) {
-    state.selectedConversation = state.conversations.find((item) => item.session_id === state.selectedConversation.session_id) || null;
+  const button = $("refresh-conversations");
+  const originalLabel = button.textContent;
+  button.disabled = true;
+  button.textContent = "Refreshing…";
+  try {
+    const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations`);
+    state.conversations = Array.isArray(data.conversations) ? data.conversations : [];
+    $("conversation-retention-days").value = data.retention?.retention_days || 30;
+    const selectedId = state.selectedConversation?.session_id;
+    state.selectedConversation = selectedId ? state.conversations.find((item) => item.session_id === selectedId) || null : null;
+    $("conversation-last-refreshed").textContent = `Updated ${new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(new Date())}`;
+    renderConversations();
     renderConversationMessages();
+  } finally {
+    button.disabled = false;
+    button.textContent = originalLabel;
   }
 }
 
 async function saveConversationRetention() {
   const retentionDays = Number($("conversation-retention-days").value);
-  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations/retention`, { method: "PUT", body: JSON.stringify({ retention_days: retentionDays }) });
-  await loadConversations(); showToast("Conversation retention updated.");
+  if (!Number.isInteger(retentionDays) || retentionDays < 1 || retentionDays > 365) {
+    throw new Error("Choose a retention period from 1 to 365 days.");
+  }
+  const button = $("save-conversation-retention");
+  button.disabled = true;
+  try {
+    await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations/retention`, { method: "PUT", body: JSON.stringify({ retention_days: retentionDays }) });
+    await loadConversations();
+    showToast("Conversation retention updated.");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function conversationStateKey(conversation) {
+  if (["waiting_for_staff", "assigned", "human_active", "resolved"].includes(conversation?.state)) return conversation.state;
+  if (conversation?.status === "closed") return "resolved";
+  if (conversation?.status === "escalated") return "waiting_for_staff";
+  return "ai_active";
+}
+
+function conversationStateLabel(status) {
+  return ({
+    waiting_for_staff: "Waiting for staff",
+    assigned: "Assigned",
+    human_active: "Staff handling",
+    ai_active: "With AI",
+    resolved: "Resolved",
+  })[status] || "With AI";
+}
+
+function renderConversationSummary() {
+  const counts = { all: state.conversations.length, waiting_for_staff: 0, assigned: 0, human_active: 0, ai_active: 0, resolved: 0 };
+  for (const item of state.conversations) counts[conversationStateKey(item)] += 1;
+  $("conversation-count-all").textContent = counts.all;
+  $("conversation-count-waiting").textContent = counts.waiting_for_staff;
+  $("conversation-count-assigned").textContent = counts.assigned;
+  $("conversation-count-active").textContent = counts.human_active;
+  $("conversation-count-ai").textContent = counts.ai_active;
+  $("conversation-count-resolved").textContent = counts.resolved;
+  const activeFilter = $("conversation-status-filter").value;
+  for (const card of document.querySelectorAll("[data-conversation-filter]")) {
+    const selected = card.dataset.conversationFilter === activeFilter;
+    card.classList.toggle("selected", selected);
+    card.setAttribute("aria-pressed", String(selected));
+  }
+}
+
+function renderConversationEmptyState(list, message, detailText, actionLabel = "", action = null) {
+  const empty = document.createElement("div");
+  empty.className = "conversation-empty";
+  const title = document.createElement("strong");
+  title.textContent = message;
+  const detail = document.createElement("span");
+  detail.textContent = detailText;
+  empty.append(title, detail);
+  if (actionLabel && action) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary";
+    button.textContent = actionLabel;
+    button.addEventListener("click", action);
+    empty.appendChild(button);
+  }
+  list.appendChild(empty);
 }
 
 function renderConversations() {
   const query = $("conversation-search").value.trim().toLowerCase();
   const status = $("conversation-status-filter").value;
   const list = $("conversation-list");
-  list.innerHTML = "";
-  for (const conversation of state.conversations.filter((item) => (!status || item.status === status) && (!query || item.session_id.toLowerCase().includes(query) || item.restaurant_name?.toLowerCase().includes(query) || item.escalation_reason?.toLowerCase().includes(query) || item.messages.some((message) => message.content.toLowerCase().includes(query))))) {
+  const scrollTop = list.scrollTop;
+  list.replaceChildren();
+  renderConversationSummary();
+  const matching = state.conversations.filter((item) => {
+    const statusMatches = !status || conversationStateKey(item) === status;
+    const text = [item.session_id, item.client_id, item.restaurant_name, item.assigned_user_name, item.escalation_reason, ...(item.messages || []).map((message) => message.content)]
+      .filter(Boolean).join(" ").toLowerCase();
+    return statusMatches && (!query || text.includes(query));
+  });
+  $("conversation-result-count").textContent = query || status
+    ? `${matching.length} of ${state.conversations.length} conversations`
+    : `${matching.length} ${matching.length === 1 ? "conversation" : "conversations"}`;
+  for (const conversation of matching) {
     const row = document.createElement("button");
-    row.type = "button"; row.className = "compact-row";
-    const latest = conversation.messages?.at(-1);
-    const conversationLabel = conversation.restaurant_id ? (conversation.state || conversation.status) : conversation.status;
-    const startedAt = ["assigned", "human_active"].includes(conversation.state) ? conversation.assigned_at : conversation.last_message_at || conversation.created_at;
-    const waitingMinutes = startedAt ? Math.max(0, Math.floor((Date.now() / 1000 - Number(startedAt)) / 60)) : 0;
-    row.innerHTML = `<strong>${escapeHTML(conversation.restaurant_name || "Hotel team")} · ${escapeHTML(conversation.session_id.slice(0, 12))}</strong><span>${escapeHTML(conversationLabel)} · ${conversation.message_count} messages · ${waitingMinutes} min · ${escapeHTML(conversation.assigned_user_name || "Unassigned")}</span><span>${escapeHTML(conversation.escalation_reason || latest?.content || "No recent message")}</span>`;
-    row.addEventListener("click", () => { state.selectedConversation = conversation; renderConversationMessages(); });
+    row.type = "button";
+    row.className = "conversation-row";
+    const isSelected = conversation.session_id === state.selectedConversation?.session_id;
+    row.classList.toggle("selected", isSelected);
+    row.setAttribute("aria-pressed", String(isSelected));
+    const top = document.createElement("span");
+    top.className = "conversation-row-top";
+    const title = document.createElement("strong");
+    title.textContent = conversation.restaurant_name || "Hotel guest";
+    const badge = document.createElement("span");
+    const currentStatus = conversationStateKey(conversation);
+    badge.className = `conversation-status-badge ${currentStatus}`;
+    badge.textContent = conversationStateLabel(currentStatus);
+    top.append(title, badge);
+    const meta = document.createElement("span");
+    meta.className = "conversation-row-meta";
+    const latestAt = conversation.last_message_at || conversation.created_at;
+    meta.textContent = `${conversation.session_id.slice(0, 12)} · ${conversation.message_count || 0} messages · ${formatDate(latestAt)}${conversation.assigned_user_name ? ` · ${conversation.assigned_user_name}` : " · Unassigned"}`;
+    const preview = document.createElement("span");
+    preview.className = "conversation-row-preview";
+    const lastMessage = conversation.messages?.at(-1);
+    preview.textContent = conversation.escalation_reason || lastMessage?.content || "No messages yet";
+    row.append(top, meta, preview);
+    row.addEventListener("click", () => {
+      state.selectedConversation = conversation;
+      renderConversations();
+      renderConversationMessages();
+    });
     list.appendChild(row);
   }
-  if (!list.children.length) list.textContent = "No conversations match this view.";
+  list.scrollTop = scrollTop;
+  if (!matching.length) {
+    const hasFilter = Boolean(query || status);
+    renderConversationEmptyState(
+      list,
+      hasFilter ? "No conversations match these filters" : "No conversations yet",
+      hasFilter ? "Try a different status or search term." : "Guest messages will appear here when someone starts a conversation in the guest app.",
+      hasFilter ? "Clear filters" : can("concierge.view") ? "Open guest preview" : "",
+      hasFilter ? () => { $("conversation-search").value = ""; $("conversation-status-filter").value = ""; renderConversations(); }
+        : can("concierge.view") ? () => activatePanel("guest") : null,
+    );
+  }
 }
 
 function renderConversationMessages() {
   const conversation = state.selectedConversation;
   const list = $("conversation-messages");
-  list.innerHTML = "";
+  list.replaceChildren();
   for (const message of conversation?.messages || []) {
-    const row = document.createElement("div"); row.className = "compact-row";
-    row.innerHTML = `<strong>${escapeHTML(message.role)}</strong><span>${escapeHTML(message.content)}</span><small>${escapeHTML(formatDate(message.created_at))}</small>`;
+    const role = String(message.role || "assistant").toLowerCase();
+    const roleClass = role === "staff" ? "staff" : ["user", "guest"].includes(role) ? "guest" : role === "system" ? "system" : "assistant";
+    const roleLabel = roleClass === "guest" ? "Guest" : roleClass === "staff" ? "Staff" : roleClass === "system" ? "System" : "AI assistant";
+    const row = document.createElement("article");
+    row.className = `conversation-message ${roleClass}`;
+    const meta = document.createElement("div");
+    meta.className = "conversation-message-meta";
+    const sender = document.createElement("strong");
+    sender.textContent = roleLabel;
+    const timestamp = document.createElement("time");
+    timestamp.textContent = formatDate(message.created_at);
+    meta.append(sender, timestamp);
+    const bubble = document.createElement("div");
+    bubble.className = "conversation-message-bubble";
+    bubble.textContent = message.content || "";
+    row.append(meta, bubble);
+    if (message.error) {
+      const error = document.createElement("small");
+      error.className = "conversation-message-error-note";
+      error.textContent = `Delivery issue: ${message.error}`;
+      row.appendChild(error);
+    }
     list.appendChild(row);
   }
-  if (!conversation) list.textContent = "Select a conversation.";
+  const title = $("conversation-detail-name");
+  const detail = $("conversation-detail-meta");
+  const badge = $("conversation-detail-status");
+  if (!conversation) {
+    title.textContent = "Select a conversation";
+    detail.textContent = "Choose an item from the inbox to review their messages.";
+    badge.hidden = true;
+    renderConversationEmptyState(list, "Your conversation details will appear here", "Select an item from the inbox to read the full guest and staff history.");
+  } else {
+    const currentStatus = conversationStateKey(conversation);
+    title.textContent = conversation.restaurant_name || "Hotel guest";
+    detail.textContent = `Session ${conversation.session_id.slice(0, 12)} · ${conversation.message_count || 0} messages · Last activity ${formatDate(conversation.last_message_at || conversation.created_at)}`;
+    badge.hidden = false;
+    badge.className = `conversation-status-badge ${currentStatus}`;
+    badge.textContent = conversationStateLabel(currentStatus);
+    if (!conversation.messages?.length) renderConversationEmptyState(list, "No messages in this conversation yet", "New guest messages will appear here.");
+    list.scrollTop = list.scrollHeight;
+  }
   const restaurantConversation = Boolean(conversation?.restaurant_id);
-  const canAccept = can("conversations.takeover") && restaurantConversation && (conversation?.state === "waiting_for_staff" || (conversation?.state === "assigned" && conversation.assigned_user_id === state.auth?.id));
-  const canReturn = can("conversations.return_to_ai") && conversation?.state === "human_active" && (conversation.assigned_user_id === state.auth?.id || can("conversations.assign"));
-  $("toggle-takeover").disabled = !conversation || !(restaurantConversation ? canAccept || canReturn : can("conversations.takeover") || canReturn);
-  $("close-conversation").disabled = !conversation || !can("conversations.resolve") || (restaurantConversation && conversation.state !== "human_active");
-  $("send-staff-response").disabled = !conversation || !can("conversations.reply") || (restaurantConversation && (conversation.state !== "human_active" || (conversation.assigned_user_id !== state.auth?.id && !can("conversations.assign"))));
-  $("toggle-takeover").textContent = conversation?.state === "human_active" ? "Return to AI" : restaurantConversation ? "Accept Conversation" : "Take Over";
-  $("close-conversation").textContent = restaurantConversation ? "Resolve" : "Close";
-  $("assign-conversation").disabled = !conversation?.restaurant_id || !can("conversations.assign") || !$("conversation-staff-select").value;
+  const propertyAdmin = can("properties.all") || can("properties.edit");
+  const currentStatus = conversationStateKey(conversation);
+  const canAccept = can("conversations.takeover") && restaurantConversation && (currentStatus === "waiting_for_staff" || (currentStatus === "assigned" && conversation?.assigned_user_id === state.auth?.id));
+  const canReturn = can("conversations.return_to_ai") && currentStatus === "human_active" && (conversation?.assigned_user_id === state.auth?.id || can("conversations.assign"));
+  const takeover = $("toggle-takeover");
+  $("conversation-detail-actions").hidden = !conversation;
+  takeover.hidden = !conversation || (restaurantConversation
+    ? !can("conversations.takeover") && !can("conversations.return_to_ai")
+    : !propertyAdmin || !can("conversations.takeover"));
+  takeover.disabled = !conversation || (restaurantConversation ? !(canAccept || canReturn) : !propertyAdmin || !can("conversations.takeover") || currentStatus === "resolved");
+  takeover.textContent = currentStatus === "human_active" ? "Return to AI" : restaurantConversation ? "Accept Conversation" : "Take Over";
+  takeover.title = takeover.disabled && currentStatus === "assigned" ? "Only the assigned staff member can accept this conversation." : "";
+  const resolve = $("close-conversation");
+  resolve.hidden = !conversation || !can("conversations.resolve");
+  resolve.disabled = !conversation || !can("conversations.resolve") || (restaurantConversation ? currentStatus === "resolved" || (conversation?.assigned_user_id !== state.auth?.id && !can("conversations.assign")) : !propertyAdmin || currentStatus === "resolved");
+  resolve.textContent = currentStatus === "resolved" ? "Resolved" : restaurantConversation ? "Resolve" : "Close";
+  const assignment = $("conversation-assignment");
+  assignment.hidden = !restaurantConversation || !can("conversations.assign");
+  const staffSelect = $("conversation-staff-select");
+  staffSelect.disabled = !restaurantConversation || !can("conversations.assign") || !staffSelect.options.length || staffSelect.options.length < 2;
+  const assign = $("assign-conversation");
+  assign.hidden = !restaurantConversation || !can("conversations.assign");
+  assign.textContent = conversation?.assigned_user_id ? "Reassign" : "Assign";
+  assign.disabled = !restaurantConversation || !can("conversations.assign") || !staffSelect.value || staffSelect.value === conversation?.assigned_user_id;
+  const canReply = conversation && can("conversations.reply") && currentStatus === "human_active" && (restaurantConversation
+    ? conversation.assigned_user_id === state.auth?.id || can("conversations.assign")
+    : propertyAdmin);
+  $("staff-response").disabled = !canReply;
+  $("send-staff-response").disabled = !canReply || !$("staff-response").value.trim();
+  $("conversation-reply-hint").textContent = !conversation
+    ? "Select a conversation to reply."
+    : currentStatus === "resolved" ? "This conversation is resolved."
+      : !can("conversations.reply") ? "Your role cannot reply to guest conversations."
+        : currentStatus !== "human_active" ? "Accept the conversation before replying as staff."
+          : restaurantConversation && conversation.assigned_user_id !== state.auth?.id && !can("conversations.assign") ? "This conversation is assigned to another staff member."
+            : "Replies are sent to the guest conversation.";
   loadAssignableRestaurantStaff().catch((error) => showToast(error.message, "error"));
 }
 
@@ -2729,9 +3266,21 @@ async function loadAssignableRestaurantStaff() {
   if (!select) return;
   select.replaceChildren();
   if (!conversation?.restaurant_id || !can("conversations.assign")) return;
+  const selectedId = conversation.session_id;
+  select.disabled = true;
+  select.appendChild(new Option("Loading staff…", ""));
   const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/restaurants/${encodeURIComponent(conversation.restaurant_id)}/staff`);
+  if (state.selectedConversation?.session_id !== selectedId) return;
+  select.replaceChildren(new Option("Choose a staff member", ""));
   for (const person of data.staff || []) select.appendChild(new Option(person.display_name, person.user_id));
-  $("assign-conversation").disabled = !select.value;
+  if (!data.staff?.length) select.options[0].textContent = "No eligible staff available";
+  if (conversation.assigned_user_id && [...select.options].some((option) => option.value === conversation.assigned_user_id)) {
+    select.value = conversation.assigned_user_id;
+  }
+  select.disabled = !data.staff?.length;
+  const assign = $("assign-conversation");
+  assign.textContent = conversation.assigned_user_id ? "Reassign" : "Assign";
+  assign.disabled = !select.value || select.value === conversation.assigned_user_id;
 }
 
 async function assignSelectedConversation() {
@@ -2745,8 +3294,18 @@ async function assignSelectedConversation() {
 async function sendStaffResponse() {
   const message = $("staff-response").value.trim();
   if (!state.selectedConversation || !message) throw new Error("Enter a staff response.");
-  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations/${encodeURIComponent(state.selectedConversation.session_id)}/messages`, { method: "POST", body: JSON.stringify({ message }) });
-  $("staff-response").value = ""; await loadConversations(); showToast("Staff response sent.");
+  const button = $("send-staff-response");
+  button.disabled = true;
+  button.textContent = "Sending…";
+  try {
+    await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations/${encodeURIComponent(state.selectedConversation.session_id)}/messages`, { method: "POST", body: JSON.stringify({ message }) });
+    $("staff-response").value = "";
+    await loadConversations();
+    showToast("Staff response sent.");
+  } finally {
+    button.textContent = "Send Response";
+    renderConversationMessages();
+  }
 }
 
 async function loadServiceCatalog() {
@@ -2765,6 +3324,7 @@ async function loadServiceCatalog() {
   for (const service of state.catalog.services.filter((item) => item.enabled && !item.archived)) {
     requestSelect.appendChild(new Option(service.name, service.service_id));
   }
+  requestDepartment.disabled = true;
   if (state.catalog.services.some((item) => item.service_id === selectedService && item.enabled && !item.archived)) {
     requestSelect.value = selectedService;
   }
@@ -2890,7 +3450,10 @@ function syncRequestService() {
   const service = state.catalog.services.find((item) => item.service_id === $("service-type").value);
   const department = state.catalog.departments.find((item) => item.department_id === service?.department_id);
   $("service-department").value = department?.name || "";
+  $("service-department").disabled = true;
+  $("service-sla").disabled = !service;
   if (service) $("service-sla").value = service.sla_minutes;
+  updateCreateServiceRequestButton();
 }
 
 async function loadRecommendations() {
@@ -2938,37 +3501,227 @@ async function deleteRecommendation(recommendationId) {
   await loadRecommendations(); showToast("Recommendation deleted.");
 }
 
+function updateCreateServiceRequestButton() {
+  const hasServices = state.catalog.services.some((item) => item.enabled && !item.archived);
+  const serviceSelect = $("service-type");
+  const button = $("create-service-request");
+  const sla = Number($("service-sla").value);
+  const validSla = Number.isInteger(sla) && sla >= 1 && sla <= 1440;
+  $("service-catalog-empty").hidden = hasServices;
+  $("open-service-catalog").hidden = hasServices;
+  serviceSelect.disabled = !hasServices;
+  button.disabled = !serviceSelect.value || !$("service-description").value.trim() || !validSla || !hasServices;
+}
+
+function serviceStatusLabel(status) {
+  return ({ new: "New", assigned: "Assigned", accepted: "Accepted", in_progress: "In progress", delivered: "Delivered", completed: "Completed" })[status] || String(status || "Unknown").replaceAll("_", " ");
+}
+
+function serviceSlaLabel(request) {
+  if (request.status === "completed" || request.sla_state === "completed") return "Completed";
+  if (request.sla_state === "overdue") return "Overdue";
+  if (request.sla_state === "warning") return "Due soon";
+  return "On track";
+}
+
+function renderServiceRequestSummary() {
+  const requests = state.serviceRequests || [];
+  const open = requests.filter((request) => request.status !== "completed");
+  const counts = {
+    all: requests.length,
+    open: open.length,
+    overdue: open.filter((request) => request.sla_state === "overdue").length,
+    completed: requests.length - open.length,
+  };
+  for (const [key, count] of Object.entries(counts)) $(`request-count-${key}`).textContent = count;
+  const activeFilter = $("service-request-status-filter").value || "all";
+  for (const card of document.querySelectorAll("[data-request-filter]")) {
+    card.classList.toggle("selected", card.dataset.requestFilter === activeFilter);
+  }
+}
+
+function renderServiceRequestHistory(request, container) {
+  const detailText = (event) => {
+    const detail = event.detail || {};
+    if (event.action === "created") return "Request added to the queue";
+    if (event.action === "status_changed") return `Status changed to ${serviceStatusLabel(detail.status)}`;
+    const labels = { department: "Department", assigned_to: "Assigned to", priority: "Priority", note: "Note" };
+    const changes = Object.entries(detail).map(([key, value]) => `${labels[key] || key.replaceAll("_", " ")}: ${value}`).filter(Boolean);
+    return changes.length ? changes.join(" · ") : String(event.action || "Request updated").replaceAll("_", " ");
+  };
+  container.replaceChildren();
+  container.dataset.loaded = "true";
+  delete container.dataset.loading;
+  if (!container._history?.length) {
+    container.textContent = "No activity has been recorded yet.";
+    return;
+  }
+  for (const event of container._history) {
+    const row = document.createElement("div");
+    row.className = "request-history-event";
+    const description = document.createElement("strong");
+    description.textContent = detailText(event);
+    const date = document.createElement("time");
+    date.textContent = formatDate(event.created_at);
+    row.append(description, date);
+    container.appendChild(row);
+  }
+}
+
+function renderServiceRequests() {
+  const list = $("service-request-list");
+  const requests = state.serviceRequests || [];
+  const filter = $("service-request-status-filter").value;
+  const query = $("service-request-search").value.trim().toLowerCase();
+  renderServiceRequestSummary();
+  const matching = requests.filter((request) => {
+    const matchesFilter = !filter
+      || filter === "all"
+      || (filter === "open" && request.status !== "completed")
+      || (filter === "overdue" && request.status !== "completed" && request.sla_state === "overdue")
+      || request.status === filter;
+    const searchText = [request.request_id, request.request_type, request.room, request.description, request.department, request.assigned_to, ...(request.notes || []).map((note) => note.text)].join(" ").toLowerCase();
+    return matchesFilter && (!query || searchText.includes(query));
+  });
+  $("service-request-result-count").textContent = `${matching.length} ${matching.length === 1 ? "request" : "requests"}`;
+  list.replaceChildren();
+  if (!matching.length) {
+    const empty = document.createElement("div");
+    empty.className = "request-queue-empty";
+    const title = document.createElement("strong");
+    title.textContent = requests.length ? "No requests match these filters" : "No service requests yet";
+    const message = document.createElement("span");
+    message.textContent = requests.length
+      ? "Change the status filter or search term to see other requests."
+      : "Guest-submitted and staff-created requests will appear here for assignment and follow-up.";
+    empty.append(title, message);
+    list.appendChild(empty);
+    return;
+  }
+
+  const make = (tag, className, text) => {
+    const element = document.createElement(tag);
+    if (className) element.className = className;
+    if (text !== undefined) element.textContent = text;
+    return element;
+  };
+  const addDetail = (grid, label, value) => {
+    const cell = make("div", "service-request-detail");
+    cell.append(make("span", "", label), make("strong", "", value || "Not set"));
+    grid.appendChild(cell);
+  };
+  for (const request of matching) {
+    const card = make("article", "service-request-card");
+    const header = make("header", "service-request-card-header");
+    const title = make("div", "service-request-card-title");
+    title.append(make("p", "", `REQUEST ${request.request_id || "—"}`));
+    title.append(make("h3", "", `${request.request_type || "Guest request"} · ${request.room ? `Room ${request.room}` : "Room not recorded"}`));
+    const badges = make("div", "service-request-badges");
+    badges.append(make("span", `request-status-badge status-${request.status}`, serviceStatusLabel(request.status)));
+    badges.append(make("span", `request-sla-badge sla-${request.sla_state}`, serviceSlaLabel(request)));
+    header.append(title, badges);
+    card.appendChild(header);
+
+    const description = make("p", "service-request-description", request.description || "No request description.");
+    card.appendChild(description);
+    const facts = make("div", "service-request-facts");
+    const targetMinutes = request.sla_target_seconds ? Math.ceil(Number(request.sla_target_seconds) / 60) : null;
+    addDetail(facts, "Department", request.department || "Unassigned");
+    addDetail(facts, "Assigned to", request.assigned_to || "Unassigned");
+    addDetail(facts, "Priority", String(request.priority || "normal").replace(/^./, (letter) => letter.toUpperCase()));
+    addDetail(facts, "Created", formatDate(request.created_at));
+    addDetail(facts, "SLA target", targetMinutes ? `${targetMinutes} minutes` : "No target set");
+    addDetail(facts, "SLA due", request.due_at ? formatDate(request.due_at) : "No due time");
+    addDetail(facts, "Last updated", formatDate(request.updated_at));
+    if (request.completed_at) addDetail(facts, "Completed", formatDate(request.completed_at));
+    if (request.stay_id) addDetail(facts, "Guest stay", request.stay_id);
+    card.appendChild(facts);
+
+    const notes = Array.isArray(request.notes) ? request.notes.filter((item) => item?.text) : [];
+    if (notes.length) {
+      const notesSection = make("div", "service-request-notes");
+      notesSection.appendChild(make("strong", "", "Operational notes"));
+      for (const item of notes) notesSection.appendChild(make("p", "", `${item.text} · ${formatDate(item.created_at)}`));
+      card.appendChild(notesSection);
+    }
+
+    const controls = make("div", "service-request-edit");
+    const departmentLabel = make("label", "", "Route to department");
+    const department = document.createElement("select");
+    department.setAttribute("aria-label", `Department for request ${request.request_id}`);
+    department.appendChild(new Option("Unassigned", ""));
+    for (const item of state.catalog.departments) department.appendChild(new Option(item.name, item.name));
+    if (request.department && ![...department.options].some((option) => option.value === request.department)) department.appendChild(new Option(request.department, request.department));
+    department.value = request.department || "";
+    departmentLabel.appendChild(department);
+    const assignedLabel = make("label", "", "Assigned staff member");
+    const assigned = document.createElement("input");
+    assigned.placeholder = "Name or staff ID";
+    assigned.setAttribute("aria-label", `Assignee for request ${request.request_id}`);
+    assigned.value = request.assigned_to || "";
+    assignedLabel.appendChild(assigned);
+    const priorityLabel = make("label", "", "Priority");
+    const priority = document.createElement("select");
+    priority.setAttribute("aria-label", `Priority for request ${request.request_id}`);
+    for (const value of ["low", "normal", "high", "urgent"]) priority.appendChild(new Option(value[0].toUpperCase() + value.slice(1), value));
+    priority.value = request.priority || "normal";
+    priorityLabel.appendChild(priority);
+    const noteLabel = make("label", "", "Add a note");
+    const note = document.createElement("input");
+    note.placeholder = "Visible in this request’s activity history";
+    note.setAttribute("aria-label", `Operational note for request ${request.request_id}`);
+    noteLabel.appendChild(note);
+    const save = make("button", "secondary", "Save updates");
+    save.type = "button";
+    save.addEventListener("click", () => updateServiceRequest(request.request_id, { department: department.value, assigned_to: assigned.value, priority: priority.value, note: note.value }).catch((error) => showToast(error.message, "error")));
+    controls.append(departmentLabel, assignedLabel, priorityLabel, noteLabel, save);
+    card.appendChild(controls);
+
+    const actions = make("div", "service-request-actions");
+    const next = nextServiceStatus(request.status);
+    if (next) {
+      const advance = make("button", "secondary", `Mark ${serviceStatusLabel(next)}`);
+      advance.type = "button";
+      advance.addEventListener("click", () => updateServiceStatus(request.request_id, next).catch((error) => showToast(error.message, "error")));
+      actions.appendChild(advance);
+    }
+    if (request.status !== "completed") {
+      const complete = make("button", "secondary", "Mark completed");
+      complete.type = "button";
+      complete.addEventListener("click", () => updateServiceStatus(request.request_id, "completed").catch((error) => showToast(error.message, "error")));
+      actions.appendChild(complete);
+    }
+    card.appendChild(actions);
+
+    const history = document.createElement("details");
+    history.className = "service-request-history";
+    const summary = make("summary", "", "View activity history");
+    const historyContent = make("div", "service-request-history-content", "Open to load the request’s status and assignment changes.");
+    history.append(summary, historyContent);
+    history.addEventListener("toggle", async () => {
+      if (!history.open || historyContent.dataset.loaded === "true" || historyContent.dataset.loading === "true") return;
+      historyContent.dataset.loading = "true";
+      historyContent.textContent = "Loading request history…";
+      try {
+        const response = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/service-requests/${encodeURIComponent(request.request_id)}/history`);
+        historyContent._history = response.history || [];
+        renderServiceRequestHistory(request, historyContent);
+      } catch (error) {
+        delete historyContent.dataset.loading;
+        historyContent.textContent = "History could not be loaded. Close and reopen this section to try again.";
+        showToast(error.message, "error");
+      }
+    });
+    card.appendChild(history);
+    list.appendChild(card);
+  }
+}
+
 async function loadServiceRequests() {
   await loadServiceCatalog();
   const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/hospitality`);
-  const list = $("service-request-list");
-  list.innerHTML = "";
-  for (const request of data.service_requests || []) {
-    const row = document.createElement("div");
-    row.className = "compact-row";
-    const next = nextServiceStatus(request.status);
-    row.innerHTML = `
-      <strong>${escapeHTML(request.request_type)} · ${escapeHTML(request.room || "no room")}</strong>
-      <span>${escapeHTML(request.status)} · ${escapeHTML(request.sla_state)} · ${escapeHTML(request.department)} · ${escapeHTML(request.priority)}</span>
-      <span>${escapeHTML(request.description)}</span>
-    `;
-    const controls = document.createElement("div"); controls.className = "request-controls";
-    const department = document.createElement("select"); department.setAttribute("aria-label", `Department for ${request.request_id}`);
-    department.appendChild(new Option("Unassigned", ""));
-    for (const item of state.catalog.departments) department.appendChild(new Option(item.name, item.name));
-    department.value = request.department || "";
-    const assigned = document.createElement("input"); assigned.placeholder = "Assign to"; assigned.setAttribute("aria-label", `Assignee for ${request.request_id}`); assigned.value = request.assigned_to || "";
-    const priority = document.createElement("select"); priority.setAttribute("aria-label", `Priority for ${request.request_id}`);
-    for (const value of ["low", "normal", "high", "urgent"]) priority.appendChild(new Option(value[0].toUpperCase() + value.slice(1), value)); priority.value = request.priority;
-    const note = document.createElement("input"); note.placeholder = "Add operational note"; note.setAttribute("aria-label", `Note for ${request.request_id}`);
-    const save = document.createElement("button"); save.type = "button"; save.textContent = "Save"; save.addEventListener("click", () => updateServiceRequest(request.request_id, { department: department.value, assigned_to: assigned.value, priority: priority.value, note: note.value }).catch((error) => showToast(error.message, "error")));
-    controls.append(department, assigned, priority, note, save);
-    if (next) { const advance = document.createElement("button"); advance.type = "button"; advance.textContent = `Mark ${next.replaceAll("_", " ")}`; advance.addEventListener("click", () => updateServiceStatus(request.request_id, next)); controls.appendChild(advance); }
-    if (request.status !== "completed") { const close = document.createElement("button"); close.type = "button"; close.textContent = "Close"; close.addEventListener("click", () => updateServiceStatus(request.request_id, "completed")); controls.appendChild(close); }
-    row.appendChild(controls);
-    list.appendChild(row);
-  }
-  if (!list.children.length) list.textContent = "No service requests yet.";
+  state.serviceRequests = Array.isArray(data.service_requests) ? data.service_requests : [];
+  renderServiceRequests();
 }
 
 async function updateServiceRequest(requestId, payload) {
@@ -2984,6 +3737,9 @@ function nextServiceStatus(status) {
 
 async function createServiceRequest() {
   if (!$("service-type").value) throw new Error("Select a configured service.");
+  if (!$("service-description").value.trim()) throw new Error("Add a short description of what the guest needs.");
+  const slaMinutes = Number($("service-sla").value);
+  if (!Number.isInteger(slaMinutes) || slaMinutes < 1 || slaMinutes > 1440) throw new Error("Set an SLA target between 1 and 1,440 minutes.");
   await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/service-requests`, {
     method: "POST",
     body: JSON.stringify({ data: {
@@ -2991,10 +3747,11 @@ async function createServiceRequest() {
       service_id: $("service-type").value,
       description: $("service-description").value.trim(),
       priority: $("service-priority").value,
-      sla_target_seconds: Number($("service-sla").value || 15) * 60,
+      sla_target_seconds: slaMinutes * 60,
     } }),
   });
   $("service-description").value = "";
+  updateCreateServiceRequestButton();
   await loadServiceRequests();
   showToast("Service request created.");
 }
@@ -3410,6 +4167,139 @@ function bindInvestigateButtons() {
   }
 }
 
+function assistantLabel(value) {
+  const labels = {
+    ai_providers: "AI providers", guest_auth: "Guest authentication", request_queue: "Service request queue",
+    restaurant_reporting: "Restaurant report", business_analytics: "Business analytics", sla: "SLA",
+  };
+  const normalized = String(value || "").replaceAll("_", " ");
+  return labels[value] || normalized.replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function assistantStatus(value) {
+  const normalized = String(value || "").toLowerCase();
+  return ["healthy", "warning", "critical", "unavailable", "available", "simulation", "restricted"].includes(normalized)
+    ? normalized : "";
+}
+
+function appendAssistantEvidence(container, items = []) {
+  if (!items.length) return;
+  const section = document.createElement("section");
+  section.className = "assistant-evidence";
+  const heading = document.createElement("h4");
+  heading.textContent = "What I checked";
+  section.appendChild(heading);
+  const list = document.createElement("div");
+  list.className = "assistant-evidence-list";
+  for (const item of items.slice(0, 18)) {
+    const row = document.createElement("article");
+    row.className = "assistant-evidence-item";
+    const title = document.createElement("strong");
+    title.textContent = item.label || "Check";
+    row.appendChild(title);
+    const state = assistantStatus(item.state);
+    if (state) {
+      const badge = document.createElement("span");
+      badge.className = `assistant-state ${state}`;
+      badge.textContent = state.replaceAll("_", " ");
+      row.appendChild(badge);
+    }
+    if (item.detail) {
+      const detail = document.createElement("p");
+      detail.textContent = item.detail;
+      row.appendChild(detail);
+    }
+    list.appendChild(row);
+  }
+  section.appendChild(list);
+  container.appendChild(section);
+}
+
+function appendAssistantInlineText(container, value) {
+  const pattern = /(\*\*\*.+?\*\*\*|\*\*.+?\*\*|__.+?__|`[^`]+`|\*[^*]+\*|_[^_]+_)/g;
+  let cursor = 0;
+  for (const match of value.matchAll(pattern)) {
+    if (match.index > cursor) container.appendChild(document.createTextNode(value.slice(cursor, match.index)));
+    const token = match[0];
+    let element;
+    let content;
+    if (token.startsWith("***")) {
+      element = document.createElement("strong");
+      const emphasis = document.createElement("em");
+      emphasis.textContent = token.slice(3, -3);
+      element.appendChild(emphasis);
+    } else if (token.startsWith("**") || token.startsWith("__")) {
+      element = document.createElement("strong");
+      content = token.slice(2, -2);
+      element.textContent = content;
+    } else if (token.startsWith("`")) {
+      element = document.createElement("code");
+      element.textContent = token.slice(1, -1);
+    } else {
+      element = document.createElement("em");
+      content = token.slice(1, -1);
+      element.textContent = content;
+    }
+    container.appendChild(element);
+    cursor = match.index + token.length;
+  }
+  if (cursor < value.length) container.appendChild(document.createTextNode(value.slice(cursor)));
+}
+
+function appendAssistantFormattedCopy(container, value) {
+  const lines = String(value).replaceAll("\r", "").split("\n");
+  let paragraph = [];
+  let list = null;
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    const block = document.createElement("p");
+    paragraph.forEach((line, index) => {
+      if (index) block.appendChild(document.createElement("br"));
+      appendAssistantInlineText(block, line);
+    });
+    container.appendChild(block);
+    paragraph = [];
+  };
+  const closeList = () => { list = null; };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      flushParagraph();
+      closeList();
+      continue;
+    }
+    const headingMatch = trimmed.match(/^#{1,3}\s+(.+)$/);
+    if (headingMatch) {
+      flushParagraph();
+      closeList();
+      const heading = document.createElement("h4");
+      appendAssistantInlineText(heading, headingMatch[1]);
+      container.appendChild(heading);
+      continue;
+    }
+    const listMatch = trimmed.match(/^([-*+]\s+|\d+[.)]\s+)(.+)$/);
+    if (listMatch) {
+      flushParagraph();
+      const ordered = /^\d/.test(listMatch[1]);
+      const tag = ordered ? "ol" : "ul";
+      if (!list || list.tagName.toLowerCase() !== tag) {
+        closeList();
+        list = document.createElement(tag);
+        container.appendChild(list);
+      }
+      const item = document.createElement("li");
+      appendAssistantInlineText(item, listMatch[2]);
+      list.appendChild(item);
+      continue;
+    }
+    closeList();
+    paragraph.push(trimmed);
+  }
+  flushParagraph();
+}
+
 function renderAssistantAnswer(container, payload) {
   container.querySelector(".assistant-empty")?.remove();
   const question = document.createElement("article");
@@ -3418,8 +4308,63 @@ function renderAssistantAnswer(container, payload) {
   const answer = document.createElement("article");
   answer.className = "assistant-message answer";
   state.assistantConversationId = payload.conversation_id || state.assistantConversationId;
-  const activity = (payload.tool_activity || (payload.tool ? [payload.tool] : [])).map((item) => escapeHTML(item.replaceAll("_", " "))).join(" · ");
-  answer.innerHTML = `<span>${escapeHTML((payload.component || "diagnostics").replaceAll("_", " "))} · ${escapeHTML(payload.timeframe || "current period")}</span><h3>${escapeHTML(payload.finding || "Investigation complete")}</h3>${payload.answer ? `<p>${escapeHTML(payload.answer)}</p>` : ""}${activity ? `<p><strong>Diagnostic tool${activity.includes(" · ") ? "s" : ""}</strong><br>${activity}</p>` : ""}<p><strong>Evidence</strong></p><pre>${escapeHTML(JSON.stringify(payload.evidence, null, 2))}</pre>${payload.likely_cause ? `<p><strong>Likely cause</strong><br>${escapeHTML(payload.likely_cause)}</p>` : ""}${payload.confirmation_required ? `<p class="confirmation-note">${escapeHTML(payload.action_status)}</p>` : ""}<p><strong>Recommended next step</strong></p><ul>${(payload.recommendations || []).map((item) => `<li>${escapeHTML(item)}</li>`).join("")}</ul><div class="assistant-links">${(payload.links || []).map((item) => `<button class="secondary" type="button" data-assistant-panel="${escapeHTML(item.panel)}">${escapeHTML(item.label)}</button>`).join("")}</div>${payload.request_id ? `<small>Request ${escapeHTML(payload.request_id)}</small>` : ""}`;
+  const timeframe = payload.timeframe && payload.timeframe !== "current period" ? ` · ${payload.timeframe}` : "";
+  const meta = document.createElement("span");
+  meta.textContent = `${assistantLabel(payload.component || "operations assistant")}${timeframe}`;
+  answer.appendChild(meta);
+  const heading = document.createElement("h3");
+  heading.textContent = payload.finding || "Here’s what I found";
+  answer.appendChild(heading);
+  if (payload.answer) {
+    const body = document.createElement("div");
+    body.className = "assistant-answer-copy";
+    appendAssistantFormattedCopy(body, payload.answer);
+    answer.appendChild(body);
+  }
+  appendAssistantEvidence(answer, payload.evidence_items || []);
+  if (payload.likely_cause) {
+    const cause = document.createElement("p");
+    cause.className = "assistant-cause";
+    cause.textContent = `Likely cause: ${payload.likely_cause}`;
+    answer.appendChild(cause);
+  }
+  if (payload.confirmation_required) {
+    const note = document.createElement("p");
+    note.className = "confirmation-note";
+    note.textContent = payload.action_status || "No changes were made.";
+    answer.appendChild(note);
+  }
+  if ((payload.recommendations || []).length) {
+    const title = document.createElement("h4");
+    title.textContent = "Suggested next steps";
+    answer.appendChild(title);
+    const list = document.createElement("ul");
+    for (const item of payload.recommendations) {
+      const entry = document.createElement("li");
+      entry.textContent = item;
+      list.appendChild(entry);
+    }
+    answer.appendChild(list);
+  }
+  const links = document.createElement("div");
+  links.className = "assistant-links";
+  for (const item of payload.links || []) {
+    const button = document.createElement("button");
+    button.className = "secondary";
+    button.type = "button";
+    button.textContent = item.label;
+    button.dataset.assistantPanel = item.panel;
+    links.appendChild(button);
+  }
+  for (const item of payload.downloads || []) {
+    if (!item.url || !item.url.startsWith("/") || item.url.startsWith("//")) continue;
+    const link = document.createElement("a");
+    link.className = "secondary assistant-download";
+    link.href = item.url;
+    link.textContent = item.label || "Download report";
+    links.appendChild(link);
+  }
+  if (links.childElementCount) answer.appendChild(links);
   container.append(question, answer);
   for (const button of answer.querySelectorAll("[data-assistant-panel]")) button.addEventListener("click", () => {
     closeAssistant();
@@ -3430,12 +4375,13 @@ function renderAssistantAnswer(container, payload) {
 
 async function submitAssistant(event, inputId, messagesId) {
   event.preventDefault();
-  if (event.currentTarget.dataset.busy === "true") return;
+  const form = event.currentTarget;
+  if (form.dataset.busy === "true") return;
   const input = $(inputId);
   const question = input.value.trim();
   if (!question) return;
-  const button = event.currentTarget.querySelector("button[type='submit']");
-  event.currentTarget.dataset.busy = "true";
+  const button = form.querySelector("button[type='submit']");
+  form.dataset.busy = "true";
   button.disabled = true;
   button.textContent = "Investigating…";
   const container = $(messagesId);
@@ -3452,11 +4398,21 @@ async function submitAssistant(event, inputId, messagesId) {
     });
     renderAssistantAnswer($(messagesId), payload);
     input.value = "";
+  } catch (error) {
+    const answer = document.createElement("article");
+    answer.className = "assistant-message answer assistant-message-error";
+    const heading = document.createElement("h3");
+    heading.textContent = "I can’t access that check with your current role.";
+    const detail = document.createElement("p");
+    detail.textContent = error.message || "Ask an administrator to review your assistant and reporting permissions.";
+    answer.append(heading, detail);
+    container.appendChild(answer);
+    container.scrollTop = container.scrollHeight;
   } finally {
     progress.remove();
-    event.currentTarget.dataset.busy = "false";
+    form.dataset.busy = "false";
     button.disabled = false;
-    button.textContent = inputId.includes("drawer") ? "Ask" : "Investigate";
+    button.textContent = "Ask";
   }
 }
 
@@ -3743,7 +4699,19 @@ function setup() {
   $("save-ai-settings").addEventListener("click", () => saveAISettings().catch((error) => showToast(error.message, "error")));
   $("save-personalization-policy").addEventListener("click", () => savePersonalizationPolicy().catch((error) => showToast(error.message, "error")));
   $("personalization-retention").addEventListener("change", () => {
-    $("personalization-retention-days").disabled = $("personalization-retention").value !== "configurable";
+    const daysInput = $("personalization-retention-days");
+    const configurable = $("personalization-retention").value === "configurable";
+    if (configurable) {
+      daysInput.disabled = false;
+      daysInput.value = daysInput.dataset.configurableValue || daysInput.value || "2";
+    } else {
+      if (!daysInput.disabled) daysInput.dataset.configurableValue = daysInput.value;
+      daysInput.value = "2";
+      daysInput.disabled = true;
+    }
+  });
+  $("personalization-retention-days").addEventListener("input", (event) => {
+    if (!event.currentTarget.disabled) event.currentTarget.dataset.configurableValue = event.currentTarget.value;
   });
   $("personalization-profile").addEventListener("change", () => {
     const option = $("personalization-default-level").querySelector('option[value="personal"]');
@@ -3823,10 +4791,28 @@ function setup() {
   $("floor-map-upload").addEventListener("change", (event) => uploadFloorMap(event.target.files?.[0]).catch((error) => showToast(error.message, "error")));
   $("create-stay-session").addEventListener("click", () => createStaySession().catch((error) => showToast(error.message, "error")));
   $("save-stay-memory").addEventListener("click", () => saveStayMemory().catch((error) => showToast(error.message, "error")));
+  $("memory-stay-id").addEventListener("change", () => updateStayMemoryEditor(state.guestStays.find((stay) => stay.stay_id === $("memory-stay-id").value) || null));
+  $("refresh-sessions").addEventListener("click", () => loadSessions().catch((error) => showToast(error.message, "error")));
+  $("session-record-search").addEventListener("input", renderSessionRecords);
+  $("session-record-filter").addEventListener("change", renderSessionRecords);
+  for (const card of document.querySelectorAll("[data-session-filter]")) card.addEventListener("click", () => {
+    $("session-record-filter").value = card.dataset.sessionFilter;
+    renderSessionRecords();
+  });
   $("record-observation").addEventListener("click", () => recordObservation().catch((error) => showToast(error.message, "error")));
   $("load-location-report").addEventListener("click", () => loadLocationReport().catch((error) => showToast(error.message, "error")));
   $("create-service-request").addEventListener("click", () => createServiceRequest().catch((error) => showToast(error.message, "error")));
   $("service-type").addEventListener("change", syncRequestService);
+  $("service-description").addEventListener("input", updateCreateServiceRequestButton);
+  $("service-sla").addEventListener("input", updateCreateServiceRequestButton);
+  $("refresh-service-requests").addEventListener("click", () => loadServiceRequests().catch((error) => showToast(error.message, "error")));
+  $("service-request-search").addEventListener("input", renderServiceRequests);
+  $("service-request-status-filter").addEventListener("change", renderServiceRequests);
+  for (const card of document.querySelectorAll("[data-request-filter]")) card.addEventListener("click", () => {
+    $("service-request-status-filter").value = card.dataset.requestFilter === "all" ? "" : card.dataset.requestFilter;
+    renderServiceRequests();
+  });
+  $("open-service-catalog").addEventListener("click", () => activatePanel("service-catalog"));
   $("save-department").addEventListener("click", () => saveDepartment().catch((error) => showToast(error.message, "error")));
   $("save-catalog-service").addEventListener("click", () => saveCatalogService().catch((error) => showToast(error.message, "error")));
   $("save-recommendation").addEventListener("click", () => saveRecommendation().catch((error) => showToast(error.message, "error")));
@@ -3834,7 +4820,23 @@ function setup() {
   $("save-conversation-retention").addEventListener("click", () => saveConversationRetention().catch((error) => showToast(error.message, "error")));
   $("conversation-search").addEventListener("input", renderConversations);
   $("conversation-status-filter").addEventListener("change", renderConversations);
-  $("conversation-staff-select").addEventListener("change", () => { $("assign-conversation").disabled = !$("conversation-staff-select").value; });
+  for (const card of document.querySelectorAll("[data-conversation-filter]")) card.addEventListener("click", () => {
+    $("conversation-status-filter").value = card.dataset.conversationFilter;
+    renderConversations();
+  });
+  $("conversation-staff-select").addEventListener("change", () => {
+    const selected = state.selectedConversation;
+    $("assign-conversation").disabled = !can("conversations.assign") || !selected?.restaurant_id || !$("conversation-staff-select").value || $("conversation-staff-select").value === selected.assigned_user_id;
+  });
+  $("staff-response").addEventListener("input", () => {
+    $("send-staff-response").disabled = $("staff-response").disabled || !$("staff-response").value.trim();
+  });
+  $("staff-response").addEventListener("keydown", (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && !$("send-staff-response").disabled) {
+      event.preventDefault();
+      sendStaffResponse().catch((error) => showToast(error.message, "error"));
+    }
+  });
   $("assign-conversation").addEventListener("click", () => assignSelectedConversation().catch((error) => showToast(error.message, "error")));
   $("toggle-takeover").addEventListener("click", () => setConversationState("open", !state.selectedConversation?.human_takeover).catch((error) => showToast(error.message, "error")));
   $("close-conversation").addEventListener("click", () => setConversationState("closed", false).catch((error) => showToast(error.message, "error")));
@@ -3846,16 +4848,42 @@ function setup() {
   $("save-intro").addEventListener("click", () => saveIntro().catch((error) => showToast(error.message, "error")));
   $("intro-upload").addEventListener("change", (event) => uploadIntroAsset(event.target.files?.[0]).catch((error) => showToast(error.message, "error")));
   $("save-hotel-information").addEventListener("click", () => saveHotelInformation().catch((error) => showToast(error.message, "error")));
-  $("clear-hotel-information").addEventListener("click", () => { for (const id of ["hotel-info-description", "hotel-info-address", "hotel-info-phone", "hotel-info-email", "hotel-info-website", "hotel-info-checkin", "hotel-info-checkout", "hotel-info-breakfast", "hotel-info-wifi", "hotel-info-policies"]) $(id).value = ""; });
+  for (const [inputId, noteId] of [["hotel-info-checkin", "hotel-info-checkin-note"], ["hotel-info-checkout", "hotel-info-checkout-note"]]) {
+    $(inputId).addEventListener("input", () => {
+      if (!$(inputId).value) return;
+      delete $(inputId).dataset.legacyValue;
+      $(noteId).hidden = true;
+    });
+  }
+  $("clear-hotel-information").addEventListener("click", () => {
+    for (const id of ["hotel-info-description", "hotel-info-address", "hotel-info-phone", "hotel-info-email", "hotel-info-website", "hotel-info-checkin", "hotel-info-checkout", "hotel-info-breakfast", "hotel-info-wifi", "hotel-info-policies"]) $(id).value = "";
+    for (const id of ["hotel-info-checkin", "hotel-info-checkout"]) delete $(id).dataset.legacyValue;
+    for (const id of ["hotel-info-checkin-note", "hotel-info-checkout-note"]) $(id).hidden = true;
+  });
   $("save-room").addEventListener("click", () => saveRoom().catch((error) => showToast(error.message, "error")));
   $("save-guest-module").addEventListener("click", () => saveGuestModule().catch((error) => showToast(error.message, "error")));
+  $("clear-guest-module-form").addEventListener("click", clearGuestModuleForm);
   $("add-facility").addEventListener("click", openNewFacility);
   $("empty-add-facility").addEventListener("click", openNewFacility);
   $("facility-form").addEventListener("submit", (event) => saveFacility(event));
   $("cancel-facility").addEventListener("click", () => $("facility-dialog").close());
   $("facility-search").addEventListener("input", renderFacilities);
-  $("save-restaurant").addEventListener("click", () => saveRestaurant().catch((error) => showToast(error.message, "error")));
-  $("restaurant-workflow-select").addEventListener("change", () => loadRestaurantWorkflows().catch((error) => showToast(error.message, "error")));
+  $("add-restaurant").addEventListener("click", openNewRestaurant);
+  $("empty-add-restaurant").addEventListener("click", openNewRestaurant);
+  $("cancel-restaurant").addEventListener("click", () => $("restaurant-dialog").close());
+  $("restaurant-search").addEventListener("input", renderRestaurants);
+  $("restaurant-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveRestaurant().catch((error) => showToast(error.message, "error"));
+  });
+  $("restaurant-workflow-disclosure").addEventListener("toggle", () => {
+    if (!$("restaurant-workflow-disclosure").open) return;
+    if ($("restaurant-workflow-select").value) loadRestaurantWorkflows().catch((error) => showToast(error.message, "error"));
+    else { state.restaurantMenus = []; state.restaurantPromotions = []; state.restaurantAnalytics = null; renderRestaurantWorkflows(); }
+  });
+  $("restaurant-workflow-select").addEventListener("change", () => {
+    if ($("restaurant-workflow-disclosure").open) loadRestaurantWorkflows().catch((error) => showToast(error.message, "error"));
+  });
   $("save-restaurant-menu").addEventListener("click", () => saveRestaurantMenu().catch((error) => showToast(error.message, "error")));
   $("save-restaurant-menu-item").addEventListener("click", () => saveRestaurantMenuItem().catch((error) => showToast(error.message, "error")));
   $("save-restaurant-promotion").addEventListener("click", () => saveRestaurantPromotion().catch((error) => showToast(error.message, "error")));
@@ -3914,6 +4942,7 @@ const platformShell = document.querySelector(".platform-shell");
 if (platformShell) platformShell.inert = true;
 setup();
 async function initializeAdmin() {
+  populatePropertyTimezones();
   await loadCurrentAdmin();
   await loadProperty();
   document.body.dataset.adminReady = "true";

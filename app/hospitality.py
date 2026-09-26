@@ -936,22 +936,32 @@ class HospitalityStore:
             ).fetchone()
         return row["restaurant_id"] if row else None
 
-    def restaurant_analytics(self, property_id: str, restaurant_id: str) -> dict[str, Any]:
+    def restaurant_analytics(self, property_id: str, restaurant_id: str, start_at: int | None = None, end_at: int | None = None) -> dict[str, Any]:
         self._require_owned("restaurants", "restaurant_id", restaurant_id, property_id)
+        time_clause = ""
+        time_params: tuple[int, ...] = ()
+        if start_at is not None and end_at is not None:
+            time_clause = " AND created_at>=? AND created_at<=?"
+            time_params = (start_at, end_at)
+        message_time_clause = ""
+        message_time_params: tuple[int, ...] = ()
+        if start_at is not None and end_at is not None:
+            message_time_clause = " AND m.created_at>=? AND m.created_at<=?"
+            message_time_params = (start_at, end_at)
         with self._connect() as db:
             conversations = db.execute(
-                """SELECT COUNT(*) AS total,
+                f"""SELECT COUNT(*) AS total,
                 SUM(CASE WHEN state IN ('waiting_for_staff','assigned') THEN 1 ELSE 0 END) AS waiting,
                 SUM(CASE WHEN state='human_active' THEN 1 ELSE 0 END) AS active,
                 SUM(CASE WHEN state IN ('resolved','returned_to_ai') THEN 1 ELSE 0 END) AS completed
-                FROM conversation_state WHERE property_id=? AND restaurant_id=?""",
-                (property_id, restaurant_id),
+                FROM conversation_state WHERE property_id=? AND restaurant_id=?{time_clause}""",
+                (property_id, restaurant_id, *time_params),
             ).fetchone()
             messages = db.execute(
-                """SELECT COUNT(*) FROM conversation_messages m
+                f"""SELECT COUNT(*) FROM conversation_messages m
                 JOIN conversation_state cs ON cs.property_id=m.property_id AND cs.session_id=m.session_id
-                WHERE cs.property_id=? AND cs.restaurant_id=?""",
-                (property_id, restaurant_id),
+                WHERE cs.property_id=? AND cs.restaurant_id=?{message_time_clause}""",
+                (property_id, restaurant_id, *message_time_params),
             ).fetchone()[0]
             menus = db.execute(
                 "SELECT COUNT(*) FROM menus WHERE property_id=? AND restaurant_id=?",

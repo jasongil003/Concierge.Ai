@@ -110,7 +110,7 @@ DEFAULT_ROLES: dict[str, dict[str, Any]] = {
         "name": "Restaurant Manager",
         "description": "Manage assigned restaurant details, menus, hours, promotions, and guest conversations.",
         "permissions": [
-            "properties.view", "restaurant.view", "restaurant.manage", "restaurant.analytics.view",
+            "properties.view", "restaurant.view", "restaurant.manage", "restaurant.analytics.view", "assistant.use", "diagnostics.view",
             "restaurant.menu.view", "restaurant.menu.edit", "restaurant.menu.approve",
             "restaurant.hours.view", "restaurant.hours.edit",
             "restaurant.promotions.view", "restaurant.promotions.edit", "restaurant.promotions.approve",
@@ -122,7 +122,7 @@ DEFAULT_ROLES: dict[str, dict[str, Any]] = {
         "name": "Restaurant Staff",
         "description": "View assigned restaurant information and handle escalated guest conversations.",
         "permissions": [
-            "properties.view", "restaurant.view", "restaurant.menu.view",
+            "properties.view", "restaurant.view", "restaurant.analytics.view", "assistant.use", "diagnostics.view", "restaurant.menu.view",
             "restaurant.hours.view", "restaurant.promotions.view", "conversations.view",
             "conversations.takeover", "conversations.reply", "conversations.resolve", "conversations.return_to_ai",
         ],

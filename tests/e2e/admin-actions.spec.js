@@ -96,16 +96,21 @@ test("admin restaurant workflow creates, approves, publishes, edits, and archive
 
   await page.goto("/admin");
   await openPanel(page, "Restaurants");
+  await page.getByRole("button", { name: "+ Add Restaurant" }).click();
   await page.locator("#restaurant-name").fill(restaurantName);
   await page.locator("#restaurant-hours-monday").fill("06:30-22:00");
   await page.locator("#restaurant-meals").fill("breakfast, dinner");
   await page.locator("#restaurant-internal-notes").fill("Staff-only workflow test note.");
-  await page.getByRole("button", { name: "Save Restaurant" }).click();
+  await page.getByRole("button", { name: "Add Restaurant", exact: true }).last().click();
 
   const restaurantRow = page.locator("#restaurant-list .compact-row").filter({ hasText: restaurantName });
   await expect(restaurantRow).toBeVisible();
   await restaurantRow.getByRole("button", { name: "Edit" }).click();
   await expect(page.locator("#restaurant-hours-monday")).toHaveValue("06:30-22:00");
+  await page.locator("#restaurant-location").fill("Test dining room");
+  await page.getByRole("button", { name: "Save Changes" }).click();
+  await expect(restaurantRow).toContainText("Test dining room");
+  await page.locator("#restaurant-workflow-disclosure > summary").click();
   await page.locator("#restaurant-workflow-select").selectOption({ label: restaurantName });
 
   await page.locator("#restaurant-menu-name").fill(menuName);
@@ -131,8 +136,9 @@ test("admin restaurant workflow creates, approves, publishes, edits, and archive
   await promotionRow.getByRole("button", { name: "Publish" }).click();
   await expect(promotionRow).toContainText("published");
 
-  await restaurantRow.getByRole("button", { name: "Archive" }).click();
-  await expect(restaurantRow).toContainText("archived");
+  page.once("dialog", (dialog) => dialog.accept());
+  await restaurantRow.getByRole("button", { name: "Delete" }).click();
+  await expect(restaurantRow).toHaveCount(0);
 });
 
 test("admin restaurant assignment checkboxes save only the selected restaurant ids", async ({ page }, testInfo) => {
@@ -352,6 +358,14 @@ test("admin conversation buttons: takeover, staff response, and close", async ({
 
   await page.goto("/admin");
   await openPanel(page, "Conversations");
+  await page.locator(".conversation-retention > summary").click();
+  await page.locator("#conversation-retention-days").fill("21");
+  await page.getByRole("button", { name: "Save retention" }).click();
+  await expect(page.locator("#conversation-retention-days")).toHaveValue("21");
+  await page.getByRole("button", { name: "Refresh inbox" }).click();
+  await expect(page.locator("#conversation-last-refreshed")).toContainText("Updated");
+  await page.locator('[data-conversation-filter="ai_active"]').click();
+  await page.locator("#conversation-search").fill(sessionId.slice(0, 12));
   const conversation = page.locator("#conversation-list button").filter({ hasText: sessionId.slice(0, 12) });
   await conversation.click();
   await page.getByRole("button", { name: "Take Over" }).click();
@@ -360,7 +374,60 @@ test("admin conversation buttons: takeover, staff response, and close", async ({
   await page.getByRole("button", { name: "Send Response" }).click();
   await expect(page.locator("#conversation-messages")).toContainText("verified staff response");
   await page.getByRole("button", { name: "Close", exact: true }).click();
-  await expect(page.locator("#conversation-list")).toContainText("closed");
+  await page.locator("#conversation-search").fill("");
+  await page.locator("#conversation-status-filter").selectOption("");
+  await expect(page.locator("#conversation-list")).toContainText("Resolved");
+});
+
+test("admin conversation queue can assign an escalated conversation to staff", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "The mutation workflow only needs one browser profile.");
+  const suffix = Date.now().toString(36);
+  const propertyId = (await (await page.request.get("/api/admin/properties")).json()).properties[0].property_id;
+  const headers = { "X-CSRF-Token": csrfByRequest.get(page.request) };
+  const restaurantResponse = await page.request.post(`/api/admin/properties/${propertyId}/restaurants`, {
+    headers,
+    data: { data: { name: `Queue Assignment ${suffix}` } },
+  });
+  expect(restaurantResponse.ok()).toBeTruthy();
+  const restaurant = await restaurantResponse.json();
+  const staffName = `Queue Staff ${suffix}`;
+  const staffResponse = await page.request.post("/api/admin/users", {
+    headers,
+    data: {
+      username: `queue.staff.${suffix}`,
+      display_name: staffName,
+      password: "QueueStaffPassword123!",
+      property_id: propertyId,
+      role_id: "role-restaurant-staff",
+      status: "active",
+      force_password_change: false,
+      restaurant_ids: [restaurant.restaurant_id],
+    },
+  });
+  expect(staffResponse.ok()).toBeTruthy();
+  const staff = (await staffResponse.json()).user;
+  const sessionResponse = await page.request.post("/api/session/start", {
+    data: { client_id: `queue-assignment-${suffix}` },
+  });
+  expect(sessionResponse.ok()).toBeTruthy();
+  const sessionId = (await sessionResponse.json()).session_id;
+  const escalationResponse = await page.request.post(`/api/guest/conversations/${sessionId}/escalate`, {
+    data: { restaurant_id: restaurant.restaurant_id, reason: "Please connect me to restaurant staff." },
+  });
+  expect(escalationResponse.ok()).toBeTruthy();
+
+  await page.goto("/admin");
+  await openPanel(page, "Conversations");
+  const row = page.locator("#conversation-list button").filter({ hasText: sessionId.slice(0, 12) });
+  await row.click();
+  const staffSelect = page.locator("#conversation-staff-select");
+  await expect(staffSelect).toBeEnabled();
+  await staffSelect.selectOption({ value: staff.id });
+  await expect(staffSelect).toHaveValue(staff.id);
+  await expect(page.locator("#assign-conversation")).toBeEnabled();
+  await page.getByRole("button", { name: "Assign", exact: true }).click();
+  await expect(page.locator("#conversation-detail-status")).toHaveText("Assigned");
+  await expect(row).toContainText(staffName);
 });
 
 test("admin AI settings and usage reporting work", async ({ page }, testInfo) => {
