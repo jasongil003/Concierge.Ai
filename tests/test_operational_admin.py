@@ -122,6 +122,12 @@ def test_operations_console_assistant_and_exports(admin_client: TestClient):
 def test_new_operational_admin_and_guest_upload_endpoints(
     admin_client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
+    import socket
+
+    monkeypatch.setattr(
+        "app.guardrails.socket.getaddrinfo",
+        lambda hostname, port, **_kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))],
+    )
     monkeypatch.setattr(main_module, "operations", OperationsStore(tmp_path / "api-operations.db"))
     property_id = admin_client.get("/api/admin/properties").json()["properties"][0]["property_id"]
 

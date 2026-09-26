@@ -43,6 +43,7 @@ const state = {
   operationsEnd: null,
   assistantConversationId: null,
 };
+let restaurantAssignmentRequestId = 0;
 
 const $ = (id) => document.getElementById(id);
 
@@ -3050,6 +3051,7 @@ async function openUserDialog(user = null) {
 }
 
 async function loadRestaurantAssignmentOptions(selectedIds = []) {
+  const requestId = ++restaurantAssignmentRequestId;
   const fieldset = $("restaurant-assignment-fieldset");
   const list = $("restaurant-assignment-list");
   const role = state.roles.find((item) => item.role_id === $("admin-role").value);
@@ -3059,6 +3061,11 @@ async function loadRestaurantAssignmentOptions(selectedIds = []) {
   fieldset.hidden = !restaurantRole || !propertyId;
   if (!restaurantRole || !propertyId) return;
   const data = await jsonFetch("/api/admin/properties/" + encodeURIComponent(propertyId) + "/hospitality");
+  if (
+    requestId !== restaurantAssignmentRequestId
+    || propertyId !== $("admin-property").value
+    || role.role_id !== $("admin-role").value
+  ) return;
   const selected = new Set(selectedIds);
   for (const restaurant of data.restaurants || []) {
     const label = document.createElement("label");

@@ -184,9 +184,9 @@ Restaurant Manager and Restaurant Staff are property-scoped roles with per-resta
 
 ### Database and migration boundary
 
-The deployment remains a single Concierge container with SQLite at `/state/concierge.db`, persisted through the `concierge-state` Docker volume. There is no database container and no restaurant-specific database. Existing SQLite databases receive additive columns and indexes when the stores initialize.
+The on-prem deployment uses one Concierge API instance with SQLite at `/state/concierge.db`, persisted through the `concierge-state` Docker volume. Compose does not start a database or Redis container, and there is no restaurant-specific database. Existing SQLite databases receive additive columns and indexes when the stores initialize. The optional PostgreSQL adapter and migration tooling present in the synchronized main branch are not selected by this deployment; no SQLite-to-PostgreSQL migration is performed for the on-prem MVP.
 
-Store classes own SQL and expose property-scoped operations to route handlers. This provides a useful boundary for a later PostgreSQL adapter, but the current stores still use SQLite-specific connection APIs, placeholders, `PRAGMA`, and `BEGIN IMMEDIATE`; PostgreSQL readiness is architectural preparation, not a completed backend-neutral data layer. A PostgreSQL migration will need a repository/transaction adapter and integration tests for equivalent constraints and atomic transitions.
+Store classes own SQL and expose property-scoped operations to route handlers. SQLite remains the supported on-prem MVP database. PostgreSQL is a possible scaling path for heavier concurrent deployments; using the optional adapter requires its own migration, backup/restore, concurrency, and operational validation before an operator enables it.
 
 ## Network zones
 

@@ -18,7 +18,7 @@ COPY scripts/migrate_sqlite_to_postgres.py ./scripts/migrate_sqlite_to_postgres.
 COPY migrations ./migrations
 COPY alembic.ini ./alembic.ini
 
-RUN mkdir -p /state && chown -R concierge:concierge /state /app
+RUN mkdir -p /state && chown -R concierge:concierge /state
 
 EXPOSE 8080
 

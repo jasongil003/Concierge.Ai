@@ -62,5 +62,5 @@ def test_runtime_postgres_configuration_rejects_sqlite_database_urls():
         redis_url="redis://redis:6379/0",
         metrics_token="m" * 40,
     )
-    with pytest.raises(RuntimeError, match="DATABASE_URL must use PostgreSQL"):
+    with pytest.raises(RuntimeError, match="DATABASE_URL must use PostgreSQL when a server database is configured"):
         validate_production_settings(values, check_filesystem=False)

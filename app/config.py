@@ -154,7 +154,11 @@ def validate_production_settings(value: Settings, *, check_filesystem: bool = Tr
     if value.admin_bootstrap_password == "ChangeMe123!" or len(value.admin_bootstrap_password) < 12:
         errors.append("ADMIN_BOOTSTRAP_PASSWORD must be changed to a strong value")
     encryption_secret = value.credential_encryption_secret.strip()
-    if encryption_secret.casefold() in DEFAULT_ENCRYPTION_SECRETS or len(encryption_secret) < 32:
+    if (
+        encryption_secret.casefold() in DEFAULT_ENCRYPTION_SECRETS
+        or "replace-with" in encryption_secret.casefold()
+        or len(encryption_secret) < 32
+    ):
         errors.append("CREDENTIAL_ENCRYPTION_SECRET must be a non-default value of at least 32 characters")
     if not value.admin_cookie_secure:
         errors.append("ADMIN_COOKIE_SECURE must be enabled")
@@ -164,15 +168,11 @@ def validate_production_settings(value: Settings, *, check_filesystem: bool = Tr
         errors.append("ALLOW_BODY_PROPERTY_SELECTION must be disabled")
     if not value.allow_demo_settings and (value.property_id == "demo-hotel" or value.antlabs_mode == "mock"):
         errors.append("demo property and mock guest authentication settings are not allowed")
-    if not value.database_url:
-        errors.append("DATABASE_URL must point to PostgreSQL for production deployments")
-    elif not value.database_url.lower().startswith(("postgresql://", "postgresql+psycopg://", "postgres://")):
-        errors.append("DATABASE_URL must use PostgreSQL; SQLite is not supported for the production profile")
-    if not value.redis_url:
-        errors.append("REDIS_URL must be configured for distributed rate limiting")
-    elif not value.redis_url.lower().startswith(("redis://", "rediss://")):
+    if value.database_url and not value.database_url.lower().startswith(("postgresql://", "postgresql+psycopg://", "postgres://")):
+        errors.append("DATABASE_URL must use PostgreSQL when a server database is configured")
+    if value.redis_url and not value.redis_url.lower().startswith(("redis://", "rediss://")):
         errors.append("REDIS_URL must use redis:// or rediss://")
-    if len(value.metrics_token) < 32:
+    if len(value.metrics_token) < 32 or "replace-with" in value.metrics_token.casefold():
         errors.append("METRICS_TOKEN must contain at least 32 characters")
     if not value.database_url and check_filesystem:
         parent = value.db_path.expanduser().resolve().parent

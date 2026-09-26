@@ -175,7 +175,7 @@ def test_login_logout_and_csrf(auth_client: TestClient):
     assert auth_client.get("/api/admin/auth/me").status_code == 401
 
 
-def test_failed_logins_lock_account(auth_store: AdminAuthStore):
+def test_temporary_lockout_blocks_login(auth_store: AdminAuthStore):
     for _ in range(2):
         with pytest.raises(AuthenticationError):
             auth_store.login("admin", "WrongPassword1!", "10.0.0.5", "test")
@@ -183,6 +183,21 @@ def test_failed_logins_lock_account(auth_store: AdminAuthStore):
         auth_store.login("admin", "WrongPassword1!", "10.0.0.5", "test")
     with pytest.raises(AccountLockedError):
         auth_store.login("admin", ADMIN_PASSWORD, "10.0.0.6", "test")
+
+
+def test_temporary_lockout_expires(auth_store: AdminAuthStore):
+    for _ in range(2):
+        with pytest.raises(AuthenticationError):
+            auth_store.login("admin", "WrongPassword1!", "10.0.0.5", "test")
+    with pytest.raises(AccountLockedError):
+        auth_store.login("admin", "WrongPassword1!", "10.0.0.5", "test")
+    with auth_store._connect() as db:
+        db.execute(
+            "UPDATE admin_users SET locked_until = ? WHERE normalized_username = ?",
+            (int(time.time()) - 1, "admin"),
+        )
+    _, principal = auth_store.login("admin", ADMIN_PASSWORD, "10.0.0.5", "test")
+    assert principal.status == "active"
 
 
 def test_session_expiration(auth_store: AdminAuthStore):
@@ -213,7 +228,7 @@ def test_manual_account_lock_is_indefinite_until_unlocked(auth_store: AdminAuthS
     assert auth_store.login("manual.lock", "InitialPass123!", "10.0.0.9", "test")[1].status == "active"
 
 
-def test_disabled_users_and_revoked_sessions_are_rejected(auth_store: AdminAuthStore):
+def test_disabled_account_cannot_login(auth_store: AdminAuthStore):
     _, administrator = auth_store.login("admin", ADMIN_PASSWORD, "10.0.0.1", "test")
     user = auth_store.create_user(
         {
@@ -232,8 +247,22 @@ def test_disabled_users_and_revoked_sessions_are_rejected(auth_store: AdminAuthS
     with pytest.raises(AuthenticationError, match="Invalid username or password"):
         auth_store.login("disabled.user", "DisabledPass123!", "10.0.0.8", "test")
 
+
+def test_revoked_sessions_are_rejected(auth_store: AdminAuthStore):
+    _, administrator = auth_store.login("admin", ADMIN_PASSWORD, "10.0.0.1", "test")
+    user = auth_store.create_user(
+        {
+            "username": "revoked.user",
+            "display_name": "Revoked User",
+            "password": "RevokedPass123!",
+            "role_id": "role-property-administrator",
+            "property_id": "demo-hotel",
+            "status": "active",
+        },
+        administrator,
+    )
+    token, _ = auth_store.login("revoked.user", "RevokedPass123!", "10.0.0.8", "test")
     auth_store.update_user(user["id"], {"status": "active"}, administrator)
-    token, principal = auth_store.login("disabled.user", "DisabledPass123!", "10.0.0.8", "test")
     assert auth_store.revoke_sessions(user["id"], administrator) == 1
     assert auth_store.authenticate(token) is None
 
