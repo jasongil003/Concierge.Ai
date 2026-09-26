@@ -10,6 +10,15 @@ async function loginAdmin(api) {
   expect(response.ok()).toBeTruthy();
   const csrf = (await response.json()).user.csrf_token;
   csrfByRequest.set(api, csrf);
+  const properties = await api.get("/api/admin/properties");
+  expect(properties.ok()).toBeTruthy();
+  if (!(await properties.json()).properties.length) {
+    const created = await api.put("/api/admin/properties/e2e-property", {
+      headers: csrfHeaders(api),
+      data: { property_id: "e2e-property", hotel_name: "E2E Property", timezone: "Asia/Manila" },
+    });
+    expect(created.ok()).toBeTruthy();
+  }
   return csrf;
 }
 
@@ -41,6 +50,62 @@ async function openPanel(page, label) {
 test.beforeEach(async ({ page, request }) => {
   await loginAdmin(request);
   await loginAdmin(page.request);
+});
+
+test("admin onboarding: create the first property from an empty workspace", async ({ page, request }) => {
+  const propertyId = await getFirstPropertyId(request);
+  const removed = await request.delete(`/api/admin/properties/${propertyId}`, { headers: csrfHeaders(request) });
+  expect(removed.ok()).toBeTruthy();
+
+  await page.goto("/admin");
+  await page.locator('body[data-admin-ready="true"]').waitFor();
+  await expect(page.locator("#property-onboarding")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Property not configured" })).toBeVisible();
+  await page.locator("#onboarding-create-property").click();
+  await page.locator("#property-create-name").fill("E2E Onboarding Property");
+  await page.locator("#property-create-timezone").fill("Asia/Manila");
+  await page.locator("#property-create-submit").click();
+
+  await expect(page.locator("#property-switcher")).toHaveValue("e2e-onboarding-property");
+  const created = await request.get("/api/admin/properties/e2e-onboarding-property");
+  expect(created.ok()).toBeTruthy();
+  expect((await created.json()).hotel_name).toBe("E2E Onboarding Property");
+});
+
+test("facilities panel: empty state, search, and styled CRUD actions work", async ({ page }) => {
+  await page.goto("/admin");
+  await openPanel(page, "Facilities");
+  await expect(page.locator("#facility-empty")).toContainText("No facilities configured yet.");
+  await expect(page.locator("#facility-table-shell")).toBeHidden();
+
+  await page.locator("#add-facility").click();
+  await expect(page.locator("#facility-dialog")).toBeVisible();
+  await page.locator("#facility-name").fill("Configured Test Facility");
+  await page.locator("#facility-type").fill("amenity");
+  await page.locator("#facility-location").fill("Level A");
+  await page.locator("#facility-hours").fill("All day");
+  await page.locator("#facility-description").fill("Test-only facility details.");
+  await page.locator("#save-facility").click();
+
+  const row = page.locator("#facility-list tr").filter({ hasText: "Configured Test Facility" });
+  await expect(row).toBeVisible();
+  await expect(row.locator("button")).toHaveCount(2);
+  await expect(row.locator("button").nth(0)).toHaveClass(/btn-secondary/);
+  await expect(row.locator("button").nth(1)).toHaveClass(/btn-danger/);
+  await page.locator("#facility-search").fill("no matching facility");
+  await expect(page.locator("#facility-list")).toContainText("No facilities match your search.");
+  await page.locator("#facility-search").fill("");
+
+  await row.getByRole("button", { name: "Edit" }).click();
+  await page.locator("#facility-location").fill("Level B");
+  await page.locator("#facility-status").selectOption("maintenance");
+  await page.locator("#save-facility").click();
+  await expect(row).toContainText("Level B");
+  await expect(row).toContainText("maintenance");
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await row.getByRole("button", { name: "Delete" }).click();
+  await expect(page.locator("#facility-empty")).toBeVisible();
 });
 
 async function getFirstPropertyId(request) {
@@ -188,7 +253,9 @@ test("sidebar: each visible navigation item has a feature status", async ({ page
     const label = (await item.locator(".nav-label").innerText()).trim();
     expect(labels.has(label)).toBeFalsy();
     labels.add(label);
-    await expect(item.locator(".nav-status")).toHaveText(/Live|Partial|Coming Soon|Configuration Required/);
+    await expect(item).not.toContainText(/\bLive\b/i);
+    const status = item.locator(".nav-status");
+    if (await status.count()) await expect(status).toHaveText(/Partial|Coming Soon|Configuration Required/);
   }
 });
 
@@ -218,7 +285,8 @@ test("appearance panel: all design controls are wired and update preview", async
   await page.goto("/admin");
   await openPanel(page, "Design");
 
-  await expect(page.locator("#design-hotel-name")).not.toHaveValue("");
+  const selectedPropertyName = (await page.locator("#property-switcher option:checked").innerText()).trim();
+  await expect(page.locator("#design-hotel-name")).toHaveValue(selectedPropertyName);
   await expect(page.locator("#welcome-input")).toBeEnabled();
   await expect(page.locator("#greeting-input")).toBeEnabled();
   await expect(page.locator("#logo-display-input")).toBeEnabled();
@@ -239,7 +307,7 @@ test("appearance panel: all design controls are wired and update preview", async
   await expect(page.locator("#show-logo-input")).toBeEnabled();
   await expect(page.locator("#show-name-input")).toBeEnabled();
   await expect(page.getByRole("button", { name: "Add prompt" })).toBeEnabled();
-  await expect(page.getByText("Live guest chat preview")).toBeVisible();
+  await expect(page.getByText("Guest chat preview")).toBeVisible();
 });
 
 test("appearance panel: preview size buttons work", async ({ page }) => {

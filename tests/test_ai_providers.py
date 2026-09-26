@@ -24,9 +24,9 @@ import app.main as main_module
 
 def test_provider_store_redacts_and_encrypts_credentials(tmp_path: Path):
     store = AIProviderStore(tmp_path / "concierge.db")
-    store.get_settings("demo-hotel")
+    store.get_settings("tenant-a")
     store.save_connection(
-        "demo-hotel",
+        "tenant-a",
         "groq",
         {
             "enabled": True,
@@ -37,20 +37,20 @@ def test_provider_store_redacts_and_encrypts_credentials(tmp_path: Path):
             "timeout_seconds": 45,
         },
     )
-    store.save_credential("demo-hotel", "groq", "api_key", "gsk_test_secret_123456")
+    store.save_credential("tenant-a", "groq", "api_key", "gsk_test_secret_123456")
 
-    provider = store.get_connection("demo-hotel", "groq")
+    provider = store.get_connection("tenant-a", "groq")
     assert provider["credentials"][0]["display_hint"] == "gsk••••3456"
     assert "gsk_test_secret" not in str(provider)
-    assert store.credentials_for("demo-hotel", "groq")["api_key"] == "gsk_test_secret_123456"
+    assert store.credentials_for("tenant-a", "groq")["api_key"] == "gsk_test_secret_123456"
 
 
 def test_local_only_rejects_cloud_default(tmp_path: Path):
     store = AIProviderStore(tmp_path / "concierge.db")
-    store.get_settings("demo-hotel")
+    store.get_settings("tenant-a")
 
     try:
-        store.save_settings("demo-hotel", {"default_provider": "openai", "local_only": True})
+        store.save_settings("tenant-a", {"default_provider": "openai", "local_only": True})
     except ValueError as exc:
         assert "Local-only" in str(exc)
     else:
@@ -122,9 +122,9 @@ def test_admin_ai_settings_support_property_default(admin_client: TestClient):
 
 def test_openrouter_is_available_as_provider(tmp_path: Path):
     store = AIProviderStore(tmp_path / "concierge.db")
-    store.get_settings("demo-hotel")
+    store.get_settings("tenant-a")
 
-    provider = store.get_connection("demo-hotel", "openrouter")
+    provider = store.get_connection("tenant-a", "openrouter")
 
     assert provider["name"] == "OpenRouter"
     assert provider["selected_model"] == "openai/gpt-4o-mini"
@@ -148,7 +148,7 @@ def test_discovered_models_persist_and_appear_in_full_catalog(tmp_path: Path):
 def test_concierge_prompt_includes_recent_conversation():
     system, prompt = build_prompt(
         "What time does it close?",
-        "Lunara",
+        "Example Hotel",
         [{"title": "Pool", "answer": "The pool closes at 10 PM."}],
         conversation_history=[
             {"role": "guest", "content": "Where is the pool?"},

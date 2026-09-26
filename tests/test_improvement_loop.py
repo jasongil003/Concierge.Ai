@@ -266,7 +266,7 @@ async def test_manager_run_single(temp_db: Path, loop_store: ImprovementLoopStor
     manager = ImprovementLoopManager(loop_store, ai_service)
 
     loop_store.save_config(
-        "demo-hotel",
+        "tenant-a",
         {
             "objective": "Verify concierge pool hours",
             "satisfaction_criteria": "Correct summer hours documented",
@@ -284,7 +284,7 @@ async def test_manager_run_single(temp_db: Path, loop_store: ImprovementLoopStor
         )
     )
 
-    result = await manager.run_single("demo-hotel")
+    result = await manager.run_single("tenant-a")
     assert result["loop"]["iteration_count"] == 1
     assert len(result["iterations"]) == 1
     assert result["iterations"][0]["score"] == 98
@@ -299,7 +299,7 @@ def test_api_improvement_loop_endpoints(temp_db: Path, monkeypatch: pytest.Monke
     monkeypatch.setattr(main_module, "improvement_loops", isolated_manager)
 
     client = admin_client
-    property_id = "demo-hotel"
+    property_id = "test-property"
     loop_base = f"/api/admin/properties/{{property_id}}/improvement-loop"
     paths = app.openapi()["paths"]
     for action in ("start", "resume", "pause", "stop", "satisfied", "run-next", "decision"):

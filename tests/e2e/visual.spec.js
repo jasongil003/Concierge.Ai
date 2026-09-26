@@ -1,13 +1,30 @@
 import { expect, test } from "@playwright/test";
+import { ensureTestProperty } from "./support.js";
 
 async function loginAdmin(page) {
   const response = await page.request.post("/api/admin/auth/login", {
     data: { username: "admin", password: "ChangeMe123!", remember_me: false },
   });
   expect(response.ok()).toBeTruthy();
+  const csrf = (await response.json()).user.csrf_token;
+  await ensureTestProperty(page.request, csrf);
+  return csrf;
 }
 
 test.beforeEach(async ({ page }) => {
+  const csrf = await loginAdmin(page);
+  const existing = await (await page.request.get("/api/admin/properties")).json();
+  for (const property of existing.properties || []) {
+    const removed = await page.request.delete(`/api/admin/properties/${property.property_id}`, {
+      headers: { "X-CSRF-Token": csrf },
+    });
+    expect(removed.ok()).toBeTruthy();
+  }
+  const created = await page.request.put("/api/admin/properties/e2e-property", {
+    headers: { "X-CSRF-Token": csrf },
+    data: { property_id: "e2e-property", hotel_name: "E2E Property", timezone: "Asia/Manila" },
+  });
+  expect(created.ok()).toBeTruthy();
   await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "light" });
   await page.addInitScript(() => {
     localStorage.setItem("concierge-intro-seen", "1");
@@ -18,7 +35,7 @@ test.beforeEach(async ({ page }) => {
 
 test("guest home visual baseline", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator("#suggestion-list button").first()).toBeVisible();
+  await expect(page.locator("#suggestion-list button")).toHaveCount(0);
 
   await expect(page).toHaveScreenshot("guest-home.png", {
     animations: "disabled",

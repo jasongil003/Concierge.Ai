@@ -10,8 +10,21 @@ async function loginAdmin(request) {
   expect(response.ok()).toBeTruthy();
   const csrf = (await response.json()).user.csrf_token;
   csrfByRequest.set(request, csrf);
+  const properties = await request.get("/api/admin/properties");
+  expect(properties.ok()).toBeTruthy();
+  if (!(await properties.json()).properties.length) {
+    const created = await request.put("/api/admin/properties/e2e-property", {
+      headers: { "X-CSRF-Token": csrf },
+      data: { property_id: "e2e-property", hotel_name: "E2E Property", timezone: "Asia/Manila" },
+    });
+    expect(created.ok()).toBeTruthy();
+  }
   return csrf;
 }
+
+test.beforeEach(async ({ request }) => {
+  await loginAdmin(request);
+});
 
 async function setAuthTypes(request, enabledIds) {
   const csrf = await loginAdmin(request);
@@ -59,21 +72,21 @@ async function ensureGuestData(request) {
     });
   }
   const recommendations = await (await request.get(`/api/admin/properties/${propertyId}/recommendations`)).json();
-  if (!recommendations.recommendations.some((item) => item.name === "Verified Bistro")) {
+  if (!recommendations.recommendations.some((item) => item.name === "Fixture Bistro")) {
     await request.put(`/api/admin/properties/${propertyId}/recommendations`, {
       headers: { "X-CSRF-Token": csrf },
-      data: { data: { name: "Verified Bistro", category: "Dining", address: "100 Hotel Street", map_url: "https://maps.example/bistro", description: "Property-verified nearby dining.", enabled: true } },
+      data: { data: { name: "Fixture Bistro", category: "Dining", address: "1 Example Road", map_url: "https://maps.example/fixture", description: "Synthetic test recommendation.", enabled: true } },
     });
   }
 }
 
 // --- 1. Guest initial load ---
 
-test("guest: loads and shows welcome state with suggestions", async ({ page }) => {
+test("guest: loads with an unconfigured property profile", async ({ page }) => {
   await page.goto("/");
 
   await expect(page.locator("#welcome-headline")).toBeVisible();
-  await expect(page.getByLabel("Suggested prompts")).toBeVisible();
+  await expect(page.locator("#suggestion-list button")).toHaveCount(0);
   await expect(page.getByLabel("Ask your concierge")).toBeVisible();
   await expect(page.locator("#send-button")).toBeDisabled();
 });
@@ -82,26 +95,6 @@ test("guest: hotel name and concierge name are displayed", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#hotel-name")).toBeVisible();
   await expect(page.locator("#concierge-name")).toBeVisible();
-});
-
-test("guest: suggestion buttons exist and are clickable", async ({ page }) => {
-  await page.goto("/");
-  const suggestions = page.locator("#suggestion-list button");
-  await expect(suggestions.first()).toBeVisible();
-  const count = await suggestions.count();
-  expect(count).toBeGreaterThan(0);
-
-  for (let i = 0; i < count; i++) {
-    await expect(suggestions.nth(i)).toBeVisible();
-    await expect(suggestions.nth(i)).toBeEnabled();
-  }
-});
-
-test("guest: clicking suggestion sends message", async ({ page }) => {
-  await page.goto("/");
-  const firstSuggestion = page.locator("#suggestion-list button").first();
-  await firstSuggestion.click();
-  await expect(page.locator(".message-row.user .message-text")).toBeVisible();
 });
 
 // --- 2. Chat submit and multiline composer ---
@@ -141,30 +134,7 @@ test("guest: Enter submits message", async ({ page }) => {
   await expect(page.locator(".message-row.user")).toContainText("Hello");
 });
 
-// --- 3. Hotel FAQ answer (fast path) ---
-
-test("guest: breakfast question returns fast-path answer", async ({ page }) => {
-  await page.goto("/");
-  await page.getByLabel("Ask your concierge").fill("What time is breakfast?");
-  await page.getByRole("button", { name: "Send message" }).click();
-  await expect(page.locator(".message-row.assistant")).toContainText("6:30 AM");
-});
-
-test("guest: checkout question returns fast-path answer", async ({ page }) => {
-  await page.goto("/");
-  await page.getByLabel("Ask your concierge").fill("What time is checkout?");
-  await page.getByRole("button", { name: "Send message" }).click();
-  await expect(page.locator(".message-row.assistant")).toContainText("12:00 PM");
-});
-
-test("guest: pool hours question returns fast-path answer", async ({ page }) => {
-  await page.goto("/");
-  await page.getByLabel("Ask your concierge").fill("What time does the pool close?");
-  await page.getByRole("button", { name: "Send message" }).click();
-  await expect(page.locator(".message-row.assistant")).toContainText("10:00 PM");
-});
-
-// --- 4. Wi-Fi authentication flow ---
+// --- 3. Wi-Fi authentication flow ---
 
 test.describe("wi-fi authentication flow", () => {
 test.describe.configure({ mode: "serial" });
@@ -176,8 +146,8 @@ test("guest: wi-fi flow shows only the enabled authentication type and its field
   await page.getByRole("button", { name: "Send message" }).click();
 
   await expect(page.getByLabel("Login method")).toHaveValue("pms");
-  await expect(page.getByPlaceholder("1503")).toBeVisible();
-  await expect(page.getByPlaceholder("Surname")).toBeVisible();
+  await expect(page.getByLabel("Room number")).toBeVisible();
+  await expect(page.getByLabel("Last name or PMS password")).toBeVisible();
   await expect(page.getByRole("button", { name: "Continue" })).toBeVisible();
 });
 
@@ -197,8 +167,8 @@ test("guest: wi-fi flow authenticates successfully in mock mode", async ({ page,
   await page.getByLabel("Ask your concierge").fill("Connect me to Wi-Fi");
   await page.getByRole("button", { name: "Send message" }).click();
 
-  await page.getByPlaceholder("1503").fill("412");
-  await page.getByPlaceholder("Surname").fill("Smith");
+  await page.getByLabel("Room number").fill("412");
+  await page.getByLabel("Last name or PMS password").fill("Smith");
   await page.getByRole("button", { name: "Continue" }).click();
 
   await expect(page.getByText("Demo authentication accepted. Internet access is simulated in mock mode.")).toBeVisible();
@@ -211,7 +181,7 @@ test("guest: wi-fi flow only lists enabled non-PMS methods", async ({ page, requ
   await page.getByRole("button", { name: "Send message" }).click();
 
   await expect(page.getByText("Choose an enabled Wi-Fi login method: Access Code.")).toBeVisible();
-  await expect(page.getByPlaceholder("1503")).toHaveCount(0);
+  await expect(page.getByLabel("Room number")).toHaveCount(0);
   await expect(page.getByLabel("Login method")).toHaveValue("access_code");
   await expect(page.getByRole("textbox", { name: "Access code" })).toBeVisible();
 });
@@ -282,7 +252,7 @@ test("guest: nearby dining shows persisted recommendation cards", async ({ page,
   await page.getByRole("button", { name: "Send message" }).click();
 
   await expect(page.locator(".recommendation-card")).toHaveCount(1);
-  await expect(page.locator(".recommendation-card").first()).toContainText("Verified Bistro");
+  await expect(page.locator(".recommendation-card").first()).toContainText("Fixture Bistro");
 });
 
 test("guest: restaurant card directions button opens configured map", async ({ page, request }) => {
@@ -299,7 +269,7 @@ test("guest: restaurant card directions button opens configured map", async ({ p
 
   const directionsBtn = page.locator(".recommendation-card").first().getByRole("button", { name: "Directions" });
   await directionsBtn.click();
-  expect(openedUrl).toContain("maps.example/bistro");
+  expect(openedUrl).toContain("maps.example/fixture");
 });
 
 test("guest: restaurant card details button toggles verified details", async ({ page, request }) => {
@@ -310,7 +280,7 @@ test("guest: restaurant card details button toggles verified details", async ({ 
 
   const detailsBtn = page.locator(".recommendation-card").first().getByRole("button", { name: "Details" });
   await detailsBtn.click();
-  await expect(page.locator(".recommendation-card").first()).toContainText("Property-verified nearby dining.");
+  await expect(page.locator(".recommendation-card").first()).toContainText("Synthetic test recommendation.");
   await expect(detailsBtn).toHaveText("Hide details");
 });
 
@@ -370,14 +340,6 @@ test("guest: confirm request persists and returns a request id", async ({ page, 
   await expect(page.getByRole("button", { name: "Confirmed" })).toBeDisabled();
 });
 
-test("guest: facility-hours question answers instead of creating a booking", async ({ page }) => {
-  await page.goto("/");
-  await page.getByLabel("Ask your concierge").fill("What are the pool, gym, and spa hours?");
-  await page.getByRole("button", { name: "Send message" }).click();
-  await expect(page.getByText(/Infinity Pool.*6:00 AM-10:00 PM.*Fitness Center.*24 hours.*Lunara Spa.*10:00 AM-10:00 PM/)).toBeVisible();
-  await expect(page.getByRole("button", { name: "Confirm request" })).toHaveCount(0);
-});
-
 // --- 7. Hotel menu ---
 
 test("guest: menu opens and closes", async ({ page }) => {
@@ -410,7 +372,7 @@ for (const [label, expectedText] of [
   ["Language", "Language preference set"],
   ["Accessibility", "Accessibility display mode"],
   ["Privacy", "session is temporary"],
-  ["Help", "Ask about verified hotel information"],
+  ["Help", "Ask a question about this property"],
 ]) {
   test(`guest: ${label.toLowerCase()} menu action responds`, async ({ page }) => {
     await page.goto("/");

@@ -50,8 +50,7 @@ def _bool(name: str, default: bool = False) -> bool:
 class Settings:
     app_name: str = os.getenv("APP_NAME", "Concierge.Ai")
     app_environment: str = os.getenv("APP_ENVIRONMENT", "development").strip().lower()
-    property_id: str = os.getenv("PROPERTY_ID", "demo-hotel")
-    hotel_config_path: Path = Path(os.getenv("HOTEL_CONFIG_PATH", "data/hotel.json"))
+    property_id: str = os.getenv("PROPERTY_ID", "").strip()
     db_path: Path = Path(os.getenv("DB_PATH", "state/concierge.db"))
     database_url: str = os.getenv("DATABASE_URL", "").strip()
     redis_url: str = os.getenv("REDIS_URL", "").strip()
@@ -166,8 +165,8 @@ def validate_production_settings(value: Settings, *, check_filesystem: bool = Tr
         errors.append("APP_DEBUG must be disabled")
     if value.allow_body_property_selection:
         errors.append("ALLOW_BODY_PROPERTY_SELECTION must be disabled")
-    if not value.allow_demo_settings and (value.property_id == "demo-hotel" or value.antlabs_mode == "mock"):
-        errors.append("demo property and mock guest authentication settings are not allowed")
+    if not value.allow_demo_settings and value.antlabs_mode == "mock":
+        errors.append("ANTLABS_MODE=mock is not allowed for production")
     if value.database_url and not value.database_url.lower().startswith(("postgresql://", "postgresql+psycopg://", "postgres://")):
         errors.append("DATABASE_URL must use PostgreSQL when a server database is configured")
     if value.redis_url and not value.redis_url.lower().startswith(("redis://", "rediss://")):

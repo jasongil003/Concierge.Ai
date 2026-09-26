@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { ensureTestProperty } from "./support.js";
 
 
 async function login(page) {
@@ -6,6 +7,8 @@ async function login(page) {
     data: { username: "admin", password: "ChangeMe123!", remember_me: false },
   });
   expect(response.ok()).toBeTruthy();
+  const csrf = (await response.json()).user.csrf_token;
+  await ensureTestProperty(page.request, csrf);
 }
 
 

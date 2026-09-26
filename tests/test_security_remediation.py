@@ -85,7 +85,7 @@ def test_development_can_use_explicit_demo_settings(tmp_path: Path):
     development = replace(
         _production_settings(tmp_path),
         app_environment="development",
-        property_id="demo-hotel",
+        property_id="tenant-a",
         antlabs_mode="mock",
         admin_cookie_secure=False,
         credential_encryption_secret="",
@@ -105,6 +105,12 @@ def test_unknown_host_cannot_select_property():
     records = [PropertyRecord(property_id="hotel-a", hotel_name="Hotel A", domain="a.example.test")]
     with pytest.raises(PermissionError, match="not mapped"):
         PropertyGuard.resolve(records, "hotel-a", "unknown.example.test", "hotel-a")
+
+
+def test_unknown_host_cannot_resolve_a_single_domain_mapped_property_without_default():
+    records = [PropertyRecord(property_id="hotel-a", hotel_name="Hotel A", domain="a.example.test")]
+    with pytest.raises(PermissionError, match="not mapped"):
+        PropertyGuard.resolve(records, "", "unknown.example.test")
 
 
 def test_hotel_a_host_cannot_select_hotel_b():

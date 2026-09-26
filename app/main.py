@@ -20,7 +20,7 @@ from typing import Any
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from email.message import EmailMessage
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import httpx
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
@@ -41,7 +41,6 @@ from .ai_providers import AIModelService, AIProviderStore
 from .antlabs import AntlabsAdapter
 from .config import settings
 from .database import configure_database, database_ready, dispose_database, verify_schema_current
-from .hotel import HotelKnowledge
 from .improvement_loop import ImprovementLoopManager, ImprovementLoopStore
 from .guest_identity import GuestIdentityStore
 from .guest_context import build_guest_context
@@ -68,13 +67,12 @@ from .guardrails import (
 from .hospitality import HospitalityStore
 from .intro import IntroExperienceStore
 from .location_analytics import LocationAnalyticsStore
-from .lunara_seed import PROPERTY_ID as LUNARA_PROPERTY_ID, seed_lunara_demo
 from .operations import OperationsStore
 from .knowledge_management import KnowledgeStore, CATEGORIES
 from .observability import DiagnosticContext, DiagnosticToolRegistry, ObservabilityStore, PERIODS
 from .outbound_http import OutboundRequestBroker, OutboundRequestError
 from .places import GooglePlaces, format_places_for_ai, rank_places
-from .properties import AUTHENTICATION_RULES, PropertyRecord, PropertyStore, validate_design_config
+from .properties import AUTHENTICATION_RULES, PropertyRecord, PropertyStore, default_design_config, validate_design_config
 from .reporting import ReportService
 from .rbac import bind_admin_route_policies, matched_admin_policy
 from .session_store import SessionStore
@@ -100,10 +98,8 @@ configure_database(
 )
 verify_schema_current()
 
-knowledge = HotelKnowledge(settings.hotel_config_path)
 store = SessionStore(settings.db_path, settings.session_ttl_minutes)
 properties = PropertyStore(settings.db_path)
-properties.seed_from_hotel_json(settings.property_id, settings.hotel_config_path)
 zones = ZoneStore(settings.db_path)
 guest_identities = GuestIdentityStore(settings.db_path)
 personalization = PersonalizationStore(settings.db_path)
@@ -142,14 +138,6 @@ rate_limiter = RedisRateLimiter(settings.redis_url) if settings.redis_url else S
 if isinstance(rate_limiter, RedisRateLimiter):
     ai_models.set_distributed_redis(rate_limiter.client)
 security_audit = SecurityAuditLogger(settings.db_path)
-if settings.property_id == LUNARA_PROPERTY_ID:
-    seed_lunara_demo(
-        properties,
-        zones,
-        hospitality,
-        operations,
-        STATIC_DIR / "assets" / "lunara-property-map.png",
-    )
 
 
 @asynccontextmanager
@@ -847,6 +835,7 @@ async def health_ready() -> dict[str, Any]:
         "checks": checks,
         "app": settings.app_name,
         "property_id": settings.property_id,
+        "property_setup": "configured" if properties.list() else "onboarding",
         "ai_provider_mode": settings.ai_provider_mode,
         "local_model": settings.ollama_model,
         "antlabs_mode": settings.antlabs_mode,
@@ -881,7 +870,7 @@ async def health_details(request: Request) -> dict[str, Any]:
 async def hotel(request: Request) -> dict[str, Any]:
     property_record = _guest_property(request)
     _enforce_guest_network(request, property_record)
-    profile = property_record.public_profile if property_record else knowledge.public_profile
+    profile = property_record.public_profile
     if not profile.get("ai"):
         profile["ai"] = {
             "guest_mode_switch": settings.ai_guest_mode_switch,
@@ -896,7 +885,30 @@ async def hotel(request: Request) -> dict[str, Any]:
 async def guest_zones(request: Request, property_id: str | None = None) -> dict[str, Any]:
     record = _guest_property(request, property_id)
     _enforce_guest_network(request, record)
-    return zones.overview(record.property_id, guest=True)
+    overview = zones.overview(record.property_id, guest=True)
+    overview["maps"] = [
+        {
+            "map_id": item["map_id"],
+            "floor_id": item["floor_id"],
+            "original_filename": item["original_filename"],
+            "content_type": item["content_type"],
+            "width": item["width"],
+            "height": item["height"],
+            "url": f"/api/guest/floor-maps/{item['map_id']}/asset?property_id={quote(record.property_id, safe='')}",
+        }
+        for item in overview["maps"]
+    ]
+    return overview
+
+
+@app.get("/api/guest/floor-maps/{map_id}/asset")
+async def guest_floor_map_asset(request: Request, map_id: str, property_id: str | None = None) -> FileResponse:
+    record = _guest_property(request, property_id)
+    _enforce_guest_network(request, record)
+    try:
+        return FileResponse(zones.floor_map_path(record.property_id, map_id))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.get("/api/guest/intro")
@@ -1301,7 +1313,7 @@ async def list_properties(request: Request) -> dict[str, Any]:
     if not principal.can("properties.all"):
         records = [record for record in records if record.property_id == principal.property_id]
     else:
-        records.sort(key=lambda record: (record.property_id != settings.property_id, record.hotel_name.lower()))
+        records.sort(key=lambda record: record.hotel_name.lower())
     return {"properties": [_property_admin_payload(record, principal) for record in records]}
 
 
@@ -1687,8 +1699,6 @@ async def admin_hotel_assistant(property_id: str, payload: HotelAssistantPayload
         return {"question": question, "answer": f"{len(pending)} knowledge item(s) are waiting for review.", "provider": "knowledge_tools", "model": "deterministic", "sources": [{"item_id": item["item_id"], "title": item["title"]} for item in pending[:20]]}
     managed_context = knowledge_management.search(property_id, question, guest=False, role_slug=principal.role_slug)
     context = managed_context + operations.search_knowledge(property_id, question, include_documents=False)
-    if property_id == settings.property_id:
-        context += knowledge.retrieve(question)
     context.extend(_property_ai_context(record))
     try:
         result = await ai_models.concierge_chat(
@@ -1926,7 +1936,13 @@ async def return_restaurant_conversation_to_ai(property_id: str, session_id: str
 async def upsert_property(property_id: str, payload: PropertyPayload) -> dict[str, Any]:
     if property_id != payload.property_id:
         raise HTTPException(status_code=400, detail="Property ID must match the request path.")
+    if not payload.hotel_name.strip():
+        raise HTTPException(status_code=422, detail="Property name is required.")
+    if not payload.timezone.strip():
+        raise HTTPException(status_code=422, detail="Timezone is required.")
     record = payload.to_record()
+    record.hotel_name = payload.hotel_name.strip()
+    record.timezone = payload.timezone.strip()
     existing = properties.get(property_id)
     if existing and not record.guardrails.get("antlabs_signature_secret"):
         record.guardrails["antlabs_signature_secret"] = (existing.guardrails or {}).get("antlabs_signature_secret", "")
@@ -1938,6 +1954,14 @@ async def upsert_property(property_id: str, payload: PropertyPayload) -> dict[st
         record.design_draft = existing.design_draft
         record.design_published = existing.design_published
         record.design_versions = existing.design_versions
+    else:
+        record.design_draft = default_design_config(
+            hotel_name=record.hotel_name,
+            concierge_name=record.concierge_name,
+            welcome=record.welcome,
+            quick_actions=record.quick_actions,
+        )
+        record.design_published = record.design_draft
     return properties.upsert(record).to_dict()
 
 
@@ -2478,8 +2502,8 @@ async def restore_property_design(property_id: str, payload: RestoreDesignPayloa
 
 @app.delete("/api/admin/properties/{property_id}")
 async def delete_property(property_id: str) -> dict[str, Any]:
-    if property_id == settings.property_id:
-        raise HTTPException(status_code=400, detail="The active default property cannot be deleted.")
+    if settings.property_id and property_id == settings.property_id:
+        raise HTTPException(status_code=400, detail="The configured property cannot be deleted.")
     deleted = properties.delete(property_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Property not found.")
@@ -3514,7 +3538,7 @@ async def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
         security_audit.record(_request_id(request), session.property_id, safety_reason, "blocked", getattr(request.state, "guardrail_decision").client_ip)
     # Fast answers must match the current turn. Using contextual_query here let
     # a previous topic hijack an unrelated follow-up or greeting.
-    fast_answer = (PrivacyGuard.safe_response(safety_reason) if safety_reason else None) or _safety_fast_answer(sanitized_message) or _property_fast_answer(property_record, sanitized_message) or (knowledge.exact_fast_answer(sanitized_message) if session.property_id == settings.property_id else None)
+    fast_answer = (PrivacyGuard.safe_response(safety_reason) if safety_reason else None) or _safety_fast_answer(sanitized_message) or _property_fast_answer(property_record, sanitized_message)
     if fast_answer and (safety_reason or (requested_mode != "advanced" and not uses_guest_recommendations)):
         answer = fast_answer
         if _is_authentication_question(sanitized_message):
@@ -3534,8 +3558,6 @@ async def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
         }
 
     context = knowledge_management.search(session.property_id, contextual_query, guest=True) + operations.search_knowledge(session.property_id, contextual_query, include_documents=False)
-    if session.property_id == settings.property_id:
-        context += knowledge.retrieve(contextual_query)
     context.extend(_property_ai_context(property_record))
     if auth_types:
         context.append(
