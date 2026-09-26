@@ -1,4 +1,4 @@
-# On-Prem Prototype Deployment
+# On-Prem Deployment
 
 ## Minimum prototype
 
@@ -46,16 +46,29 @@ http://<server-ip>:8080/health
 
 ```bash
 cp .env.example .env
+# Add unique production secrets and configure ANTlabs browser handoff first.
 docker compose up --build
 ```
 
-Ollama must already be running on the host.
+The production Compose profile fails closed until `.env` contains a unique
+`ADMIN_BOOTSTRAP_PASSWORD`, `CREDENTIAL_ENCRYPTION_SECRET`, and `METRICS_TOKEN`.
+Set `ANTLABS_MODE=browser_handoff` and configure `ANTLABS_AUTH_URL` for the
+target gateway before starting it. The example's `mock` mode is for local
+development only.
+
+This on-prem profile runs one Concierge API instance and stores its database at
+`/state/concierge.db` inside the `concierge-state` Docker volume. It does not
+start a database container: `DATABASE_URL` is intentionally blank so SQLite
+remains the active database. With Redis unconfigured, request limits use the
+shared SQLite limiter. Keep the single API worker/instance for this SQLite
+profile; evaluate a separate database deployment before increasing concurrent
+replicas. Ollama must already be running on the host.
 
 The compose configuration points the container at `host.docker.internal:11434`.
 
 ## First ANTlabs lab test
 
-Keep:
+For local development only, keep:
 
 ```env
 ANTLABS_MODE=mock
@@ -128,6 +141,11 @@ Do not select a larger model until measured answer quality requires it.
 
 ## Security note
 
-The prototype is intentionally not production hardened yet.
+The development profile uses mock guest authentication and is not a production
+configuration. Production startup rejects mock ANTlabs mode, default
+credentials, insecure cookies, and unsafe property-selection settings.
 
-Do not expose it directly to the public Internet or connect it to production PMS data until the security milestones in the roadmap are complete.
+Terminate TLS at a trusted reverse proxy and configure the hotel firewall,
+guest VLAN, canonical hostnames, and ANTlabs walled-garden policy before a guest
+pilot. Do not expose it directly to the public Internet or connect it to
+production PMS data until the security milestones in the roadmap are complete.

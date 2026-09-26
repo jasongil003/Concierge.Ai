@@ -5,6 +5,7 @@ __pycache__/
 .pytest_cache/
 .codex-tmp/
 .DS_Store
+debug.log
 state/
 *.db
 node_modules/

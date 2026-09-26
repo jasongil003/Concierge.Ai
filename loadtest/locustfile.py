@@ -117,6 +117,7 @@ class GuestUser(HttpUser):
 class AdminReadWriteUser(HttpUser):
     """One optional operator models occasional authenticated read/write traffic."""
 
+    weight = 1 if ADMIN_ENABLED else 0
     fixed_count = 1 if ADMIN_ENABLED else 0
     wait_time = between(3, 7)
 

@@ -128,6 +128,59 @@ test("admin restaurant workflow creates, approves, publishes, edits, and archive
   await expect(restaurantRow).toContainText("archived");
 });
 
+test("admin restaurant assignment checkboxes save only the selected restaurant ids", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "The mutation workflow only needs one browser profile.");
+  const suffix = Date.now().toString(36);
+  const propertyResponse = await page.request.get("/api/admin/properties");
+  expect(propertyResponse.ok()).toBeTruthy();
+  const propertyId = (await propertyResponse.json()).properties[0].property_id;
+  const authResponse = await page.request.get("/api/admin/auth/me");
+  expect(authResponse.ok()).toBeTruthy();
+  const csrf = (await authResponse.json()).user.csrf_token;
+  const headers = { "X-CSRF-Token": csrf };
+
+  const createdRestaurants = [];
+  for (const name of [`Assignment Grill ${suffix}`, `Assignment Cafe ${suffix}`]) {
+    const response = await page.request.post(`/api/admin/properties/${propertyId}/restaurants`, {
+      headers,
+      data: { data: { name } },
+    });
+    expect(response.ok()).toBeTruthy();
+    createdRestaurants.push(await response.json());
+  }
+
+  await page.goto("/admin");
+  await openPanel(page, "Users");
+  await page.locator("#create-user-button").click();
+  await page.locator("#admin-property").selectOption(propertyId);
+  await page.locator("#admin-role").selectOption({ label: "Restaurant Staff" });
+  const assignmentList = page.locator("#restaurant-assignment-list");
+  await page.waitForLoadState("networkidle");
+  for (const restaurant of createdRestaurants) {
+    await expect(assignmentList.getByText(restaurant.name, { exact: true })).toHaveCount(1);
+  }
+
+  const checkboxes = assignmentList.locator("input[type=checkbox]");
+  await page.locator("#restaurant-assignment-select-all").click();
+  await expect(assignmentList.locator("input:checked")).toHaveCount(await checkboxes.count());
+  await page.locator("#restaurant-assignment-clear").click();
+  await expect(assignmentList.locator("input:checked")).toHaveCount(0);
+  await assignmentList.locator(`input[value="${createdRestaurants[0].restaurant_id}"]`).check();
+
+  const username = `restaurant.staff.${suffix}`;
+  await page.locator("#admin-username").fill(username);
+  await page.locator("#admin-display-name").fill("Assigned Restaurant Staff");
+  await page.locator("#admin-password").fill("RestaurantStaff123!");
+  await page.locator("#admin-password-confirm").fill("RestaurantStaff123!");
+  await page.locator("#save-user-button").click();
+  await expect(page.locator("#user-dialog")).not.toBeVisible();
+
+  const usersResponse = await page.request.get("/api/admin/users");
+  expect(usersResponse.ok()).toBeTruthy();
+  const createdUser = (await usersResponse.json()).users.find((user) => user.username === username);
+  expect(createdUser.restaurant_ids).toEqual([createdRestaurants[0].restaurant_id]);
+});
+
 test("admin operations buttons: map, stay memory, location, and intro", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium", "The mutation workflow only needs one browser profile.");
   const suffix = Date.now().toString(36);

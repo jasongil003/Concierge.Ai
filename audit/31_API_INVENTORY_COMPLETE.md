@@ -1,16 +1,17 @@
 # API Inventory
 
-Source: route decorators and shared middleware in `app/main.py`, reviewed 2026-09-25 after PR #31 changes. This inventory covers 190 registered HTTP method/path combinations. “Implemented” describes handler presence; it does not imply each route received an individual negative-case security test. Restaurant and conversation handler checks may narrow the middleware permission further based on assigned restaurant and conversation state.
+Source: route decorators, shared middleware, and `app/admin_route_policies.json`, reviewed 2026-09-26. This table covers the 191 application method/path combinations, including `/metrics` (hidden from OpenAPI). The companion [route-level matrix](33_API_ENDPOINT_MATRIX.csv) contains all 199 registered method/path combinations, including FastAPI's four documentation paths with GET and HEAD methods. It adds authentication, permissions, property/restaurant scope, CSRF, rate limits, request models/parameters, response types, handler side-effect hints, and audit-event notes. Handler-defined response dictionaries and side effects reached through helpers need source review; this inventory does not claim every route received an individual negative-case security test. Restaurant and conversation handler checks may narrow middleware permissions based on assigned restaurant and conversation state.
 
 | Endpoint | Method | Authentication | Permission | Status | Notes |
 |---|---|---|---|---|---|
-| `/` | `GET` | Approved source CIDR; session required on session-scoped paths | - | Implemented; route-level test coverage varies | HTML. JSON body is Pydantic/store validated where applicable; errors use HTTP status responses. |
+| `/` | `GET` | Approved guest source network; property resolved from Host/gateway | - | Implemented; route-level test coverage varies | HTML. Guest page does not require a session token; access is restricted by the guest network policy. |
 | `/admin/login` | `GET` | Unauthenticated | - | Implemented; route-level test coverage varies | HTML. JSON body is Pydantic/store validated where applicable; errors use HTTP status responses. |
 | `/admin` | `GET` | Admin session cookie | - | Implemented; route-level test coverage varies | HTML. JSON body is Pydantic/store validated where applicable; errors use HTTP status responses. |
 | `/health` | `GET` | Public | - | Implemented; route-level test coverage varies | JSON. Public readiness/liveness; no authentication. |
 | `/health/live` | `GET` | Public | - | Implemented; route-level test coverage varies | JSON. Public readiness/liveness; no authentication. |
 | `/health/ready` | `GET` | Public | - | Implemented; route-level test coverage varies | JSON. Public readiness/liveness; no authentication. |
 | `/health/details` | `GET` | Admin session cookie | diagnostics.view | Implemented; route-level test coverage varies | JSON. Public probes are limited; details requires diagnostics.view. |
+| `/metrics` | `GET` | Bearer `METRICS_TOKEN` (minimum 32 characters) | - | Implemented; route-level test coverage varies | Prometheus text; token is compared in constant time. Hidden from OpenAPI. Restrict at the deployment network boundary. |
 | `/api/hotel` | `GET` | Approved source CIDR; session required on session-scoped paths | - | Implemented; route-level test coverage varies | JSON. JSON body is Pydantic/store validated where applicable; errors use HTTP status responses. |
 | `/api/guest/zones` | `GET` | Approved source CIDR; session required on session-scoped paths | - | Implemented; route-level test coverage varies | JSON. JSON body is Pydantic/store validated where applicable; errors use HTTP status responses. |
 | `/api/guest/intro` | `GET` | Approved source CIDR; session required on session-scoped paths | - | Implemented; route-level test coverage varies | JSON. JSON body is Pydantic/store validated where applicable; errors use HTTP status responses. |
@@ -208,3 +209,6 @@ Source: route decorators and shared middleware in `app/main.py`, reviewed 2026-0
 - Password-reset request returns a generic message and is capped at 12 requests/direct-peer/hour and 3 requests/hashed-account/hour. Confirmation is capped at 30 requests/direct-peer/hour and 10 requests/hashed-token/hour. Tokens travel in URL fragments and the login page removes them from browser history; verify rate-limit identity behind the production reverse proxy.
 - Guest CIDR checks are server-side. `X-Forwarded-For` is used only when the TCP peer matches configured trusted proxy ranges.
 
+## Framework documentation routes
+
+FastAPI's default `/openapi.json`, `/docs`, `/docs/oauth2-redirect`, and `/redoc` routes are also registered with GET and HEAD methods. They are unauthenticated in the application and are included in the companion route-level matrix. The deployment proxy currently forwards all paths to the application; decide whether these docs should be disabled or access-restricted in production.

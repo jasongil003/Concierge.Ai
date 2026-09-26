@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
+import sys
+
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.ai_providers import AIProviderStore
 
@@ -14,7 +19,7 @@ def main() -> None:
     endpoint_url = os.getenv("MOCK_AI_URL", "http://mock-ai:8081").strip().rstrip("/")
     if not property_id:
         raise SystemExit("PROPERTY_ID is required.")
-    store = AIProviderStore(__import__("pathlib").Path(os.getenv("DB_PATH", "state/concierge.db")))
+    store = AIProviderStore(Path(os.getenv("DB_PATH", "state/concierge.db")))
     current = store.get_settings(property_id)
     store.save_settings(
         property_id,

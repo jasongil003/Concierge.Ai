@@ -23,6 +23,13 @@ from app.properties import PropertyRecord, PropertyStore
 from app.session_store import SessionStore
 
 
+def _gateway_headers(secret: str, body: bytes, nonce: str, timestamp: int | None = None) -> dict[str, str]:
+    timestamp = str(timestamp if timestamp is not None else int(time.time()))
+    canonical = timestamp.encode() + b"." + nonce.encode() + b"." + body
+    signature = hmac.new(secret.encode(), canonical, hashlib.sha256).hexdigest()
+    return {"x-antlabs-timestamp": timestamp, "x-antlabs-nonce": nonce, "x-antlabs-signature": signature}
+
+
 def test_network_guard_allows_approved_subnet_and_denies_external_source():
     guard = NetworkGuard()
     config = {"guest_network_only": True, "allowed_cidrs": ["10.20.0.0/16"]}
@@ -271,6 +278,79 @@ def test_antlabs_gateway_assertion_binds_property_and_rejects_nonce_replay(tmp_p
     with store._connect() as db:
         row = db.execute("SELECT nonce_hash FROM gateway_assertion_nonces").fetchone()
     assert row is not None and row["nonce_hash"] != nonce
+
+
+def test_gateway_assertion_requires_nonce():
+    secret = "gateway-signing-secret"
+    config = {
+        "antlabs_gateway_enabled": True,
+        "antlabs_gateway_ranges": ["127.0.0.0/8"],
+        "antlabs_signature_secret": secret,
+    }
+    body = b'{"property_id":"hotel-a"}'
+    headers = _gateway_headers(secret, body, "nonce-hotel-a-000002")
+    headers.pop("x-antlabs-nonce")
+    assert not GatewayGuard.validate(
+        headers, body, "127.0.0.1", config, property_id="hotel-a", nonce_consumer=lambda *_: True
+    )
+
+
+def test_gateway_assertion_modified_body_is_rejected():
+    secret = "gateway-signing-secret"
+    config = {
+        "antlabs_gateway_enabled": True,
+        "antlabs_gateway_ranges": ["127.0.0.0/8"],
+        "antlabs_signature_secret": secret,
+    }
+    body = b'{"property_id":"hotel-a","client_id":"guest-a"}'
+    modified = b'{"property_id":"hotel-a","client_id":"guest-b"}'
+    headers = _gateway_headers(secret, body, "nonce-hotel-a-000003")
+    assert not GatewayGuard.validate(
+        headers, modified, "127.0.0.1", config, property_id="hotel-a", nonce_consumer=lambda *_: True
+    )
+
+
+def test_gateway_assertion_wrong_nonce_is_rejected():
+    secret = "gateway-signing-secret"
+    config = {
+        "antlabs_gateway_enabled": True,
+        "antlabs_gateway_ranges": ["127.0.0.0/8"],
+        "antlabs_signature_secret": secret,
+    }
+    body = b'{"property_id":"hotel-a"}'
+    headers = _gateway_headers(secret, body, "nonce-hotel-a-000004")
+    headers["x-antlabs-nonce"] = "nonce-hotel-a-000005"
+    assert not GatewayGuard.validate(
+        headers, body, "127.0.0.1", config, property_id="hotel-a", nonce_consumer=lambda *_: True
+    )
+
+
+def test_gateway_assertion_expired_timestamp_is_rejected():
+    secret = "gateway-signing-secret"
+    config = {
+        "antlabs_gateway_enabled": True,
+        "antlabs_gateway_ranges": ["127.0.0.0/8"],
+        "antlabs_signature_secret": secret,
+    }
+    body = b'{"property_id":"hotel-a"}'
+    headers = _gateway_headers(secret, body, "nonce-hotel-a-000006", int(time.time()) - 301)
+    assert not GatewayGuard.validate(
+        headers, body, "127.0.0.1", config, property_id="hotel-a", nonce_consumer=lambda *_: True
+    )
+
+
+def test_gateway_assertion_wrong_property_is_rejected():
+    secret = "gateway-signing-secret"
+    config = {
+        "antlabs_gateway_enabled": True,
+        "antlabs_gateway_ranges": ["127.0.0.0/8"],
+        "antlabs_signature_secret": secret,
+    }
+    body = b'{"property_id":"hotel-b"}'
+    headers = _gateway_headers(secret, body, "nonce-hotel-b-000007")
+    assert not GatewayGuard.validate(
+        headers, body, "127.0.0.1", config, property_id="hotel-a", nonce_consumer=lambda *_: True
+    )
 
 
 def test_service_request_preserves_guest_text_for_output_encoding_contract(admin_client, tmp_path, monkeypatch):
