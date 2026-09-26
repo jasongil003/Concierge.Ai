@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Concierge.Ai Platform</title>
-  <link rel="stylesheet" href="/static/admin.css?v=18">
+  <link rel="stylesheet" href="/static/admin.css?v=26">
 </head>
 <body>
   <div class="platform-shell" id="platform-shell">
@@ -96,8 +96,8 @@
       </section>
 
       <section class="panel" id="ai-assistant">
-        <div class="page-title"><div><p>AI operations</p><h1>Operations Assistant</h1><span>Read-only diagnostics using permission-checked server tools.</span></div><div class="assistant-toolbar"><button class="secondary" type="button" data-assistant-new>New conversation</button><button class="secondary" type="button" data-assistant-clear>Clear conversation</button></div></div>
-        <section class="assistant-page"><div class="assistant-messages" id="assistant-page-messages"><div class="assistant-empty"><strong>Ask about this property</strong><p>Try “Why are service requests delayed?”, “Check all AI providers”, or “Compare requests with the previous period”.</p></div></div><form class="assistant-composer" id="assistant-page-form"><textarea id="assistant-page-input" rows="2" maxlength="1200" placeholder="Ask about operations, health, or trends"></textarea><button type="submit">Investigate</button></form></section>
+        <div class="page-title"><div><p>AI operations</p><h1>Operations Assistant</h1><span>Ask for clear operational summaries, reports, and system checks based on your role's access.</span></div><div class="assistant-toolbar"><button class="secondary" type="button" data-assistant-new>New conversation</button><button class="secondary" type="button" data-assistant-clear>Clear conversation</button></div></div>
+        <section class="assistant-page"><div class="assistant-messages" id="assistant-page-messages"><div class="assistant-empty"><strong>Ask about hotel operations</strong><p>Try “Give me a report for the last 7 days”, “Check the system for issues”, or “Why are requests delayed?”</p></div></div><form class="assistant-composer" id="assistant-page-form"><textarea id="assistant-page-input" rows="2" maxlength="1200" placeholder="Ask for a report or a system health check"></textarea><button type="submit">Ask</button></form></section>
         <section class="card admin-hotel-ai"><h2>Hotel Knowledge AI</h2><p class="field-note">Ask about this property's knowledge or attach documents for review. Only approved, published guest-visible items reach Guest AI.</p><div class="assistant-messages" id="hotel-ai-messages" aria-live="polite"><div class="assistant-empty"><strong>Ask about hotel knowledge</strong><p>Find sources, identify gaps, or upload a document to extract knowledge.</p></div></div><form class="assistant-composer knowledge-composer" id="hotel-ai-form"><div id="hotel-ai-attachments" class="knowledge-attachments" aria-live="polite"></div><textarea id="hotel-ai-input" rows="2" maxlength="1200" aria-label="Message to Hotel Knowledge AI" placeholder="Ask about hotel information or drop files here"></textarea><input id="hotel-ai-files" type="file" multiple hidden accept=".pdf,.docx,.xlsx,.csv,.txt,.md,.json,.pptx,.png,.jpg,.jpeg,.webp"><button class="secondary" id="hotel-ai-attach" type="button">Attach files</button><button type="submit">Send</button><small>Enter to send · Shift+Enter for a new line</small></form></section>
       </section>
 
@@ -207,30 +207,94 @@
       </section>
 
       <section class="panel" id="guest">
-        <div class="page-title"><div><p>Guest experience</p><h1>Conversation modules</h1><span>Enabled modules appear in the guest menu in the configured order.</span></div></div>
-        <div class="two-col"><section class="card"><h2>Module</h2><input id="guest-module-id" type="hidden"><label>Name<input id="guest-module-name" maxlength="80"></label><label>Guest prompt<textarea id="guest-module-prompt" rows="3" placeholder="What information should the concierge provide?"></textarea></label><label>Order<input id="guest-module-order" type="number" min="0" max="99" value="0"></label><label class="check-row"><input id="guest-module-enabled" type="checkbox" checked> Enabled</label><button id="save-guest-module" type="button">Save Module</button></section><section class="card"><h2>Published modules</h2><div id="guest-module-list" class="compact-list"></div></section></div>
+        <div class="page-title"><div><p>Guest experience</p><h1>Conversation modules</h1><span>Create quick actions guests can tap in the concierge chat. Saving a module updates the guest menu immediately.</span></div></div>
+        <section class="card module-guide" aria-labelledby="module-guide-title">
+          <div class="module-guide-intro"><p>WHAT THIS PAGE IS FOR</p><h2 id="module-guide-title">Give guests useful conversation shortcuts</h2><span>Each module adds a named button to the guest chat menu. When a guest taps it, the saved prompt is sent as their chat message and the concierge responds using available property information and configured rules.</span></div>
+          <div class="module-guide-howto">
+            <h3>How to create a module</h3>
+            <ol>
+              <li><strong>Name it for the guest.</strong> Use a short action such as “Explore dining” or “Request extra towels.”</li>
+              <li><strong>Write the full prompt.</strong> Say what the guest wants help with; include useful constraints and ask the concierge to be clear when hotel details are unavailable.</li>
+              <li><strong>Set order and visibility.</strong> Lower order numbers appear first. Turn on “Show in guest menu” to make the action available to guests.</li>
+              <li><strong>Save and review.</strong> Saving applies the change immediately. Use “Open guest app” in the top bar to see the enabled menu actions.</li>
+            </ol>
+          </div>
+          <div class="module-guide-examples">
+            <article><strong>Explore dining</strong><span>“Suggest restaurants that are open now and match my preferences.”</span></article>
+            <article><strong>Room service</strong><span>“Show me the room-service options and how to place an order.”</span></article>
+            <article><strong>Getting around</strong><span>“Help me find the best way to get to a nearby attraction.”</span></article>
+          </div>
+          <p class="module-guide-note"><strong>Keep information current:</strong> a module is a prompt shortcut, not a place to store hotel facts or trigger a backend workflow. Add verified hotel details in Hotel Information or Knowledge so the concierge has reliable facts to answer with.</p>
+        </section>
+        <div class="two-col module-workspace">
+          <section class="card module-editor">
+            <header class="module-section-heading"><div><p>MENU ACTION</p><h2 id="guest-module-form-title">Create a module</h2></div></header>
+            <input id="guest-module-id" type="hidden">
+            <label>Guest-facing name<input id="guest-module-name" maxlength="80" placeholder="For example, Explore dining"></label>
+            <p class="module-field-help">This short label appears on the button in guest chat.</p>
+            <label>Prompt sent to concierge<textarea id="guest-module-prompt" rows="4" placeholder="For example, Suggest restaurants that are open now and fit my preferences."></textarea></label>
+            <p class="module-field-help">This text is sent as the guest’s message when they tap the action. Write the full request, not private instructions or hotel facts.</p>
+            <div class="inline-fields"><label>Menu order (0–99)<input id="guest-module-order" type="number" min="0" max="99" step="1" value="0"></label><div><label class="check-row"><input id="guest-module-enabled" type="checkbox" checked> Show in guest menu</label><p class="module-field-help">Disabled modules stay saved here but are hidden from guests.</p></div></div>
+            <div class="module-form-actions"><button id="save-guest-module" type="button">Save Module</button><button id="clear-guest-module-form" class="secondary" type="button">Clear form</button></div>
+          </section>
+          <section class="card module-list-card">
+            <header class="module-section-heading"><div><p>GUEST MENU</p><h2>Saved modules</h2><span id="guest-module-count">0 modules</span></div></header>
+            <div id="guest-module-list" class="compact-list"></div>
+          </section>
+        </div>
       </section>
 
       <section class="panel" id="personalization-settings">
-        <div class="page-title"><div><p>Guest experience</p><h1>Personalization</h1><span>Set property-wide memory rules. Guests can always choose a more private level for themselves.</span></div></div>
+        <div class="page-title"><div><p>Guest experience</p><h1>Personalization</h1><span>Control which guest memory and recommendation features are available at this property. Guests still choose whether to opt in.</span></div></div>
+        <section class="card personalization-guide" aria-labelledby="personalization-guide-title">
+          <div class="personalization-guide-intro">
+            <p>WHAT THIS PAGE IS FOR</p>
+            <h2 id="personalization-guide-title">Set privacy rules for tailored guest assistance</h2>
+            <span>Choose which personalization options the concierge may offer, what can be remembered after a guest agrees, and which context sources may inform recommendations.</span>
+          </div>
+          <div class="personalization-guide-steps">
+            <h3>How to use these settings</h3>
+            <ol>
+              <li><strong>Choose availability and a suggested level.</strong> The default is shown to guests as a starting point; it never opts them in automatically.</li>
+              <li><strong>Set learning and expiry.</strong> Decide whether eligible preferences may be learned after opt-in, and how long saved preferences remain available.</li>
+              <li><strong>Choose allowed context.</strong> Enable only the PMS, location, and internet sources your property has configured and approved.</li>
+              <li><strong>Save settings.</strong> Guests can still switch to a more private level, review or remove preferences, and turn personalization off.</li>
+            </ol>
+          </div>
+          <div class="personalization-levels" aria-label="Personalization levels">
+            <article><h3>Private / Anonymous</h3><p>No saved guest preferences are applied. This is the opt-out level.</p></article>
+            <article><h3>Stay Personalization</h3><p>When a guest opts in, relevant preferences can help during the current concierge session and its retention window.</p></article>
+            <article><h3>Personal Concierge</h3><p>When profiles are allowed, a guest may choose this level for profile-style preferences. The guest must opt in.</p></article>
+          </div>
+          <p class="personalization-privacy-note"><strong>Guest control:</strong> these are property-wide limits, not consent. A guest's choice is scoped to their property and session. If checkout deletion is enabled, linked preference records are removed at checkout.</p>
+        </section>
         <div class="two-col">
           <section class="card settings-form">
-            <h2>Guest memory</h2>
+            <div><h2>Guest memory and consent</h2><p class="field-note">These controls decide what the concierge can offer. Turning on property personalization does not activate it for a guest.</p></div>
             <label class="check-row"><input id="personalization-enabled" type="checkbox"> Personalization enabled</label>
-            <label>Default level<select id="personalization-default-level"><option value="private">Private / Anonymous</option><option value="stay">Stay Personalization</option><option value="personal">Personal Concierge</option></select></label>
+            <p class="personalization-help">Master switch. When off, guest personalization is unavailable and responses use the private level.</p>
+            <label>Suggested default level<select id="personalization-default-level"><option value="private">Private / Anonymous</option><option value="stay">Stay Personalization</option><option value="personal">Personal Concierge</option></select></label>
+            <p class="personalization-help">Starting choice shown in guest controls. Guests are not opted in by this setting and can choose a more private level.</p>
             <label class="check-row"><input id="personalization-learning" type="checkbox"> Learn preferences from conversation</label>
+            <p class="personalization-help">When a guest opts in, allow the concierge to learn eligible preferences from messages. Guests can review and remove saved preferences.</p>
             <label class="check-row"><input id="personalization-profile" type="checkbox"> Allow Personal Concierge profile</label>
+            <p class="personalization-help">Makes the Personal Concierge level available. A guest must select it; profile preferences are still guest-controlled.</p>
             <label class="check-row"><input id="personalization-delete-checkout" type="checkbox"> Delete profile at checkout</label>
-            <div class="inline-fields"><label>Memory retention<select id="personalization-retention"><option value="stay_only">Stay only</option><option value="configurable">Configurable</option></select></label><label>Retention days<input id="personalization-retention-days" type="number" min="1" max="365" value="2"></label></div>
+            <p class="personalization-help">Remove linked guest preference and consent records when the stay is checked out.</p>
+            <div class="inline-fields"><label>Memory expiry<select id="personalization-retention"><option value="stay_only">2-day idle expiry</option><option value="configurable">Configurable idle expiry</option></select></label><label>Idle expiry days<input id="personalization-retention-days" type="number" min="1" max="365" value="2"></label></div>
+            <p class="personalization-help">The fixed mode clears memory after 2 days without activity. Configurable mode lets you set that idle window from 1 to 365 days.</p>
             <label class="check-row"><input id="personalization-pms" type="checkbox"> Allow authorized PMS personalization</label>
+            <p class="personalization-help">Allow verified PMS-linked room context when a guest asks a question that needs it.</p>
           </section>
           <section class="card settings-form">
             <h2>Recommendation context</h2>
             <label class="check-row"><input id="personalization-location" type="checkbox"> Allow location-aware recommendations</label>
+            <p class="personalization-help">Let recommendations use configured property location context when relevant.</p>
             <label class="check-row"><input id="personalization-internet" type="checkbox"> Allow internet recommendations</label>
-            <p class="field-note">Internet and location recommendations also remain subject to the property's network, guardrail, provider, and location configuration.</p>
+            <p class="personalization-help">Permit relevant web-based suggestions. The provider and network must also be configured and available.</p>
+            <p class="field-note">Both options remain subject to the property's guardrails and configured location or provider data.</p>
             <button id="save-personalization-policy" type="button" data-permission="properties.edit">Save Personalization Settings</button>
-            <p class="field-note">Guest preferences are private to their property and session. This settings page does not expose guest conversation contents or preference values.</p>
+            <p class="field-note">Saving applies these rules immediately. This page does not expose guest conversation contents or saved preference values.</p>
           </section>
         </div>
       </section>
@@ -277,23 +341,50 @@
       </section>
 
       <section class="panel" id="sessions">
-        <div class="page-title"><p>Sessions</p><h1>Guest stay memory and device identity</h1></div>
-        <div class="two-col">
-          <section class="card">
-            <h2>Reconnect a WLAN device</h2>
-            <label>Raw MAC from ANTlabs/WLAN<input id="session-raw-mac" placeholder="AA:BB:CC:DD:EE:FF"></label>
-            <label>Room (optional)<input id="session-room"></label>
+        <div class="page-title"><div><p>Guest Experience · Sessions</p><h1>Guest Sessions</h1><span>Link WLAN visits to temporary guest stays, record staff notes, and review session activity.</span></div><button class="secondary" id="refresh-sessions" type="button">Refresh records</button></div>
+        <section class="card session-guide" aria-labelledby="session-guide-title">
+          <div class="session-guide-intro"><p>WHAT THIS PAGE IS FOR</p><h2 id="session-guide-title">Manage guest sessions and temporary stay records</h2><span>Reconnect a WLAN device to group its visits under a time-limited stay, then review the linked sessions and property-scoped device identity. Guest replies use only authenticated, linked context allowed by the guest's personalization settings.</span></div>
+          <ol class="session-guide-steps">
+            <li><strong>1. Reconnect</strong><span>Use an authorized WLAN MAC and optional room or integration IDs to create or restore a stay.</span></li>
+            <li><strong>2. Add stay notes</strong><span>Select an active stay to save a concise summary, preferences, request notes, and important context for staff reference.</span></li>
+            <li><strong>3. Review</strong><span>Search sessions, stays, and device records; check activity and retention dates.</span></li>
+          </ol>
+          <p class="session-privacy-note"><strong>Privacy:</strong> the raw WLAN MAC is converted server-side to a property-scoped pseudonymous device ID. Stay notes are retained with the stay and are not automatically included in guest replies; avoid passwords, payment data, or unnecessary sensitive details.</p>
+        </section>
+        <section class="session-summary" aria-label="Guest session totals">
+          <button class="session-summary-card selected" type="button" data-session-filter="all"><span>All records</span><strong id="session-count-total">0</strong></button>
+          <button class="session-summary-card" type="button" data-session-filter="active-sessions"><span>Active concierge sessions</span><strong id="session-count-active">0</strong></button>
+          <button class="session-summary-card" type="button" data-session-filter="active-stays"><span>Active stays</span><strong id="session-count-stays">0</strong></button>
+          <button class="session-summary-card" type="button" data-session-filter="expired-sessions"><span>Expired concierge sessions</span><strong id="session-count-expired">0</strong></button>
+          <button class="session-summary-card" type="button" data-session-filter="devices"><span>Known devices</span><strong id="session-count-devices">0</strong></button>
+        </section>
+        <div class="guest-session-workspace">
+          <section class="card session-reconnect-card">
+            <header class="session-panel-heading"><div><p>LINK A DEVICE</p><h2>Reconnect a WLAN device</h2></div></header>
+            <p class="field-note">Create a new guest stay or reconnect a device to its current active stay. Retention is refreshed on reconnect. The raw MAC is used only for the server-side identity conversion.</p>
+            <label>WLAN MAC address<input id="session-raw-mac" autocomplete="off" placeholder="AA:BB:CC:DD:EE:FF"></label>
+            <label>Room number (optional)<input id="session-room" maxlength="80" placeholder="For example, 1204"></label>
+            <details class="session-advanced-fields"><summary>Optional PMS and session identifiers</summary><p class="field-note">Fill these only when the identifiers come from a trusted hotel integration. Leave unknown values blank.</p><label>Concierge session ID<input id="session-concierge-id" maxlength="200"></label><label>ANTlabs session ID<input id="session-antlabs-id" maxlength="200"></label><label>Browser session ID<input id="session-browser-id" maxlength="200"></label><label>PMS guest ID<input id="session-pms-guest-id" maxlength="200"></label><label>Stay retention (days)<input id="session-retention-days" type="number" min="1" max="60" value="2"></label></details>
             <button id="create-stay-session" type="button">Create / Restore Stay</button>
-            <p class="field-note">Raw MAC values are accepted only server-side and converted to property-scoped HMAC device IDs.</p>
           </section>
-          <section class="card">
-            <h2>AI Memory</h2>
-            <label>Stay ID<input id="memory-stay-id"></label>
-            <label>Summary<textarea id="memory-summary" rows="4"></textarea></label>
-            <button id="save-stay-memory" type="button">Save Compact Memory</button>
+          <section class="card session-memory-card">
+            <header class="session-panel-heading"><div><p>STAY-SCOPED RECORD</p><h2>Stay notes</h2></div></header>
+            <p class="field-note">Keep notes short and factual. Choose a stay first; notes are saved with that stay and retention window for staff reference.</p>
+            <label>Guest stay<select id="memory-stay-id" required><option value="">Select a stay</option></select></label>
+            <p class="session-memory-selection" id="session-memory-selection">Choose an active or historical stay to view its saved notes.</p>
+            <label>Conversation summary<textarea id="memory-summary" rows="3" maxlength="2000" disabled placeholder="Briefly summarize useful context for staff."></textarea></label>
+            <label>Preferences (one item per line)<textarea id="memory-preferences" rows="2" maxlength="3000" disabled placeholder="Quiet room&#10;Extra pillows"></textarea></label>
+            <label>Recent request notes (one item per line)<textarea id="memory-recent-requests" rows="2" maxlength="3000" disabled></textarea></label>
+            <label>Unresolved request notes (one item per line)<textarea id="memory-unresolved-requests" rows="2" maxlength="3000" disabled></textarea></label>
+            <label>Important staff context<textarea id="memory-important-context" rows="2" maxlength="1200" disabled placeholder="Context staff may need when assisting this guest."></textarea></label>
+            <button id="save-stay-memory" type="button" disabled>Save stay notes</button>
           </section>
         </div>
-        <section class="card table-card"><h2>Active / History</h2><div id="session-list" class="compact-list"></div></section>
+        <section class="card session-records-card">
+          <header class="session-panel-heading"><div><p>PROPERTY RECORDS</p><h2>Session activity, WLAN links, stays, and device identities</h2><span id="session-result-count">0 records</span></div></header>
+          <div class="session-record-filters"><label>Search records<input id="session-record-search" type="search" placeholder="Session ID, stay ID, room, device ID"></label><label>Record type<select id="session-record-filter"><option value="all">All records</option><option value="active-sessions">Active concierge sessions</option><option value="expired-sessions">Expired concierge sessions</option><option value="guest-links">WLAN / integration links</option><option value="active-stays">Active stays</option><option value="checked-out-stays">Checked-out stays</option><option value="devices">Device identities</option></select></label></div>
+          <div id="session-list" class="session-record-list" aria-live="polite"></div>
+        </section>
       </section>
 
       <section class="panel" id="location">
@@ -422,30 +513,72 @@
       </section>
 
       <section class="panel" id="conversations">
-        <div class="page-title"><div><p>Guest Experience</p><h1>Conversations</h1><span>Guest messages, AI responses, escalation, and human takeover.</span></div><button class="secondary" id="refresh-conversations" type="button">Refresh</button></div>
-        <section class="card retention-card"><div><h2>Privacy and retention</h2><p class="field-note">Active conversations support service delivery and human takeover. Historical messages are deleted after the configured retention period.</p></div><label>Retention days<input id="conversation-retention-days" type="number" min="1" max="365" value="30"></label><button id="save-conversation-retention" type="button">Save Retention</button></section>
-        <div class="two-col">
-          <section class="card"><h2>Conversation list</h2><label>Search<input id="conversation-search" type="search" aria-label="Search conversations"></label><label>Status<select id="conversation-status-filter"><option value="">All statuses</option><option value="open">Open</option><option value="escalated">Escalated</option><option value="closed">Closed</option></select></label><div id="conversation-list" class="compact-list"></div></section>
-          <section class="card"><h2>Message history</h2><div id="conversation-messages" class="compact-list">Select a conversation.</div><label data-permission="conversations.assign">Assign to staff<select id="conversation-staff-select"></select></label><button class="secondary" id="assign-conversation" type="button" data-permission="conversations.assign" disabled>Assign Conversation</button><label>Staff response<textarea id="staff-response" rows="3"></textarea></label><div class="dialog-actions"><button class="secondary" id="toggle-takeover" type="button" disabled>Accept / Return to AI</button><button class="secondary" id="close-conversation" type="button" disabled>Resolve</button><button id="send-staff-response" type="button" disabled>Send Response</button></div></section>
+        <div class="page-title conversation-page-title"><div><p>Guest Experience</p><h1>Conversations</h1><span>Review guest messages, route requests to staff, and reply from one inbox.</span></div><div class="conversation-page-actions"><span id="conversation-last-refreshed">Not refreshed yet</span><button class="secondary" id="refresh-conversations" type="button">Refresh inbox</button></div></div>
+        <section class="conversation-summary" id="conversation-summary" aria-label="Conversation status overview">
+          <button class="conversation-summary-card selected" type="button" data-conversation-filter=""><span>All conversations</span><strong id="conversation-count-all">0</strong></button>
+          <button class="conversation-summary-card" type="button" data-conversation-filter="waiting_for_staff"><span>Waiting for staff</span><strong id="conversation-count-waiting">0</strong></button>
+          <button class="conversation-summary-card" type="button" data-conversation-filter="assigned"><span>Assigned</span><strong id="conversation-count-assigned">0</strong></button>
+          <button class="conversation-summary-card" type="button" data-conversation-filter="human_active"><span>Staff handling</span><strong id="conversation-count-active">0</strong></button>
+          <button class="conversation-summary-card" type="button" data-conversation-filter="ai_active"><span>With AI</span><strong id="conversation-count-ai">0</strong></button>
+          <button class="conversation-summary-card" type="button" data-conversation-filter="resolved"><span>Resolved</span><strong id="conversation-count-resolved">0</strong></button>
+        </section>
+        <details class="conversation-retention" data-permission="properties.edit">
+          <summary><strong>Privacy and retention</strong><span>Historical messages are removed after the configured period.</span></summary>
+          <div class="conversation-retention-controls"><p>Choose how long this property keeps conversation history. Active conversations remain available to support service delivery.</p><label>Retention days<input id="conversation-retention-days" type="number" min="1" max="365" value="30"></label><button id="save-conversation-retention" type="button">Save retention</button></div>
+        </details>
+        <div class="conversation-workspace">
+          <section class="card conversation-queue">
+            <header class="conversation-panel-heading"><div><p>Inbox</p><h2>Conversation queue</h2></div><span class="conversation-result-count" id="conversation-result-count">0 conversations</span></header>
+            <div class="conversation-filters"><label>Search<input id="conversation-search" type="search" aria-label="Search conversations" placeholder="Guest, restaurant, message…"></label><label>Status<select id="conversation-status-filter"><option value="">All conversations</option><option value="waiting_for_staff">Waiting for staff</option><option value="assigned">Assigned</option><option value="human_active">Staff handling</option><option value="ai_active">With AI</option><option value="resolved">Resolved</option></select></label></div>
+            <div id="conversation-list" class="conversation-list" aria-live="polite"></div>
+          </section>
+          <section class="card conversation-detail" aria-label="Selected conversation">
+            <header class="conversation-detail-header"><div class="conversation-detail-title"><p>Conversation</p><h2 id="conversation-detail-name">Select a conversation</h2><span id="conversation-detail-meta">Choose a guest from the inbox to review their messages.</span></div><span class="conversation-status-badge" id="conversation-detail-status" hidden></span></header>
+            <div class="conversation-detail-actions" id="conversation-detail-actions"><label id="conversation-assignment" data-permission="conversations.assign">Assign to staff<select id="conversation-staff-select" disabled><option value="">Select a conversation first</option></select></label><button class="secondary" id="assign-conversation" type="button" data-permission="conversations.assign" disabled>Assign</button><span class="conversation-action-spacer"></span><button class="secondary" id="toggle-takeover" type="button" disabled>Accept conversation</button><button class="secondary" id="close-conversation" type="button" disabled>Resolve</button></div>
+            <div id="conversation-messages" class="conversation-thread"><div class="conversation-empty"><strong>Your conversation details will appear here</strong><span>Select an item from the inbox to read the full guest and staff history.</span></div></div>
+            <div class="conversation-composer"><label for="staff-response">Staff reply<textarea id="staff-response" rows="2" placeholder="Write a clear reply to the guest…" disabled></textarea></label><div class="conversation-composer-footer"><span id="conversation-reply-hint">Accept a conversation before replying as staff.</span><button id="send-staff-response" type="button" disabled>Send Response</button></div></div>
+          </section>
         </div>
       </section>
 
       <section class="panel" id="requests">
-        <div class="page-title"><p>Operations</p><h1>Service request workflow</h1></div>
-        <div class="two-col">
-          <section class="card">
-            <h2>Create request</h2>
-            <label>Room<input id="service-room"></label>
-            <label>Service<select id="service-type"><option value="">Select a configured service</option></select></label>
-            <label>Department<select id="service-department"><option value="">Select a department</option></select></label>
+        <div class="page-title"><div><p>Operations</p><h1>Guest Requests</h1><span>Record, route, and follow up on guest service requests from one operations queue.</span></div></div>
+        <section class="card request-guide" aria-labelledby="request-guide-title">
+          <div class="request-guide-intro"><p>ABOUT THIS PAGE</p><h2 id="request-guide-title">Keep every request moving</h2><span>Use this page to log requests received at the front desk or by phone, as well as requests already created by guests. Choose a service to route work to the right department and track it until delivery.</span></div>
+          <ol class="request-guide-steps">
+            <li><strong>1. Create</strong><span>Choose a service, add the room and a clear description.</span></li>
+            <li><strong>2. Assign</strong><span>Set the owner, department, and priority in the request card.</span></li>
+            <li><strong>3. Update</strong><span>Move the request through its status steps and add notes.</span></li>
+            <li><strong>4. Complete</strong><span>Mark it complete after the service has been delivered.</span></li>
+          </ol>
+          <p class="request-status-guide"><strong>Status flow:</strong> New → Assigned → Accepted → In progress → Delivered → Completed. The SLA indicator shows whether the target time is on track, due soon, or overdue.</p>
+        </section>
+        <section class="request-summary" aria-label="Service request totals">
+          <button class="request-summary-card" type="button" data-request-filter="all"><span>All requests</span><strong id="request-count-all">0</strong></button>
+          <button class="request-summary-card selected" type="button" data-request-filter="open"><span>Open</span><strong id="request-count-open">0</strong></button>
+          <button class="request-summary-card" type="button" data-request-filter="overdue"><span>Overdue</span><strong id="request-count-overdue">0</strong></button>
+          <button class="request-summary-card" type="button" data-request-filter="completed"><span>Completed</span><strong id="request-count-completed">0</strong></button>
+        </section>
+        <div class="service-request-workspace">
+          <section class="card service-request-create">
+            <header class="service-request-heading"><div><p>NEW WORK</p><h2>Create a request</h2></div></header>
+            <p class="field-note">Create a request on a guest’s behalf. It joins the same queue as guest-submitted requests.</p>
+            <label>Room number (optional)<input id="service-room" maxlength="80" placeholder="For example, 1204"></label>
+            <label>Service<select id="service-type" required><option value="">Select a configured service</option></select></label>
+            <p class="field-note">The selected service determines which department receives this request and fills in its default SLA.</p>
+            <p class="request-catalog-empty" id="service-catalog-empty" hidden>No enabled services are configured yet. Add services in the Service Catalog before creating requests.</p>
+            <button class="secondary request-catalog-link" id="open-service-catalog" type="button">Open Service Catalog</button>
+            <label>Routed department<select id="service-department" disabled><option value="">Select a service first</option></select></label>
             <label>Priority<select id="service-priority"><option value="low">Low</option><option value="normal" selected>Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></label>
-            <label>Description<textarea id="service-description" rows="3" placeholder="Please send two towels."></textarea></label>
-            <label>SLA minutes<input id="service-sla" type="number" min="1" max="240" value="15"></label>
-            <button id="create-service-request" type="button">Create Request</button>
+            <label>Request details<textarea id="service-description" rows="3" maxlength="1000" placeholder="Describe what the guest needs, including useful details."></textarea></label>
+            <label>SLA target (minutes)<input id="service-sla" type="number" min="1" max="1440" value="15"></label>
+            <p class="field-note">The SLA countdown starts when the request is created and shows when it becomes due.</p>
+            <button id="create-service-request" type="button" disabled>Create Request</button>
           </section>
-          <section class="card">
-            <h2>Open operations</h2>
-            <div id="service-request-list" class="compact-list"></div>
+          <section class="card service-request-queue">
+            <header class="service-request-heading"><div><p>LIVE OPERATIONS</p><h2>Request queue</h2></div><div class="service-request-queue-actions"><span class="service-request-result-count" id="service-request-result-count">0 requests</span><button class="secondary" id="refresh-service-requests" type="button">Refresh</button></div></header>
+            <div class="service-request-filters"><label>Find a request<input id="service-request-search" type="search" placeholder="Room, service, assignee, or details"></label><label>Show<select id="service-request-status-filter"><option value="open">Open requests</option><option value="">All requests</option><option value="new">New</option><option value="assigned">Assigned</option><option value="accepted">Accepted</option><option value="in_progress">In progress</option><option value="delivered">Delivered</option><option value="completed">Completed</option><option value="overdue">Overdue</option></select></label></div>
+            <div id="service-request-list" class="service-request-list" aria-live="polite"></div>
           </section>
         </div>
       </section>
@@ -538,28 +671,61 @@
 
       <section class="panel" id="hotel-information">
         <div class="page-title"><div><p>Property</p><h1>Hotel information</h1><span>Published property facts used by the guest experience and verified-answer paths.</span></div></div>
-        <div class="two-col"><section class="card"><h2>Identity and contact</h2><label>Hotel name<input id="hotel-info-name" maxlength="200"></label><label>Description<textarea id="hotel-info-description" rows="4"></textarea></label><label>Address<textarea id="hotel-info-address" rows="2"></textarea></label><label>Phone<input id="hotel-info-phone" maxlength="80"></label><label>Email<input id="hotel-info-email" type="email" maxlength="254"></label><label>Website<input id="hotel-info-website" type="url" maxlength="500"></label></section><section class="card"><h2>Stay guidance</h2><label>Check-in<input id="hotel-info-checkin"></label><label>Checkout<input id="hotel-info-checkout"></label><label>Breakfast information<textarea id="hotel-info-breakfast" rows="2"></textarea></label><label>Wi-Fi guidance<textarea id="hotel-info-wifi" rows="2"></textarea></label><label>Policies<textarea id="hotel-info-policies" rows="3" placeholder="One policy per line"></textarea></label><div class="dialog-actions"><button class="secondary" id="clear-hotel-information" type="button">Clear Optional Fields</button><button id="save-hotel-information" type="button">Save &amp; Publish</button></div></section></div>
+        <div class="two-col"><section class="card"><h2>Identity and contact</h2><label>Hotel name<input id="hotel-info-name" maxlength="200"></label><label>Description<textarea id="hotel-info-description" rows="4"></textarea></label><label>Address<textarea id="hotel-info-address" rows="2"></textarea></label><label>Phone<input id="hotel-info-phone" maxlength="80"></label><label>Email<input id="hotel-info-email" type="email" maxlength="254"></label><label>Website<input id="hotel-info-website" type="url" maxlength="500"></label></section><section class="card"><h2>Stay guidance</h2><label>Check-in<input id="hotel-info-checkin" type="time" aria-label="Check-in time"></label><p class="field-note" id="hotel-info-checkin-note" hidden></p><label>Checkout<input id="hotel-info-checkout" type="time" aria-label="Checkout time"></label><p class="field-note" id="hotel-info-checkout-note" hidden></p><label>Breakfast information<textarea id="hotel-info-breakfast" rows="2"></textarea></label><label>Wi-Fi guidance<textarea id="hotel-info-wifi" rows="2"></textarea></label><label>Policies<textarea id="hotel-info-policies" rows="3" placeholder="One policy per line"></textarea></label><div class="dialog-actions"><button class="secondary" id="clear-hotel-information" type="button">Clear Optional Fields</button><button id="save-hotel-information" type="button">Save &amp; Publish</button></div></section></div>
       </section>
       <section class="panel" id="rooms"><div class="page-title"><div><p>Property</p><h1>Rooms</h1><span>Property-scoped room types and guest-facing room information. This inventory is independent of any PMS.</span></div></div><div class="two-col"><section class="card"><h2>Room</h2><input id="room-id" type="hidden"><label>Name / type<input id="room-name" maxlength="160"></label><label>Description<textarea id="room-description" rows="3"></textarea></label><label>Capacity<input id="room-capacity" type="number" min="1" max="30"></label><label>Status<select id="room-status"><option value="available">Available</option><option value="unavailable">Unavailable</option><option value="maintenance">Maintenance</option></select></label><button id="save-room" type="button">Save Room</button></section><section class="card"><h2>Managed rooms</h2><div id="room-list" class="compact-list"></div></section></div></section>
       <section class="panel" id="facilities">
-        <div class="page-title"><div><p>Property</p><h1>Facilities</h1><span>Manage locations, hours, and availability configured for this property.</span></div><button class="btn btn-primary" id="add-facility" type="button" data-permission="properties.edit">+ Add Facility</button></div>
+        <div class="page-title"><div><p>Property</p><h1>Facilities</h1><span>Manage guest-facing details and operating status for shared amenities such as the pool, gym, spa, parking, and business center. Restaurants are managed separately.</span></div><button class="btn btn-primary" id="add-facility" type="button" data-permission="properties.edit">+ Add Facility</button></div>
+        <section class="card facility-guide" aria-labelledby="facility-guide-title">
+          <div class="facility-guide-intro"><p>WHAT THIS PAGE IS FOR</p><h2 id="facility-guide-title">Keep amenity information accurate for guests and staff</h2><span>Facility records provide the concierge with names, locations, hours, descriptions, and operating status when guests ask about shared property amenities. Some facility types also support quick answers for pool, gym, spa, parking, and business center questions.</span></div>
+          <div class="facility-guide-howto">
+            <h3>How to use this page</h3>
+            <ol>
+              <li><strong>Add one record per amenity.</strong> Use a clear name and a recognizable type such as pool, gym, spa, parking, or business center.</li>
+              <li><strong>Enter guest-ready details.</strong> Add where it is, its usual hours, and practical directions or access information in Description.</li>
+              <li><strong>Keep availability current.</strong> Open means available; Full means at capacity. Closed or Temporarily closed can be reported when a guest asks. Maintenance and Private event records are omitted from the guest facilities list.</li>
+              <li><strong>Review changes.</strong> Edit or search the table, then ask the concierge about the amenity or open the guest app to review the response.</li>
+            </ol>
+          </div>
+          <div class="facility-guide-types">
+            <article><strong>Use this page</strong><span>Pool, gym, spa, parking, business center, and other shared amenities.</span></article>
+            <article><strong>Use Restaurants</strong><span>Dining venues, menus, meal periods, reservations, and promotions.</span></article>
+            <article><strong>Use the floor map</strong><span>Map positions, zones, and navigation. A facility record alone does not place an item on the map.</span></article>
+          </div>
+          <p class="facility-guide-note"><strong>Guest visibility:</strong> these records are separate from PMS inventory. Do not include staff-only codes, private contact details, or internal procedures in guest-facing descriptions. A saved facility may also be referenced by a restaurant or property event.</p>
+        </section>
         <div class="table-toolbar facility-toolbar"><label class="sr-only" for="facility-search">Search facilities</label><input id="facility-search" type="search" placeholder="Search facilities"><span id="facility-count"></span></div>
         <div class="empty-state facility-empty-state" id="facility-empty" hidden><strong>No facilities configured yet.</strong><p id="facility-empty-copy">Add a facility when you are ready to share its details with guests.</p><button class="btn btn-primary" id="empty-add-facility" type="button" data-permission="properties.edit">+ Add Facility</button></div>
         <div class="data-table-shell" id="facility-table-shell"><table class="data-table facility-table"><thead><tr><th>Facility</th><th>Type</th><th>Location</th><th>Hours</th><th>Status</th><th>Actions</th></tr></thead><tbody id="facility-list"></tbody></table></div>
       </section>
       <section class="panel" id="restaurants">
-        <div class="page-title"><div><p>Property</p><h1>Restaurants</h1><span>Manage assigned dining venues, menus, hours, promotions, and guest-facing information.</span></div></div>
-        <div class="two-col">
-          <section class="card" data-permission="restaurant.manage"><h2>Dining venue</h2><input id="restaurant-id" type="hidden"><label>Name<input id="restaurant-name" maxlength="160"></label><label>Property Facility / Zone<select id="restaurant-facility"><option value="">No linked facility</option></select></label><label>Location<input id="restaurant-location" maxlength="240"></label><label>Hours summary<input id="restaurant-hours"></label><div class="hours-week-grid" aria-label="Restaurant hours by day"><label>Monday<input id="restaurant-hours-monday"></label><label>Tuesday<input id="restaurant-hours-tuesday"></label><label>Wednesday<input id="restaurant-hours-wednesday"></label><label>Thursday<input id="restaurant-hours-thursday"></label><label>Friday<input id="restaurant-hours-friday"></label><label>Saturday<input id="restaurant-hours-saturday"></label><label>Sunday<input id="restaurant-hours-sunday"></label></div><label>Meal periods<input id="restaurant-meals"></label><label>Status<select id="restaurant-status"><option value="open">Open</option><option value="closed">Closed</option><option value="temporarily_closed">Temporarily closed</option><option value="maintenance">Maintenance</option><option value="private_event">Private event</option><option value="disabled">Disabled</option></select></label><label>Cuisine<input id="restaurant-cuisine" maxlength="120"></label><label>Dress code<input id="restaurant-dress-code" maxlength="120"></label><label>Capacity<input id="restaurant-capacity" type="number" min="1" max="100000"></label><label>Phone extension<input id="restaurant-phone-extension" maxlength="80"></label><label>Reservation URL<input id="restaurant-reservation-url" type="url" maxlength="500" placeholder="https://…"></label><label>Description<textarea id="restaurant-description" rows="3"></textarea></label><label>Contact email<input id="restaurant-contact-email" type="email" maxlength="254"></label><label>Contact phone<input id="restaurant-contact-phone" maxlength="80"></label><label>Contact website<input id="restaurant-contact-website" type="url" maxlength="500"></label><label>Image URLs<input id="restaurant-images" placeholder="https://… , https://…"></label><label>Guest notes<textarea id="restaurant-guest-notes" rows="2"></textarea></label><label>Internal notes<textarea id="restaurant-internal-notes" rows="2"></textarea></label><label class="check-row"><input id="restaurant-reservations" type="checkbox"> Reservations available</label><button id="save-restaurant" type="button">Save Restaurant</button></section>
-          <section class="card"><h2>Assigned restaurants</h2><div id="restaurant-list" class="compact-list"></div></section>
-        </div>
-        <section class="card restaurant-workflows"><div class="page-title"><div><h2>Menus and promotions</h2><span>Choose a restaurant to review menus and promotions.</span></div><label>Restaurant<select id="restaurant-workflow-select"></select></label></div><div id="restaurant-analytics" class="metric-grid" data-permission="restaurant.analytics.view"></div>
+        <div class="page-title"><div><p>Property</p><h1>Restaurants</h1><span>Manage the property’s dining directory, guest-facing details, menus, and promotions.</span></div><button class="btn btn-primary" id="add-restaurant" type="button" data-permission="properties.edit">+ Add Restaurant</button></div>
+        <div class="table-toolbar restaurant-toolbar"><label class="sr-only" for="restaurant-search">Search restaurants</label><input id="restaurant-search" type="search" placeholder="Search by name, cuisine, location, or meal period"><span id="restaurant-count"></span></div>
+        <div class="empty-state restaurant-empty-state" id="restaurant-empty" hidden><strong>No restaurants configured yet.</strong><p>Add a dining venue to show its location, hours, and guest information here.</p><button class="btn btn-primary" id="empty-add-restaurant" type="button" data-permission="properties.edit">+ Add Restaurant</button></div>
+        <div id="restaurant-list" class="compact-list restaurant-directory" aria-live="polite"></div>
+        <details class="restaurant-workflow-disclosure" id="restaurant-workflow-disclosure">
+          <summary><strong>Menus, promotions, and reports</strong><span>Open this section to manage restaurant menus, offers, and activity.</span></summary>
+          <section class="card restaurant-workflows"><div class="page-title"><div><h2>Restaurant tools</h2><span>Choose a restaurant to manage its menus, promotions, and activity.</span></div><label>Restaurant<select id="restaurant-workflow-select"></select></label></div><div id="restaurant-analytics" class="metric-grid" data-permission="restaurant.analytics.view"></div>
           <div class="two-col">
             <section class="card"><h3>Menus</h3><div data-permission="restaurant.menu.edit"><input id="restaurant-menu-edit-id" type="hidden"><label>Menu name<input id="restaurant-menu-name" maxlength="160"></label><label>Meal period<input id="restaurant-menu-period" maxlength="80" placeholder="breakfast, lunch, dinner"></label><button id="save-restaurant-menu" type="button">Add Menu</button></div><label data-permission="restaurant.menu.edit">Menu<select id="restaurant-menu-select"></select></label><div class="menu-item-fields" data-permission="restaurant.menu.edit"><input id="restaurant-item-edit-id" type="hidden"><label>Item name<input id="restaurant-item-name" maxlength="160"></label><label>Description<textarea id="restaurant-item-description" rows="2"></textarea></label><label>Price<input id="restaurant-item-price" maxlength="40"></label><label>Allergens<input id="restaurant-item-allergens" placeholder="peanuts, dairy"></label><label class="check-row"><input id="restaurant-item-available" type="checkbox" checked> Available to guests</label><button id="save-restaurant-menu-item" type="button">Add Menu Item</button></div><div id="restaurant-menu-list" class="compact-list"></div></section>
             <section class="card"><h3>Promotions</h3><div data-permission="restaurant.promotions.edit"><input id="restaurant-promotion-edit-id" type="hidden"><label>Title<input id="restaurant-promotion-title" maxlength="180"></label><label>Description<textarea id="restaurant-promotion-description" rows="2"></textarea></label><label>Starts<input id="restaurant-promotion-start" type="datetime-local"></label><label>Ends<input id="restaurant-promotion-end" type="datetime-local"></label><button id="save-restaurant-promotion" type="button">Submit for Approval</button></div><div id="restaurant-promotion-list" class="compact-list"></div></section>
           </div>
-        </section>
+          </section>
+        </details>
       </section>
+      <dialog class="admin-dialog restaurant-dialog" id="restaurant-dialog" data-permission="restaurant.manage">
+        <form id="restaurant-form">
+          <div class="dialog-heading"><div><span>Restaurant details</span><h2 id="restaurant-dialog-title">Add Restaurant</h2></div><button class="icon-button" type="button" data-close-dialog="restaurant-dialog" aria-label="Close">×</button></div>
+          <input id="restaurant-id" type="hidden">
+          <div class="restaurant-editor-grid">
+            <section class="restaurant-editor-section"><h3>Restaurant</h3><label>Name<input id="restaurant-name" maxlength="160" required placeholder="For example, Luna Bistro"></label><label>Property facility / zone<select id="restaurant-facility"><option value="">No linked facility</option></select></label><label>Location<input id="restaurant-location" maxlength="240" placeholder="Lobby level, beside the garden"></label><label>Cuisine<input id="restaurant-cuisine" maxlength="120"></label><label>Dress code<input id="restaurant-dress-code" maxlength="120"></label><label>Capacity<input id="restaurant-capacity" type="number" min="1" max="100000"></label></section>
+            <section class="restaurant-editor-section"><h3>Hours and service</h3><label>Hours summary<input id="restaurant-hours" placeholder="Daily, 6:00 AM–10:00 PM"></label><div class="hours-week-grid" aria-label="Restaurant hours by day"><label>Monday<input id="restaurant-hours-monday"></label><label>Tuesday<input id="restaurant-hours-tuesday"></label><label>Wednesday<input id="restaurant-hours-wednesday"></label><label>Thursday<input id="restaurant-hours-thursday"></label><label>Friday<input id="restaurant-hours-friday"></label><label>Saturday<input id="restaurant-hours-saturday"></label><label>Sunday<input id="restaurant-hours-sunday"></label></div><label>Meal periods<input id="restaurant-meals" placeholder="Breakfast, lunch, dinner"></label><label>Status<select id="restaurant-status"><option value="open">Open</option><option value="closed">Closed</option><option value="temporarily_closed">Temporarily closed</option><option value="maintenance">Maintenance</option><option value="private_event">Private event</option><option value="disabled">Disabled</option></select></label><label class="check-row"><input id="restaurant-reservations" type="checkbox"> Reservations available</label><label>Reservation URL<input id="restaurant-reservation-url" type="url" maxlength="500" placeholder="https://…"></label></section>
+            <section class="restaurant-editor-section"><h3>Guest information</h3><label>Description<textarea id="restaurant-description" rows="3" placeholder="What guests should know about this venue"></textarea></label><label>Guest notes<textarea id="restaurant-guest-notes" rows="2"></textarea></label><label>Image URLs<input id="restaurant-images" placeholder="https://… , https://…"></label></section>
+            <section class="restaurant-editor-section"><h3>Contacts and staff notes</h3><label>Phone extension<input id="restaurant-phone-extension" maxlength="80"></label><label>Contact phone<input id="restaurant-contact-phone" maxlength="80"></label><label>Contact email<input id="restaurant-contact-email" type="email" maxlength="254"></label><label>Contact website<input id="restaurant-contact-website" type="url" maxlength="500"></label><label>Internal notes<textarea id="restaurant-internal-notes" rows="2"></textarea></label></section>
+          </div>
+          <div class="dialog-actions"><button class="btn btn-secondary" id="cancel-restaurant" type="button">Cancel</button><button class="btn btn-primary" id="save-restaurant" type="submit">Add Restaurant</button></div>
+        </form>
+      </dialog>
       <section class="panel" id="recommendations">
         <div class="page-title"><div><p>Property</p><h1>Local recommendations</h1><span>Curated places shown as guest recommendation cards. Add complete descriptions and a valid map URL so Details and Directions remain useful.</span></div></div>
         <div class="two-col">
@@ -602,7 +768,9 @@
       <div class="dialog-form-grid">
         <label>Property name<input id="property-create-name" maxlength="200" autocomplete="organization" required></label>
         <label>Property ID<input id="property-create-id" maxlength="80" pattern="[A-Za-z0-9][A-Za-z0-9_-]*" required></label>
-        <label>Timezone<input id="property-create-timezone" maxlength="80" placeholder="e.g., Asia/Manila" required></label>
+        <label>Timezone<select id="property-create-timezone" required>
+          <option value="" disabled selected>Select a timezone</option>
+        </select></label>
         <label>Address<input id="property-create-address" maxlength="500" autocomplete="street-address"></label>
       </div>
       <p class="dialog-message" id="property-create-message" role="alert"></p>
@@ -614,13 +782,14 @@
       <div class="dialog-heading"><div><span>Property configuration</span><h2 id="facility-dialog-title">Add Facility</h2></div><button class="icon-button" type="button" data-close-dialog="facility-dialog" aria-label="Close">×</button></div>
       <input id="facility-id" type="hidden">
       <div class="dialog-form-grid">
-        <label>Name<input id="facility-name" maxlength="160" required></label>
-        <label>Type<input id="facility-type" maxlength="80" placeholder="e.g., amenity"></label>
-        <label>Location<input id="facility-location" maxlength="240"></label>
-        <label>Hours<input id="facility-hours" maxlength="240"></label>
-        <label>Status<select id="facility-status"><option value="open">Open</option><option value="closed">Closed</option><option value="temporarily_closed">Temporarily closed</option><option value="maintenance">Maintenance</option><option value="private_event">Private event</option></select></label>
+        <label>Name<input id="facility-name" maxlength="160" required placeholder="For example, Main Pool"></label>
+        <label>Type<input id="facility-type" maxlength="80" placeholder="pool, gym, spa, parking, business center"></label>
+        <label>Location / directions<input id="facility-location" maxlength="240" placeholder="Level 3, beside the east elevators"></label>
+        <label>Hours<input id="facility-hours" maxlength="240" placeholder="Daily, 6:00 AM–10:00 PM"></label>
+        <label>Status<select id="facility-status"><option value="open">Open</option><option value="full">Full</option><option value="closed">Closed</option><option value="temporarily_closed">Temporarily closed</option><option value="maintenance">Maintenance</option><option value="private_event">Private event</option></select></label>
       </div>
-      <label>Description<textarea id="facility-description" rows="3" maxlength="2000"></textarea></label>
+      <label>Description<textarea id="facility-description" rows="3" maxlength="2000" placeholder="Guest-ready details such as directions, available amenities, or access guidance."></textarea></label>
+      <p class="facility-dialog-help">For pool, gym, or spa questions, the concierge can use the description as a fallback location when Location is blank. Use Hours for the usual schedule and Status for current availability.</p>
       <p class="dialog-message" id="facility-dialog-message" role="alert"></p>
       <div class="dialog-actions"><button class="btn btn-secondary" id="cancel-facility" type="button">Cancel</button><button class="btn btn-primary" id="save-facility" type="submit">Save Facility</button></div>
     </form>
@@ -718,11 +887,11 @@
   </aside>
   <div class="drawer-backdrop" id="assistant-drawer-backdrop" hidden></div>
   <aside class="assistant-drawer" id="assistant-drawer" hidden aria-label="AI operations assistant">
-    <header><div><p>AI operations</p><h2>Ask AI</h2></div><button class="secondary" id="close-assistant-drawer" type="button">Close</button></header>
-    <div class="assistant-messages" id="assistant-drawer-messages"><div class="assistant-empty"><strong>Investigate with evidence</strong><p>Answers cite the component, timeframe, and data returned by server-side diagnostic tools.</p></div></div>
-    <form class="assistant-composer" id="assistant-drawer-form"><textarea id="assistant-drawer-input" rows="2" maxlength="1200" placeholder="Why are requests delayed?"></textarea><button type="submit">Ask</button></form>
+    <header><div><p>AI operations</p><h2>Operations assistant</h2></div><button class="secondary" id="close-assistant-drawer" type="button">Close</button></header>
+    <div class="assistant-messages" id="assistant-drawer-messages"><div class="assistant-empty"><strong>How can I help?</strong><p>Ask for a report, a system health check, or help with an operational issue.</p></div></div>
+    <form class="assistant-composer" id="assistant-drawer-form"><textarea id="assistant-drawer-input" rows="2" maxlength="1200" placeholder="Ask for a report or check the system"></textarea><button type="submit">Ask</button></form>
   </aside>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="/static/admin.js?v=15"></script>
+  <script src="/static/admin.js?v=28"></script>
 </body>
 </html>

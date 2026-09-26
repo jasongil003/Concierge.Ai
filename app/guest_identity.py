@@ -131,9 +131,10 @@ class GuestIdentityStore:
                 )
                 stay = db.execute("SELECT * FROM concierge_stays WHERE stay_id=?", (stay_id,)).fetchone()
             else:
+                retention_until = now + max(retention_days, 0) * 86400
                 db.execute(
-                    "UPDATE concierge_stays SET room=COALESCE(?,room), pms_guest_id=COALESCE(?,pms_guest_id), updated_at=? WHERE stay_id=?",
-                    (room, pms_guest_id, now, stay["stay_id"]),
+                    "UPDATE concierge_stays SET room=COALESCE(?,room), pms_guest_id=COALESCE(?,pms_guest_id), retention_until=?, updated_at=? WHERE stay_id=?",
+                    (room, pms_guest_id, retention_until, now, stay["stay_id"]),
                 )
                 stay = db.execute("SELECT * FROM concierge_stays WHERE stay_id=?", (stay["stay_id"],)).fetchone()
             guest_session_id = "gs_" + uuid.uuid4().hex[:16]
@@ -218,6 +219,19 @@ class GuestIdentityStore:
     def list_stays(self, property_id: str) -> list[dict[str, Any]]:
         with self._connect() as db:
             return [self._stay_dict(row) for row in db.execute("SELECT * FROM concierge_stays WHERE property_id=? ORDER BY updated_at DESC", (property_id,))]
+
+    def list_guest_sessions(self, property_id: str) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            rows = db.execute(
+                """SELECT gs.guest_session_id,gs.stay_id,gs.concierge_session_id,
+                gs.antlabs_session_id,gs.browser_session_id,gs.created_at,gs.last_seen_at,
+                s.device_id,s.room,s.status AS stay_status
+                FROM guest_sessions gs
+                JOIN concierge_stays s ON s.stay_id=gs.stay_id AND s.property_id=gs.property_id
+                WHERE gs.property_id=? ORDER BY gs.last_seen_at DESC""",
+                (property_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def list_devices(self, property_id: str) -> list[dict[str, Any]]:
         with self._connect() as db:
