@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Concierge.Ai Platform</title>
-  <link rel="stylesheet" href="/static/admin.css?v=17">
+  <link rel="stylesheet" href="/static/admin.css?v=18">
 </head>
 <body>
-  <div class="platform-shell">
+  <div class="platform-shell" id="platform-shell">
     <header class="platform-topbar">
       <div class="brand">
         <div class="brand-mark">C</div>
@@ -23,11 +23,11 @@
       </div>
       <div class="topbar-status">
         <span class="publish-state"><i aria-hidden="true"></i><span id="publish-state">Loading...</span></span>
-        <button class="secondary ask-ai-trigger" type="button" data-permission="assistant.use">Ask AI</button>
-        <a href="/" target="_blank" rel="noopener">Open guest app</a>
-        <button class="secondary" id="discard-design" type="button" data-permission="concierge.edit">Discard</button>
-        <button class="secondary" id="save-draft" type="button" data-permission="concierge.edit">Save Draft</button>
-        <button id="publish-design" type="button" data-permission="concierge.edit">Publish</button>
+        <button class="secondary ask-ai-trigger" type="button" data-permission="assistant.use" data-requires-property>Ask AI</button>
+        <a href="/" target="_blank" rel="noopener" data-requires-property>Open guest app</a>
+        <button class="secondary" id="discard-design" type="button" data-permission="concierge.edit" data-requires-property>Discard</button>
+        <button class="secondary" id="save-draft" type="button" data-permission="concierge.edit" data-requires-property>Save Draft</button>
+        <button id="publish-design" type="button" data-permission="concierge.edit" data-requires-property>Publish</button>
         <div class="profile-shell">
           <button class="profile-button" id="profile-button" type="button" aria-expanded="false">
             <span class="profile-avatar" id="profile-avatar">A</span>
@@ -56,9 +56,18 @@
     </aside>
 
     <main class="platform-main">
+      <section class="panel onboarding-screen" id="property-onboarding">
+        <div class="onboarding-card">
+          <p class="eyebrow">Workspace setup</p>
+          <h1>Property not configured</h1>
+          <p>Create a property to start configuring its guest experience. Rooms, facilities, dining, services, knowledge, and maps remain empty until you add them.</p>
+          <button class="btn btn-primary" id="onboarding-create-property" type="button">Create Property</button>
+          <p class="field-note" id="onboarding-permission-note" hidden>Ask a platform administrator to create the first property.</p>
+        </div>
+      </section>
       <section class="panel active" id="overview">
         <div class="page-title operations-title">
-          <div><p id="operations-profile-label">Operations overview</p><h1 id="overview-title">Hotel</h1><span id="operations-role-copy">Loading the operational view for your role.</span></div>
+          <div><p id="operations-profile-label">Operations overview</p><h1 id="overview-title">Property not configured</h1><span id="operations-role-copy">Loading the operational view for your role.</span></div>
           <div class="operations-actions"><label>Timeframe<select class="operations-period" aria-label="Dashboard timeframe"><option value="1h">1 hour</option><option value="6h">6 hours</option><option value="24h" selected>24 hours</option><option value="7d">7 days</option><option value="30d">30 days</option></select></label><button class="secondary ask-ai-trigger" type="button" data-permission="assistant.use">Ask AI</button></div>
         </div>
         <section class="health-banner" id="operations-health-banner"><div><span class="health-dot unavailable"></span><div><strong>Checking operational health</strong><p>Verifying application data and configured dependencies.</p></div></div><button class="secondary" type="button" data-dashboard-panel="system-health">Open system health</button></section>
@@ -160,7 +169,7 @@
             </div>
             <h2>Suggested prompts</h2>
             <div class="prompt-list" id="prompt-list"></div>
-            <button class="secondary" id="add-prompt">Add prompt</button>
+            <button class="secondary" id="add-prompt" type="button">Add prompt</button>
             <h2>Versions</h2>
             <div class="version-list" id="version-list"></div>
           </section>
@@ -169,15 +178,15 @@
             <div class="preview-toolbar">
               <span>Guest chat preview</span>
               <div>
-                <button class="preview-size active" data-size="mobile">Mobile</button>
-                <button class="preview-size" data-size="tablet">Tablet</button>
-                <button class="preview-size" data-size="desktop">Desktop</button>
+                <button class="preview-size active" data-size="mobile" type="button">Mobile</button>
+                <button class="preview-size" data-size="tablet" type="button">Tablet</button>
+                <button class="preview-size" data-size="desktop" type="button">Desktop</button>
               </div>
             </div>
             <div class="phone-preview mobile" id="chat-preview">
               <header>
                 <button type="button" disabled title="Preview only">☰</button>
-                <div class="preview-brand"><span class="preview-logo" id="preview-logo">H</span><div><strong id="preview-hotel">Hotel</strong><span id="preview-concierge">Concierge</span></div></div>
+                <div class="preview-brand"><span class="preview-logo" id="preview-logo"></span><div><strong id="preview-hotel">Property not configured</strong><span id="preview-concierge">Concierge</span></div></div>
                 <button type="button" disabled title="Preview only">⋯</button>
               </header>
               <main>
@@ -187,8 +196,8 @@
                   <div id="preview-prompts"></div>
                 </section>
                 <section class="preview-chat">
-                  <div class="guest-bubble">Recommend restaurants nearby</div>
-                  <div class="assistant-copy">Here are a few nearby options that should work well. I can narrow these by cuisine, budget, or walking distance.</div>
+                  <div class="guest-bubble">What can you help me with?</div>
+                  <div class="assistant-copy">I can answer questions using information configured for guests.</div>
                 </section>
               </main>
               <footer><span id="preview-placeholder">Ask your concierge...</span><button type="button" disabled title="Preview only">↑</button></footer>
@@ -199,7 +208,7 @@
 
       <section class="panel" id="guest">
         <div class="page-title"><div><p>Guest experience</p><h1>Conversation modules</h1><span>Enabled modules appear in the guest menu in the configured order.</span></div></div>
-        <div class="two-col"><section class="card"><h2>Module</h2><input id="guest-module-id" type="hidden"><label>Name<input id="guest-module-name" maxlength="80"></label><label>Guest prompt<textarea id="guest-module-prompt" rows="3" placeholder="What time is breakfast?"></textarea></label><label>Order<input id="guest-module-order" type="number" min="0" max="99" value="0"></label><label class="check-row"><input id="guest-module-enabled" type="checkbox" checked> Enabled</label><button id="save-guest-module" type="button">Save Module</button></section><section class="card"><h2>Published modules</h2><div id="guest-module-list" class="compact-list"></div></section></div>
+        <div class="two-col"><section class="card"><h2>Module</h2><input id="guest-module-id" type="hidden"><label>Name<input id="guest-module-name" maxlength="80"></label><label>Guest prompt<textarea id="guest-module-prompt" rows="3" placeholder="What information should the concierge provide?"></textarea></label><label>Order<input id="guest-module-order" type="number" min="0" max="99" value="0"></label><label class="check-row"><input id="guest-module-enabled" type="checkbox" checked> Enabled</label><button id="save-guest-module" type="button">Save Module</button></section><section class="card"><h2>Published modules</h2><div id="guest-module-list" class="compact-list"></div></section></div>
       </section>
 
       <section class="panel" id="personalization-settings">
@@ -232,9 +241,9 @@
           <aside class="map-sidebar">
             <h2>Tools</h2>
             <div class="tool-grid">
-              <button data-map-tool="select">Select</button><button data-map-tool="rectangle">Rectangle</button>
-              <button data-map-tool="polygon">Polygon</button><button data-map-tool="ellipse">Ellipse</button>
-              <button data-map-tool="freeform">Freeform</button>
+              <button type="button" data-map-tool="select">Select</button><button type="button" data-map-tool="rectangle">Rectangle</button>
+              <button type="button" data-map-tool="polygon">Polygon</button><button type="button" data-map-tool="ellipse">Ellipse</button>
+              <button type="button" data-map-tool="freeform">Freeform</button>
               <button id="duplicate-map-object" type="button">Duplicate</button><button id="delete-map-object" type="button">Delete</button>
               <button id="undo-map" type="button">Undo</button><button id="redo-map" type="button">Redo</button>
             </div>
@@ -532,7 +541,12 @@
         <div class="two-col"><section class="card"><h2>Identity and contact</h2><label>Hotel name<input id="hotel-info-name" maxlength="200"></label><label>Description<textarea id="hotel-info-description" rows="4"></textarea></label><label>Address<textarea id="hotel-info-address" rows="2"></textarea></label><label>Phone<input id="hotel-info-phone" maxlength="80"></label><label>Email<input id="hotel-info-email" type="email" maxlength="254"></label><label>Website<input id="hotel-info-website" type="url" maxlength="500"></label></section><section class="card"><h2>Stay guidance</h2><label>Check-in<input id="hotel-info-checkin"></label><label>Checkout<input id="hotel-info-checkout"></label><label>Breakfast information<textarea id="hotel-info-breakfast" rows="2"></textarea></label><label>Wi-Fi guidance<textarea id="hotel-info-wifi" rows="2"></textarea></label><label>Policies<textarea id="hotel-info-policies" rows="3" placeholder="One policy per line"></textarea></label><div class="dialog-actions"><button class="secondary" id="clear-hotel-information" type="button">Clear Optional Fields</button><button id="save-hotel-information" type="button">Save &amp; Publish</button></div></section></div>
       </section>
       <section class="panel" id="rooms"><div class="page-title"><div><p>Property</p><h1>Rooms</h1><span>Property-scoped room types and guest-facing room information. This inventory is independent of any PMS.</span></div></div><div class="two-col"><section class="card"><h2>Room</h2><input id="room-id" type="hidden"><label>Name / type<input id="room-name" maxlength="160"></label><label>Description<textarea id="room-description" rows="3"></textarea></label><label>Capacity<input id="room-capacity" type="number" min="1" max="30"></label><label>Status<select id="room-status"><option value="available">Available</option><option value="unavailable">Unavailable</option><option value="maintenance">Maintenance</option></select></label><button id="save-room" type="button">Save Room</button></section><section class="card"><h2>Managed rooms</h2><div id="room-list" class="compact-list"></div></section></div></section>
-      <section class="panel" id="facilities"><div class="page-title"><div><p>Property</p><h1>Facilities</h1><span>Manage amenities, locations, hours, and availability used by guest answers.</span></div></div><div class="two-col"><section class="card"><h2>Facility</h2><input id="facility-id" type="hidden"><label>Name<input id="facility-name" maxlength="160"></label><label>Type<input id="facility-type" maxlength="80"></label><label>Location<input id="facility-location" maxlength="240"></label><label>Hours<input id="facility-hours"></label><label>Status<select id="facility-status"><option value="open">Open</option><option value="closed">Closed</option><option value="temporarily_closed">Temporarily closed</option><option value="maintenance">Maintenance</option><option value="private_event">Private event</option></select></label><label>Description<textarea id="facility-description" rows="3"></textarea></label><button id="save-facility" type="button">Save Facility</button></section><section class="card"><h2>Managed facilities</h2><div id="facility-list" class="compact-list"></div></section></div></section>
+      <section class="panel" id="facilities">
+        <div class="page-title"><div><p>Property</p><h1>Facilities</h1><span>Manage locations, hours, and availability configured for this property.</span></div><button class="btn btn-primary" id="add-facility" type="button" data-permission="properties.edit">+ Add Facility</button></div>
+        <div class="table-toolbar facility-toolbar"><label class="sr-only" for="facility-search">Search facilities</label><input id="facility-search" type="search" placeholder="Search facilities"><span id="facility-count"></span></div>
+        <div class="empty-state facility-empty-state" id="facility-empty" hidden><strong>No facilities configured yet.</strong><p id="facility-empty-copy">Add a facility when you are ready to share its details with guests.</p><button class="btn btn-primary" id="empty-add-facility" type="button" data-permission="properties.edit">+ Add Facility</button></div>
+        <div class="data-table-shell" id="facility-table-shell"><table class="data-table facility-table"><thead><tr><th>Facility</th><th>Type</th><th>Location</th><th>Hours</th><th>Status</th><th>Actions</th></tr></thead><tbody id="facility-list"></tbody></table></div>
+      </section>
       <section class="panel" id="restaurants">
         <div class="page-title"><div><p>Property</p><h1>Restaurants</h1><span>Manage assigned dining venues, menus, hours, promotions, and guest-facing information.</span></div></div>
         <div class="two-col">
@@ -582,6 +596,35 @@
       <section class="panel" id="network"><div class="page-title"><div><p>Deployment</p><h1>Network</h1><span>Only Concierge.AI reverse-proxy and HTTPS expectations are configured here.</span></div></div><section class="card settings-form"><label class="check-row"><input id="network-reverse-proxy" type="checkbox"> Deployed behind a reverse proxy</label><label class="check-row"><input id="network-https-required" type="checkbox" checked> Require HTTPS for guest deployment</label><label>Trusted proxy address<input id="network-trusted-proxy" placeholder="10.0.0.10"></label><p class="field-note">Firewall, VLAN, and ANTlabs walled-garden rules remain infrastructure responsibilities.</p><button id="save-network" type="button">Save Network Expectations</button></section></section>
     </main>
   </div>
+  <dialog class="admin-dialog compact-dialog" id="property-create-dialog">
+    <form id="property-create-form">
+      <div class="dialog-heading"><div><span>Workspace setup</span><h2>Create Property</h2></div><button class="icon-button" type="button" data-close-dialog="property-create-dialog" aria-label="Close">×</button></div>
+      <div class="dialog-form-grid">
+        <label>Property name<input id="property-create-name" maxlength="200" autocomplete="organization" required></label>
+        <label>Property ID<input id="property-create-id" maxlength="80" pattern="[A-Za-z0-9][A-Za-z0-9_-]*" required></label>
+        <label>Timezone<input id="property-create-timezone" maxlength="80" placeholder="e.g., Asia/Manila" required></label>
+        <label>Address<input id="property-create-address" maxlength="500" autocomplete="street-address"></label>
+      </div>
+      <p class="dialog-message" id="property-create-message" role="alert"></p>
+      <div class="dialog-actions"><button class="btn btn-secondary" type="button" data-close-dialog="property-create-dialog">Cancel</button><button class="btn btn-primary" id="property-create-submit" type="submit">Create Property</button></div>
+    </form>
+  </dialog>
+  <dialog class="admin-dialog compact-dialog" id="facility-dialog">
+    <form id="facility-form">
+      <div class="dialog-heading"><div><span>Property configuration</span><h2 id="facility-dialog-title">Add Facility</h2></div><button class="icon-button" type="button" data-close-dialog="facility-dialog" aria-label="Close">×</button></div>
+      <input id="facility-id" type="hidden">
+      <div class="dialog-form-grid">
+        <label>Name<input id="facility-name" maxlength="160" required></label>
+        <label>Type<input id="facility-type" maxlength="80" placeholder="e.g., amenity"></label>
+        <label>Location<input id="facility-location" maxlength="240"></label>
+        <label>Hours<input id="facility-hours" maxlength="240"></label>
+        <label>Status<select id="facility-status"><option value="open">Open</option><option value="closed">Closed</option><option value="temporarily_closed">Temporarily closed</option><option value="maintenance">Maintenance</option><option value="private_event">Private event</option></select></label>
+      </div>
+      <label>Description<textarea id="facility-description" rows="3" maxlength="2000"></textarea></label>
+      <p class="dialog-message" id="facility-dialog-message" role="alert"></p>
+      <div class="dialog-actions"><button class="btn btn-secondary" id="cancel-facility" type="button">Cancel</button><button class="btn btn-primary" id="save-facility" type="submit">Save Facility</button></div>
+    </form>
+  </dialog>
   <dialog class="admin-dialog" id="user-dialog">
     <form id="user-form">
       <div class="dialog-heading"><div><span>Users &amp; Access</span><h2 id="user-dialog-title">Create User</h2></div><button class="icon-button" type="button" data-close-dialog="user-dialog" aria-label="Close">×</button></div>
@@ -680,6 +723,6 @@
     <form class="assistant-composer" id="assistant-drawer-form"><textarea id="assistant-drawer-input" rows="2" maxlength="1200" placeholder="Why are requests delayed?"></textarea><button type="submit">Ask</button></form>
   </aside>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="/static/admin.js?v=14"></script>
+  <script src="/static/admin.js?v=15"></script>
 </body>
 </html>

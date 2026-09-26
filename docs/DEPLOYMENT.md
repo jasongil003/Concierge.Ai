@@ -56,13 +56,14 @@ Set `ANTLABS_MODE=browser_handoff` and configure `ANTLABS_AUTH_URL` for the
 target gateway before starting it. The example's `mock` mode is for local
 development only.
 
-The bundled `data/hotel.json` is an empty profile template. Before the first
-production start, set `PROPERTY_ID` to the property's actual ID and populate
-`HOTEL_CONFIG_PATH` with its real name and approved guest information. Startup
-rejects the example property ID and an unnamed profile. Rebuild the image after
-editing the bundled profile, or point `HOTEL_CONFIG_PATH` to a mounted file.
-Do not reuse a development database volume for production: stored property data
-survives image rebuilds.
+On a clean installation, the database starts without a property profile.
+Sign in with the bootstrap administrator and create the first property from the
+Admin onboarding screen. Add its name, timezone, and address there, then
+configure guest-facing content and services separately. No property JSON file
+is loaded during startup. `PROPERTY_ID` is optional and can identify the
+configured property in a single-property deployment; leave it blank when
+property routing is based on each property's domain. Do not reuse a development
+database volume for production: stored property data survives image rebuilds.
 
 This on-prem profile runs one Concierge API instance and stores its database at
 `/state/concierge.db` inside the `concierge-state` Docker volume. It does not

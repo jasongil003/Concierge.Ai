@@ -2,21 +2,33 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from app.hospitality import HospitalityStore
 from app.main import app
+from app.operations import OperationsStore
 from app.properties import PropertyRecord, PropertyStore, default_design_config
+from app.zones import ZoneStore
 
 
-def test_property_seed_from_hotel_json(tmp_path: Path):
-    store = PropertyStore(tmp_path / "concierge.db")
+def test_clean_database_has_no_property_or_operational_seed_data(tmp_path: Path):
+    database = tmp_path / "clean.db"
+    properties = PropertyStore(database)
+    hospitality = HospitalityStore(database)
+    zones = ZoneStore(database)
+    operations = OperationsStore(database)
 
-    record = store.seed_from_hotel_json("property-a", Path("data/hotel.json"))
-
-    assert record.property_id == "property-a"
-    assert record.hotel_name == ""
-    assert record.concierge_name == ""
-    assert record.quick_actions == []
-    assert record.ai_settings == {}
-    assert record.latitude is None
+    assert properties.list() == []
+    overview = hospitality.overview("property-a")
+    assert overview["facilities"] == []
+    assert overview["restaurants"] == []
+    assert overview["departments"] == []
+    assert overview["services"] == []
+    assert overview["recommendations"] == []
+    zone_data = zones.overview("property-a")
+    assert zone_data["buildings"] == []
+    assert zone_data["floors"] == []
+    assert zone_data["maps"] == []
+    assert zone_data["zones"] == []
+    assert operations.list_knowledge("property-a") == []
 
 
 def test_property_round_trip_rich_configuration(tmp_path: Path):
@@ -34,7 +46,7 @@ def test_property_round_trip_rich_configuration(tmp_path: Path):
         contact_details={"phone": "+63 2 555 0100"},
         concierge_name="Maya",
         languages=["en", "fil"],
-        facilities=[{"name": "Business center"}],
+        facilities=[{"name": "Configured workspace"}],
         quick_actions=[{"label": "Checkout", "prompt": "What time is checkout?"}],
         ai_settings={"guest_mode_switch": True, "default_mode": "auto"},
         antlabs_config={"mode": "mock"},
@@ -89,7 +101,7 @@ def test_start_session_rejects_unknown_property():
 
 def test_design_draft_publish_and_restore(tmp_path: Path):
     store = PropertyStore(tmp_path / "concierge.db")
-    store.seed_from_hotel_json("property-a", Path("data/hotel.json"))
+    store.upsert(PropertyRecord(property_id="property-a", hotel_name="Property A"))
 
     draft = default_design_config(hotel_name="Draft Hotel", concierge_name="Maya")
     draft["welcome"]["headline"] = "Draft headline"
@@ -115,7 +127,7 @@ def test_design_draft_publish_and_restore(tmp_path: Path):
 
 def test_design_validation_rejects_bad_theme(tmp_path: Path):
     store = PropertyStore(tmp_path / "concierge.db")
-    store.seed_from_hotel_json("property-a", Path("data/hotel.json"))
+    store.upsert(PropertyRecord(property_id="property-a", hotel_name="Property A"))
     bad = default_design_config()
     bad["theme"]["accent"] = "purple"
 

@@ -149,7 +149,7 @@ def test_spoofed_forwarded_header_does_not_bypass_guest_api():
 def test_guest_session_is_suspended_after_network_validation_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     property_store = PropertyStore(tmp_path / "network-session.db")
     session_store = SessionStore(tmp_path / "network-session.db")
-    record = PropertyRecord(property_id=main_module.settings.property_id, hotel_name="Demo", guardrails={"allowed_cidrs": ["127.0.0.0/8"], "session_network_revalidation": "suspend"})
+    record = PropertyRecord(property_id=main_module.settings.property_id, hotel_name="Test Property", guardrails={"allowed_cidrs": ["127.0.0.0/8"], "session_network_revalidation": "suspend"})
     property_store.upsert(record)
     monkeypatch.setattr(main_module, "properties", property_store)
     monkeypatch.setattr(main_module, "store", session_store)
@@ -169,7 +169,7 @@ def test_guest_session_is_suspended_after_network_validation_fails(tmp_path: Pat
 def test_prompt_injection_never_reaches_ai_provider(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     property_store = PropertyStore(tmp_path / "injection.db")
     session_store = SessionStore(tmp_path / "injection.db")
-    property_store.upsert(PropertyRecord(property_id=main_module.settings.property_id, hotel_name="Demo"))
+    property_store.upsert(PropertyRecord(property_id=main_module.settings.property_id, hotel_name="Test Property"))
     monkeypatch.setattr(main_module, "properties", property_store)
     monkeypatch.setattr(main_module, "store", session_store)
     attacks = (

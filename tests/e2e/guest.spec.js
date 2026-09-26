@@ -10,8 +10,21 @@ async function loginAdmin(request) {
   expect(response.ok()).toBeTruthy();
   const csrf = (await response.json()).user.csrf_token;
   csrfByRequest.set(request, csrf);
+  const properties = await request.get("/api/admin/properties");
+  expect(properties.ok()).toBeTruthy();
+  if (!(await properties.json()).properties.length) {
+    const created = await request.put("/api/admin/properties/e2e-property", {
+      headers: { "X-CSRF-Token": csrf },
+      data: { property_id: "e2e-property", hotel_name: "E2E Property", timezone: "Asia/Manila" },
+    });
+    expect(created.ok()).toBeTruthy();
+  }
   return csrf;
 }
+
+test.beforeEach(async ({ request }) => {
+  await loginAdmin(request);
+});
 
 async function setAuthTypes(request, enabledIds) {
   const csrf = await loginAdmin(request);
@@ -359,7 +372,7 @@ for (const [label, expectedText] of [
   ["Language", "Language preference set"],
   ["Accessibility", "Accessibility display mode"],
   ["Privacy", "session is temporary"],
-  ["Help", "Ask about verified hotel information"],
+  ["Help", "Ask a question about this property"],
 ]) {
   test(`guest: ${label.toLowerCase()} menu action responds`, async ({ page }) => {
     await page.goto("/");
