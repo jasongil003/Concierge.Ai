@@ -69,7 +69,7 @@ from .intro import IntroExperienceStore
 from .location_analytics import LocationAnalyticsStore
 from .operations import OperationsStore
 from .knowledge_management import KnowledgeStore, CATEGORIES
-from .observability import DiagnosticContext, DiagnosticToolRegistry, ObservabilityStore, PERIODS
+from .observability import DiagnosticContext, DiagnosticToolRegistry, ObservabilityStore, PERIODS, period_window
 from .outbound_http import OutboundRequestBroker, OutboundRequestError
 from .places import GooglePlaces, format_places_for_ai, rank_places
 from .properties import AUTHENTICATION_RULES, PropertyRecord, PropertyStore, default_design_config, validate_design_config
@@ -1512,10 +1512,26 @@ async def operations_alerts(property_id: str, request: Request, period: str = "2
     return {"period": period, "alerts": dashboard["alerts"], "generated_at": dashboard["generated_at"]}
 
 
-def _diagnostic_result(tool: str, context: DiagnosticContext, dashboard: dict[str, Any], record: PropertyRecord, period: str) -> dict[str, Any]:
-    analytics = dashboard["analytics"]
+def _diagnostic_result(
+    tool: str,
+    context: DiagnosticContext,
+    dashboard: dict[str, Any],
+    record: PropertyRecord,
+    period: str,
+    principal: AdminPrincipal | None = None,
+) -> dict[str, Any]:
+    analytics = dashboard.get("analytics", {})
     if tool == "get_system_health":
-        return {"component": "system", "state": dashboard["health"]["state"], "evidence": dashboard["health"]["components"], "timeframe": period}
+        components = dashboard["health"]["components"]
+        if principal and not principal.can("dashboard.view"):
+            component_permissions = {
+                "application": "diagnostics.view", "database": "infrastructure.view", "ai_providers": "ai.view",
+                "antlabs": "integrations.view", "guest_auth": "analytics.view", "request_queue": "requests.view",
+                "knowledge": "knowledge.view",
+            }
+            components = [item for item in components if principal.can(component_permissions.get(item.get("id"), "dashboard.view"))]
+        state = _component_state([item["state"] for item in components]) if components else "unavailable"
+        return {"component": "system", "state": state, "evidence": components, "timeframe": period}
     if tool == "query_metrics":
         permitted = {key: value for key, value in dashboard["histories"].items() if dashboard["history_availability"].get(key) != "restricted"}
         return {"component": "metrics", "state": "available" if permitted else "unavailable", "evidence": permitted, "timeframe": period}
@@ -1548,34 +1564,340 @@ def _diagnostic_result(tool: str, context: DiagnosticContext, dashboard: dict[st
     if tool == "analyze_business_operations":
         return {"component": "business_analytics", "state": "available", "evidence": {"summary": analytics["summary"], "departments": analytics["requests_by_department"], "top_services": analytics["top_services"], "top_questions": analytics["top_questions"], "busiest_periods": analytics["busiest_periods"]}, "timeframe": period}
     if tool == "prepare_management_report":
-        return {"component": "reporting", "state": "available", "evidence": {"property_id": context.property_id, "period": period, "department_scope": analytics.get("department_scope"), "formats": ["xlsx", "pdf"]}, "timeframe": period}
+        summary = analytics["summary"]
+        return {
+            "component": "reporting",
+            "state": "available",
+            "evidence": {
+                "scope": analytics.get("department_scope") or "Property operations",
+                "formats": ["PDF", "Excel spreadsheet"],
+                "summary": {
+                    "guests_assisted": summary["guests_assisted"],
+                    "service_requests": summary["service_requests"],
+                    "open_requests": summary["open_requests"],
+                    "overdue_requests": summary["overdue_requests"],
+                    "average_resolution_seconds": summary["average_resolution_seconds"],
+                    "sla_performance_percent": summary["sla_performance_percent"],
+                    "request_change_percent": summary["request_change_percent"],
+                    "guest_auth_success_percent": analytics["guest_auth"]["success_rate"],
+                    "ai_requests": analytics["ai"]["requests"],
+                    "ai_errors": analytics["ai"]["errors"],
+                    "ai_error_rate_percent": analytics["ai"]["error_rate_percent"],
+                },
+                "departments": analytics["requests_by_department"][:5],
+                "top_services": analytics["top_services"][:5],
+                "top_guest_questions": analytics["top_questions"][:5],
+                "recommendations": _recommendations(analytics, dashboard.get("alerts", [])),
+            },
+            "timeframe": period,
+        }
+    if tool == "prepare_assigned_restaurant_report":
+        if principal is None:
+            raise PermissionError("The assigned restaurant scope is unavailable.")
+        assigned_ids = _assigned_restaurant_ids(principal, context.property_id)
+        start_at, end_at, _ = period_window(period)
+        restaurant_reports = []
+        for restaurant_id in sorted(assigned_ids):
+            restaurant = hospitality.get_restaurant(context.property_id, restaurant_id)
+            if restaurant is None or restaurant.get("archived"):
+                continue
+            metrics = hospitality.restaurant_analytics(context.property_id, restaurant_id, start_at=start_at, end_at=end_at)
+            restaurant_reports.append({
+                "name": restaurant["name"],
+                "metrics": {key: metrics[key] for key in ("conversations", "waiting_for_staff", "human_active", "completed", "messages")},
+            })
+        return {
+            "component": "restaurant_reporting",
+            "state": "available" if restaurant_reports else "unavailable",
+            "evidence": {"scope": "Assigned restaurants", "restaurants": restaurant_reports},
+            "timeframe": period,
+        }
     raise KeyError("Unknown diagnostic tool.")
 
 
 for _tool_name, _tool_permission in {
-    "get_system_health": "dashboard.view", "query_metrics": "dashboard.view", "query_logs": "audit.view", "get_recent_errors": "audit.view",
+    "get_system_health": "diagnostics.view", "query_metrics": "dashboard.view", "query_logs": "audit.view", "get_recent_errors": "audit.view",
     "check_database": "infrastructure.view", "check_ai_provider": "ai.view",
     "check_antlabs_gateway": "integrations.view", "check_dns": "domains.view", "check_ssl": "domains.view",
     "check_request_queue": "requests.view", "check_guest_auth": "analytics.view",
     "check_knowledge_index": "knowledge.view", "compare_time_periods": "analytics.view",
     "analyze_business_operations": "analytics.view", "prepare_management_report": "reports.export",
+    "prepare_assigned_restaurant_report": "restaurant.analytics.view",
 }.items():
     diagnostic_tools.register(_tool_name, _tool_permission, lambda context, tool=_tool_name, **kwargs: _diagnostic_result(tool, context, **kwargs))
 
 
-def _choose_diagnostic_tool(question: str) -> str:
+def _choose_diagnostic_tool(question: str, tools_allowed: list[str] | None = None) -> str:
     lowered = question.casefold()
+    report_candidates = (
+        "prepare_management_report",
+        "prepare_assigned_restaurant_report",
+        "analyze_business_operations",
+        "check_request_queue",
+    )
+    if any(word in lowered for word in ("report", "summary", "summarize", "export")):
+        if tools_allowed is None:
+            return report_candidates[0]
+        return next((tool for tool in report_candidates if tool in tools_allowed), "")
     choices = [
         (("database", "sqlite"), "check_database"), (("provider", "model", "ai "), "check_ai_provider"),
         (("antlabs", "gateway"), "check_antlabs_gateway"), (("dns", "domain"), "check_dns"),
         (("ssl", "certificate", "https"), "check_ssl"),
-        (("report", "export"), "prepare_management_report"), (("department", "guests asking", "guest question", "resolution time", "busiest", "most requested"), "analyze_business_operations"),
+        (("department", "guests asking", "guest question", "resolution time", "busiest", "most requested"), "analyze_business_operations"),
         (("queue", "request", "sla", "delay"), "check_request_queue"),
         (("guest auth", "authentication", "login"), "check_guest_auth"), (("knowledge", "index", "answer"), "check_knowledge_index"),
         (("compare", "versus", "trend"), "compare_time_periods"), (("log",), "query_logs"), (("error", "failure"), "get_recent_errors"),
         (("latency", "metric", "utilization", "uptime", "network"), "query_metrics"),
     ]
-    return next((tool for words, tool in choices if any(word in lowered for word in words)), "get_system_health")
+    selected = next((tool for words, tool in choices if any(word in lowered for word in words)), "get_system_health")
+    if tools_allowed is None or selected in tools_allowed:
+        return selected
+    return ""
+
+
+def _is_assistant_greeting(question: str) -> bool:
+    return bool(re.fullmatch(r"\s*(hi|hello|hey|good morning|good afternoon|good evening)[!. ,]*\s*", question, re.I))
+
+
+def _fallback_tools(question: str, tools_allowed: list[str]) -> list[str]:
+    lowered = question.casefold()
+    requested = _choose_diagnostic_tool(question, tools_allowed)
+    if any(word in lowered for word in ("system", "health", "issue", "problem", "down", "check all")):
+        wanted = ["get_system_health"]
+        wanted.append("get_recent_errors")
+        if "check_database" in tools_allowed and any(word in lowered for word in ("database", "system", "health", "issue", "problem")):
+            wanted.append("check_database")
+        if "check_ai_provider" in tools_allowed and any(word in lowered for word in ("ai", "assistant", "model", "system", "health", "issue")):
+            wanted.append("check_ai_provider")
+        return list(dict.fromkeys(tool for tool in wanted if tool in tools_allowed))[:5]
+    return [requested] if requested in tools_allowed else []
+
+
+def _assistant_period_label(period: str) -> str:
+    return {
+        "1h": "the last hour", "6h": "the last 6 hours", "24h": "the last 24 hours",
+        "7d": "the last 7 days", "30d": "the last 30 days", "today": "today", "yesterday": "yesterday",
+    }.get(period, period)
+
+
+def _assistant_period_from_question(question: str, selected_period: str) -> str:
+    lowered = question.casefold()
+    if re.search(r"\byesterday\b", lowered):
+        return "yesterday"
+    if re.search(r"\btoday\b", lowered):
+        return "today"
+    if re.search(r"\b(this week|last week|past week|last 7 days|past 7 days|7 days)\b", lowered):
+        return "7d"
+    if re.search(r"\b(this month|last month|past month|last 30 days|past 30 days|30 days)\b", lowered):
+        return "30d"
+    hour_match = re.search(r"\b(?:last|past|for)\s+(\d+)\s+hours?\b", lowered)
+    if hour_match:
+        hours = int(hour_match.group(1))
+        return "1h" if hours <= 1 else "6h" if hours <= 6 else "24h"
+    day_match = re.search(r"\b(?:last|past|for)\s+(\d+)\s+days?\b", lowered)
+    if day_match:
+        days = int(day_match.group(1))
+        return "24h" if days <= 1 else "7d" if days <= 7 else "30d"
+    if re.search(r"\b(last|past)\s+hour\b", lowered):
+        return "1h"
+    return selected_period
+
+
+def _assistant_human_label(value: str) -> str:
+    labels = {
+        "guests_assisted": "Guests assisted", "service_requests": "Service requests", "open_requests": "Open requests",
+        "overdue_requests": "Overdue requests", "average_resolution_seconds": "Average resolution time",
+        "sla_performance_percent": "SLA performance", "request_change_percent": "Change in requests",
+        "guest_auth_success_percent": "Guest authentication success", "ai_requests": "AI requests",
+        "ai_errors": "AI errors", "ai_error_rate_percent": "AI error rate", "indexed_items": "Indexed knowledge items",
+        "waiting_for_staff": "Waiting for staff", "human_active": "In progress with staff", "completed": "Completed",
+        "conversations": "Guest conversations", "messages": "Messages", "menus": "Menus", "promotions": "Promotions",
+        "current_requests": "Current requests", "change_percent": "Change", "latency_ms": "Response time",
+        "size_bytes": "Database size", "error_type": "Error type", "created_at": "Recorded at",
+    }
+    return labels.get(value, value.replace("_", " ").strip().capitalize())
+
+
+def _assistant_display_value(key: str, value: Any) -> str:
+    if value is None:
+        return "Not recorded"
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    if key == "created_at" and isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value, timezone.utc).astimezone().strftime("%b %d, %Y %I:%M %p")
+    if isinstance(value, (int, float)):
+        if "percent" in key or key.endswith("_rate"):
+            return f"{value}%"
+        if key.endswith("_seconds"):
+            seconds = int(value)
+            return f"{seconds // 3600}h {(seconds % 3600) // 60}m" if seconds >= 3600 else f"{seconds // 60}m {seconds % 60}s"
+        if key == "latency_ms":
+            return f"{value} ms"
+        if key == "size_bytes":
+            return f"{value / (1024 * 1024):.1f} MB"
+        return f"{value:,}" if isinstance(value, int) else str(value)
+    return str(value)
+
+
+def _assistant_evidence_items(evidence: list[dict[str, Any]]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    hidden_keys = {"id", "property_id", "restaurant_id", "department_id", "request_id", "last_test"}
+
+    def add(label: str, detail: Any, state: Any = None, key: str = "") -> None:
+        if len(rows) >= 18 or detail is None or isinstance(detail, (dict, list)):
+            return
+        text = _assistant_display_value(key, detail)
+        rows.append({"label": label, "detail": text[:500], "state": str(state or "")})
+
+    def expand(prefix: str, value: Any, depth: int = 0) -> None:
+        if len(rows) >= 18 or depth > 2:
+            return
+        if isinstance(value, list):
+            for item in value[:6]:
+                if isinstance(item, dict):
+                    label = str(item.get("name") or item.get("title") or item.get("question") or item.get("component") or prefix)
+                    state = item.get("state")
+                    detail = item.get("evidence") or item.get("error_type")
+                    if detail:
+                        add(label, detail, state)
+                    for key, child in item.items():
+                        if key in hidden_keys or key in {"name", "title", "question", "component", "state", "evidence", "error_type"}:
+                            continue
+                        if isinstance(child, (str, int, float, bool)):
+                            add(f"{label} · {_assistant_human_label(key)}", child, state, key)
+                        elif isinstance(child, (dict, list)):
+                            expand(f"{label} · {_assistant_human_label(key)}", child, depth + 1)
+                else:
+                    add(prefix, item)
+        elif isinstance(value, dict):
+            for key, child in value.items():
+                if key in hidden_keys or key in {"state", "component", "timeframe", "name", "evidence"}:
+                    continue
+                label = _assistant_human_label(key)
+                if isinstance(child, (dict, list)):
+                    expand(label, child, depth + 1)
+                else:
+                    add(label, child, key=key)
+        else:
+            add(prefix, value)
+
+    for item in evidence:
+        result = item.get("result", {})
+        component = str(result.get("component") or item.get("tool") or "Diagnostic")
+        state = result.get("state")
+        if state and len(rows) < 18:
+            rows.append({"label": f"{component.replace('_', ' ').title()} status", "detail": "", "state": str(state)})
+        expand(_assistant_human_label(component), result.get("evidence"))
+    return rows
+
+
+def _assistant_fallback_summary(evidence: list[dict[str, Any]], period: str, model_unavailable: bool = True) -> tuple[str, str, list[str]]:
+    period_label = _assistant_period_label(period)
+    results = [item.get("result", {}) for item in evidence]
+    report = next((item for item in results if item.get("component") in {"reporting", "restaurant_reporting", "business_analytics"}), None)
+    health = next((item for item in results if item.get("component") == "system"), None)
+    errors = next((item for item in results if item.get("component") in {"errors", "logs"}), None)
+    queue = next((item for item in results if item.get("component") == "request_queue"), None)
+    recommendations: list[str] = []
+    if report:
+        report_data = report.get("evidence", {})
+        if report.get("component") == "restaurant_reporting":
+            restaurants = report_data.get("restaurants", [])
+            if not restaurants:
+                finding = "No assigned restaurant activity is available for this period."
+                answer = f"I couldn't find report data for your assigned restaurants for {period_label}. Check that a restaurant is assigned to your account."
+            else:
+                totals = {key: sum(item.get("metrics", {}).get(key, 0) for item in restaurants) for key in ("conversations", "waiting_for_staff", "human_active", "completed", "messages")}
+                finding = f"Report ready for {len(restaurants)} assigned restaurant(s)."
+                parts = [f"{totals['conversations']} guest conversations", f"{totals['waiting_for_staff']} waiting for staff", f"{totals['human_active']} being handled", f"{totals['completed']} completed", f"{totals['messages']} messages"]
+                restaurant_lines = [f"{item['name']}: {item['metrics']['conversations']} conversations, {item['metrics']['waiting_for_staff']} waiting, {item['metrics']['completed']} completed." for item in restaurants[:5]]
+                answer = f"Restaurant activity for {period_label}: {', '.join(parts)}.\n\n" + "\n".join(restaurant_lines)
+                if totals["waiting_for_staff"]:
+                    recommendations.append("Review conversations waiting for staff and assign them to an available team member.")
+        else:
+            summary = report_data.get("summary", {})
+            finding = f"Operations report ready for {period_label}."
+            parts = [
+                f"{summary.get('service_requests', 0)} service requests",
+                f"{summary.get('open_requests', 0)} open",
+                f"{summary.get('overdue_requests', 0)} overdue",
+                f"{summary.get('guests_assisted', 0)} guests assisted",
+            ]
+            if summary.get("sla_performance_percent") is not None:
+                parts.append(f"{summary['sla_performance_percent']}% SLA performance")
+            if summary.get("guest_auth_success_percent") is not None:
+                parts.append(f"{summary['guest_auth_success_percent']}% guest authentication success")
+            if summary.get("average_resolution_seconds") is not None:
+                parts.append(f"average resolution {_assistant_display_value('average_resolution_seconds', summary['average_resolution_seconds'])}")
+            if summary.get("request_change_percent") is not None:
+                direction = "up" if summary["request_change_percent"] > 0 else "down" if summary["request_change_percent"] < 0 else "unchanged"
+                parts.append(f"requests {direction} {abs(summary['request_change_percent'])}% versus the previous period")
+            if summary.get("ai_error_rate_percent"):
+                parts.append(f"AI error rate {summary['ai_error_rate_percent']}%")
+            answer = f"Operations report for {period_label}: {', '.join(parts)}."
+            top_services = report_data.get("top_services", [])
+            if top_services:
+                answer += "\nMost requested: " + ", ".join(f"{item['name']} ({item['value']})" for item in top_services[:3]) + "."
+            recommendations = [str(item) for item in report_data.get("recommendations", [])[:4]]
+    elif queue:
+        metrics = queue.get("evidence", {})
+        overdue = int(metrics.get("overdue_requests", 0) or 0)
+        finding = f"{'Request queue needs attention' if overdue else 'Request queue is on track'} for {period_label}."
+        answer = (
+            f"Request summary for {period_label}: {metrics.get('service_requests', 0)} total, "
+            f"{metrics.get('open_requests', 0)} open, {overdue} overdue."
+        )
+        if metrics.get("sla_performance_percent") is not None:
+            answer += f" SLA performance is {metrics['sla_performance_percent']}%."
+        if overdue:
+            recommendations.append("Review overdue requests and confirm each has an owner and an updated status.")
+    elif health:
+        components = health.get("evidence", []) if isinstance(health.get("evidence"), list) else []
+        issues = [item for item in components if item.get("state") in {"warning", "critical"}]
+        unavailable = [item for item in components if item.get("state") == "unavailable"]
+        if issues:
+            finding = f"{len(issues)} system component(s) need attention."
+            details = [f"{item.get('name', 'Component')}: {item.get('evidence', item.get('state'))}" for item in issues[:5]]
+            answer = f"I checked system health for {period_label}. The following components need attention:\n" + "\n".join(f"• {line}" for line in details)
+            recommendations = [f"Open System Health and review {item.get('name', 'the affected component').lower()}." for item in issues[:3]]
+        elif health.get("state") in {"critical", "warning"}:
+            finding = f"System health is {health.get('state')}."
+            answer = f"System health is {health.get('state')} for {period_label}, but the available checks did not identify a component detail. Review the System Health page for the latest signals."
+            recommendations = ["Open System Health to review the latest component checks."]
+        else:
+            finding = "No active system-health warnings were found."
+            answer = f"I checked the system components available to your role for {period_label}. No active warnings or critical failures were reported."
+        if unavailable:
+            unavailable_names = ", ".join(item.get("name", "a component") for item in unavailable[:3])
+            answer += f"\nNot configured or unavailable: {unavailable_names}."
+            recommendations.extend(f"Review the configuration for {item.get('name', 'the unavailable component').lower()}." for item in unavailable[:2])
+        if errors:
+            error_items = errors.get("evidence", [])
+            if error_items:
+                answer += f"\nI also found {len(error_items)} recent integration or AI error(s). See the evidence list for details."
+            elif errors.get("state") == "healthy":
+                answer += "\nNo recent integration or AI errors were recorded."
+    else:
+        result = results[0] if results else {}
+        component = str(result.get("component") or "diagnostics").replace("_", " ")
+        raw_evidence = result.get("evidence")
+        state = str(result.get("state") or "available").replace("_", " ")
+        finding = f"{component.title()} check: {state}."
+        if isinstance(raw_evidence, str):
+            detail = raw_evidence
+        elif isinstance(raw_evidence, dict):
+            detail = "; ".join(f"{_assistant_human_label(key)}: {_assistant_display_value(key, value)}" for key, value in raw_evidence.items() if not isinstance(value, (dict, list)) and key not in {"id", "property_id"})
+        else:
+            detail = f"{len(raw_evidence)} record(s) returned." if isinstance(raw_evidence, list) else "No additional evidence was returned."
+        answer = f"I checked {component} for {period_label}. {detail}"
+        if result.get("likely_cause"):
+            answer += f"\nLikely cause: {result['likely_cause']}"
+            recommendations.append("Review the related operational queue and confirm whether the issue is resolved.")
+    if model_unavailable:
+        answer = "I couldn't get a response from the configured AI model, so I used the available read-only checks to answer.\n\n" + answer
+    if not recommendations:
+        recommendations.append("Continue monitoring; the available checks do not indicate a corrective action.")
+    return finding, answer, recommendations[:5]
 
 
 @app.post("/api/admin/properties/{property_id}/assistant/query")
@@ -1586,76 +1908,136 @@ async def operations_assistant(property_id: str, payload: AssistantQueryPayload,
     if not principal.can_access_property(property_id):
         raise HTTPException(status_code=403, detail="Property access denied.")
     record = _require_property_record(property_id)
-    destructive = bool(re.search(r"\b(restart|delete|disable|enable|change|rotate|reset|deploy|update|remove|configure|publish)\b", payload.question, re.I))
-    context = DiagnosticContext(property_id, principal.role_slug, principal.department_id, principal.permissions, _request_id(request))
-    requested_tool = _choose_diagnostic_tool(payload.question)
-    required_permission = diagnostic_tools._tools.get(requested_tool, ("diagnostics.view", None))[0]
-    if not principal.can(required_permission):
-        raise HTTPException(status_code=403, detail=f"Permission required: {required_permission}")
-    tools_allowed = available_tools(diagnostic_tools, principal.permissions)
-    if not tools_allowed:
-        raise HTTPException(status_code=403, detail="This role has no permission to run read-only diagnostics.")
+    question = AIInputSanitizer.sanitize_text(payload.question)
+    period = _assistant_period_from_question(question, payload.period)
     conversation_id = payload.conversation_id or admin_copilot_store.new_conversation_id()
     history = admin_copilot_store.history(conversation_id, property_id, principal.user_id)
-    question = AIInputSanitizer.sanitize_text(payload.question)
+    if _is_assistant_greeting(question):
+        capabilities = []
+        if "diagnostics.view" in principal.permissions:
+            capabilities.append("check the system health signals available to your role")
+        if principal.can("reports.export") or principal.can("restaurant.analytics.view") or principal.can("analytics.view"):
+            capabilities.append("summarize operational activity and prepare reports you are allowed to access")
+        if principal.can("requests.view"):
+            capabilities.append("review the service request queue")
+        if not capabilities:
+            capabilities.append("answer general operations questions using information available to your role")
+        answer = "Hi! I can help " + ", ".join(capabilities) + ". Try asking for a system health check or an operations report."
+        admin_copilot_store.append(conversation_id, property_id, principal.user_id, question, answer)
+        return {
+            "question": question, "conversation_id": conversation_id, "answer": answer,
+            "finding": "Ready to help with hotel operations.", "component": "assistant", "timeframe": "",
+            "evidence": [], "evidence_items": [], "recommendations": [], "links": [], "downloads": [],
+            "tool_activity": [], "confirmation_required": False, "action_status": "No changes were made.",
+        }
+
+    tools_allowed = available_tools(diagnostic_tools, principal.permissions)
+    if not tools_allowed:
+        raise HTTPException(status_code=403, detail="Your account does not have access to operational checks. Ask an administrator to review your assistant access.")
+    requested_tool = _choose_diagnostic_tool(question, tools_allowed)
+    if not requested_tool and "get_system_health" in tools_allowed and any(word in question.casefold() for word in ("system", "health", "issue", "problem", "down")):
+        requested_tool = "get_system_health"
+    if not requested_tool:
+        if any(word in question.casefold() for word in ("report", "summary", "summarize", "export")):
+            detail = "Your role does not have access to this report. Ask an administrator for report access scoped to your area."
+        else:
+            detail = "Your role does not have access to this system check. Ask an administrator to review your diagnostic access."
+        raise HTTPException(status_code=403, detail=detail)
+    destructive = bool(re.search(r"\b(restart|delete|disable|enable|change|rotate|reset|deploy|update|remove|configure|publish)\b", question, re.I))
+    context = DiagnosticContext(property_id, principal.role_slug, principal.department_id, principal.permissions, _request_id(request))
+    model_unavailable = False
+    selected_tools: list[str] = []
+    report_request = any(word in question.casefold() for word in ("report", "summary", "summarize", "export"))
+    health_request = any(word in question.casefold() for word in ("system", "health", "issue", "problem", "down", "check all"))
+    if report_request:
+        selected_tools = [requested_tool]
+    elif health_request:
+        # Run deterministic, permission-scoped health checks before asking the model
+        # to interpret them. A slow/unavailable provider must not block diagnostics.
+        selected_tools = _fallback_tools(question, tools_allowed)
+    else:
+        try:
+            planned = await asyncio.wait_for(ai_models.concierge_chat(
+                property_id=property_id, user_message=planner_prompt(question, tools_allowed, history),
+                hotel_name="Operations Copilot", context=[], requested_mode="advanced",
+                conversation_history=history, system_prompt_override=ADMIN_POLICY + " Return only the requested JSON object when selecting tools.",
+            ), timeout=8.0)
+            selected_tools = parse_tool_plan(planned.text, tools_allowed)
+        except Exception as exc:
+            model_unavailable = True
+            admin_auth.audit(principal, "assistant.copilot_provider_failure", "assistant", "configured_provider", property_id=property_id, metadata={"stage": "planning", "error_type": exc.__class__.__name__})
+        if model_unavailable or not selected_tools:
+            selected_tools = _fallback_tools(question, tools_allowed)
+        elif health_request:
+            selected_tools = list(dict.fromkeys([*selected_tools, *_fallback_tools(question, tools_allowed)]))[:5]
+    if not selected_tools:
+        raise HTTPException(status_code=403, detail="No checks are available for this request under your role. Ask an administrator to review your assistant access.")
+
+    # Assigned-restaurant reports use only that user's assignments and do not need a property-wide dashboard.
+    dashboard = _build_operations_dashboard(property_id, period, principal) if any(tool != "prepare_assigned_restaurant_report" for tool in selected_tools) else {}
+    evidence = []
     try:
-        planned = await ai_models.concierge_chat(
-            property_id=property_id, user_message=planner_prompt(question, tools_allowed, history),
-            hotel_name="Operations Copilot", context=[], requested_mode="advanced",
-            conversation_history=history, system_prompt_override=ADMIN_POLICY + " Return only the requested JSON object when selecting tools.",
-        )
-        selected_tools = parse_tool_plan(planned.text, tools_allowed)
-        if not selected_tools:
-            selected_tools = ["get_system_health"] if "get_system_health" in tools_allowed else []
-        dashboard = _build_operations_dashboard(property_id, payload.period, principal) if selected_tools else {}
-        evidence = []
         for tool_name in selected_tools:
             # Registry.run checks the principal's permission again on every tool call.
-            result = diagnostic_tools.run(tool_name, context, dashboard=dashboard, record=record, period=payload.period)
+            result = diagnostic_tools.run(tool_name, context, dashboard=dashboard, record=record, period=period, principal=principal)
             evidence.append({"tool": tool_name, "result": result})
-        if destructive:
-            synthesis = "I can prepare the recommended change, but it requires explicit confirmation through the appropriate administrative workflow. No configuration changes were made."
-        else:
-            synthesized = await ai_models.concierge_chat(
+    except Exception as exc:
+        logger.exception("Operations assistant diagnostic failed", extra={"request_id": context.request_id, "property_id": property_id})
+        raise HTTPException(status_code=503, detail="I couldn't complete that check. Please try again or open the related operations screen.") from exc
+
+    finding, deterministic_answer, recommendations = _assistant_fallback_summary(evidence, period, model_unavailable=False)
+    if destructive:
+        synthesis = "I can explain the recommended change, but changes must be confirmed in the relevant settings workflow. I made no changes."
+    elif model_unavailable:
+        synthesis = deterministic_answer
+    else:
+        try:
+            synthesized = await asyncio.wait_for(ai_models.concierge_chat(
                 property_id=property_id, user_message=synthesis_prompt(question, evidence, history),
                 hotel_name="Operations Copilot", context=[], requested_mode="advanced",
                 conversation_history=history, system_prompt_override=ADMIN_POLICY,
-            )
+            ), timeout=8.0)
             synthesis = AIOutputValidator.validate(synthesized.text)
-    except Exception as exc:
-        # Preserve diagnostic truth when model planning/synthesis is unavailable.
-        try:
-            fallback_tool = _choose_diagnostic_tool(question)
-            fallback_names = [fallback_tool] if fallback_tool in tools_allowed else [name for name in ("get_system_health", "get_recent_errors") if name in tools_allowed]
-            dashboard = _build_operations_dashboard(property_id, payload.period, principal) if fallback_names else {}
-            evidence = [{"tool": name, "result": diagnostic_tools.run(name, context, dashboard=dashboard, record=record, period=payload.period)} for name in fallback_names]
-        except Exception:
-            evidence = []
-        admin_auth.audit(principal, "assistant.copilot_provider_failure", "assistant", "configured_provider", property_id=property_id, metadata={"error_type": exc.__class__.__name__})
-        deterministic_summary = "AI synthesis is unavailable. Raw deterministic diagnostic evidence is shown below; no changes were made."
-        return {"question": question, "conversation_id": conversation_id, "answer": deterministic_summary, "finding": deterministic_summary, "tool": evidence[0]["tool"] if evidence else "unavailable", "component": evidence[0]["result"].get("component", "diagnostics") if evidence else "diagnostics", "timeframe": payload.period, "evidence": evidence, "recommendations": [], "links": [{"label": "Open system health", "panel": "system-health"}], "tool_activity": [item["tool"] for item in evidence], "confirmation_required": destructive, "action_status": "No change was made."}
+        except Exception as exc:
+            model_unavailable = True
+            admin_auth.audit(principal, "assistant.copilot_provider_failure", "assistant", "configured_provider", property_id=property_id, metadata={"stage": "synthesis", "error_type": exc.__class__.__name__})
+            _, synthesis, recommendations = _assistant_fallback_summary(evidence, period, model_unavailable=True)
+
     primary = evidence[0]["result"] if evidence else {"component": "diagnostics", "state": "unavailable", "evidence": []}
     tool = evidence[0]["tool"] if len(evidence) == 1 else "multi_tool_investigation"
-    finding = f"{len(evidence)} diagnostic check(s) completed." if evidence else "No permitted diagnostic evidence was collected."
-    recommendations = ["Review the collected evidence and verify the likely cause against the relevant operational screen."] if evidence else []
     links = [{"label": "Open system health", "panel": "system-health"}]
-    if any(item["tool"] in {"analyze_business_operations", "compare_time_periods", "check_guest_auth"} for item in evidence):
+    report_evidence = any(item["tool"] in {"prepare_management_report", "prepare_assigned_restaurant_report", "analyze_business_operations"} for item in evidence)
+    if any(item["tool"] in {"analyze_business_operations", "compare_time_periods", "check_guest_auth", "check_request_queue"} for item in evidence):
         links = [{"label": "Open analytics", "panel": "analytics"}, *links]
     if any(item["tool"] == "prepare_management_report" for item in evidence):
         links = [{"label": "Open reports", "panel": "reports"}]
+    elif any(item["tool"] == "prepare_assigned_restaurant_report" for item in evidence):
+        links = [{"label": "Open restaurants", "panel": "restaurants"}]
+    downloads = []
+    if report_evidence and principal.can("reports.export"):
+        base = f"/api/admin/properties/{quote(property_id, safe='')}/reports/export"
+        downloads = [
+            {"label": "Download PDF report", "url": f"{base}.pdf?period={quote(period, safe='')}"},
+            {"label": "Download spreadsheet", "url": f"{base}.xlsx?period={quote(period, safe='')}"},
+        ]
+    if model_unavailable:
+        _, synthesis, recommendations = _assistant_fallback_summary(evidence, period, model_unavailable=True)
     admin_copilot_store.append(conversation_id, property_id, principal.user_id, question, synthesis)
     response = {
         "question": question, "conversation_id": conversation_id, "answer": synthesis, "tool": tool, "finding": finding,
-        "component": primary.get("component", "diagnostics"), "timeframe": primary.get("timeframe", payload.period),
-        "evidence": evidence, "likely_cause": primary.get("likely_cause"), "tool_activity": [item["tool"] for item in evidence],
+        "component": primary.get("component", "diagnostics"),
+        "timeframe": _assistant_period_label(primary.get("timeframe", period)) if primary.get("timeframe", period) == period else primary.get("timeframe", period),
+        "evidence": evidence, "evidence_items": _assistant_evidence_items(evidence),
+        "likely_cause": primary.get("likely_cause"), "tool_activity": [item["tool"] for item in evidence],
         "recommendations": recommendations,
         "links": links,
+        "downloads": downloads,
         "confirmation_required": destructive,
         "action_status": "No change was made. Explicit confirmation in the relevant configuration screen is required." if destructive else "No changes were made.",
         "request_id": context.request_id,
     }
-    observability.log_diagnostic(context.request_id, property_id, principal.user_id, tool, payload.period, finding)
-    admin_auth.audit(principal, "assistant.diagnostic", "diagnostic", tool, property_id=property_id, metadata={"period": payload.period, "tools": [item["tool"] for item in evidence], "confirmation_required": destructive})
+    observability.log_diagnostic(context.request_id, property_id, principal.user_id, tool, period, finding)
+    admin_auth.audit(principal, "assistant.diagnostic", "diagnostic", tool, property_id=property_id, metadata={"period": period, "tools": [item["tool"] for item in evidence], "confirmation_required": destructive})
     return response
 
 
@@ -2627,6 +3009,7 @@ async def admin_sessions(property_id: str) -> dict[str, Any]:
     return {
         "sessions": store.sessions(property_id),
         "stays": guest_identities.list_stays(property_id),
+        "guest_sessions": guest_identities.list_guest_sessions(property_id),
         "devices": guest_identities.list_devices(property_id),
     }
 
@@ -3698,6 +4081,26 @@ def _safety_fast_answer(message: str) -> str | None:
     return None
 
 
+def _facility_direct_answer(facility: dict[str, Any]) -> str:
+    name = str(facility.get("name") or "Facility")
+    status = str(facility.get("live_status") or facility.get("status") or "open").casefold().replace(" ", "_")
+    unavailable = {
+        "full": "currently at capacity",
+        "closed": "currently closed",
+        "temporarily_closed": "temporarily closed",
+        "maintenance": "temporarily unavailable for maintenance",
+        "private_event": "unavailable during a private event",
+    }.get(status)
+    location = str(facility.get("location") or facility.get("status_note") or facility.get("description") or "").strip()
+    opening_hours = facility.get("opening_hours") or {}
+    hours = facility.get("hours") or (opening_hours.get("display", "") if isinstance(opening_hours, dict) else "")
+    if unavailable:
+        answer = f"{name} is {unavailable}."
+        return answer + (f" Location: {location}." if location else "")
+    facts = [value for value in (location, _display_hours(str(hours or "").strip())) if value]
+    return f"{name}: {'; '.join(facts)}." if facts else f"{name} information is available from the concierge."
+
+
 def _property_fast_answer(property_record: PropertyRecord | None, message: str) -> str | None:
     if property_record is None:
         return None
@@ -3741,7 +4144,7 @@ def _property_fast_answer(property_record: PropertyRecord | None, message: str) 
             requested_facilities.append(facility)
             continue
         if saved_facilities is None:
-            saved_facilities = hospitality.guest_facilities(property_record.property_id).get("facilities", [])
+            saved_facilities = hospitality.overview(property_record.property_id).get("facilities", [])
         aliases = {
             "pool": ("pool", "swimming"),
             "gym": ("gym", "fitness"),
@@ -3755,21 +4158,14 @@ def _property_fast_answer(property_record: PropertyRecord | None, message: str) 
             None,
         )
         if saved:
-            opening_hours = saved.get("opening_hours") or {}
             requested_facilities.append({
                 "name": saved.get("name"),
-                "location": saved.get("description") or saved.get("location"),
-                "hours": opening_hours.get("display", "") if isinstance(opening_hours, dict) else "",
+                "location": saved.get("status_note") or saved.get("description"),
+                "opening_hours": saved.get("opening_hours"),
+                "live_status": saved.get("live_status"),
             })
     if requested_facilities:
-        details = []
-        for facility in requested_facilities:
-            name = str(facility.get("name") or "Facility")
-            location = str(facility.get("location") or "").strip()
-            hours = _display_hours(str(facility.get("hours") or "").strip())
-            facts = [value for value in (location, hours) if value]
-            details.append(f"{name}: {'; '.join(facts)}." if facts else f"{name} information is available from the concierge.")
-        return " ".join(details)
+        return " ".join(_facility_direct_answer(facility) for facility in requested_facilities)
     facility_aliases = {
         "parking": ("parking",),
         "business center": ("business center", "business"),
@@ -3781,9 +4177,7 @@ def _property_fast_answer(property_record: PropertyRecord | None, message: str) 
                 continue
             facility = next((item for item in overview.get("facilities", []) if any(alias in f"{item.get('name', '')} {item.get('facility_type', '')}".lower() for alias in aliases)), None)
             if facility:
-                hours = (facility.get("opening_hours") or {}).get("display")
-                detail = f" Hours: {hours}." if hours else ""
-                return f"{facility['name']}.{detail}"
+                return _facility_direct_answer(facility)
     for location in (property_record.app_settings or {}).get("locations", []):
         if location.get("guest_visible", True) and str(location.get("name", "")).lower() in lowered:
             description = str(location.get("description") or "").strip()
