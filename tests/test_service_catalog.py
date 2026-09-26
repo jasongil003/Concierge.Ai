@@ -93,28 +93,28 @@ def test_guest_service_request_is_idempotent(admin_client, tmp_path: Path, monke
 
 def test_facility_hours_answer_combines_every_requested_facility(monkeypatch):
     record = PropertyRecord(
-        property_id="lunara-test",
-        hotel_name="Lunara",
-        pool={"name": "Infinity Pool", "location": "Level 3", "hours": "06:00-22:00"},
+        property_id="property-test",
+        hotel_name="Example Hotel",
+        pool={"name": "Configured Pool", "location": "Level 3", "hours": "06:00-22:00"},
         gym={"name": "Fitness Center", "location": "Level 3", "hours": "24 hours"},
-        spa={"name": "Lunara Spa", "location": "Level 3", "hours": "10:00-22:00"},
+        spa={"name": "Garden Spa", "location": "Level 3", "hours": "10:00-22:00"},
     )
     answer = main_module._property_fast_answer(record, "What are the pool, gym, and spa hours?")
     assert answer == (
-        "Infinity Pool: Level 3; 6:00 AM-10:00 PM. "
+        "Configured Pool: Level 3; 6:00 AM-10:00 PM. "
         "Fitness Center: Level 3; 24 hours. "
-        "Lunara Spa: Level 3; 10:00 AM-10:00 PM."
+        "Garden Spa: Level 3; 10:00 AM-10:00 PM."
     )
 
 
 def test_facility_hours_answer_uses_saved_facility_profiles(tmp_path: Path, monkeypatch):
     store = HospitalityStore(tmp_path / "facility-profiles.db")
     for name, facility_type, hours in (
-        ("Infinity Pool", "pool", "06:00-22:00"),
+        ("Configured Pool", "pool", "06:00-22:00"),
         ("Fitness Center", "fitness", "24 hours"),
-        ("Lunara Spa", "spa", "10:00-22:00"),
+        ("Garden Spa", "spa", "10:00-22:00"),
     ):
-        store.upsert_facility_profile("lunara-test", {
+        store.upsert_facility_profile("property-test", {
             "name": name,
             "facility_type": facility_type,
             "description": f"{name}, Level 3.",
@@ -122,14 +122,14 @@ def test_facility_hours_answer_uses_saved_facility_profiles(tmp_path: Path, monk
             "live_status": "open",
         })
     monkeypatch.setattr(main_module, "hospitality", store)
-    record = PropertyRecord(property_id="lunara-test", hotel_name="Lunara")
+    record = PropertyRecord(property_id="property-test", hotel_name="Example Hotel")
 
     answer = main_module._property_fast_answer(record, "What are the pool, gym, and spa hours?")
 
     assert answer is not None
-    assert "Infinity Pool" in answer and "6:00 AM-10:00 PM" in answer
+    assert "Configured Pool" in answer and "6:00 AM-10:00 PM" in answer
     assert "Fitness Center" in answer and "24 hours" in answer
-    assert "Lunara Spa" in answer and "10:00 AM-10:00 PM" in answer
+    assert "Garden Spa" in answer and "10:00 AM-10:00 PM" in answer
 
 
 def test_follow_up_query_resolves_recent_facility_context():

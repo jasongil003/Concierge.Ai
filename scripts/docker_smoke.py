@@ -44,8 +44,12 @@ def login() -> tuple[dict[str, str], dict]:
 def write_phase() -> None:
     headers, _ = login()
     properties = request("/api/admin/properties", headers=headers)["properties"]
-    property_id = properties[0]["property_id"]
-    record = request(f"/api/admin/properties/{property_id}", headers=headers)
+    property_id = "hotel-a"
+    existing = next((item for item in properties if item["property_id"] == property_id), None)
+    if existing:
+        record = request(f"/api/admin/properties/{property_id}", headers=headers)
+    else:
+        record = {"property_id": property_id, "hotel_name": "Docker Persistence Hotel"}
     record["domain"] = "hotel-a.test"
     record["hotel_name"] = "Docker Persistence Hotel"
     request(f"/api/admin/properties/{property_id}", "PUT", record, headers)

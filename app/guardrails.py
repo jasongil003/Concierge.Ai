@@ -207,6 +207,23 @@ class PropertyGuard:
             if supplied_property_id and supplied_property_id != host_record.property_id:
                 raise PermissionError("Property does not match the guest hostname.")
             return host_record
+        if not record_list:
+            raise ValueError("No property is configured.")
+        if default_property_id:
+            configured = next((item for item in record_list if item.property_id == default_property_id), None)
+            configured_domain = str(getattr(configured, "domain", "") or "").lower().rstrip(".") if configured is not None else ""
+            if configured is not None and (not configured_domain or hostname == configured_domain):
+                if supplied_property_id and supplied_property_id != configured.property_id:
+                    if allow_body_selection:
+                        selected = next((item for item in record_list if item.property_id == supplied_property_id), None)
+                        if selected is not None:
+                            return selected
+                    raise ValueError("Property not found.")
+                return configured
+        if not supplied_property_id and not default_property_id and len(record_list) == 1:
+            sole_domain = str(getattr(record_list[0], "domain", "") or "").lower().rstrip(".")
+            if not sole_domain:
+                return record_list[0]
         if not allow_body_selection:
             raise PermissionError("Guest hostname is not mapped to a property.")
         requested = supplied_property_id or default_property_id

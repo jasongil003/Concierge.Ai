@@ -1,10 +1,17 @@
 import { expect, test } from "@playwright/test";
+import { ensureTestProperty } from "./support.js";
+
+const csrfByRequest = new WeakMap();
 
 async function loginAdmin(api) {
   const response = await api.post("/api/admin/auth/login", {
     data: { username: "admin", password: "ChangeMe123!", remember_me: false },
   });
   expect(response.ok()).toBeTruthy();
+  const csrf = (await response.json()).user.csrf_token;
+  csrfByRequest.set(api, csrf);
+  await ensureTestProperty(api, csrf);
+  return csrf;
 }
 
 async function openPanel(page, label) {
@@ -327,6 +334,12 @@ test("admin role buttons create and edit a custom role", async ({ page }, testIn
 
 test("admin conversation buttons: takeover, staff response, and close", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium", "The mutation workflow only needs one browser profile.");
+  const property = (await (await page.request.get("/api/admin/properties")).json()).properties[0];
+  property.contact_details = { ...(property.contact_details || {}), breakfast: "Breakfast is served from 7:00 to 10:00." };
+  const saved = await page.request.put(`/api/admin/properties/${property.property_id}`, {
+    headers: { "X-CSRF-Token": csrfByRequest.get(page.request) }, data: property,
+  });
+  expect(saved.ok()).toBeTruthy();
   const sessionResponse = await page.request.post("/api/session/start", {
     data: { client_id: `conversation-audit-${Date.now()}` },
   });

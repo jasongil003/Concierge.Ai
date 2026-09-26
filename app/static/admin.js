@@ -61,7 +61,6 @@ const authTypeDefinitions = [
 ];
 
 const FEATURE_STATUS = {
-  live: { label: "Live", className: "live" },
   partial: { label: "Partial", className: "partial" },
   coming_soon: { label: "Coming Soon", className: "soon" },
   configuration_required: { label: "Configuration Required", className: "required" },
@@ -71,76 +70,76 @@ const NAV_SECTIONS = [
   {
     title: "Overview",
     items: [
-      { id: "dashboard", label: "Dashboard", panel: "overview", permission: "dashboard.view", status: "live", icon: "⌂" },
-      { id: "system-health", label: "System Health", panel: "system-health", permission: "dashboard.view", status: "live", icon: "◉" },
-      { id: "alerts", label: "Alerts", panel: "alerts", permission: "dashboard.view", status: "live", icon: "!" },
+      { id: "dashboard", label: "Dashboard", panel: "overview", permission: "dashboard.view", icon: "⌂" },
+      { id: "system-health", label: "System Health", panel: "system-health", permission: "dashboard.view", icon: "◉" },
+      { id: "alerts", label: "Alerts", panel: "alerts", permission: "dashboard.view", icon: "!" },
     ],
   },
   {
     title: "Guest Experience",
     open: true,
     items: [
-      { id: "conversations", label: "Conversations", panel: "conversations", permission: "conversations.view", status: "live", icon: "◫" },
-      { id: "guest-requests", label: "Guest Requests", panel: "requests", permission: "requests.view", status: "live", icon: "☷" },
-      { id: "guest-sessions", label: "Guest Sessions", panel: "sessions", permission: "guest_sessions.view", status: "live", icon: "◎" },
-      { id: "personalization", label: "Personalization", panel: "personalization-settings", permission: "properties.view", status: "live", icon: "✧" },
-      { id: "guest-preview", label: "Guest Preview", panel: "guest", permission: "concierge.view", status: "live", icon: "◐" },
+      { id: "conversations", label: "Conversations", panel: "conversations", permission: "conversations.view", icon: "◫" },
+      { id: "guest-requests", label: "Guest Requests", panel: "requests", permission: "requests.view", icon: "☷" },
+      { id: "guest-sessions", label: "Guest Sessions", panel: "sessions", permission: "guest_sessions.view", icon: "◎" },
+      { id: "personalization", label: "Personalization", panel: "personalization-settings", permission: "properties.view", icon: "✧" },
+      { id: "guest-preview", label: "Guest Preview", panel: "guest", permission: "concierge.view", icon: "◐" },
     ],
   },
   {
     title: "Property",
     items: [
-      { id: "hotel-information", label: "Hotel Information", panel: "hotel-information", permission: "properties.view", status: "live", icon: "□" },
-      { id: "rooms", label: "Rooms", panel: "rooms", permission: "properties.view", status: "live", icon: "▤" },
-      { id: "facilities", label: "Facilities", panel: "facilities", permission: "properties.view", status: "live", icon: "◇" },
-      { id: "restaurants", label: "Restaurants", panel: "restaurants", permission: "restaurant.view", status: "live", icon: "○" },
-      { id: "service-catalog", label: "Service Catalog", panel: "service-catalog", permission: "requests.view", status: "live", icon: "＋" },
-      { id: "recommendations", label: "Recommendations", panel: "recommendations", permission: "properties.view", status: "live", icon: "⌖" },
-      { id: "zones-maps", label: "Zones & Maps", panel: "zones", permission: "properties.view", status: "live", icon: "⌗" },
-      { id: "appearance", label: "Design", panel: "appearance", permission: "concierge.view", status: "live", icon: "◐" },
-      { id: "branding-intro", label: "Branding / Intro", panel: "intro", permission: "concierge.view", status: "live", icon: "A" },
+      { id: "hotel-information", label: "Hotel Information", panel: "hotel-information", permission: "properties.view", icon: "□" },
+      { id: "rooms", label: "Rooms", panel: "rooms", permission: "properties.view", icon: "▤" },
+      { id: "facilities", label: "Facilities", panel: "facilities", permission: "properties.view", icon: "◇" },
+      { id: "restaurants", label: "Restaurants", panel: "restaurants", permission: "restaurant.view", icon: "○" },
+      { id: "service-catalog", label: "Service Catalog", panel: "service-catalog", permission: "requests.view", icon: "＋" },
+      { id: "recommendations", label: "Recommendations", panel: "recommendations", permission: "properties.view", icon: "⌖" },
+      { id: "zones-maps", label: "Zones & Maps", panel: "zones", permission: "properties.view", icon: "⌗" },
+      { id: "appearance", label: "Design", panel: "appearance", permission: "concierge.view", icon: "◐" },
+      { id: "branding-intro", label: "Branding / Intro", panel: "intro", permission: "concierge.view", icon: "A" },
     ],
   },
   {
     title: "AI",
     open: true,
     items: [
-      { id: "ai-assistant", label: "AI Assistant", panel: "ai-assistant", permission: "assistant.use", status: "live", icon: "✦" },
-      { id: "models-providers", label: "Models & Providers", panel: "ai", permission: "ai.view", status: "live", icon: "◈" },
-      { id: "knowledge", label: "Knowledge", panel: "knowledge", permission: "knowledge.view", status: "live", icon: "▣" },
-      { id: "knowledge-overview", label: "Overview", panel: "knowledge", permission: "knowledge.view", status: "live", icon: "▣" },
-      { id: "documents", label: "Documents", panel: "documents", permission: "knowledge.view", status: "live", icon: "▧" },
-      { id: "faqs", label: "FAQs", panel: "faqs", permission: "knowledge.view", status: "live", icon: "?" },
-      { id: "personality", label: "Personality", panel: "ai-personality", permission: "ai.view", status: "live", icon: "A" },
-      { id: "guardrails", label: "Guardrails", panel: "guardrails", permission: "security.view", status: "live", icon: "⊡" },
-      { id: "ai-usage", label: "Usage", panel: "ai-usage", permission: "analytics.view", status: "live", icon: "◫" },
+      { id: "ai-assistant", label: "AI Assistant", panel: "ai-assistant", permission: "assistant.use", icon: "✦" },
+      { id: "models-providers", label: "Models & Providers", panel: "ai", permission: "ai.view", icon: "◈" },
+      { id: "knowledge", label: "Knowledge", panel: "knowledge", permission: "knowledge.view", icon: "▣" },
+      { id: "knowledge-overview", label: "Overview", panel: "knowledge", permission: "knowledge.view", icon: "▣" },
+      { id: "documents", label: "Documents", panel: "documents", permission: "knowledge.view", icon: "▧" },
+      { id: "faqs", label: "FAQs", panel: "faqs", permission: "knowledge.view", icon: "?" },
+      { id: "personality", label: "Personality", panel: "ai-personality", permission: "ai.view", icon: "A" },
+      { id: "guardrails", label: "Guardrails", panel: "guardrails", permission: "security.view", icon: "⊡" },
+      { id: "ai-usage", label: "Usage", panel: "ai-usage", permission: "analytics.view", icon: "◫" },
     ],
   },
   {
     title: "Analytics",
     items: [
-      { id: "analytics", label: "Analytics", panel: "analytics", permission: "analytics.view", status: "live", icon: "▥" },
-      { id: "reports", label: "Reports", panel: "reports", permission: "reports.export", status: "live", icon: "▧" },
-      { id: "exports", label: "Exports", panel: "exports", permission: "reports.export", status: "live", icon: "↧" },
-      { id: "location", label: "Location", panel: "location", permission: "analytics.view", status: "live", icon: "⌖" },
+      { id: "analytics", label: "Analytics", panel: "analytics", permission: "analytics.view", icon: "▥" },
+      { id: "reports", label: "Reports", panel: "reports", permission: "reports.export", icon: "▧" },
+      { id: "exports", label: "Exports", panel: "exports", permission: "reports.export", icon: "↧" },
+      { id: "location", label: "Location", panel: "location", permission: "analytics.view", icon: "⌖" },
     ],
   },
   {
     title: "System",
     items: [
-      { id: "integrations", label: "Integrations", panel: "wifi", permission: "integrations.view", status: "live", icon: "⌁" },
-      { id: "antlabs-wifi", label: "ANTlabs / Wi-Fi", panel: "wifi", permission: "integrations.view", status: "live", icon: "⌁" },
-      { id: "auth-types", label: "Authentication Types", panel: "auth-types", permission: "integrations.view", status: "live", icon: "✓" },
-      { id: "webhooks", label: "Webhooks", panel: "webhooks", permission: "integrations.view", status: "live", icon: "↗" },
-      { id: "domain", label: "Domain", panel: "domain", permission: "domains.view", status: "live", icon: "◌" },
-      { id: "ssl", label: "SSL", panel: "ssl", permission: "domains.view", status: "live", icon: "⌑" },
-      { id: "network", label: "Network", panel: "network", permission: "domains.view", status: "live", icon: "⌁" },
-      { id: "audit", label: "Audit Logs", panel: "audit", permission: "audit.view", status: "live", icon: "☷" },
-      { id: "users", label: "Users", panel: "users", permission: "users.view", status: "live", icon: "◎" },
-      { id: "roles", label: "Roles", panel: "roles", permission: "roles.view", status: "live", icon: "◇" },
-      { id: "permissions", label: "Permissions", panel: "permissions", permission: "roles.view", status: "live", icon: "✓" },
-      { id: "security", label: "Security", panel: "security", permission: "security.view", status: "live", icon: "⊡" },
-      { id: "settings", label: "Settings", panel: "system-settings", permission: "system.configure", status: "live", icon: "⌘", superAdminOnly: true },
+      { id: "integrations", label: "Integrations", panel: "wifi", permission: "integrations.view", icon: "⌁" },
+      { id: "antlabs-wifi", label: "ANTlabs / Wi-Fi", panel: "wifi", permission: "integrations.view", icon: "⌁" },
+      { id: "auth-types", label: "Authentication Types", panel: "auth-types", permission: "integrations.view", icon: "✓" },
+      { id: "webhooks", label: "Webhooks", panel: "webhooks", permission: "integrations.view", icon: "↗" },
+      { id: "domain", label: "Domain", panel: "domain", permission: "domains.view", icon: "◌" },
+      { id: "ssl", label: "SSL", panel: "ssl", permission: "domains.view", icon: "⌑" },
+      { id: "network", label: "Network", panel: "network", permission: "domains.view", icon: "⌁" },
+      { id: "audit", label: "Audit Logs", panel: "audit", permission: "audit.view", icon: "☷" },
+      { id: "users", label: "Users", panel: "users", permission: "users.view", icon: "◎" },
+      { id: "roles", label: "Roles", panel: "roles", permission: "roles.view", icon: "◇" },
+      { id: "permissions", label: "Permissions", panel: "permissions", permission: "roles.view", icon: "✓" },
+      { id: "security", label: "Security", panel: "security", permission: "security.view", icon: "⊡" },
+      { id: "settings", label: "Settings", panel: "system-settings", permission: "system.configure", icon: "⌘", superAdminOnly: true },
     ],
   },
 ];
@@ -228,18 +227,16 @@ function renderNavigation() {
 }
 
 function createNavButton(item) {
-  const status = FEATURE_STATUS[item.status] || FEATURE_STATUS.coming_soon;
   const button = document.createElement("button");
   button.type = "button";
   button.className = "nav-item";
   button.dataset.navId = item.id;
   button.dataset.panel = item.panel;
   button.dataset.permission = item.permission;
-  button.title = `${item.label}: ${status.label}`;
+  button.title = item.label;
   button.innerHTML = `
     <span class="nav-icon" aria-hidden="true">${escapeHTML(item.icon || "•")}</span>
     <span class="nav-label">${escapeHTML(item.label)}</span>
-    <span class="nav-status ${status.className}" aria-label="${status.label}" title="${status.label}">${escapeHTML(status.label)}</span>
   `;
   button.addEventListener("click", () => {
     activatePanel(item.panel, item.id);
@@ -555,13 +552,13 @@ function renderRooms() {
   for (const room of state.property.rooms || []) {
     const row = document.createElement("div"); row.className = "compact-row";
     row.innerHTML = `<strong>${escapeHTML(room.name)}</strong><span>${escapeHTML(room.status)} · capacity ${Number(room.capacity || 1)}</span><span>${escapeHTML(room.description || "")}</span>`;
-    const edit = document.createElement("button"); edit.type = "button"; edit.textContent = "Edit"; edit.addEventListener("click", () => {
+    const edit = makeActionButton("Edit", () => {
       $("room-id").value = room.id; $("room-name").value = room.name; $("room-description").value = room.description || ""; $("room-capacity").value = room.capacity || 1; $("room-status").value = room.status || "available";
     });
-    const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "Delete"; remove.addEventListener("click", () => deleteRoom(room.id).catch((error) => showToast(error.message, "error")));
+    const remove = makeActionButton("Delete", () => deleteRoom(room.id), true);
     row.append(edit, remove); list.appendChild(row);
   }
-  if (!list.children.length) list.textContent = "No rooms configured.";
+  if (!list.children.length) list.textContent = "No room types configured.";
 }
 
 async function saveRoom() {
@@ -588,9 +585,9 @@ function renderGuestModules() {
   const modules = [...(state.property.guest_modules || [])].sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
   for (const module of modules) {
     const row = document.createElement("div"); row.className = "compact-row"; row.innerHTML = `<strong>${escapeHTML(module.name)}</strong><span>${module.enabled ? "Enabled" : "Disabled"} · order ${Number(module.order || 0)}</span><span>${escapeHTML(module.prompt || "")}</span>`;
-    const edit = document.createElement("button"); edit.type = "button"; edit.textContent = "Edit"; edit.addEventListener("click", () => { $("guest-module-id").value = module.id; $("guest-module-name").value = module.name; $("guest-module-prompt").value = module.prompt || ""; $("guest-module-order").value = module.order || 0; $("guest-module-enabled").checked = module.enabled !== false; });
-    const toggle = document.createElement("button"); toggle.type = "button"; toggle.textContent = module.enabled ? "Disable" : "Enable"; toggle.addEventListener("click", () => toggleGuestModule(module.id).catch((error) => showToast(error.message, "error")));
-    const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "Delete"; remove.addEventListener("click", () => deleteGuestModule(module.id).catch((error) => showToast(error.message, "error")));
+    const edit = makeActionButton("Edit", () => { $("guest-module-id").value = module.id; $("guest-module-name").value = module.name; $("guest-module-prompt").value = module.prompt || ""; $("guest-module-order").value = module.order || 0; $("guest-module-enabled").checked = module.enabled !== false; });
+    const toggle = makeActionButton(module.enabled ? "Disable" : "Enable", () => toggleGuestModule(module.id), true);
+    const remove = makeActionButton("Delete", () => deleteGuestModule(module.id), true);
     row.append(edit, toggle, remove); list.appendChild(row);
   }
   if (!list.children.length) list.textContent = "No guest modules configured.";
@@ -614,27 +611,80 @@ async function loadHospitalityManagement() {
 }
 
 function renderFacilities() {
-  const list = $("facility-list"); if (!list) return; list.innerHTML = "";
-  for (const item of state.hospitality?.facilities || []) {
-    const row = document.createElement("div"); row.className = "compact-row"; row.innerHTML = `<strong>${escapeHTML(item.name)}</strong><span>${escapeHTML(item.facility_type)} · ${escapeHTML(item.live_status)}</span><span>${escapeHTML(item.description || "")}</span>`;
-    const edit = document.createElement("button"); edit.type = "button"; edit.textContent = "Edit"; edit.addEventListener("click", () => editFacility(item));
-    const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "Delete"; remove.addEventListener("click", () => deleteFacility(item.facility_id).catch((error) => showToast(error.message, "error")));
-    row.append(edit, remove); list.appendChild(row);
+  const list = $("facility-list"); if (!list) return; list.replaceChildren();
+  const query = $("facility-search").value.trim().toLocaleLowerCase();
+  const facilities = (state.hospitality?.facilities || []).filter((item) =>
+    [item.name, item.facility_type, item.status_note, item.description]
+      .some((value) => String(value || "").toLocaleLowerCase().includes(query))
+  );
+  const empty = !(state.hospitality?.facilities || []).length;
+  $("facility-empty").hidden = !empty;
+  $("facility-table-shell").hidden = empty;
+  $("facility-search").hidden = empty;
+  $("facility-empty-copy").textContent = can("properties.edit")
+    ? "Add a facility when you are ready to share its details with guests."
+    : "No facilities have been configured for this property.";
+  $("facility-table-shell").querySelector("thead th:last-child").hidden = !can("properties.edit");
+  $("facility-count").textContent = empty ? "" : `${facilities.length} ${facilities.length === 1 ? "facility" : "facilities"}`;
+  if (!empty && !facilities.length) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 6; cell.className = "table-empty"; cell.textContent = "No facilities match your search.";
+    row.appendChild(cell); list.appendChild(row); return;
   }
-  if (!list.children.length) list.textContent = "No facilities configured.";
+  for (const item of facilities) {
+    const row = document.createElement("tr");
+    const values = [item.name, item.facility_type, item.status_note, item.opening_hours?.display || "Not set"];
+    for (const value of values) {
+      const cell = document.createElement("td"); cell.textContent = value || "—"; row.appendChild(cell);
+    }
+    const status = document.createElement("td"); status.textContent = String(item.live_status || "unknown").replaceAll("_", " "); row.appendChild(status);
+    const actions = document.createElement("td"); actions.className = "facility-actions"; actions.hidden = !can("properties.edit");
+    if (can("properties.edit")) {
+      const edit = document.createElement("button"); edit.type = "button"; edit.className = "btn btn-secondary btn-sm"; edit.textContent = "Edit"; edit.addEventListener("click", () => editFacility(item));
+      const remove = document.createElement("button"); remove.type = "button"; remove.className = "btn btn-danger btn-sm"; remove.textContent = "Delete";
+      remove.addEventListener("click", () => deleteFacility(item.facility_id, item.name).catch((error) => showToast(error.message, "error")));
+      actions.append(edit, remove);
+    }
+    row.appendChild(actions); list.appendChild(row);
+  }
 }
 
 function editFacility(item) {
+  $("facility-form").reset();
+  $("facility-dialog-title").textContent = "Edit Facility";
   $("facility-id").value = item.facility_id; $("facility-name").value = item.name; $("facility-type").value = item.facility_type; $("facility-location").value = item.status_note || ""; $("facility-hours").value = item.opening_hours?.display || ""; $("facility-status").value = item.live_status; $("facility-description").value = item.description || "";
+  $("facility-dialog-message").textContent = "";
+  $("facility-dialog").showModal();
+  $("facility-name").focus();
 }
 
-async function saveFacility() {
+function openNewFacility() {
+  $("facility-form").reset();
+  $("facility-dialog-title").textContent = "Add Facility";
+  $("facility-id").value = "";
+  $("facility-dialog-message").textContent = "";
+  $("facility-dialog").showModal();
+  $("facility-name").focus();
+}
+
+async function saveFacility(event) {
+  event.preventDefault();
   const name = $("facility-name").value.trim(); if (!name) throw new Error("Facility name is required.");
-  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/hospitality/facilities`, { method: "PUT", body: JSON.stringify({ data: { facility_id: $("facility-id").value || undefined, name, facility_type: $("facility-type").value.trim() || "amenity", opening_hours: { display: $("facility-hours").value.trim() }, description: $("facility-description").value.trim(), live_status: $("facility-status").value, status_note: $("facility-location").value.trim() } }) });
-  $("facility-id").value = ""; $("facility-name").value = ""; await loadHospitalityManagement(); showToast("Facility saved.");
+  const submit = $("save-facility"); submit.disabled = true;
+  try {
+    await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/hospitality/facilities`, { method: "PUT", body: JSON.stringify({ data: { facility_id: $("facility-id").value || undefined, name, facility_type: $("facility-type").value.trim() || "amenity", opening_hours: { display: $("facility-hours").value.trim() }, description: $("facility-description").value.trim(), live_status: $("facility-status").value, status_note: $("facility-location").value.trim() } }) });
+    $("facility-dialog").close(); await loadHospitalityManagement(); showToast("Facility saved.");
+  } catch (error) {
+    $("facility-dialog-message").textContent = error.message;
+  } finally { submit.disabled = false; }
 }
 
-async function deleteFacility(id) { await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/hospitality/facilities/${encodeURIComponent(id)}`, { method: "DELETE" }); await loadHospitalityManagement(); showToast("Facility deleted."); }
+async function deleteFacility(id, name) {
+  if (!window.confirm(`Delete ${name}? This cannot be undone.`)) return;
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/hospitality/facilities/${encodeURIComponent(id)}`, { method: "DELETE" });
+  await loadHospitalityManagement(); showToast("Facility deleted.");
+}
 
 function renderRestaurants() {
   const list = $("restaurant-list"); if (!list) return; list.innerHTML = "";
@@ -655,16 +705,16 @@ function renderRestaurants() {
   for (const item of state.hospitality?.restaurants || []) {
     const row = document.createElement("div"); row.className = "compact-row"; row.innerHTML = `<strong>${escapeHTML(item.name)}</strong><span>${escapeHTML(item.location || "No location")} · ${escapeHTML(item.status)}</span><span>${escapeHTML(item.description || "")}</span>`;
     if (can("restaurant.manage")) {
-      const edit = document.createElement("button"); edit.type = "button"; edit.textContent = "Edit"; edit.addEventListener("click", () => editRestaurant(item));
+      const edit = makeActionButton("Edit", () => editRestaurant(item));
       row.append(edit);
       if (can("properties.edit")) {
-        const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "Archive"; remove.addEventListener("click", () => deleteRestaurant(item.restaurant_id).catch((error) => showToast(error.message, "error")));
+        const remove = makeActionButton("Archive", () => deleteRestaurant(item.restaurant_id), true);
         row.append(remove);
       }
     }
     list.appendChild(row);
   }
-  if (!list.children.length) list.textContent = "No restaurants configured.";
+  if (!list.children.length) list.textContent = "No restaurants configured yet.";
   if (workflowSelect?.value) loadRestaurantWorkflows().catch((error) => showToast(error.message, "error"));
 }
 
@@ -828,7 +878,8 @@ function makeActionButton(label, handler, secondary = false) {
   const button = document.createElement("button");
   button.type = "button";
   button.textContent = label;
-  if (secondary) button.className = "secondary";
+  const destructive = /delete|remove|archive/i.test(label);
+  button.className = `btn ${destructive ? "btn-danger" : secondary ? "btn-ghost" : "btn-secondary"} btn-sm`;
   button.addEventListener("click", () => Promise.resolve(handler()).catch((error) => showToast(error.message, "error")));
   return button;
 }
@@ -847,7 +898,7 @@ function renderKnowledge() {
     );
     entryList.appendChild(row);
   }
-  if (!entryList.children.length) entryList.textContent = "No managed knowledge entries.";
+  if (!entryList.children.length) entryList.textContent = "No hotel knowledge has been added.";
 
   const documentList = $("document-list"); documentList.innerHTML = "";
   for (const item of state.knowledge.documents || []) {
@@ -880,7 +931,7 @@ function renderKnowledge() {
     if (can("knowledge.delete")) row.append(makeActionButton("Delete source", async () => { if (!window.confirm(`Permanently delete ${source.filename} and all derived knowledge?`)) return; await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge/sources/${source.source_id}`, { method: "DELETE" }); await loadKnowledge(); }, true));
     documentList.appendChild(row);
   }
-  if (!documentList.children.length) documentList.textContent = "No documents uploaded.";
+  if (!documentList.children.length) documentList.textContent = "No knowledge documents uploaded yet.";
 
   const faqList = $("faq-list"); faqList.innerHTML = "";
   for (const item of state.knowledge.faqs || []) {
@@ -892,7 +943,7 @@ function renderKnowledge() {
     );
     faqList.appendChild(row);
   }
-  if (!faqList.children.length) faqList.textContent = "No managed FAQs.";
+  if (!faqList.children.length) faqList.textContent = "No FAQs configured yet.";
 }
 
 function renderManagedKnowledge() {
@@ -1188,7 +1239,7 @@ function hydrateProperty(property) {
   state.property = property;
   $("property-id").value = property.property_id;
   $("hotel-name-input").value = property.hotel_name;
-  $("overview-title").textContent = property.hotel_name;
+  $("overview-title").textContent = property.hotel_name || "Property not configured";
   $("concierge-name-input").value = property.concierge_name;
   $("domain-input").value = property.domain || "";
   $("deployment-mode").value = property.deployment_mode || "on-prem";
@@ -1762,7 +1813,7 @@ function designPayload() {
   const base = structuredClone(state.designDraft || {});
   base.branding = {
     ...(base.branding || {}),
-    hotelName: $("design-hotel-name").value.trim() || "Hotel",
+    hotelName: $("design-hotel-name").value.trim(),
     conciergeName: $("design-concierge-name").value.trim() || "Concierge",
     logoUrl: $("logo-url-input").value,
     logoDisplay: $("logo-display-input").value,
@@ -1979,7 +2030,7 @@ function updatePreview() {
   const config = designPayload();
   const accent = config.theme.accent;
   const logo = $("preview-logo");
-  $("preview-hotel").textContent = config.branding.hotelName;
+  $("preview-hotel").textContent = config.branding.hotelName || "Property not configured";
   $("preview-concierge").textContent = config.branding.conciergeName;
   logo.textContent = config.branding.hotelName.slice(0, 1).toUpperCase();
   logo.style.backgroundImage = config.branding.logoUrl ? `url("${config.branding.logoUrl}")` : "";
@@ -2107,10 +2158,26 @@ async function loadDesign() {
 
 async function loadProperty() {
   const data = await jsonFetch("/api/admin/properties");
-  if (!data.properties.length) throw new Error("No property configured.");
-  state.properties = data.properties;
+  state.properties = data.properties || [];
   const switcher = $("property-switcher");
   switcher.innerHTML = "";
+  if (!state.properties.length) {
+    state.property = null;
+    $("property-id").value = "";
+    switcher.appendChild(new Option("Property not configured", ""));
+    switcher.disabled = true;
+    $("publish-state").textContent = "Property not configured";
+    $("platform-shell").classList.add("no-property");
+    document.querySelectorAll(".platform-main > .panel").forEach((panel) => panel.classList.remove("active"));
+    $("property-onboarding").classList.add("active");
+    const canCreate = can("properties.edit") || can("properties.all");
+    $("onboarding-create-property").hidden = !canCreate;
+    $("onboarding-permission-note").hidden = canCreate;
+    return;
+  }
+  $("platform-shell").classList.remove("no-property");
+  $("property-onboarding").classList.remove("active");
+  switcher.disabled = false;
   for (const property of state.properties) {
     switcher.appendChild(new Option(property.hotel_name, property.property_id));
   }
@@ -2124,25 +2191,96 @@ async function loadProperty() {
   if (can("dashboard.view")) await loadDashboard();
 }
 
+function propertyIdFromName(name) {
+  return name.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-").replace(/^[^a-z0-9]+/g, "").replace(/-+$/g, "").slice(0, 80);
+}
+
+function openPropertyCreation() {
+  $("property-create-form").reset();
+  $("property-create-message").textContent = "";
+  $("property-create-id").dataset.edited = "false";
+  $("property-create-dialog").showModal();
+  $("property-create-name").focus();
+}
+
+async function createProperty(event) {
+  event.preventDefault();
+  const hotelName = $("property-create-name").value.trim();
+  const propertyId = $("property-create-id").value.trim();
+  const timezone = $("property-create-timezone").value.trim();
+  if (!hotelName || !propertyId || !timezone) return;
+  const submit = $("property-create-submit"); submit.disabled = true;
+  $("property-create-message").textContent = "";
+  try {
+    await jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}`, {
+      method: "PUT",
+      body: JSON.stringify({ property_id: propertyId, hotel_name: hotelName, timezone, address: $("property-create-address").value.trim() }),
+    });
+    $("property-create-dialog").close();
+    window.location.reload();
+  } catch (error) {
+    $("property-create-message").textContent = error.message;
+  } finally { submit.disabled = false; }
+}
+
 async function switchProperty(propertyId) {
   const property = state.properties.find((item) => item.property_id === propertyId);
   if (!property || property.property_id === currentPropertyId()) return;
+  const shell = $("platform-shell");
+  const activePanel = document.querySelector(".platform-main > .panel.active")?.id || "overview";
+  shell.classList.add("switching-property");
   hydrateProperty(property);
   state.ai = null;
   state.improvementLoop = null;
   state.personalizationPolicy = null;
+  state.zones = null;
+  state.hospitality = null;
+  state.intro = null;
   state.catalog = { departments: [], services: [] };
   state.recommendations = [];
   state.knowledge = { items: [], documents: [], faqs: [] };
+  state.managedKnowledge = { items: [], sources: [], categories: [] };
+  state.knowledgeHealth = null;
+  state.restaurantMenus = [];
+  state.restaurantPromotions = [];
   state.webhooks = { webhooks: [], deliveries: [] };
   state.deployment = null;
   const tasks = [];
   if (can("concierge.view")) tasks.push(loadDesign());
   if (can("ai.view")) tasks.push(loadAI());
   if (can("dashboard.view")) tasks.push(loadDashboard());
-  if (can("properties.view") && state.activeNavId === "personalization") tasks.push(loadPersonalizationPolicy());
-  await Promise.all(tasks);
-  showToast(`Switched to ${property.hotel_name}.`);
+  if (currentPropertyId()) {
+    const activeRefresh = {
+      zones: () => loadZones(),
+      sessions: () => loadSessions(),
+      "personalization-settings": () => loadPersonalizationPolicy(),
+      location: () => loadLocationLive(),
+      intro: () => loadIntro(),
+      requests: () => loadServiceRequests(),
+      conversations: () => loadConversations(),
+      "service-catalog": () => loadServiceCatalog(),
+      recommendations: () => loadRecommendations(),
+      "hotel-information": () => loadHotelInformation(),
+      rooms: () => renderRooms(),
+      guest: () => renderGuestModules(),
+      facilities: () => loadHospitalityManagement(),
+      restaurants: () => loadHospitalityManagement(),
+      "ai-usage": () => loadAIUsage(),
+      wifi: () => loadAntlabsStatus(),
+      knowledge: () => loadKnowledge(), documents: () => loadKnowledge(), faqs: () => loadKnowledge(),
+      "ai-personality": () => loadAIPolicy(),
+      guardrails: () => loadAIPolicy(),
+      webhooks: () => loadWebhooks(),
+      domain: () => loadDeployment(), ssl: () => loadDeployment(), network: () => loadDeployment(),
+    }[activePanel];
+    if (activeRefresh) tasks.push(Promise.resolve().then(activeRefresh));
+    if (activePanel === "guardrails") tasks.push(loadGuardrailDiagnostics());
+  }
+  try {
+    await Promise.all(tasks);
+    showToast(`Switched to ${property.hotel_name}.`);
+  } finally { shell.classList.remove("switching-property"); }
 }
 
 function hydratePropertyOptions() {
@@ -2186,7 +2324,7 @@ function renderZoneTree() {
   if (!state.zones.buildings.length) {
     const row = document.createElement("div");
     row.className = "compact-row";
-    row.innerHTML = "<strong>No zones yet</strong><span>Use Save Object to create the first building, floor, and zone.</span>";
+    row.innerHTML = "<strong>No floor plans or zones added yet</strong><span>Upload a floor plan or save a zone to begin mapping this property.</span>";
     list.appendChild(row);
     return;
   }
@@ -2642,10 +2780,7 @@ function renderDepartments() {
     const row = document.createElement("div");
     row.className = "compact-row";
     row.innerHTML = `<strong>${escapeHTML(department.name)}</strong><span>${department.enabled ? "Enabled" : "Disabled"} · ${department.default_sla_minutes} min SLA</span>`;
-    const edit = document.createElement("button");
-    edit.type = "button";
-    edit.textContent = "Edit";
-    edit.addEventListener("click", () => {
+    const edit = makeActionButton("Edit", () => {
       $("department-id").value = department.department_id;
       $("department-name").value = department.name;
       $("department-sla").value = department.default_sla_minutes;
@@ -2653,9 +2788,7 @@ function renderDepartments() {
       $("department-enabled").checked = department.enabled;
     });
     row.appendChild(edit);
-    const remove = document.createElement("button");
-    remove.type = "button"; remove.textContent = "Delete";
-    remove.addEventListener("click", () => deleteDepartment(department.department_id).catch((error) => showToast(error.message, "error")));
+    const remove = makeActionButton("Delete", () => deleteDepartment(department.department_id), true);
     row.appendChild(remove);
     list.appendChild(row);
   }
@@ -2681,10 +2814,7 @@ function renderCatalogServices() {
       ["Duplicate", () => duplicateCatalogService(service.service_id)],
       [service.archived ? "Delete" : "Archive", () => service.archived ? deleteCatalogService(service.service_id) : archiveCatalogService(service)],
     ]) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = label;
-      button.addEventListener("click", () => Promise.resolve(handler()).catch((error) => showToast(error.message, "error")));
+      const button = makeActionButton(label, handler, label !== "Edit");
       actions.appendChild(button);
     }
     row.appendChild(actions);
@@ -2772,10 +2902,8 @@ async function loadRecommendations() {
     const row = document.createElement("div");
     row.className = "compact-row";
     row.innerHTML = `<strong>${escapeHTML(recommendation.name)}</strong><span>${escapeHTML(recommendation.category)} · ${recommendation.enabled ? "Visible" : "Disabled"}</span><span>${escapeHTML(recommendation.address || recommendation.description)}</span>`;
-    const edit = document.createElement("button");
-    edit.type = "button"; edit.textContent = "Edit"; edit.addEventListener("click", () => editRecommendation(recommendation));
-    const remove = document.createElement("button");
-    remove.type = "button"; remove.textContent = "Delete"; remove.addEventListener("click", () => deleteRecommendation(recommendation.recommendation_id).catch((error) => showToast(error.message, "error")));
+    const edit = makeActionButton("Edit", () => editRecommendation(recommendation));
+    const remove = makeActionButton("Delete", () => deleteRecommendation(recommendation.recommendation_id), true);
     row.append(edit, remove); list.appendChild(row);
   }
   if (!list.children.length) list.textContent = "No curated recommendations yet.";
@@ -3493,6 +3621,12 @@ function setup() {
   });
   for (const button of document.querySelectorAll("[data-export]")) button.addEventListener("click", () => downloadReport(button.dataset.export));
   $("property-switcher").addEventListener("change", (event) => switchProperty(event.target.value).catch((error) => showToast(error.message, "error")));
+  $("onboarding-create-property").addEventListener("click", openPropertyCreation);
+  $("property-create-form").addEventListener("submit", createProperty);
+  $("property-create-name").addEventListener("input", (event) => {
+    if ($("property-create-id").dataset.edited !== "true") $("property-create-id").value = propertyIdFromName(event.target.value);
+  });
+  $("property-create-id").addEventListener("input", () => { $("property-create-id").dataset.edited = "true"; });
   $("profile-button").addEventListener("click", () => {
     const menu = $("profile-menu");
     menu.hidden = !menu.hidden;
@@ -3715,7 +3849,11 @@ function setup() {
   $("clear-hotel-information").addEventListener("click", () => { for (const id of ["hotel-info-description", "hotel-info-address", "hotel-info-phone", "hotel-info-email", "hotel-info-website", "hotel-info-checkin", "hotel-info-checkout", "hotel-info-breakfast", "hotel-info-wifi", "hotel-info-policies"]) $(id).value = ""; });
   $("save-room").addEventListener("click", () => saveRoom().catch((error) => showToast(error.message, "error")));
   $("save-guest-module").addEventListener("click", () => saveGuestModule().catch((error) => showToast(error.message, "error")));
-  $("save-facility").addEventListener("click", () => saveFacility().catch((error) => showToast(error.message, "error")));
+  $("add-facility").addEventListener("click", openNewFacility);
+  $("empty-add-facility").addEventListener("click", openNewFacility);
+  $("facility-form").addEventListener("submit", (event) => saveFacility(event));
+  $("cancel-facility").addEventListener("click", () => $("facility-dialog").close());
+  $("facility-search").addEventListener("input", renderFacilities);
   $("save-restaurant").addEventListener("click", () => saveRestaurant().catch((error) => showToast(error.message, "error")));
   $("restaurant-workflow-select").addEventListener("change", () => loadRestaurantWorkflows().catch((error) => showToast(error.message, "error")));
   $("save-restaurant-menu").addEventListener("click", () => saveRestaurantMenu().catch((error) => showToast(error.message, "error")));

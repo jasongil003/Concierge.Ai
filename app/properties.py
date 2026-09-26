@@ -82,7 +82,7 @@ AUTHENTICATION_RULES = {
 
 
 def default_design_config(
-    hotel_name: str = "Demo Hotel",
+    hotel_name: str = "",
     concierge_name: str = "Concierge",
     welcome: str = "How can I help with your stay?",
     quick_actions: list[dict[str, Any]] | None = None,
@@ -99,15 +99,6 @@ def default_design_config(
                 "order": index,
             }
         )
-    if not suggestions:
-        suggestions = [
-            {"label": "Breakfast", "icon": "", "prompt": "What time is breakfast?", "enabled": True, "order": 0},
-            {"label": "Wi-Fi", "icon": "", "prompt": "Connect me to Wi-Fi", "enabled": True, "order": 1},
-            {"label": "Pool & gym", "icon": "", "prompt": "What time does the pool close?", "enabled": True, "order": 2},
-            {"label": "Nearby dining", "icon": "", "prompt": "Recommend somewhere nearby to eat", "enabled": True, "order": 3},
-            {"label": "Checkout", "icon": "", "prompt": "Can I request a late checkout?", "enabled": True, "order": 4},
-        ]
-
     return {
         "branding": {
             "hotelName": hotel_name,
@@ -657,40 +648,6 @@ class PropertyStore:
         record.updated_at = int(time.time())
         return self.upsert(record)
 
-    def seed_from_hotel_json(self, property_id: str, hotel_json_path: Path) -> PropertyRecord:
-        existing = self.get(property_id)
-        if existing:
-            return existing
-
-        data = json.loads(hotel_json_path.read_text(encoding="utf-8"))
-        location = data.get("location", {})
-        record = PropertyRecord(
-            property_id=property_id,
-            hotel_name=data.get("name", "Demo Hotel"),
-            concierge_name=data.get("concierge_name", "Concierge"),
-            welcome=data.get("welcome", "How can I help?"),
-            quick_actions=data.get("quick_actions", []),
-            ai_settings=data.get("ai", {}),
-            latitude=location.get("latitude"),
-            longitude=location.get("longitude"),
-            address=location.get("label", ""),
-            knowledge_sources=[
-                {
-                    "type": "seed_json",
-                    "path": str(hotel_json_path),
-                    "status": "active",
-                }
-            ],
-        )
-        record.design_draft = default_design_config(
-            hotel_name=record.hotel_name,
-            concierge_name=record.concierge_name,
-            welcome=record.welcome,
-            quick_actions=record.quick_actions,
-        )
-        record.design_published = record.design_draft
-        return self.upsert(record)
-
     def _serialize_record(self, record: PropertyRecord) -> dict[str, Any]:
         data = record.to_dict(include_secrets=True)
         for column in self.JSON_COLUMNS:
@@ -703,7 +660,7 @@ class PropertyStore:
             data[column] = json.loads(data[column])
         if not data.get("design_draft"):
             data["design_draft"] = default_design_config(
-                hotel_name=data.get("hotel_name", "Demo Hotel"),
+                hotel_name=data.get("hotel_name", ""),
                 concierge_name=data.get("concierge_name", "Concierge"),
                 welcome=data.get("welcome", "How can I help?"),
                 quick_actions=data.get("quick_actions", []),
