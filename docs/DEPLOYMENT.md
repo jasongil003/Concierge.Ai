@@ -24,22 +24,24 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 cp .env.example .env
+# Set a unique ADMIN_BOOTSTRAP_PASSWORD and generate CREDENTIAL_ENCRYPTION_SECRET
+# with `openssl rand -hex 32` before the first run.
 ollama pull qwen3:4b
 ollama serve
 
-uvicorn app.main:app --host 0.0.0.0 --port 8080
+uvicorn app.main:app --host 127.0.0.1 --port 8080 --no-proxy-headers
 ```
 
 Open:
 
 ```text
-http://<server-ip>:8080
+http://localhost:8080
 ```
 
 Health check:
 
 ```text
-http://<server-ip>:8080/health
+http://localhost:8080/health
 ```
 
 ## Option B: application in Docker, Ollama on host
@@ -51,7 +53,11 @@ docker compose up --build
 ```
 
 The production Compose profile fails closed until `.env` contains a unique
-`ADMIN_BOOTSTRAP_PASSWORD`, `CREDENTIAL_ENCRYPTION_SECRET`, and `METRICS_TOKEN`.
+`ADMIN_BOOTSTRAP_PASSWORD`, `CREDENTIAL_ENCRYPTION_SECRET`, `METRICS_TOKEN`,
+`CANONICAL_HOSTS`, `PUBLIC_BASE_URL`, and a restrictive `ADMIN_ALLOWED_CIDRS`.
+The application also refuses to start in development if
+`ADMIN_BOOTSTRAP_PASSWORD` is blank or uses the former `ChangeMe123!` default.
+Generate a unique password for each installation.
 Set `ANTLABS_MODE=browser_handoff` and configure `ANTLABS_AUTH_URL` as
 `https://<sg5-host>/login/main.ant?c=proc` before starting it. The live adapter
 uses the SG5 built-in processor; its connection check verifies reachability, not
@@ -82,6 +88,24 @@ profile; evaluate a separate database deployment before increasing concurrent
 replicas. Ollama must already be running on the host.
 
 The compose configuration points the container at `host.docker.internal:11434`.
+It binds its HTTP listener to `127.0.0.1:8080`; it does not publish an Internet
+facing HTTP port or provide TLS itself. Put a trusted TLS reverse proxy in front
+of that loopback listener. It must replace `X-Forwarded-For` and set
+`X-Forwarded-Proto` from the actual client connection. Set
+`FORWARDED_ALLOW_IPS` to the exact proxy addresses for the initial
+Management Access configuration, including the Compose Nginx address
+(`172.29.0.2`). Add the actual application-facing proxy to Management Access →
+Trusted Management Proxy Ranges, and configure Guest Access proxy ranges
+separately. The app keeps the socket peer intact and trusts forwarding headers
+only when that peer matches the corresponding saved proxy ranges. Do not set
+`FORWARDED_ALLOW_IPS=*`.
+
+List every public guest/admin hostname in `CANONICAL_HOSTS`, and set
+`PUBLIC_BASE_URL` to an HTTPS origin using one of those hostnames. The app
+rejects other Host values, refuses non-HTTPS application traffic in production
+and staging, restricts Admin routes to `ADMIN_ALLOWED_CIDRS`, and disables
+`/docs`, `/redoc`, and `/openapi.json` in those environments. Health probes on
+loopback remain available to Docker.
 
 ## First ANTlabs lab test
 
@@ -131,7 +155,7 @@ Add:
 
 For the lab, HTTP is acceptable.
 
-For a guest pilot, use a trusted HTTPS certificate. Do not rely on a self-signed certificate on guest devices.
+For a guest pilot, use a trusted HTTPS certificate. Do not rely on a self-signed certificate on guest devices. The development profile and direct Python command are for an isolated LAN only; the production profile requires a correctly configured external TLS proxy.
 
 ## Model sizing
 
@@ -158,11 +182,15 @@ Do not select a larger model until measured answer quality requires it.
 
 ## Security note
 
-The development profile uses mock guest authentication and is not a production
-configuration. Production startup rejects mock ANTlabs mode, default
-credentials, insecure cookies, and unsafe property-selection settings.
+The development profile is bound to loopback, uses mock guest authentication,
+and is not a production configuration. Do not bind the development app to a
+public or guest-facing interface: it has no TLS and uses a development cookie
+policy. Production startup rejects mock ANTlabs mode, default credentials,
+insecure cookies, and unsafe property-selection settings.
 
 Terminate TLS at a trusted reverse proxy and configure the hotel firewall,
-guest VLAN, canonical hostnames, and ANTlabs walled-garden policy before a guest
-pilot. Do not expose it directly to the public Internet or connect it to
-production PMS data until the security milestones in the roadmap are complete.
+guest VLAN, canonical hostnames, Admin source CIDRs, trusted proxy addresses,
+and ANTlabs walled-garden policy before a guest pilot. The included Compose
+listener is loopback-only. Do not expose the app or its HTTP proxy directly to
+the public Internet or connect it to production PMS data until the remaining
+security milestones in the roadmap are complete.

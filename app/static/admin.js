@@ -154,9 +154,6 @@ const NAV_SECTIONS = [
       { id: "antlabs-wifi", label: "ANTlabs / Wi-Fi", panel: "wifi", permission: "integrations.view", icon: "⌁" },
       { id: "auth-types", label: "Authentication Types", panel: "auth-types", permission: "integrations.view", icon: "✓" },
       { id: "webhooks", label: "Webhooks", panel: "webhooks", permission: "integrations.view", icon: "↗" },
-      { id: "domain", label: "Domain", panel: "domain", permission: "domains.view", icon: "◌" },
-      { id: "ssl", label: "SSL", panel: "ssl", permission: "domains.view", icon: "⌑" },
-      { id: "network", label: "Network", panel: "network", permission: "domains.view", icon: "⌁" },
       { id: "audit", label: "Audit Logs", panel: "audit", permission: "audit.view", icon: "☷" },
       { id: "users", label: "Users", panel: "users", permission: "users.view", icon: "◎" },
       { id: "roles", label: "Roles", panel: "roles", permission: "roles.view", icon: "◇" },
@@ -164,6 +161,12 @@ const NAV_SECTIONS = [
       { id: "security", label: "Security", panel: "security", permission: "security.view", icon: "⊡" },
       { id: "settings", label: "Settings", panel: "system-settings", permission: "system.configure", icon: "⌘", superAdminOnly: true },
       { id: "api", label: "API", panel: "api", permission: "integrations.view", icon: "⌁" },
+    ],
+  },
+  {
+    title: "Deployment",
+    items: [
+      { id: "network-access", label: "Network Access", panel: "network-access", permission: "network.view", icon: "⌁" },
     ],
   },
 ];
@@ -184,7 +187,16 @@ async function jsonFetch(url, options = {}) {
   }
   const data = await response.json().catch(() => ({}));
   if (response.status === 428) activatePanel("security");
-  if (!response.ok) throw new Error(data.detail || "Request failed");
+  if (!response.ok) {
+    const detail = data.detail;
+    const error = new Error(typeof detail === "string" ? detail : (detail?.warnings || ["Request failed"]).join(" "));
+    if (detail && typeof detail === "object") {
+      error.code = detail.code;
+      error.confirmations = detail.confirmations || [];
+      error.warnings = detail.warnings || [];
+    }
+    throw error;
+  }
   return data;
 }
 
@@ -229,7 +241,7 @@ function applyPermissionVisibility() {
 function applyAssistantPermissionVisibility() {
   const reportAllowed = ["reports.export", "analytics.view", "restaurant.analytics.view"].some(can);
   const attachButton = $("assistant-attach");
-  if (attachButton) attachButton.hidden = !can("knowledge.edit") || !can("knowledge.view");
+  if (attachButton) attachButton.hidden = !((can("knowledge.edit") && can("knowledge.view")) || can("restaurant.menu.edit"));
   for (const element of document.querySelectorAll("[data-assistant-mode='knowledge'], [data-assistant-suggestion][data-assistant-mode='knowledge']")) {
     element.hidden = !can("knowledge.view");
   }
@@ -528,20 +540,10 @@ const PAGE_COMMENTS = {
     ["Set the default language, time zone, and any maintenance banner, then save.", "Configure SMTP host, port, security, sender, and credentials if email is required.", "Test the SMTP connection before saving the email configuration."],
     "A blank password keeps the saved credential. Use a verified sender address and protect the SMTP password."
   ],
-  domain: [
-    "Set the intended public guest hostname and verify that it resolves to the deployment.",
-    ["Enter the guest domain and public HTTPS URL.", "Save the deployment settings.", "Select Verify Domain & SSL and review the result after DNS changes have propagated."],
-    "The domain must point to the actual deployment; saving a hostname does not change DNS records."
-  ],
-  ssl: [
-    "Review the read-only TLS certificate validation for the guest deployment domain.",
-    ["Configure or renew the certificate in the deployment environment.", "Open Domain and run Verify Domain & SSL.", "Return here to review certificate status, issuer, and expiration."],
-    "Private keys are never entered or stored on this page. Certificate installation is performed outside the admin app."
-  ],
-  network: [
-    "Record the HTTPS and reverse-proxy expectations the application uses for deployment checks.",
-    ["Confirm whether the app runs behind a reverse proxy.", "Require HTTPS for guest deployment and enter the trusted proxy address only when applicable.", "Save, then ask the infrastructure owner to verify firewall, proxy, and WLAN routing separately."],
-    "This page records app-level expectations; it does not configure firewalls, VLANs, or ANTlabs network rules."
+  "network-access": [
+    "Review private management access and the property-specific guest network policy.",
+    ["Keep management networks separate from guest networks.", "Configure the hotel's guest domain and existing network guardrails.", "Verify DNS and SSL after the hotel's DNS and certificate are ready."],
+    "The application detects the server address but does not change host networking."
   ]
 };
 
@@ -624,7 +626,7 @@ const PAGE_LINKS = {
   knowledge: ["documents", "faqs", "hotel-information"],
   documents: ["knowledge", "faqs"],
   faqs: ["knowledge", "guest"],
-  wifi: ["auth-types", "sessions", "network"],
+  wifi: ["auth-types", "sessions", "network-access"],
   "auth-types": ["wifi", "guardrails"],
   requests: ["service-catalog", "reports"],
   "service-catalog": ["requests", "recommendations"],
@@ -641,7 +643,7 @@ const PAGE_LINKS = {
   recommendations: ["zones", "restaurants"],
   "ai-personality": ["guest", "guardrails", "appearance"],
   "system-prompt": ["ai-personality", "guardrails", "knowledge"],
-  guardrails: ["network", "wifi", "security"],
+  guardrails: ["network-access", "wifi", "security"],
   api: ["webhooks", "ai", "system-settings"],
   webhooks: ["api", "service-catalog", "requests"],
   "third-party": ["wifi", "webhooks", "ai"],
@@ -649,9 +651,7 @@ const PAGE_LINKS = {
   "request-analytics": ["requests", "service-catalog", "reports"],
   "ai-usage": ["ai", "system-health", "reports"],
   "system-settings": ["security", "webhooks", "system-health"],
-  domain: ["ssl", "network"],
-  ssl: ["domain", "network"],
-  network: ["wifi", "guardrails", "domain"]
+  "network-access": ["guardrails", "wifi"]
 };
 
 function populatePageCommentLinks() {
@@ -767,7 +767,10 @@ function activatePanel(panelId, navId = null) {
   if (["ai-personality", "guardrails"].includes(panelId) && currentPropertyId()) loadAIPolicy();
   if (panelId === "guardrails" && currentPropertyId()) loadGuardrailDiagnostics().catch((error) => showToast(error.message, "error"));
   if (panelId === "webhooks" && currentPropertyId()) loadWebhooks().catch((error) => showToast(error.message, "error"));
-  if (["domain", "ssl", "network"].includes(panelId) && currentPropertyId()) loadDeployment().catch((error) => showToast(error.message, "error"));
+  if (panelId === "network-access" && currentPropertyId()) {
+    loadNetworkAccess().catch((error) => showToast(error.message, "error"));
+    if (can("security.view")) loadGuardrailDiagnostics().catch((error) => showToast(error.message, "error"));
+  }
   if (panelId === "system-settings") loadSystemSettings().catch((error) => showToast(error.message, "error"));
   if (panelId === "users") loadUsers().catch((error) => showToast(error.message, "error"));
   if (panelId === "roles") loadRoles().catch((error) => showToast(error.message, "error"));
@@ -1691,7 +1694,7 @@ async function uploadKnowledgeDocument(file, onProgress = () => {}, endpoint = n
 }
 
 function addHotelAIFiles(files) {
-  if (!can("knowledge.edit")) { showToast("Permission required: knowledge.edit", "error"); return; }
+  if (!can("knowledge.edit") && !can("restaurant.menu.edit")) { showToast("Permission required: knowledge.edit or restaurant.menu.edit", "error"); return; }
   const limit = state.managedKnowledge.limits?.max_files_per_upload || 5;
   for (const file of files) {
     if (state.hotelAIFiles.length >= limit) { showToast(`Choose up to ${limit} files per message.`, "error"); break; }
@@ -1801,7 +1804,8 @@ function renderNetworkSetupGuidance(result) {
     addButton.dataset.ip = ip;
     status.textContent += isPrivateVmAddress ? " This is a private VM or proxy address, so it cannot be added here." : " Confirm the test device was on hotel guest Wi-Fi to enable the rule.";
   }
-  if ($("guardrail-antlabs").checked && !$("guardrail-antlabs-secret").value && $("guardrail-antlabs-secret").placeholder === "Not configured") {
+  if (!can("network.manage")) addButton.hidden = true;
+  if ($("guardrail-antlabs")?.checked && !$("guardrail-antlabs-secret").value && $("guardrail-antlabs-secret").placeholder === "Not configured") {
     status.textContent += " Signed ANTlabs validation is enabled but no signing secret is configured; turn it off unless your gateway is set up to sign requests.";
     status.classList.add("warning");
   }
@@ -1898,16 +1902,178 @@ async function saveManagedLocation() {
 }
 async function deleteManagedLocation(id) { state.property.app_settings = { ...(state.property.app_settings || {}), locations: (state.property.app_settings?.locations || []).filter((item) => item.id !== id) }; await savePropertyBasics(); renderManagedLocations(); showToast("Location deleted."); }
 
-async function loadDeployment() {
-  state.deployment = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/deployment/status`);
-  const deployment = state.property.app_settings?.deployment || {};
-  $("deployment-domain").value = state.property.domain || ""; $("deployment-public-url").value = deployment.public_base_url || ""; $("network-reverse-proxy").checked = Boolean(deployment.reverse_proxy); $("network-https-required").checked = deployment.https_required !== false; $("network-trusted-proxy").value = deployment.trusted_proxy || "";
-  $("domain-status").textContent = state.deployment.domain.status.replaceAll("_", " "); $("domain-addresses").textContent = state.deployment.domain.resolved_addresses.join(", ") || "—"; $("deployment-last-checked").textContent = state.deployment.last_checked_at ? formatDate(state.deployment.last_checked_at) : "Never";
-  $("ssl-status").textContent = state.deployment.ssl.status.replaceAll("_", " "); $("ssl-issuer").textContent = state.deployment.ssl.issuer || "—"; $("ssl-expiration").textContent = state.deployment.ssl.expires_at ? formatDate(state.deployment.ssl.expires_at) : "—"; $("ssl-days").textContent = state.deployment.ssl.days_remaining ?? "—"; $("ssl-error").textContent = state.deployment.ssl.error || "—";
+function prettifyAccessStatus(value) {
+  return String(value || "not_configured").replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-async function saveDeploymentSettings() { state.property.domain = $("deployment-domain").value.trim().toLowerCase(); $("domain-input").value = state.property.domain; state.property.app_settings = { ...(state.property.app_settings || {}), deployment: { ...(state.property.app_settings?.deployment || {}), public_base_url: $("deployment-public-url").value.trim(), reverse_proxy: $("network-reverse-proxy").checked, https_required: $("network-https-required").checked, trusted_proxy: $("network-trusted-proxy").value.trim() } }; await savePropertyBasics(); await loadDeployment(); showToast("Deployment settings saved."); }
-async function verifyDeployment() { const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/deployment/verify`, { method: "POST" }); await loadDeployment(); showToast(result.domain_status === "verified" ? "Domain verification completed." : result.detail || "Verification remains pending.", result.domain_status === "verified" ? "default" : "error"); }
+async function loadNetworkAccess() {
+  const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/network-access/status`);
+  state.networkAccess = data;
+  const management = data.management || {};
+  const guest = data.guest || {};
+  const managementStatus = prettifyAccessStatus(management.status);
+  const guestStatus = prettifyAccessStatus(guest.status);
+  const serverIp = management.server_ip || "Unavailable";
+  const adminUrl = management.admin_url || "Unavailable";
+  const guestDomain = guest.domain || "Not configured";
+  const guestUrl = guest.url || "Not configured";
+  const sslStatus = prettifyAccessStatus(guest.ssl_status);
+
+  $("management-status").textContent = managementStatus;
+  $("management-enabled-status").textContent = management.enabled ? "Enabled" : "Disabled";
+  $("management-server-ip").textContent = serverIp;
+  $("management-admin-url").textContent = adminUrl;
+  $("management-interface").textContent = management.network_interface || "Unavailable";
+  $("management-https-status").textContent = prettifyAccessStatus(management.https_status);
+  $("management-port").textContent = management.port || "443";
+  $("management-protection").textContent = prettifyAccessStatus(management.access_protection);
+  $("management-allowed-network-view").textContent = (management.allowed_cidrs || []).join(", ") || "None configured";
+  $("management-trusted-proxy-view").textContent = (management.trusted_proxy_ranges || []).join(", ") || "None configured";
+  $("management-access-enabled").checked = Boolean(management.enabled);
+  $("management-networks").value = (management.allowed_cidrs || []).join("\n");
+  $("management-proxies").value = (management.trusted_proxy_ranges || []).join("\n");
+  $("management-manage-controls").hidden = !can("network.manage") || !management.can_manage;
+  $("management-readonly-note").hidden = !can("network.manage") || management.can_manage;
+  $("management-rollback-note").hidden = !management.rollback_pending;
+  $("management-access-warning").textContent = (management.unsafe_networks || []).length
+    ? "Warning: a /0 or public network can expose Admin outside the hotel's private networks. Saving requires explicit confirmation."
+    : ((management.overlaps_guest_networks || []).length ? "Warning: one or more management networks overlap the guest networks. Saving requires explicit confirmation." : "");
+  $("finalize-management-access").hidden = !management.rollback_pending || !management.can_manage;
+
+  $("guest-access-enabled").checked = guest.enabled !== false;
+  $("deployment-domain").value = guest.domain || "";
+  $("deployment-public-url").value = guest.url || "";
+  $("network-reverse-proxy").checked = Boolean(guest.reverse_proxy);
+  $("network-https-required").checked = guest.https_required !== false;
+  $("guardrail-network-only").checked = guest.guest_network_only !== false;
+  $("guardrail-cidrs").value = (guest.allowed_cidrs || []).join("\n");
+  $("guardrail-proxies").value = (guest.trusted_proxy_ranges || []).join("\n");
+  $("guardrail-revalidation").value = guest.session_network_revalidation || "suspend";
+  $("guardrail-timeout").value = guest.guest_session_timeout || 30;
+  $("guardrail-antlabs").checked = Boolean(guest.antlabs_gateway_enabled);
+  $("guardrail-antlabs-ranges").value = (guest.antlabs_gateway_ranges || []).join("\n");
+  $("guest-access-fields").disabled = !can("network.manage");
+  $("domain-status").textContent = prettifyAccessStatus(guest.domain_status);
+  $("domain-addresses").textContent = (guest.resolved_addresses || []).join(", ") || "—";
+  $("deployment-last-checked").textContent = guest.last_checked_at ? formatDate(guest.last_checked_at) : "Never";
+  $("ssl-status").textContent = sslStatus;
+  $("ssl-issuer").textContent = guest.ssl_issuer || "—";
+  $("ssl-expiration").textContent = guest.ssl_expires_at ? formatDate(guest.ssl_expires_at) : "—";
+  $("ssl-days").textContent = guest.ssl_days_remaining ?? "—";
+  $("ssl-error").textContent = guest.ssl_error || "—";
+
+  $("network-overview-management-status").textContent = managementStatus;
+  $("network-overview-server-ip").textContent = serverIp;
+  $("network-overview-admin-url").textContent = adminUrl;
+  $("network-overview-management-count").textContent = String((management.allowed_cidrs || []).length);
+  $("network-overview-guest-status").textContent = guestStatus;
+  $("network-overview-guest-domain").textContent = guestDomain;
+  $("network-overview-guest-url").textContent = guestUrl;
+  $("network-overview-guest-network-only").textContent = guest.guest_network_only === false ? "Disabled" : "Enabled";
+  $("network-overview-ssl").textContent = sslStatus;
+}
+
+async function saveManagementAccess() {
+  const body = {
+    management_access_enabled: $("management-access-enabled").checked,
+    management_allowed_cidrs: readLines("management-networks"),
+    management_trusted_proxy_ranges: readLines("management-proxies"),
+  };
+  let result;
+  try {
+    result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/network-access/management`, { method: "PUT", body: JSON.stringify(body) });
+  } catch (error) {
+    if (error.code !== "network_access_confirmation_required") throw error;
+    const warning = [...(error.warnings || []), "Continue only after confirming that an administrator has another approved way to reach Concierge.AI."].join("\n\n");
+    if (!window.confirm(warning)) throw new Error("No management network changes were saved.");
+    for (const confirmation of error.confirmations || []) body[confirmation] = true;
+    result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/network-access/management`, { method: "PUT", body: JSON.stringify(body) });
+  }
+  if (result.rollback_pending) {
+    $("management-rollback-note").hidden = false;
+    showToast("Saved with a 10-minute rollback. Confirm from an allowed management network to keep this change.", "error");
+    return;
+  }
+  await loadNetworkAccess();
+  showToast("Management Access saved.");
+}
+
+function addManagementNetwork() {
+  const input = $("management-network-input");
+  const value = input.value.trim();
+  if (!value) return;
+  const lines = readLines("management-networks");
+  if (lines.some((item) => item.toLowerCase() === value.toLowerCase())) {
+    showToast("That management network is already listed.", "error");
+    return;
+  }
+  lines.push(value);
+  $("management-networks").value = lines.join("\n");
+  input.value = "";
+}
+
+async function finalizeManagementAccess() {
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/network-access/management/finalize`, { method: "POST" });
+  await loadNetworkAccess();
+  showToast("Management network change confirmed.");
+}
+
+async function saveGuestAccess() {
+  const body = {
+    guest_access_enabled: $("guest-access-enabled").checked,
+    guest_domain: $("deployment-domain").value.trim().toLowerCase(),
+    guest_url: $("deployment-public-url").value.trim(),
+    guest_https_required: $("network-https-required").checked,
+    reverse_proxy: $("network-reverse-proxy").checked,
+    guest_network_only: $("guardrail-network-only").checked,
+    allowed_cidrs: readLines("guardrail-cidrs"),
+    trusted_proxy_ranges: readLines("guardrail-proxies"),
+    session_network_revalidation: $("guardrail-revalidation").value,
+    guest_session_timeout: Number($("guardrail-timeout").value || 30),
+    antlabs_gateway_enabled: $("guardrail-antlabs").checked,
+    antlabs_gateway_ranges: readLines("guardrail-antlabs-ranges"),
+  };
+  let result;
+  try {
+    result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/network-access/guest`, { method: "PUT", body: JSON.stringify(body) });
+  } catch (error) {
+    if (error.code !== "network_access_confirmation_required") throw error;
+    if (!window.confirm((error.warnings || []).join("\n\n"))) throw new Error("No Guest Access changes were saved.");
+    body.confirm_overlap = true;
+    result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/network-access/guest`, { method: "PUT", body: JSON.stringify(body) });
+  }
+  const guest = result.guest || {};
+  state.property.domain = guest.domain || "";
+  $("domain-input").value = state.property.domain;
+  state.property.guardrails = {
+    ...(state.property.guardrails || {}),
+    guest_network_only: guest.guest_network_only,
+    allowed_cidrs: guest.allowed_cidrs,
+    trusted_proxy_ranges: guest.trusted_proxy_ranges,
+    session_network_revalidation: guest.session_network_revalidation,
+    guest_session_timeout: guest.guest_session_timeout,
+    antlabs_gateway_enabled: guest.antlabs_gateway_enabled,
+    antlabs_gateway_ranges: guest.antlabs_gateway_ranges,
+  };
+  state.property.app_settings = {
+    ...(state.property.app_settings || {}),
+    deployment: {
+      ...(state.property.app_settings?.deployment || {}),
+      guest_access_enabled: guest.enabled,
+      public_base_url: guest.url,
+      https_required: guest.https_required,
+      reverse_proxy: guest.reverse_proxy,
+    },
+  };
+  await loadNetworkAccess();
+  showToast("Guest Access saved.");
+}
+
+async function verifyDeployment() {
+  const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/deployment/verify`, { method: "POST" });
+  await loadNetworkAccess();
+  showToast(result.domain_status === "verified" ? "DNS and SSL verification completed." : result.detail || "Verification remains pending.", result.domain_status === "verified" ? "default" : "error");
+}
 
 async function loadSystemSettings() {
   const application = state.property.app_settings?.application || {};
@@ -3286,7 +3452,7 @@ async function switchProperty(propertyId) {
       "ai-personality": () => loadAIPolicy(),
       guardrails: () => loadAIPolicy(),
       webhooks: () => loadWebhooks(),
-      domain: () => loadDeployment(), ssl: () => loadDeployment(), network: () => loadDeployment(),
+      "network-access": () => loadNetworkAccess(),
     }[activePanel];
     if (activeRefresh) tasks.push(Promise.resolve().then(activeRefresh));
     if (activePanel === "guardrails") tasks.push(loadGuardrailDiagnostics());
@@ -5029,11 +5195,16 @@ function updateCreateServiceRequestButton() {
 }
 
 function serviceStatusLabel(status) {
-  return ({ new: "New", assigned: "Assigned", accepted: "Accepted", in_progress: "In progress", delivered: "Delivered", completed: "Completed" })[status] || String(status || "Unknown").replaceAll("_", " ");
+  return ({ new: "New", assigned: "Assigned", accepted: "Accepted", in_progress: "In progress", delivered: "Delivered", completed: "Completed", cancelled: "Cancelled" })[status] || String(status || "Unknown").replaceAll("_", " ");
+}
+
+function serviceRequestIsOpen(request) {
+  return !["completed", "cancelled"].includes(request.status);
 }
 
 function serviceSlaLabel(request) {
   if (request.status === "completed" || request.sla_state === "completed") return "Completed";
+  if (request.status === "cancelled" || request.sla_state === "cancelled") return "Cancelled";
   if (request.sla_state === "overdue") return "Overdue";
   if (request.sla_state === "warning") return "Due soon";
   return "On track";
@@ -5061,7 +5232,7 @@ function serviceRequestCompletedToday(request, today = serviceRequestDateKey(Dat
 
 function renderServiceRequestSummary() {
   const requests = state.serviceRequests || [];
-  const open = requests.filter((request) => request.status !== "completed");
+  const open = requests.filter(serviceRequestIsOpen);
   const counts = {
     open: open.length,
     in_progress: open.filter((request) => request.status === "in_progress").length,
@@ -5114,9 +5285,9 @@ function renderServiceRequests() {
   const matching = requests.filter((request) => {
     const matchesFilter = !filter
       || filter === "all"
-      || (filter === "open" && request.status !== "completed")
-      || (filter === "due_soon" && request.status !== "completed" && request.sla_state === "warning")
-      || (filter === "overdue" && request.status !== "completed" && request.sla_state === "overdue")
+      || (filter === "open" && serviceRequestIsOpen(request))
+      || (filter === "due_soon" && serviceRequestIsOpen(request) && request.sla_state === "warning")
+      || (filter === "overdue" && serviceRequestIsOpen(request) && request.sla_state === "overdue")
       || (filter === "completed_today" && serviceRequestCompletedToday(request, today))
       || request.status === filter;
     const searchText = [request.request_id, request.request_type, request.room, request.description, request.department, request.assigned_to, ...(request.notes || []).map((note) => note.text)].join(" ").toLowerCase();
@@ -5224,7 +5395,7 @@ function renderServiceRequests() {
       advance.addEventListener("click", () => updateServiceStatus(request.request_id, next).catch((error) => showToast(error.message, "error")));
       actions.appendChild(advance);
     }
-    if (request.status !== "completed") {
+    if (serviceRequestIsOpen(request)) {
       const complete = make("button", "secondary", "Mark completed");
       complete.type = "button";
       complete.addEventListener("click", () => updateServiceStatus(request.request_id, "completed").catch((error) => showToast(error.message, "error")));
@@ -5996,6 +6167,7 @@ function renderAssistantAnswer(container, payload, existingQuestion = null) {
     note.textContent = payload.action_status || "No changes were made.";
     answer.appendChild(note);
   }
+  if (payload.configuration_proposal) appendConfigurationProposal(answer, payload.configuration_proposal);
   if ((payload.recommendations || []).length) {
     const title = document.createElement("h4");
     title.textContent = "Suggested next steps";
@@ -6031,6 +6203,108 @@ function renderAssistantAnswer(container, payload, existingQuestion = null) {
   container.appendChild(answer);
   for (const button of answer.querySelectorAll("[data-assistant-panel]")) button.addEventListener("click", () => activatePanel(button.dataset.assistantPanel));
   container.scrollTop = container.scrollHeight;
+}
+
+function appendConfigurationProposal(answer, proposal) {
+  const card = document.createElement("section");
+  card.className = "assistant-action-proposal";
+  card.dataset.proposalId = proposal.proposal_id;
+  const title = document.createElement("h4");
+  title.textContent = `Proposed action · ${String(proposal.action || "configuration").replaceAll(".", " ")}`;
+  const scope = document.createElement("p");
+  scope.className = "assistant-action-scope";
+  const target = proposal.scope?.restaurant_name
+    ? `${proposal.scope.restaurant_name} · ${proposal.scope.property_name || proposal.scope.property_id || "Property"}`
+    : `${proposal.scope?.property_name || proposal.scope?.property_id || "Selected property"}`;
+  scope.textContent = `Target: ${target}`;
+  const values = document.createElement("div");
+  values.className = "assistant-action-values";
+  for (const [label, value] of [["Current value", proposal.current], ["Proposed value", proposal.proposed]]) {
+    const block = document.createElement("div");
+    const heading = document.createElement("strong");
+    heading.textContent = label;
+    const pre = document.createElement("pre");
+    pre.textContent = value === null || value === undefined ? "Not set" : JSON.stringify(value, null, 2);
+    block.append(heading, pre);
+    values.append(block);
+  }
+  const impact = document.createElement("p");
+  impact.className = "assistant-action-impact";
+  impact.textContent = proposal.impact || "Review this configuration change before applying it.";
+  const meta = document.createElement("p");
+  meta.className = "assistant-action-meta";
+  meta.textContent = `Permission: ${proposal.permission_used || "—"} · Risk: ${proposal.risk_level || "LOW"}`;
+  const buttons = document.createElement("div");
+  buttons.className = "assistant-action-buttons";
+  const apply = document.createElement("button");
+  apply.type = "button";
+  apply.textContent = proposal.action === "design.publish" || proposal.action === "menu.publish" || proposal.action === "promotion.publish"
+    ? "Publish"
+    : proposal.action === "menu.approve_and_publish" || proposal.action === "promotion.approve_and_publish"
+      ? "Approve & Publish"
+      : proposal.action === "menu.approve" || proposal.action === "promotion.approve"
+      ? "Approve"
+      : proposal.action === "restaurant.update_hours"
+        ? "Apply Hours"
+        : proposal.action?.includes("create_draft") || proposal.action === "menu.import_draft" || proposal.action === "design.create_draft"
+          ? "Save Draft"
+          : "Apply Configuration";
+  apply.addEventListener("click", async () => {
+    let confirmationPhrase = null;
+    if (proposal.confirmation_requirement === "strong") {
+      confirmationPhrase = window.prompt(`This is a ${proposal.risk_level} risk change. Review the impact above, then type ${proposal.confirmation_phrase} to continue.`);
+      if (confirmationPhrase === null) return;
+    }
+    apply.disabled = true;
+    try {
+      const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/assistant/actions/${encodeURIComponent(proposal.proposal_id)}/confirm`, {
+        method: "POST",
+        body: JSON.stringify({ confirmation_phrase }),
+      });
+      const status = document.createElement("p");
+      status.className = "assistant-action-complete";
+      const workflow = result.result?.workflow_status ? ` Status: ${String(result.result.workflow_status).replaceAll("_", " ")}.` : "";
+      status.textContent = `Confirmed and completed.${workflow}`;
+      card.append(status);
+      buttons.remove();
+      const reviewPanel = proposal.open_panel || "overview";
+      if (proposal.action?.includes("create_draft") || proposal.action === "menu.import_draft" || proposal.action === "design.create_draft" || proposal.action === "faq.create" || proposal.action === "knowledge.create_draft") {
+        card.append(makeActionButton("Review Draft", () => activatePanel(reviewPanel), true));
+      }
+      if (result.next_proposal) appendConfigurationProposal(answer, result.next_proposal);
+      showToast("Configuration change applied.");
+    } catch (error) {
+      apply.disabled = false;
+      showToast(error.message || "The proposal could not be applied.", "error");
+    }
+  });
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "secondary";
+  cancel.textContent = "Cancel";
+  cancel.addEventListener("click", async () => {
+    cancel.disabled = true;
+    try {
+      await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/assistant/actions/${encodeURIComponent(proposal.proposal_id)}`, { method: "DELETE" });
+      card.classList.add("is-cancelled");
+      const status = document.createElement("p");
+      status.className = "assistant-action-complete";
+      status.textContent = "Proposal cancelled. No changes were made.";
+      card.append(status);
+      buttons.remove();
+    } catch (error) {
+      cancel.disabled = false;
+      showToast(error.message || "The proposal could not be cancelled.", "error");
+    }
+  });
+  const openSettings = document.createElement("button");
+  openSettings.type = "button";
+  openSettings.className = "secondary";
+  openSettings.textContent = "Open Settings";
+  openSettings.addEventListener("click", () => activatePanel(proposal.open_panel || "overview"));
+  buttons.append(apply, cancel, openSettings);
+  card.append(title, scope, values, impact, meta, buttons);
+  answer.append(card);
 }
 
 function renderKnowledgeAssistantAnswer(container, payload, uploadedCount = 0) {
@@ -6081,9 +6355,11 @@ async function submitUnifiedAssistant(event) {
   const question = input.value.trim();
   const files = [...state.hotelAIFiles];
   if (!question && !files.length) return;
-  if (files.length && !can("knowledge.edit")) { showToast("Permission required: knowledge.edit", "error"); return; }
-  const mode = state.assistantMode === "auto" ? (files.length ? "knowledge" : assistantModeForQuestion(question)) : state.assistantMode;
-  if (files.length && mode !== "knowledge") { showToast("Attached files are handled as hotel knowledge. Choose Hotel knowledge or remove the files.", "error"); return; }
+  const menuFileRequest = files.length > 0 && /\b(?:menu|breakfast|lunch|dinner|meal period)\b/i.test(question);
+  if (menuFileRequest && !can("restaurant.menu.edit")) { showToast("Permission required: restaurant.menu.edit", "error"); return; }
+  const mode = menuFileRequest ? "menu" : state.assistantMode === "auto" ? (files.length ? "knowledge" : assistantModeForQuestion(question)) : state.assistantMode;
+  if (files.length && mode === "knowledge" && !can("knowledge.edit")) { showToast("Permission required: knowledge.edit", "error"); return; }
+  if (files.length && !["knowledge", "menu"].includes(mode)) { showToast("Attached files can be used for a menu draft or hotel knowledge review.", "error"); return; }
   const button = form.querySelector("button[type='submit']");
   const container = $("assistant-page-messages");
   const questionMessage = document.createElement("article");
@@ -6093,7 +6369,7 @@ async function submitUnifiedAssistant(event) {
   progress.className = "assistant-message loading";
   progress.setAttribute("role", "status");
   progress.setAttribute("aria-live", "polite");
-  progress.textContent = mode === "knowledge" ? "Checking property knowledge…" : "Checking property evidence and available diagnostics…";
+  progress.textContent = mode === "knowledge" ? "Checking property knowledge…" : mode === "menu" ? "Reading the menu for a reviewable draft…" : "Checking property evidence and available diagnostics…";
   container.querySelector(".assistant-empty")?.remove();
   container.append(questionMessage, progress);
   container.scrollTop = container.scrollHeight;
@@ -6108,7 +6384,25 @@ async function submitUnifiedAssistant(event) {
   const timeout = window.setTimeout(() => controller.abort(), 30000);
   try {
     let payload;
-    if (mode === "knowledge") {
+    if (mode === "menu") {
+      const encodedFiles = [];
+      for (const file of files) {
+        progress.textContent = `Reading ${file.name}…`;
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        let binary = "";
+        for (let offset = 0; offset < bytes.length; offset += 8192) binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
+        encodedFiles.push({ filename: file.name, content_type: file.type || "application/octet-stream", content_base64: btoa(binary) });
+      }
+      payload = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/assistant/menu-import`, {
+        method: "POST",
+        body: JSON.stringify({ question: question || "Create a menu draft from the attached menu for my assigned restaurant.", conversation_id: state.assistantConversationId, files: encodedFiles }),
+        signal: controller.signal,
+      });
+      state.hotelAIFiles = [];
+      renderHotelAIFiles();
+      progress.remove();
+      renderAssistantAnswer(container, payload, questionMessage);
+    } else if (mode === "knowledge") {
       const uploaded = [];
       for (const file of files) {
         progress.textContent = `Uploading ${file.name}…`;
@@ -6240,15 +6534,15 @@ function setup() {
   });
   assistantComposer.addEventListener("drop", (event) => {
     event.preventDefault(); assistantComposer.classList.remove("dragover");
-    if (can("knowledge.edit")) addHotelAIFiles(event.dataTransfer?.files || []);
-    else showToast("Permission required: knowledge.edit", "error");
+    if (can("knowledge.edit") || can("restaurant.menu.edit")) addHotelAIFiles(event.dataTransfer?.files || []);
+    else showToast("Permission required: knowledge.edit or restaurant.menu.edit", "error");
   });
   $("assistant-page-input").addEventListener("paste", (event) => {
     const files = [...(event.clipboardData?.files || [])];
     if (files.length) {
       event.preventDefault();
-      if (can("knowledge.edit")) addHotelAIFiles(files);
-      else showToast("Permission required: knowledge.edit", "error");
+      if (can("knowledge.edit") || can("restaurant.menu.edit")) addHotelAIFiles(files);
+      else showToast("Permission required: knowledge.edit or restaurant.menu.edit", "error");
     }
   });
   setAssistantMode("auto");
@@ -6715,13 +7009,18 @@ function setup() {
   $("save-personality").addEventListener("click", () => savePersonality().catch((error) => showToast(error.message, "error")));
   $("save-guardrails").addEventListener("click", () => saveGuardrails().catch((error) => showToast(error.message, "error")));
   $("refresh-guardrail-diagnostics").addEventListener("click", () => loadGuardrailDiagnostics().catch((error) => showToast(error.message, "error")));
-  const guardrailsPanel = $("guardrails");
-  if (guardrailsPanel && !$("network-setup-card")) {
+  const networkAccessPanel = $("network-access");
+  if (networkAccessPanel && !$("network-setup-card")) {
     const card = document.createElement("section");
     card.id = "network-setup-card";
     card.className = "card network-setup-card";
-    card.innerHTML = `<div class="network-setup-heading"><div><p class="eyebrow">GUIDED SETUP</p><h2>Guest Wi-Fi access</h2><p>Connect a phone to hotel guest Wi-Fi, open the guest page, then choose Detect connection. Concierge checks the address that reaches the server.</p></div><button class="secondary" id="refresh-network-setup" type="button">Detect connection</button></div><div id="network-setup-status" class="network-setup-status" role="status" aria-live="polite">Refresh diagnostics to check the current connection.</div><div class="network-setup-actions"><label class="check-row network-test-confirm"><input id="confirm-hotel-wifi-test" type="checkbox"> I tested from a device on hotel guest Wi-Fi</label><button class="secondary" id="trust-detected-ip" type="button" hidden>Add detected address (/32)</button></div><p class="field-note">A /32 rule trusts one source IP. If ANTlabs NATs all guests to one shared address, it will match all traffic using that address. Confirm that behavior with your network administrator before saving.</p><p class="field-note">If the detected address is a private VM or WSL address, or differs from the guest device address, configure the network or trusted proxy to pass the real client address. Do not approve a shared server address as a guest subnet.</p><p class="field-note">Changes take effect when you click Save Guardrails. The top-page Publish button is for the guest-page design.</p>`;
-    guardrailsPanel.insertBefore(card, guardrailsPanel.querySelector(".two-col"));
+    card.innerHTML = `<div class="network-setup-heading"><div><p class="eyebrow">GUIDED SETUP</p><h2>Guest Wi-Fi access</h2><p>Connect a phone to hotel guest Wi-Fi, open the guest page, then choose Detect connection. Concierge checks the address that reaches the server.</p></div><button class="secondary" id="refresh-network-setup" type="button">Detect connection</button></div><div id="network-setup-status" class="network-setup-status" role="status" aria-live="polite">Refresh diagnostics to check the current connection.</div><div class="network-setup-actions"><label class="check-row network-test-confirm"><input id="confirm-hotel-wifi-test" type="checkbox"> I tested from a device on hotel guest Wi-Fi</label><button class="secondary" id="trust-detected-ip" type="button" hidden>Add detected address (/32)</button></div><p class="field-note">A /32 rule trusts one source IP. If ANTlabs NATs all guests to one shared address, it will match all traffic using that address. Confirm that behavior with your network administrator before saving.</p><p class="field-note">If the detected address is a private VM or WSL address, or differs from the guest device address, configure the network or trusted proxy to pass the real client address. Do not approve a shared server address as a guest subnet.</p><p class="field-note">Changes take effect when you click Save Guest Access. The top-page Publish button is for the guest-page design.</p>`;
+    networkAccessPanel.insertBefore(card, $("network-access-overview"));
+    if (!can("security.view")) $("refresh-network-setup").hidden = true;
+    if (!can("network.manage")) {
+      $("confirm-hotel-wifi-test").disabled = true;
+      $("trust-detected-ip").hidden = true;
+    }
     $("refresh-network-setup").addEventListener("click", () => loadGuardrailDiagnostics().catch((error) => showToast(error.message, "error")));
     $("trust-detected-ip").addEventListener("click", addDetectedAddressRule);
     $("confirm-hotel-wifi-test").addEventListener("change", (event) => {
@@ -6732,8 +7031,11 @@ function setup() {
   $("save-webhook").addEventListener("click", () => saveWebhook().catch((error) => showToast(error.message, "error")));
   $("reset-webhook-form").addEventListener("click", resetWebhookForm);
   $("save-location").addEventListener("click", () => saveManagedLocation().catch((error) => showToast(error.message, "error")));
-  $("save-deployment").addEventListener("click", () => saveDeploymentSettings().catch((error) => showToast(error.message, "error")));
-  $("save-network").addEventListener("click", () => saveDeploymentSettings().catch((error) => showToast(error.message, "error")));
+  $("save-management-access").addEventListener("click", () => saveManagementAccess().catch((error) => showToast(error.message, "error")));
+  $("add-management-network").addEventListener("click", addManagementNetwork);
+  $("management-network-input").addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); addManagementNetwork(); } });
+  $("finalize-management-access").addEventListener("click", () => finalizeManagementAccess().catch((error) => showToast(error.message, "error")));
+  $("save-guest-access").addEventListener("click", () => saveGuestAccess().catch((error) => showToast(error.message, "error")));
   $("verify-deployment").addEventListener("click", () => verifyDeployment().catch((error) => showToast(error.message, "error")));
   $("save-app-settings").addEventListener("click", () => saveApplicationSettings().catch((error) => showToast(error.message, "error")));
   $("save-smtp").addEventListener("click", () => saveSMTPSettings().catch((error) => showToast(error.message, "error")));

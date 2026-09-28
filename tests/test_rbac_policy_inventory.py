@@ -180,6 +180,47 @@ def test_system_role_matrix_matches_every_admin_route_capability(tmp_path: Path)
                     assert principal.can(policy.permission) is (policy.permission in expected_permissions)
 
 
+def test_every_system_role_is_enforced_by_direct_api_requests(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    database = tmp_path / "role-direct-api.db"
+    hospitality = HospitalityStore(database)
+    hospitality.upsert_department(
+        "test-property",
+        {"department_id": "housekeeping", "name": "Housekeeping"},
+    )
+    auth = AdminAuthStore(database)
+    auth.ensure_bootstrap_admin("root", "DirectApiRoot123!")
+    _, root = auth.login("root", "DirectApiRoot123!", "127.0.0.1", "rbac-direct-api")
+    monkeypatch.setattr(main_module, "admin_auth", auth)
+    monkeypatch.setattr(main_module, "rate_limiter", RateLimiter())
+
+    for slug, definition in DEFAULT_ROLES.items():
+        username = f"api-{slug}"
+        user_payload = {
+            "username": username,
+            "display_name": definition["name"],
+            "password": "DirectApiUser123!",
+            "role_id": f"role-{slug}",
+            "property_id": None if slug == "super-admin" else "test-property",
+            "status": "active",
+        }
+        if slug == "department-manager":
+            user_payload["department_id"] = "housekeeping"
+        auth.create_user(user_payload, root)
+        with TestClient(app) as client:
+            login = client.post(
+                "/api/admin/auth/login",
+                json={"username": username, "password": "DirectApiUser123!"},
+            )
+            assert login.status_code == 200, f"{slug}: {login.text}"
+            client.headers.update({"X-CSRF-Token": login.json()["user"]["csrf_token"]})
+            expected = 200 if "ai.view" in definition["permissions"] else 403
+            response = client.get("/api/admin/properties/test-property/ai")
+            assert response.status_code == expected, f"{slug}: {response.status_code} {response.text}"
+            if slug != "super-admin":
+                cross_property = client.get("/api/admin/properties/another-property")
+                assert cross_property.status_code == 403, f"{slug}: {cross_property.status_code} {cross_property.text}"
+
+
 @pytest.mark.parametrize("method,path", _authenticated_route_inventory(), ids=lambda value: str(value))
 def test_every_authenticated_admin_route_rejects_anonymous_requests(
     unauthenticated_admin_client: TestClient,

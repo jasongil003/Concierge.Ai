@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Concierge.Ai</title>
-  <link rel="stylesheet" href="/static/styles.css?v=17">
+  <link rel="stylesheet" href="/static/styles.css?v=18">
 </head>
 <body>
   <section class="intro-overlay" id="intro-overlay" hidden>
@@ -35,15 +35,73 @@
     </header>
     <div class="maintenance-banner" id="maintenance-banner" role="status" hidden></div>
 
-    <section class="conversation-region" aria-label="Concierge conversation">
+    <section class="guest-view personal-home" id="home-view" aria-label="Your stay">
+      <div class="guest-view-inner">
+        <header class="stay-welcome">
+          <p id="home-greeting">Welcome</p>
+          <h1 id="home-name">Your stay</h1>
+          <span id="home-stay-phase"></span>
+        </header>
+        <section class="home-primary" id="home-primary" aria-label="A helpful next step" hidden></section>
+        <section class="home-section" id="home-requests-section" hidden>
+          <div class="home-section-heading"><span>Your requests</span><button type="button" data-open-view="requests">View all</button></div>
+          <div class="home-request-list" id="home-requests"></div>
+        </section>
+        <section class="home-section" id="home-cards-section" hidden>
+          <div class="home-section-heading"><span>For you</span></div>
+          <div class="home-card-list" id="home-cards"></div>
+        </section>
+        <section class="home-section">
+          <div class="home-section-heading"><span>Quick actions</span></div>
+          <div class="quick-action-list" id="quick-actions"></div>
+        </section>
+      </div>
+    </section>
+
+    <section class="guest-view" id="explore-view" aria-label="Explore" hidden>
+      <div class="guest-view-inner">
+        <header class="section-page-heading"><p>Discover the property</p><h1>Explore</h1></header>
+        <section class="home-section" id="dining-section" hidden><div class="home-section-heading"><span>Dining</span></div><div class="home-card-list" id="dining-list"></div></section>
+        <section class="home-section" id="menu-section" hidden><div class="home-section-heading"><span id="menu-heading">Menu</span><button type="button" id="close-menu-view">All dining</button></div><div class="home-card-list" id="menu-list"></div></section>
+        <section class="home-section" id="facility-section" hidden><div class="home-section-heading"><span>Facilities</span></div><div class="home-card-list" id="facility-list"></div></section>
+        <section class="home-section" id="event-section" hidden><div class="home-section-heading"><span>Coming up</span></div><div class="home-card-list" id="event-list"></div></section>
+        <section class="home-section" id="promotion-section" hidden><div class="home-section-heading"><span>Current offers</span></div><div class="home-card-list" id="promotion-list"></div></section>
+        <section class="home-section" id="recommendation-section" hidden><div class="home-section-heading"><span>Nearby and more</span></div><div class="home-card-list" id="recommendation-list"></div></section>
+        <p class="empty-state" id="explore-empty" hidden>Explore information is not configured yet. Ask hotel staff for help.</p>
+      </div>
+    </section>
+
+    <section class="guest-view" id="requests-view" aria-label="My requests" hidden>
+      <div class="guest-view-inner">
+        <header class="section-page-heading"><p>Guest services</p><h1>My Requests</h1></header>
+        <div class="request-list" id="request-list" aria-live="polite"></div>
+        <p class="empty-state" id="requests-empty" hidden>No requests for this stay yet.</p>
+        <section class="home-section" id="request-catalog-section">
+          <div class="home-section-heading"><span>Request a service</span></div>
+          <div class="service-action-list" id="request-catalog-list"></div>
+          <div id="request-action-confirmation" hidden></div>
+          <p class="empty-state" id="request-catalog-empty" hidden>Service requests are not configured here. Concierge and hotel staff are still available.</p>
+        </section>
+      </div>
+    </section>
+
+    <section class="guest-view" id="stay-view" aria-label="My stay" hidden>
+      <div class="guest-view-inner">
+        <header class="section-page-heading"><p id="stay-property-name"></p><h1>My Stay</h1></header>
+        <div class="stay-summary-card" id="stay-summary-card"></div>
+        <section class="home-section"><div class="home-section-heading"><span>Your preferences</span><button type="button" id="manage-preferences">Manage</button></div><div class="preference-summary" id="preference-summary"></div></section>
+      </div>
+    </section>
+
+    <section class="conversation-region guest-view" id="concierge-view" aria-label="Concierge conversation" hidden>
       <div class="conversation-column">
         <section class="welcome-state" id="welcome-state">
           <div class="welcome-copy">
             <div class="welcome-eyebrow">
               <p id="welcome-greeting">Good evening.</p>
             </div>
-            <h1 id="welcome-headline">How can I help?</h1>
-            <p class="welcome-subtitle">Ask a question about this property. Answers use information configured for guests.</p>
+          <h1 id="welcome-headline">Ask your concierge</h1>
+          <p class="welcome-subtitle">Ask anything about your stay. You can return to your stay home whenever you like.</p>
           </div>
           <div class="suggestion-heading" aria-hidden="true">
             <span>Suggested questions</span>
@@ -70,7 +128,7 @@
           autocomplete="off"
           enterkeyhint="send"
           aria-describedby="composer-note"
-          placeholder="Ask a question..."
+          placeholder="Ask Concierge anything..."
           aria-label="Ask your concierge"
         ></textarea>
         <button class="send-button" id="send-button" type="submit" aria-label="Send message" disabled>
@@ -78,6 +136,13 @@
         </button>
       </form>
       <p class="composer-note" id="composer-note">Enter to send <span aria-hidden="true">·</span> Shift+Enter for a new line</p>
+      <nav class="guest-bottom-nav" id="guest-bottom-nav" aria-label="Guest navigation">
+        <button type="button" data-view="home" aria-current="page"><span aria-hidden="true">⌂</span><small>Home</small></button>
+        <button type="button" data-view="explore"><span aria-hidden="true">◇</span><small>Explore</small></button>
+        <button type="button" data-view="requests"><span aria-hidden="true">✓</span><small>Requests</small></button>
+        <button type="button" data-view="stay"><span aria-hidden="true">▤</span><small>My Stay</small></button>
+        <button type="button" data-view="concierge"><span aria-hidden="true">○</span><small>Concierge</small></button>
+      </nav>
     </footer>
 
   <aside class="hotel-menu" id="hotel-menu" aria-hidden="true" inert aria-label="Hotel menu">
@@ -203,6 +268,6 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </main>
-  <script src="/static/app.js?v=20"></script>
+  <script src="/static/app.js?v=21"></script>
 </body>
 </html>

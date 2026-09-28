@@ -48,7 +48,8 @@ def test_app_readiness_succeeds_without_a_property_record(tmp_path: Path, monkey
     with TestClient(main_module.app) as client:
         health = client.get("/health")
         assert health.status_code == 200
-        assert health.json()["property_setup"] == "onboarding"
+        assert health.json()["status"] == "ok"
+        assert set(health.json()) == {"status", "checks"}
         assert client.get("/api/hotel").status_code == 404
 
 

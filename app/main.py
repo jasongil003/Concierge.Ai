@@ -5,6 +5,7 @@ import binascii
 import hashlib
 import hmac
 import inspect
+import ipaddress
 import json
 import logging
 import os
@@ -44,8 +45,31 @@ from .database import configure_database, database_ready, dispose_database, veri
 from .improvement_loop import ImprovementLoopManager, ImprovementLoopStore
 from .guest_identity import GuestIdentityStore
 from .guest_context import build_guest_context
+from .stay_context import StayContextEngine
+from .assistant_decisions import AssistantDecisionEngine
+from .guest_actions import GuestActionRegistry
 from .personalization import PREFERENCE_CATEGORIES, PersonalizationStore, extract_preferences, preference_commands
-from .admin_copilot import ADMIN_KNOWLEDGE_POLICY, ADMIN_POLICY, AdminCopilotStore, available_tools, parse_tool_plan, planner_prompt, synthesis_prompt
+from .admin_copilot import (
+    ADMIN_ACTION_POLICY,
+    ADMIN_KNOWLEDGE_POLICY,
+    ADMIN_POLICY,
+    AdminCopilotStore,
+    action_planner_prompt,
+    available_tools,
+    parse_action_plan,
+    parse_tool_plan,
+    planner_prompt,
+    synthesis_prompt,
+)
+from .admin_configuration_actions import register_admin_configuration_actions
+from .configuration_actions import (
+    ActionContext,
+    ActionDenied,
+    ActionValidationError,
+    AssistantActionProposalStore,
+    ConfigurationActionRegistry,
+    encode_json,
+)
 from .guardrails import (
     AIInputSanitizer,
     AIOutputValidator,
@@ -68,7 +92,16 @@ from .hospitality import HospitalityStore
 from .intro import IntroExperienceStore
 from .location_analytics import LocationAnalyticsStore
 from .operations import OperationsStore
-from .knowledge_management import KnowledgeStore, CATEGORIES
+from .knowledge_management import KnowledgeStore, CATEGORIES, parse_document, validate_file
+from .network_access import (
+    DEFAULT_MANAGEMENT_CIDRS,
+    ManagementAccessGuard,
+    detected_server_network,
+    find_network_overlaps,
+    normalize_cidrs,
+    normalize_management_access,
+    unsafe_management_networks,
+)
 from .observability import DiagnosticContext, DiagnosticToolRegistry, ObservabilityStore, PERIODS, period_window
 from .outbound_http import OutboundRequestBroker, OutboundRequestError
 from .places import GooglePlaces, format_places_for_ai, rank_places
@@ -115,6 +148,8 @@ improvement_loops = ImprovementLoopManager(
     worker_enabled=settings.background_workers_enabled,
 )
 admin_copilot_store = AdminCopilotStore(settings.db_path)
+assistant_action_proposals = AssistantActionProposalStore(settings.db_path)
+configuration_action_registry = ConfigurationActionRegistry()
 admin_auth = AdminAuthStore(
     settings.db_path,
     session_ttl_minutes=settings.admin_session_ttl_minutes,
@@ -138,6 +173,7 @@ rate_limiter = RedisRateLimiter(settings.redis_url) if settings.redis_url else S
 if isinstance(rate_limiter, RedisRateLimiter):
     ai_models.set_distributed_redis(rate_limiter.client)
 security_audit = SecurityAuditLogger(settings.db_path)
+management_access_guard = ManagementAccessGuard()
 
 
 @asynccontextmanager
@@ -183,7 +219,31 @@ async def lifespan(app: FastAPI):
         await asyncio.to_thread(dispose_database)
 
 
-app = FastAPI(title=settings.app_name, version="0.2.0", lifespan=lifespan)
+SECURE_ENVIRONMENTS = {"production", "staging"}
+
+
+def documentation_options(environment: str) -> dict[str, Any]:
+    if environment in SECURE_ENVIRONMENTS:
+        return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+    return {"docs_url": "/docs", "redoc_url": "/redoc", "openapi_url": "/openapi.json"}
+
+
+def _floor_map_file_response(path: Path) -> FileResponse:
+    headers = {
+        "Content-Security-Policy": "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'",
+        "X-Content-Type-Options": "nosniff",
+    }
+    if path.suffix.casefold() == ".pdf":
+        headers["Content-Disposition"] = "attachment"
+    return FileResponse(path, headers=headers)
+
+
+app = FastAPI(
+    title=settings.app_name,
+    version="0.2.0",
+    lifespan=lifespan,
+    **documentation_options(settings.app_environment),
+)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
@@ -217,16 +277,14 @@ async def _chat_rate_limited(session_id: str) -> bool:
     return not await _rate_limit_allowed(f"guest-chat:{session_id}", 20, 60)
 
 
-@app.middleware("http")
-async def add_security_headers(request: Request, call_next):
-    response = await call_next(request)
+def _apply_security_headers(request: Request, response: Response) -> Response:
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "geolocation=(self), camera=(), microphone=()"
-    response.headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' data: https:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    response.headers.setdefault("Content-Security-Policy", "default-src 'self'; img-src 'self' data: https:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
     response.headers["X-Request-ID"] = getattr(request.state, "request_id", "")
-    if settings.app_environment in ("production", "staging"):
+    if settings.app_environment in SECURE_ENVIRONMENTS:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 
@@ -235,7 +293,8 @@ async def add_security_headers(request: Request, call_next):
 async def attach_request_id(request: Request, call_next):
     supplied = request.headers.get("X-Request-ID", "")
     request.state.request_id = supplied if re.fullmatch(r"[A-Za-z0-9._:-]{8,120}", supplied) else uuid.uuid4().hex
-    return await call_next(request)
+    response = await call_next(request)
+    return _apply_security_headers(request, response)
 
 
 @app.middleware("http")
@@ -396,6 +455,10 @@ def _enforce_guest_network(request: Request, property_record: PropertyRecord, ac
     if not decision.allowed:
         security_audit.record(decision.request_id, property_record.property_id, "network_access_denied", "denied", decision.client_ip, metadata={"path": request.url.path})
         raise GuardrailDenied(decision)
+    if _guest_https_is_required(request):
+        local_development_request = settings.app_environment not in SECURE_ENVIRONMENTS and _request_is_loopback(request)
+        if request.url.scheme != "https" and not local_development_request:
+            raise HTTPException(status_code=426, detail="HTTPS is required for guest access.")
     return decision
 
 
@@ -512,6 +575,32 @@ class PropertyPayload(BaseModel):
 
     def to_record(self) -> PropertyRecord:
         return PropertyRecord(**self.model_dump())
+
+
+class ManagementAccessPayload(BaseModel):
+    management_access_enabled: bool = True
+    management_allowed_cidrs: list[str] = Field(default_factory=list, max_length=64)
+    management_trusted_proxy_ranges: list[str] = Field(default_factory=list, max_length=64)
+    confirm_unsafe: bool = False
+    confirm_overlap: bool = False
+    confirm_lockout: bool = False
+    confirm_public_exposure: bool = False
+
+
+class GuestNetworkAccessPayload(BaseModel):
+    guest_access_enabled: bool = True
+    guest_domain: str = Field(default="", max_length=253)
+    guest_url: str = Field(default="", max_length=1000)
+    guest_https_required: bool = True
+    reverse_proxy: bool = False
+    guest_network_only: bool = True
+    allowed_cidrs: list[str] = Field(default_factory=list, max_length=64)
+    trusted_proxy_ranges: list[str] = Field(default_factory=list, max_length=64)
+    session_network_revalidation: str = "suspend"
+    guest_session_timeout: int = Field(default=30, ge=5, le=1440)
+    antlabs_gateway_enabled: bool = False
+    antlabs_gateway_ranges: list[str] = Field(default_factory=list, max_length=64)
+    confirm_overlap: bool = False
 
 
 class PropertyLogoPayload(BaseModel):
@@ -636,6 +725,21 @@ class GuestServiceRequestPayload(BaseModel):
     confirmed: bool = False
 
 
+class GuestServiceProposalPayload(BaseModel):
+    session_id: str = Field(min_length=1, max_length=200)
+    message: str = Field(min_length=1, max_length=2000)
+
+
+class GuestServiceConfirmationPayload(BaseModel):
+    session_id: str = Field(min_length=1, max_length=200)
+    proposal_token: str = Field(min_length=20, max_length=3000)
+
+
+class GuestRequestCancelPayload(BaseModel):
+    session_id: str = Field(min_length=1, max_length=200)
+    confirmed: bool = False
+
+
 class ServiceRequestUpdatePayload(BaseModel):
     priority: str | None = Field(default=None, max_length=40)
     department: str | None = Field(default=None, max_length=120)
@@ -745,15 +849,25 @@ class AdminRolePayload(BaseModel):
 
 
 class AssistantQueryPayload(BaseModel):
-    question: str = Field(min_length=2, max_length=1200)
+    question: str = Field(min_length=2, max_length=40000)
     intent: str = Field(default="auto", pattern=r"^(auto|report|health)$")
     period: str = Field(default="24h", pattern=r"^(1h|6h|24h|7d|30d|today|yesterday)$")
     current_page: str = Field(default="overview", max_length=80)
     conversation_id: str | None = Field(default=None, max_length=80)
 
 
+class AssistantMenuImportPayload(BaseModel):
+    question: str = Field(min_length=2, max_length=1200)
+    files: list[UploadPayload] = Field(min_length=1, max_length=5)
+    conversation_id: str | None = Field(default=None, max_length=80)
+
+
 class AssistantConversationPayload(BaseModel):
     conversation_id: str = Field(min_length=16, max_length=80)
+
+
+class AssistantActionConfirmationPayload(BaseModel):
+    confirmation_phrase: str | None = Field(default=None, max_length=80)
 
 
 class HotelAssistantPayload(BaseModel):
@@ -848,12 +962,6 @@ async def health_ready() -> dict[str, Any]:
     return {
         "status": "ok",
         "checks": checks,
-        "app": settings.app_name,
-        "property_id": settings.property_id,
-        "property_setup": "configured" if properties.list() else "onboarding",
-        "ai_provider_mode": settings.ai_provider_mode,
-        "local_model": settings.ollama_model,
-        "antlabs_mode": settings.antlabs_mode,
     }
 
 
@@ -927,7 +1035,7 @@ async def guest_floor_map_asset(request: Request, map_id: str, property_id: str 
     record = _guest_property(request, property_id)
     _enforce_guest_network(request, record)
     try:
-        return FileResponse(zones.floor_map_path(record.property_id, map_id))
+        return _floor_map_file_response(zones.floor_map_path(record.property_id, map_id))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -974,6 +1082,21 @@ async def guest_facilities(request: Request, property_id: str | None = None) -> 
     return hospitality.guest_facilities(record.property_id)
 
 
+@app.get("/api/guest/restaurants/{restaurant_id}/menus")
+async def guest_restaurant_menus(restaurant_id: str, request: Request, property_id: str | None = None) -> dict[str, Any]:
+    record = _guest_property(request, property_id)
+    _enforce_guest_network(request, record)
+    restaurant = hospitality.get_restaurant(record.property_id, restaurant_id, guest=True)
+    if not restaurant or restaurant.get("archived") or restaurant.get("status") in {"disabled", "archived"}:
+        raise HTTPException(status_code=404, detail="Restaurant not found.")
+    menus = hospitality.restaurant_menus(record.property_id, restaurant_id, guest=True)
+    safe_menus = [{
+        "name": menu.get("name", ""), "meal_period": menu.get("meal_period", ""),
+        "items": [{key: value for key, value in item.items() if key in {"name", "description", "price", "ingredients", "allergens", "dietary_tags", "available"}} for item in menu.get("items", [])],
+    } for menu in menus]
+    return {"restaurant": {"name": restaurant.get("name", ""), "cuisine": restaurant.get("cuisine", "")}, "menus": safe_menus}
+
+
 @app.get("/api/guest/service-catalog")
 async def guest_service_catalog(request: Request, property_id: str | None = None) -> dict[str, Any]:
     record = _guest_property(request, property_id)
@@ -986,6 +1109,46 @@ async def guest_recommendations(request: Request, property_id: str | None = None
     record = _guest_property(request, property_id)
     _enforce_guest_network(request, record)
     return {"recommendations": hospitality.recommendations(record.property_id, guest=True)}
+
+
+@app.get("/api/guest/home")
+async def guest_home(session_id: str, request: Request) -> dict[str, Any]:
+    session, property_record = _guest_session(request, session_id)
+    context = StayContextEngine().build(
+        property_record, session, hospitality, guest_identities, personalization, store,
+    )
+    home = AssistantDecisionEngine().decide(context)
+    memory = personalization.guest_state(session.property_id, session.session_id)
+    preferred_name = next((
+        item.get("value") for item in memory.get("preferences", [])
+        if memory.get("enabled") and memory.get("level") == "personal" and item.get("category") == "preferred_name"
+    ), None)
+    home["greeting"] = context["time_context"]["greeting"]
+    home["preferred_name"] = preferred_name
+    home["stay"] = context["stay"]
+    home["local_time"] = context["time_context"]["local_time"]
+    allowed = {
+        "restaurants": {"restaurant_id", "facility_id", "name", "location", "opening_hours", "meal_periods", "reservation_available", "description", "status", "cuisine", "dress_code", "external_reservation_url", "guest_notes", "images"},
+        "facilities": {"facility_id", "zone_id", "building_id", "floor_id", "name", "facility_type", "opening_hours", "description", "images", "capacity", "booking_supported", "live_status", "status_note"},
+        "promotions": {"promotion_id", "restaurant_id", "title", "description", "starts_at", "ends_at", "status"},
+        "menu_items": {"item_id", "menu_id", "name", "description", "price", "image_url", "ingredients", "allergens", "dietary_tags", "available"},
+        "recommendations": {"recommendation_id", "name", "category", "description", "address", "map_url", "opening_hours", "images"},
+    }
+    for category, fields in allowed.items():
+        home["inventory"][category] = [
+            {key: value for key, value in item.items() if key in fields}
+            for item in home["inventory"].get(category, [])
+        ]
+    return home
+
+
+@app.get("/api/guest/requests")
+async def guest_requests(session_id: str, request: Request) -> dict[str, Any]:
+    session, property_record = _guest_session(request, session_id)
+    context = StayContextEngine().build(
+        property_record, session, hospitality, guest_identities, personalization, store,
+    )
+    return {"requests": context["recent_requests"]}
 
 
 @app.get("/api/guest/personalization")
@@ -1060,6 +1223,83 @@ async def upload_guest_document(payload: GuestUploadPayload, request: Request) -
     }
 
 
+@app.post("/api/guest/actions/propose")
+async def propose_guest_service_action(payload: GuestServiceProposalPayload, request: Request) -> dict[str, Any]:
+    session, _ = _guest_session(request, payload.session_id)
+    registry = GuestActionRegistry()
+    definition = registry.get("service_request.create")
+    if not await _rate_limit_allowed(f"guest-action-propose:{session.property_id}:{session.session_id}", *definition.rate_limit):
+        raise HTTPException(status_code=429, detail="Too many requests. Please wait before trying again.")
+    query = payload.message.strip()
+    catalog = hospitality.catalog(session.property_id, guest=True)
+    service, alternatives = registry.match_service(query, catalog.get("services", []))
+    if not service:
+        return {"status": "ambiguous" if alternatives else "unmatched", "choices": [{"name": item.get("name"), "department": (hospitality.get_department(session.property_id, item.get("department_id")) or {}).get("name", "")} for item in alternatives]}
+    department = hospitality.get_department(session.property_id, service.get("department_id")) if service.get("department_id") else None
+    description = query[:1000]
+    secret = guest_identities.property_secret(session.property_id)
+    token = registry.make_service_proposal(secret, session.property_id, session.session_id, service, description)
+    client_ip = getattr(request.state, "guardrail_decision").client_ip
+    security_audit.record(
+        _request_id(request), session.property_id, definition.audit_event, "recorded", client_ip,
+        resource="guest_action", metadata={"action_name": definition.name, "service_name": service.get("name", "")[:120]},
+    )
+    return {
+        "status": "proposed", "action": definition.name, "proposal_token": token,
+        "confirmation_required": True,
+        "card": {
+            "type": "service_request", "title": service.get("name", "Service request"),
+            "department": department.get("name", "") if department else "",
+            "description": description,
+        },
+    }
+
+
+@app.post("/api/guest/actions/confirm")
+async def confirm_guest_service_action(payload: GuestServiceConfirmationPayload, request: Request) -> dict[str, Any]:
+    session, property_record = _guest_session(request, payload.session_id, action_level=2)
+    registry = GuestActionRegistry()
+    definition = registry.get("service_request.create")
+    if not await _rate_limit_allowed(f"guest-action-confirm:{session.property_id}:{session.session_id}", *definition.rate_limit):
+        raise HTTPException(status_code=429, detail="Too many service requests. Please wait before trying again.")
+    try:
+        proposal = registry.read_service_proposal(
+            guest_identities.property_secret(session.property_id), payload.proposal_token,
+            session.property_id, session.session_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    service = next((item for item in hospitality.catalog(session.property_id, guest=True).get("services", []) if item.get("service_id") == proposal.get("service")), None)
+    if service is None:
+        security_audit.record(_request_id(request), session.property_id, "guest.action.denied", "denied", getattr(request.state, "guardrail_decision").client_ip, resource="guest_action", metadata={"action_name": definition.name, "reason": "service_unavailable"})
+        raise HTTPException(status_code=409, detail="That service is no longer available.")
+    decision = action_guard.decide("service_request", session.property_id, property_record.guardrails, _request_id(request), True)
+    if not decision.allowed:
+        security_audit.record(decision.request_id, session.property_id, "guest.action.denied", "denied", getattr(request.state, "guardrail_decision", decision).client_ip, resource="guest_action", metadata={"action_name": definition.name})
+        raise GuardrailDenied(decision, status_code=409 if decision.confirmation_required else 403)
+    linked_stay = guest_identities.active_stay_for_session(session.property_id, session.session_id) if session.authenticated else None
+    room = linked_stay.get("room") if linked_stay and personalization.policy(session.property_id).get("allow_pms_personalization") else None
+    client_request_id = "guest-action-" + hashlib.sha256(payload.proposal_token.encode()).hexdigest()[:40]
+    try:
+        record = hospitality.create_service_request(session.property_id, {
+            "service_id": service["service_id"], "description": proposal["description"],
+            "room": room, "stay_id": session.session_id, "client_request_id": client_request_id,
+        })
+    except ValueError as exc:
+        security_audit.record(_request_id(request), session.property_id, "guest.action.failed", "failed", getattr(request.state, "guardrail_decision").client_ip, resource="guest_action", metadata={"action_name": definition.name})
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    replayed = bool(record.pop("idempotent_replay", False))
+    client_ip = getattr(request.state, "guardrail_decision").client_ip
+    security_audit.record(
+        _request_id(request), session.property_id, "guest.action.confirmed", "recorded", client_ip,
+        resource="guest_action", metadata={"action_name": definition.name, "request_id": record.get("request_id")},
+    )
+    if not replayed:
+        metrics.SERVICE_REQUESTS.labels("created").inc()
+        await _dispatch_webhooks(session.property_id, "guest.request.created", {"request": record})
+    return {"status": "existing" if replayed else "created", "request": record}
+
+
 @app.post("/api/guest/service-requests")
 async def create_guest_service_request(payload: GuestServiceRequestPayload, request: Request) -> dict[str, Any]:
     session, property_record = _guest_session(request, payload.session_id, action_level=2)
@@ -1085,8 +1325,39 @@ async def create_guest_service_request(payload: GuestServiceRequestPayload, requ
     replayed = bool(request_record.pop("idempotent_replay", False))
     metrics.SERVICE_REQUESTS.labels("replayed" if replayed else "created").inc()
     if not replayed:
+        security_audit.record(
+            _request_id(request), session.property_id, "guest.request.created", "recorded",
+            getattr(request.state, "guardrail_decision").client_ip, resource="service_request",
+            metadata={"request_id": request_record.get("request_id"), "service_name": request_record.get("request_type", "")},
+        )
         await _dispatch_webhooks(session.property_id, "guest.request.created", {"request": request_record})
     return {"status": "existing" if replayed else "created", "request": request_record}
+
+
+@app.post("/api/guest/requests/{request_id}/cancel")
+async def cancel_guest_request(request_id: str, payload: GuestRequestCancelPayload, request: Request) -> dict[str, Any]:
+    session, property_record = _guest_session(request, payload.session_id, action_level=2)
+    decision = action_guard.decide("service_request", session.property_id, property_record.guardrails, _request_id(request), payload.confirmed)
+    if not decision.allowed:
+        raise GuardrailDenied(decision, status_code=409 if decision.confirmation_required else 403)
+    if not await _rate_limit_allowed(f"guest-request-cancel:{session.property_id}:{session.session_id}", 10, 300):
+        raise HTTPException(status_code=429, detail="Too many requests. Please wait before trying again.")
+    stay_ids = {session.session_id}
+    linked_stay = guest_identities.active_stay_for_session(session.property_id, session.session_id) if session.authenticated else None
+    if linked_stay and linked_stay.get("stay_id"):
+        stay_ids.add(str(linked_stay["stay_id"]))
+    try:
+        result = hospitality.cancel_guest_service_request(session.property_id, request_id, stay_ids)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Service request not found.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    security_audit.record(
+        _request_id(request), session.property_id, "guest.action.confirmed", "recorded",
+        getattr(request.state, "guardrail_decision").client_ip, resource="guest_action",
+        metadata={"action_name": "service_request.cancel", "request_id": request_id},
+    )
+    return {"status": "cancelled", "request": result}
 
 
 @app.get("/api/guest/conversations/{session_id}/staff-messages")
@@ -1166,7 +1437,7 @@ async def request_admin_password_reset(payload: AdminPasswordResetRequestPayload
     smtp_config = operations.get_email_settings(include_secret=True)
     reset = admin_auth.create_password_reset(payload.username) if smtp_config.get("enabled") else None
     if reset:
-        reset_url = str(request.url_for("admin_login_page")) + f"#reset_token={reset['token']}"
+        reset_url = _admin_password_reset_url(request, reset["token"])
         try:
             await asyncio.to_thread(_send_password_reset_email, smtp_config, reset, reset_url)
         except Exception:
@@ -2043,6 +2314,344 @@ def _assistant_fallback_summary(evidence: list[dict[str, Any]], period: str, mod
     return finding, answer, recommendations[:5]
 
 
+def _is_configuration_request(question: str) -> bool:
+    normalized = question.casefold()
+    verbs = r"\b(?:create|make|generate|build|set|change|update|modify|edit|adjust|add|publish|approve|configure|replace)\b"
+    targets = r"\b(?:guest landing page|landing page|guest design|design|management access|management network|management CIDRs?|guest access|guest network|guest CIDRs?|network settings|trusted prox(?:y|ies)|guest domain|ANTlabs(?: settings| gateway)?|session polic(?:y|ies)|session timeout|restaurant|menu|menus|operating hours|opening hours|hours|promotion|promotions|service catalog|facility|facilities|events?|hotel information|hotel description|property information|property description|welcome text|personality|(?:ai|openai) (?:provider|model|settings)|faq|knowledge draft)\b"
+    return bool(re.search(verbs, normalized) and re.search(targets, normalized))
+
+
+def _restricted_ai_action_reason(question: str, principal: AdminPrincipal) -> str | None:
+    normalized = question.casefold()
+    if re.search(r"\b(?:netplan|firewall(?:\s+rules?)?|shell commands?|(?:run|execute)\s+(?:a\s+)?command(?:s)?|(?:operating[- ]system|os)\s+(?:IP|DNS)|host OS IP|machine IP|database (?:records?|tables?|operations?)|SQL|backup deletion|delete (?:all )?(?:the )?backups?|encryption secrets?|encryption keys?|API keys?|password resets?|user deletion|delete (?:all )?(?:the )?(?:users?|accounts?)|Super Admin(?: role)?|RBAC privilege|make .*public|expose (?:the )?Admin publicly)\b", normalized, re.I):
+        return "This security-sensitive operation cannot be performed through Admin AI. Use the supported security settings workflow or contact a platform administrator."
+    if re.search(r"\bmanagement (?:access|network|CIDR|CIDRs)\b", normalized, re.I) and principal.role_slug != "super-admin":
+        return "Management Access is installation-wide and is available to Super Admins only. No change was made."
+    if re.search(r"\b(?:(?:ai|openai) provider|(?:ai|openai) model|provider settings)\b", normalized) and not principal.can("ai.configure"):
+        return "Your account does not have permission to change AI provider settings. No change was made."
+    return None
+
+
+def _assistant_action_targets(principal: AdminPrincipal, property_id: str) -> list[dict[str, Any]]:
+    targets: list[dict[str, Any]] = []
+    for restaurant_id in sorted(_assistant_assigned_restaurant_ids(principal, property_id)):
+        restaurant = hospitality.get_restaurant(property_id, restaurant_id)
+        if not restaurant or restaurant.get("archived") or restaurant.get("status") in {"disabled", "archived"}:
+            continue
+        menus = hospitality.restaurant_menus(property_id, restaurant_id)
+        targets.append({
+            "restaurant_id": restaurant_id,
+            "name": restaurant.get("name", ""),
+            "opening_hours": restaurant.get("opening_hours", {}),
+            "menus": [{"menu_id": menu.get("menu_id"), "name": menu.get("name"), "meal_period": menu.get("meal_period")} for menu in menus],
+        })
+    return targets
+
+
+def _assistant_assigned_restaurant_ids(principal: AdminPrincipal, property_id: str) -> set[str]:
+    try:
+        return _assigned_restaurant_ids(principal, property_id)
+    except sqlite3.Error:
+        if principal.can("properties.all") or principal.can("properties.edit"):
+            try:
+                return {item["restaurant_id"] for item in hospitality.overview(property_id).get("restaurants", [])}
+            except Exception:
+                return set()
+        return set()
+
+
+def _explicit_assistant_scope_denial(question: str, principal: AdminPrincipal, property_id: str) -> str | None:
+    normalized = question.casefold()
+    if re.search(r"\b(?:another|different|other) restaurant\b", normalized) and principal.role_slug == "restaurant-manager":
+        return "I can only prepare restaurant changes for restaurants assigned to your account. No change was made."
+    assigned_ids = _assistant_assigned_restaurant_ids(principal, property_id)
+    try:
+        all_restaurants = hospitality.overview(property_id).get("restaurants", [])
+    except Exception:
+        all_restaurants = []
+    for restaurant in all_restaurants:
+        name = str(restaurant.get("name") or "").strip()
+        if len(name) >= 3 and name.casefold() in normalized and restaurant.get("restaurant_id") not in assigned_ids:
+            return "I can only prepare restaurant changes for restaurants assigned to your account. No change was made."
+
+    try:
+        all_properties = properties.list()
+    except Exception:
+        all_properties = []
+    for record in all_properties:
+        name = str(record.hotel_name or "").strip()
+        if record.property_id != property_id and len(name) >= 4 and name.casefold() in normalized:
+            return "This proposal is scoped to the currently selected property. Select the intended property and try again. No change was made."
+    return None
+
+
+def _action_context(principal: AdminPrincipal, property_id: str, request: Request, conversation_id: str) -> ActionContext:
+    configuration_action_services.update({
+        "properties": properties,
+        "hospitality": hospitality,
+        "operations": operations,
+        "knowledge_management": knowledge_management,
+        "ai_provider_store": ai_provider_store,
+        "require_restaurant_access": _require_restaurant_access,
+        "management_access_guard": management_access_guard,
+    })
+    return ActionContext(principal, property_id, request, conversation_id, _request_id(request), configuration_action_services)
+
+
+def _action_safe_value(value: Any, field_name: str = "") -> Any:
+    if re.search(r"password|secret|credential|api.?key|token|private.?key", field_name, re.I):
+        return "[redacted]"
+    if isinstance(value, dict):
+        return {str(key): _action_safe_value(item, str(key)) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_action_safe_value(item, field_name) for item in value]
+    if isinstance(value, str):
+        text = re.sub(r"(?i)\b(api[_ -]?key|password|secret|token)\s*[:=]\s*[^\s,;]+", r"\1=[redacted]", value)
+        if field_name.casefold() in {"content", "document", "raw_document"}:
+            import hashlib
+            return {"sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(), "length": len(text)}
+        return text[:6000]
+    return value
+
+
+def _audit_assistant_action(
+    principal: AdminPrincipal,
+    event: str,
+    property_id: str,
+    action_name: str,
+    *,
+    conversation_id: str,
+    request_id: str,
+    restaurant_id: str | None = None,
+    old_value: Any = None,
+    new_value: Any = None,
+    permission: str | None = None,
+    risk_level: str | None = None,
+    confirmed_at: int | None = None,
+    result: Any = None,
+    error_type: str | None = None,
+) -> None:
+    metadata: dict[str, Any] = {
+        "assistant_conversation_id": conversation_id,
+        "request_id": request_id,
+        "action_name": action_name,
+        "role": principal.role_slug,
+    }
+    if restaurant_id:
+        metadata["restaurant_id"] = restaurant_id
+    if old_value is not None:
+        metadata["old_value"] = _action_safe_value(old_value)
+    if new_value is not None:
+        metadata["new_value"] = _action_safe_value(new_value)
+    if permission:
+        metadata["permission_used"] = permission
+    if risk_level:
+        metadata["risk_level"] = risk_level
+    if confirmed_at is not None:
+        metadata["confirmation_timestamp"] = confirmed_at
+    if result is not None:
+        metadata["result"] = _action_safe_value(result)
+    if error_type:
+        metadata["error_type"] = error_type
+    admin_auth.audit(principal, event, "assistant_action", action_name, property_id=property_id, ip_address="", metadata=metadata)
+
+
+def _public_action_proposal(row: dict[str, Any], action: Any) -> dict[str, Any]:
+    current = json.loads(row["current_json"])
+    stored_proposed = json.loads(row["proposed_json"])
+    proposed = stored_proposed.get("proposed", stored_proposed)
+    scope: dict[str, Any] = {"property_id": row["property_id"]}
+    record = properties.get(row["property_id"])
+    if record:
+        scope["property_name"] = record.hotel_name
+    restaurant_id = stored_proposed.get("restaurant_id") or (proposed.get("restaurant_id") if isinstance(proposed, dict) else None)
+    if restaurant_id:
+        scope["restaurant_id"] = restaurant_id
+        scope["restaurant_name"] = stored_proposed.get("restaurant_name", "")
+    short_code = row["proposal_id"][:6].upper()
+    if row["action_name"].startswith("network."):
+        open_panel = "network-access"
+    elif row["action_name"].startswith("design."):
+        open_panel = "appearance"
+    elif row["action_name"].startswith("ai."):
+        open_panel = "ai"
+    elif row["action_name"].startswith("restaurant.") or row["action_name"].startswith("menu.") or row["action_name"].startswith("promotion."):
+        open_panel = "restaurants"
+    elif row["action_name"].startswith("facility."):
+        open_panel = "facilities"
+    elif row["action_name"].startswith("service_catalog."):
+        open_panel = "service-catalog"
+    elif row["action_name"].startswith("faq."):
+        open_panel = "faqs"
+    elif row["action_name"].startswith("knowledge."):
+        open_panel = "knowledge"
+    elif row["action_name"].startswith("property.update_personality"):
+        open_panel = "ai-personality"
+    else:
+        open_panel = "hotel-information"
+    return {
+        "proposal_id": row["proposal_id"],
+        "action": row["action_name"],
+        "description": action.description,
+        "current": _action_safe_value(current),
+        "proposed": _action_safe_value(proposed),
+        "impact": row["impact"],
+        "permission_used": row["permission_used"],
+        "risk_level": row["risk_level"],
+        "confirmation_requirement": row["confirmation_requirement"],
+        "confirmation_phrase": f"APPLY {short_code}" if row["confirmation_requirement"] == "strong" else None,
+        "scope": scope,
+        "open_panel": open_panel,
+        "expires_at": row["expires_at"],
+        "status": row["status"],
+    }
+
+
+def _assistant_action_reply(question: str, conversation_id: str, answer: str, proposal: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {
+        "question": question,
+        "conversation_id": conversation_id,
+        "answer": answer,
+        "finding": "Configuration proposal" if proposal else "Configuration request",
+        "component": "configuration assistant",
+        "timeframe": "",
+        "evidence": [],
+        "evidence_items": [],
+        "recommendations": [],
+        "links": [{"label": "Open Settings", "panel": proposal["open_panel"]}] if proposal else [],
+        "downloads": [],
+        "tool_activity": [],
+        "confirmation_required": bool(proposal),
+        "action_status": "No change has been applied. Review and confirm this proposal." if proposal else "No changes were made.",
+        "configuration_proposal": proposal,
+        "request_id": proposal.get("request_id") if proposal else None,
+    }
+
+
+def _store_assistant_action_proposal(
+    principal: AdminPrincipal,
+    context: ActionContext,
+    action: Any,
+    parameters: dict[str, Any],
+    preview: dict[str, Any],
+) -> dict[str, Any]:
+    row = assistant_action_proposals.create({
+        "property_id": context.property_id,
+        "user_id": principal.user_id,
+        "role_slug": principal.role_slug,
+        "conversation_id": context.conversation_id,
+        "action_name": action.name,
+        "parameters_json": encode_json(parameters),
+        "current_json": encode_json(_action_safe_value(preview.get("current"))),
+        "proposed_json": encode_json(_action_safe_value({key: value for key, value in preview.items() if key not in {"current", "impact", "warnings"}} | {"proposed": preview.get("proposed")})),
+        "impact": str(preview.get("impact") or "Review the proposed configuration change.")[:2000],
+        "permission_used": action.required_permission,
+        "risk_level": action.risk_level,
+        "confirmation_requirement": action.confirmation_requirement,
+        "request_id": context.request_id,
+    })
+    proposal = _public_action_proposal(row, action)
+    _audit_assistant_action(
+        principal, "assistant.action.proposed", context.property_id, action.name,
+        conversation_id=context.conversation_id, request_id=context.request_id,
+        restaurant_id=proposal["scope"].get("restaurant_id"),
+        old_value=preview.get("current"), new_value=preview.get("proposed"),
+        permission=action.required_permission, risk_level=action.risk_level,
+    )
+    return proposal
+
+
+async def _prepare_admin_configuration_proposal(
+    property_id: str,
+    question: str,
+    conversation_id: str,
+    history: list[dict[str, str]],
+    principal: AdminPrincipal,
+    request: Request,
+    *,
+    untrusted_source_text: str | None = None,
+    only_action_names: set[str] | None = None,
+) -> dict[str, Any]:
+    request_id = _request_id(request)
+    denied = _restricted_ai_action_reason(question, principal)
+    if denied:
+        _audit_assistant_action(principal, "assistant.action.denied", property_id, "restricted_or_unavailable", conversation_id=conversation_id, request_id=request_id)
+        admin_copilot_store.append(conversation_id, property_id, principal.user_id, question, denied, "operations")
+        return _assistant_action_reply(question, conversation_id, denied)
+
+    scope_denial = _explicit_assistant_scope_denial(question, principal, property_id)
+    if scope_denial:
+        _audit_assistant_action(principal, "assistant.action.denied", property_id, "scope_violation", conversation_id=conversation_id, request_id=request_id)
+        admin_copilot_store.append(conversation_id, property_id, principal.user_id, question, scope_denial, "operations")
+        return _assistant_action_reply(question, conversation_id, scope_denial)
+
+    actions = configuration_action_registry.available(principal, property_id)
+    if only_action_names is not None:
+        actions = [action for action in actions if action.name in only_action_names]
+    if not actions:
+        answer = "Your account does not have permission to make configuration changes through Admin AI. No changes were made."
+        _audit_assistant_action(principal, "assistant.action.denied", property_id, "no_authorized_actions", conversation_id=conversation_id, request_id=request_id)
+        admin_copilot_store.append(conversation_id, property_id, principal.user_id, question, answer, "operations")
+        return _assistant_action_reply(question, conversation_id, answer)
+    targets = _assistant_action_targets(principal, property_id)
+    allowed_names = [item.name for item in actions]
+    try:
+        planned = await asyncio.wait_for(ai_models.concierge_chat(
+            property_id=property_id,
+            user_message=action_planner_prompt(
+                question, [item.public_dict() for item in actions], history, targets,
+                untrusted_source_text=untrusted_source_text,
+            ),
+            hotel_name="Configuration Assistant",
+            context=[],
+            requested_mode="advanced",
+            conversation_history=history,
+            system_prompt_override=ADMIN_ACTION_POLICY,
+        ), timeout=8.0)
+    except Exception as exc:
+        admin_auth.audit(principal, "assistant.copilot_provider_failure", "assistant", "configured_provider", property_id=property_id, metadata={"stage": "action_planning", "error_type": exc.__class__.__name__})
+        answer = "I couldn't prepare a configuration proposal with the configured AI service. No changes were made. You can use the relevant Settings screen instead."
+        admin_copilot_store.append(conversation_id, property_id, principal.user_id, question, answer, "operations")
+        return _assistant_action_reply(question, conversation_id, answer)
+
+    action_name, parameters = parse_action_plan(planned.text, allowed_names)
+    if action_name is None:
+        try:
+            raw_plan = json.loads(planned.text)
+        except (TypeError, json.JSONDecodeError):
+            raw_plan = {}
+        requested_name = raw_plan.get("action") if isinstance(raw_plan, dict) else None
+        if requested_name:
+            _audit_assistant_action(principal, "assistant.action.denied", property_id, str(requested_name)[:100], conversation_id=conversation_id, request_id=request_id)
+            answer = "That configuration action is not available to your account. No changes were made."
+        else:
+            answer = "I can prepare that change for review. Please include the property or assigned restaurant, the item to change, and the exact new values. No changes were made."
+        admin_copilot_store.append(conversation_id, property_id, principal.user_id, question, answer, "operations")
+        return _assistant_action_reply(question, conversation_id, answer)
+
+    context = _action_context(principal, property_id, request, conversation_id)
+    try:
+        action, validated_parameters, preview = configuration_action_registry.prepare(action_name, parameters, context)
+    except (ActionDenied, ActionValidationError, ValueError, HTTPException) as exc:
+        status = getattr(exc, "status_code", 403 if isinstance(exc, ActionDenied) else 422)
+        _audit_assistant_action(principal, "assistant.action.denied", property_id, action_name, conversation_id=conversation_id, request_id=request_id)
+        detail = getattr(exc, "detail", str(exc))
+        answer = str(detail) + " No changes were made."
+        admin_copilot_store.append(conversation_id, property_id, principal.user_id, question, answer, "operations")
+        response = _assistant_action_reply(question, conversation_id, answer)
+        response["action_error_status"] = status
+        return response
+
+    # Persist the original validated allowlisted input. Normalized values can
+    # contain complete schemas/defaults and are recomputed on confirmation.
+    proposal = _store_assistant_action_proposal(principal, context, action, parameters, preview)
+    answer = f"I prepared a {action.name.replace('.', ' ')} proposal. Review the current and proposed values below. No changes have been applied."
+    admin_copilot_store.append(conversation_id, property_id, principal.user_id, question, answer, "operations")
+    response = _assistant_action_reply(question, conversation_id, answer, proposal)
+    response["request_id"] = request_id
+    return response
+
+
 @app.post("/api/admin/properties/{property_id}/assistant/query")
 async def operations_assistant(property_id: str, payload: AssistantQueryPayload, request: Request) -> dict[str, Any]:
     principal = _admin_principal(request)
@@ -2078,6 +2687,14 @@ async def operations_assistant(property_id: str, payload: AssistantQueryPayload,
             "evidence": [], "evidence_items": [], "recommendations": [], "links": [], "downloads": [],
             "tool_activity": [], "confirmation_required": False, "action_status": "No changes were made.",
         }
+
+    if payload.intent == "auto" and (_is_configuration_request(question) or _restricted_ai_action_reason(question, principal)):
+        long_menu_request = len(question) > 1200 and bool(re.search(r"\b(?:menu|breakfast|lunch|dinner)\b", question, re.I))
+        return await _prepare_admin_configuration_proposal(
+            property_id, question[:1200] if long_menu_request else question,
+            conversation_id, history, principal, request,
+            untrusted_source_text=question if long_menu_request else None,
+        )
 
     tools_allowed = available_tools(diagnostic_tools, principal.permissions)
     if not tools_allowed:
@@ -2188,6 +2805,178 @@ async def operations_assistant(property_id: str, payload: AssistantQueryPayload,
     observability.log_diagnostic(context.request_id, property_id, principal.user_id, tool, period, finding)
     admin_auth.audit(principal, "assistant.diagnostic", "diagnostic", tool, property_id=property_id, metadata={"period": period, "tools": [item["tool"] for item in evidence], "confirmation_required": destructive})
     return response
+
+
+@app.post("/api/admin/properties/{property_id}/assistant/menu-import")
+async def import_admin_assistant_menu(
+    property_id: str,
+    payload: AssistantMenuImportPayload,
+    request: Request,
+) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    if not principal.can("assistant.use") or not principal.can_access_property(property_id):
+        raise HTTPException(status_code=403, detail="Property access denied.")
+    if not principal.can("restaurant.menu.edit"):
+        raise HTTPException(status_code=403, detail="Permission required: restaurant.menu.edit")
+    record = _require_property_record(property_id)
+    extracted: list[str] = []
+    try:
+        for upload in payload.files:
+            content = _decode_knowledge_upload(upload)
+            filename, extension = validate_file(upload.filename, upload.content_type, content)
+            blocks = parse_document(content, extension)
+            extracted.append(f"Source: {filename}\n" + "\n".join(block["text"] for block in blocks))
+        source_text = AIInputSanitizer.sanitize_text("\n\n".join(extracted))
+        if len(source_text) > 40000:
+            raise ValueError("Combined extracted menu text exceeds the 40,000 character review limit.")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    conversation_id = payload.conversation_id or admin_copilot_store.new_conversation_id()
+    history = admin_copilot_store.history(
+        conversation_id, property_id, principal.user_id, _assistant_history_permissions(principal),
+    )
+    question = AIInputSanitizer.sanitize_text(payload.question)
+    return await _prepare_admin_configuration_proposal(
+        property_id, question, conversation_id, history, principal, request,
+        untrusted_source_text=source_text, only_action_names={"menu.import_draft"},
+    )
+
+
+@app.post("/api/admin/properties/{property_id}/assistant/actions/{proposal_id}/confirm")
+async def confirm_assistant_configuration_action(
+    property_id: str,
+    proposal_id: str,
+    payload: AssistantActionConfirmationPayload,
+    request: Request,
+) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    if not principal.can("assistant.use") or not principal.can_access_property(property_id):
+        raise HTTPException(status_code=403, detail="Property access denied.")
+    existing = assistant_action_proposals.get(proposal_id, principal.user_id, property_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Configuration proposal not found.")
+    action = configuration_action_registry.get(existing["action_name"])
+    if action is None:
+        raise HTTPException(status_code=409, detail="This configuration action is no longer available.")
+    expected_phrase = f"APPLY {proposal_id[:6].upper()}"
+    if existing["confirmation_requirement"] == "strong" and not hmac.compare_digest(
+        (payload.confirmation_phrase or "").strip(), expected_phrase,
+    ):
+        raise HTTPException(status_code=400, detail=f"Type {expected_phrase} to confirm this higher-risk change.")
+
+    claimed = assistant_action_proposals.claim(proposal_id, principal.user_id, property_id)
+    if not claimed:
+        raise HTTPException(status_code=409, detail="This proposal has expired, was already used, or is no longer pending.")
+    confirmation_time = int(time.time())
+    context = _action_context(principal, property_id, request, claimed["conversation_id"])
+    try:
+        stored_parameters = json.loads(claimed["parameters_json"])
+        checked_action, checked_parameters, preview = configuration_action_registry.prepare(
+            claimed["action_name"], stored_parameters, context,
+        )
+        if checked_action.name != action.name:
+            raise ActionDenied("This action is no longer available.")
+        expected_current = encode_json(json.loads(claimed["current_json"]))
+        actual_current = encode_json(_action_safe_value(preview.get("current")))
+        if expected_current != actual_current:
+            assistant_action_proposals.finish(proposal_id, "stale", {"detail": "Configuration changed after proposal."}, confirmation_time)
+            _audit_assistant_action(
+                principal, "assistant.action.failed", property_id, action.name,
+                conversation_id=claimed["conversation_id"], request_id=claimed["request_id"],
+                restaurant_id=preview.get("restaurant_id"), old_value=json.loads(claimed["current_json"]),
+                new_value=preview.get("proposed"), permission=action.required_permission,
+                risk_level=action.risk_level, confirmed_at=confirmation_time, error_type="stale_proposal",
+            )
+            raise HTTPException(status_code=409, detail="The configuration changed after this proposal. Prepare a new proposal and review the latest values.")
+    except HTTPException:
+        raise
+    except (ActionDenied, ActionValidationError, KeyError, TypeError, ValueError) as exc:
+        assistant_action_proposals.finish(proposal_id, "failed", {"error_type": exc.__class__.__name__}, confirmation_time)
+        _audit_assistant_action(
+            principal, "assistant.action.denied", property_id, action.name,
+            conversation_id=claimed["conversation_id"], request_id=claimed["request_id"],
+            permission=action.required_permission, risk_level=action.risk_level,
+            confirmed_at=confirmation_time, error_type=exc.__class__.__name__,
+        )
+        raise HTTPException(status_code=403 if isinstance(exc, ActionDenied) else 422, detail=str(exc)) from exc
+
+    _audit_assistant_action(
+        principal, "assistant.action.confirmed", property_id, action.name,
+        conversation_id=claimed["conversation_id"], request_id=claimed["request_id"],
+        restaurant_id=preview.get("restaurant_id"), old_value=preview.get("current"),
+        new_value=preview.get("proposed"), permission=action.required_permission,
+        risk_level=action.risk_level, confirmed_at=confirmation_time,
+    )
+    try:
+        result = await configuration_action_registry.execute(checked_action, context, checked_parameters)
+        assistant_action_proposals.finish(proposal_id, "executed", _action_safe_value(result), confirmation_time)
+    except Exception as exc:
+        assistant_action_proposals.finish(proposal_id, "failed", {"error_type": exc.__class__.__name__}, confirmation_time)
+        _audit_assistant_action(
+            principal, "assistant.action.failed", property_id, action.name,
+            conversation_id=claimed["conversation_id"], request_id=claimed["request_id"],
+            restaurant_id=preview.get("restaurant_id"), permission=action.required_permission,
+            risk_level=action.risk_level, confirmed_at=confirmation_time,
+            error_type=exc.__class__.__name__,
+        )
+        if isinstance(exc, HTTPException):
+            raise
+        logger.exception("Admin AI configuration action failed", extra={"request_id": context.request_id, "property_id": property_id, "action": action.name})
+        raise HTTPException(status_code=422, detail="The configuration service rejected this change. The proposal cannot be reused.") from exc
+
+    _audit_assistant_action(
+        principal, action.audit_event, property_id, action.name,
+        conversation_id=claimed["conversation_id"], request_id=claimed["request_id"],
+        restaurant_id=preview.get("restaurant_id"), old_value=preview.get("current"),
+        new_value=preview.get("proposed"), permission=action.required_permission,
+        risk_level=action.risk_level, confirmed_at=confirmation_time, result=result,
+    )
+    followup_proposal = None
+    if action.name in {"menu.create_draft", "menu.import_draft"} and principal.can("restaurant.menu.approve") and isinstance(result, dict) and result.get("menu_id"):
+        followup_name = "menu.approve_and_publish"
+        followup_parameters = {"restaurant_id": result.get("restaurant_id"), "menu_id": result["menu_id"]}
+    elif action.name == "promotion.create_draft" and principal.can("restaurant.promotions.approve") and isinstance(result, dict) and result.get("promotion_id"):
+        followup_name = "promotion.approve_and_publish"
+        followup_parameters = {"restaurant_id": result.get("restaurant_id"), "promotion_id": result["promotion_id"]}
+    else:
+        followup_name = ""
+        followup_parameters = {}
+    if followup_name:
+        try:
+            followup_action, followup_validated, followup_preview = configuration_action_registry.prepare(
+                followup_name, followup_parameters, context,
+            )
+            followup_proposal = _store_assistant_action_proposal(
+                principal, context, followup_action, followup_parameters, followup_preview,
+            )
+        except (ActionDenied, ActionValidationError, HTTPException, ValueError) as exc:
+            admin_auth.audit(principal, "assistant.action.denied", "assistant_action", followup_name, property_id=property_id, metadata={"assistant_conversation_id": claimed["conversation_id"], "request_id": context.request_id, "error_type": exc.__class__.__name__})
+    return {
+        "status": "executed",
+        "proposal_id": proposal_id,
+        "action": action.name,
+        "result": _action_safe_value(result),
+        "next_proposal": followup_proposal,
+        "confirmation_timestamp": confirmation_time,
+        "request_id": context.request_id,
+    }
+
+
+@app.delete("/api/admin/properties/{property_id}/assistant/actions/{proposal_id}")
+async def cancel_assistant_configuration_action(property_id: str, proposal_id: str, request: Request) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    if not principal.can("assistant.use") or not principal.can_access_property(property_id):
+        raise HTTPException(status_code=403, detail="Property access denied.")
+    existing = assistant_action_proposals.get(proposal_id, principal.user_id, property_id)
+    if not existing or not assistant_action_proposals.cancel(proposal_id, principal.user_id, property_id):
+        raise HTTPException(status_code=409, detail="This proposal is no longer pending.")
+    _audit_assistant_action(
+        principal, "assistant.action.cancelled", property_id, existing["action_name"],
+        conversation_id=existing["conversation_id"], request_id=_request_id(request),
+        permission=existing["permission_used"], risk_level=existing["risk_level"],
+    )
+    return {"status": "cancelled", "proposal_id": proposal_id}
 
 
 @app.delete("/api/admin/properties/{property_id}/assistant/conversation")
@@ -2308,6 +3097,73 @@ async def admin_hotel_assistant(property_id: str, payload: HotelAssistantPayload
 @app.middleware("http")
 async def enforce_guest_origin(request: Request, call_next):
     path = request.url.path
+    normalized_path = path.rstrip("/") or "/"
+    if request.url.scheme != "https":
+        forwarded_scheme = _trusted_forwarded_scheme(request, normalized_path)
+        if forwarded_scheme:
+            request.scope["scheme"] = forwarded_scheme
+            # Starlette caches Request.url after the initial path lookup above.
+            if hasattr(request, "_url"):
+                del request._url
+    secure_environment = settings.app_environment in SECURE_ENVIRONMENTS
+    if secure_environment:
+        if not getattr(request.state, "request_id", None):
+            request.state.request_id = uuid.uuid4().hex
+        host_header = request.headers.get("host", "")
+        try:
+            normalized_host = (urlparse(f"//{host_header}").hostname or "").casefold().rstrip(".")
+        except ValueError:
+            normalized_host = ""
+        loopback_health_probe = False
+        if path in {"/health", "/health/live", "/health/ready"}:
+            try:
+                loopback_health_probe = bool(request.client and ipaddress.ip_address(request.client.host).is_loopback)
+            except ValueError:
+                pass
+        if not loopback_health_probe and normalized_host not in settings.canonical_hosts:
+            response = JSONResponse({"detail": "Unrecognized host."}, status_code=400)
+            return _apply_security_headers(request, response)
+        if request.url.scheme != "https" and path not in {"/health", "/health/live", "/health/ready"}:
+            response = JSONResponse({"detail": "HTTPS is required."}, status_code=426)
+            return _apply_security_headers(request, response)
+
+    protected_management_path = (
+        normalized_path == "/admin"
+        or normalized_path.startswith("/admin/")
+        or normalized_path == "/api/admin"
+        or normalized_path.startswith("/api/admin/")
+        or normalized_path in {"/metrics", "/health/details"}
+    )
+    if protected_management_path:
+        policy = _effective_management_access_settings()
+        decision = management_access_guard.evaluate(
+            request.client.host if request.client else "",
+            request.headers,
+            policy,
+            excluded_cidrs=_active_guest_network_ranges(),
+        )
+        if not decision.allowed:
+            security_audit.record(
+                _request_id(request),
+                _path_property_id(path),
+                "management_access_denied",
+                "denied",
+                decision.client_ip,
+                resource=normalized_path,
+                actor="unknown",
+                metadata={"method": request.method, "reason": "network_policy"},
+            )
+            logger.warning(
+                "management_access_denied request_id=%s path=%s reason=network_policy",
+                _request_id(request),
+                normalized_path,
+            )
+            response = JSONResponse({"detail": "Management access is restricted to approved networks."}, status_code=403)
+            return _apply_security_headers(request, response)
+
+    if (normalized_path == "/" or _is_guest_request_path(normalized_path)) and _guest_access_is_disabled(request):
+        response = JSONResponse({"detail": "Guest access is disabled."}, status_code=403)
+        return _apply_security_headers(request, response)
     guest_mutation = request.method not in {"GET", "HEAD", "OPTIONS"} and (
         path.startswith("/api/guest/") or path in {"/api/session/start", "/api/session/resume", "/api/authenticate", "/api/chat"}
     )
@@ -2318,8 +3174,184 @@ async def enforce_guest_origin(request: Request, call_next):
         request_host = request.headers.get("host", "").split(":", 1)[0].casefold().rstrip(".")
         if parsed.scheme not in {"http", "https"} or not origin_host or origin_host != request_host:
             security_audit.record(_request_id(request), None, "guest_origin_blocked", "denied", request.client.host if request.client else "", metadata={"path": path})
-            return JSONResponse({"detail": "Cross-origin guest mutation denied."}, status_code=403)
+            response = JSONResponse({"detail": "Cross-origin guest mutation denied."}, status_code=403)
+            return _apply_security_headers(request, response)
     return await call_next(request)
+
+
+def _source_ip_allowed(source_ip: str, allowed_cidrs: tuple[str, ...] | list[str]) -> bool:
+    if source_ip == "testclient":
+        source_ip = "127.0.0.1"
+    try:
+        address = ipaddress.ip_address(source_ip)
+        return any(address in ipaddress.ip_network(value, strict=False) for value in allowed_cidrs)
+    except ValueError:
+        return False
+
+
+def _default_management_access_settings() -> dict[str, Any]:
+    configured_proxies = [item.strip() for item in settings.forwarded_allow_ips.split(",") if item.strip() and item.strip() != "*"]
+    allowed = settings.admin_allowed_cidrs or DEFAULT_MANAGEMENT_CIDRS
+    try:
+        return normalize_management_access(
+            {
+                "management_access_enabled": True,
+                "management_allowed_cidrs": list(allowed),
+                "management_trusted_proxy_ranges": configured_proxies,
+            },
+            default_allowed_cidrs=(),
+            default_trusted_proxy_ranges=(),
+        )
+    except (TypeError, ValueError):
+        # Bad deployment bootstrap values must not create an unrestricted fallback.
+        return {
+            "management_access_enabled": True,
+            "management_allowed_cidrs": [],
+            "management_trusted_proxy_ranges": [],
+        }
+
+
+def _management_access_settings() -> dict[str, Any]:
+    defaults = _default_management_access_settings()
+    try:
+        stored = operations.get_network_access_settings(defaults)
+        return normalize_management_access(stored, default_allowed_cidrs=(), default_trusted_proxy_ranges=())
+    except Exception:
+        logger.exception("Management network policy could not be loaded; denying management access.")
+        return {"management_access_enabled": True, "management_allowed_cidrs": [], "management_trusted_proxy_ranges": []}
+
+
+def _effective_management_access_settings() -> dict[str, Any]:
+    try:
+        config = operations.get_network_access_settings(_default_management_access_settings())
+        deadline = config.get("_rollback_deadline")
+        previous = config.get("_rollback_config")
+        if deadline and previous and int(deadline) <= int(time.time()):
+            normalized = normalize_management_access(previous, default_allowed_cidrs=(), default_trusted_proxy_ranges=())
+            operations.save_network_access_settings(normalized)
+            security_audit.record(
+                uuid.uuid4().hex,
+                None,
+                "management_access_auto_rollback",
+                "success",
+                resource="network_access",
+                actor="system",
+                metadata={"reason": "administrator_confirmation_window_expired"},
+            )
+            return normalized
+        return normalize_management_access(config, default_allowed_cidrs=(), default_trusted_proxy_ranges=())
+    except Exception:
+        logger.exception("Management network policy could not be loaded; denying management access.")
+        return {"management_access_enabled": True, "management_allowed_cidrs": [], "management_trusted_proxy_ranges": []}
+
+
+def _active_guest_network_ranges() -> list[str]:
+    """Exclude configured guest-only networks from management access, even if ranges overlap."""
+    ranges: list[str] = []
+    for record in properties.list():
+        try:
+            guest_policy = normalize_guardrails(record.guardrails)
+        except (TypeError, ValueError):
+            continue
+        if not guest_policy.get("guest_network_only", True):
+            continue
+        for value in guest_policy.get("allowed_cidrs", []):
+            network = ipaddress.ip_network(value, strict=False)
+            # Loopback ranges are local application/testing addresses, never a
+            # hotel guest network, and must not disable local administrator access.
+            if network.is_loopback or value in ranges:
+                continue
+            ranges.append(value)
+    return ranges
+
+
+def _is_guest_request_path(path: str) -> bool:
+    return path.startswith("/api/guest/") or path in {"/api/session/start", "/api/session/resume", "/api/authenticate", "/api/chat"}
+
+
+def _request_is_loopback(request: Request) -> bool:
+    direct_ip = request.client.host if request.client else ""
+    if direct_ip == "testclient":
+        return True
+    try:
+        return ipaddress.ip_address(direct_ip).is_loopback
+    except ValueError:
+        return False
+
+
+def _trusted_forwarded_scheme(request: Request, path: str) -> str:
+    management_path = (
+        path == "/admin"
+        or path.startswith("/admin/")
+        or path == "/api/admin"
+        or path.startswith("/api/admin/")
+        or path in {"/metrics", "/health/details"}
+    )
+    if management_path:
+        trusted_ranges = _effective_management_access_settings().get("management_trusted_proxy_ranges", [])
+    elif path == "/" or _is_guest_request_path(path):
+        trusted_ranges = _guest_trusted_proxy_ranges(request)
+    else:
+        trusted_ranges = []
+    direct_ip = request.client.host if request.client else ""
+    try:
+        peer = ipaddress.ip_address(direct_ip)
+    except ValueError:
+        return ""
+    if not management_access_guard._matching_network(peer, trusted_ranges):
+        return ""
+    forwarded = request.headers.get("x-forwarded-proto", "").strip().lower()
+    return forwarded if forwarded in {"http", "https"} else ""
+
+
+def _guest_deployment_settings(request: Request) -> dict[str, Any]:
+    hostname = request.headers.get("host", "").split(":", 1)[0].casefold().rstrip(".")
+    records = properties.list()
+    record = next((item for item in records if str(item.domain or "").casefold().rstrip(".") == hostname), None)
+    if record is None and settings.property_id:
+        record = next((item for item in records if item.property_id == settings.property_id), None)
+    if record is None and len(records) == 1:
+        record = records[0]
+    return dict(((record.app_settings or {}).get("deployment") or {}) if record else {})
+
+
+def _guest_trusted_proxy_ranges(request: Request) -> list[str]:
+    hostname = request.headers.get("host", "").split(":", 1)[0].casefold().rstrip(".")
+    records = properties.list()
+    record = next((item for item in records if str(item.domain or "").casefold().rstrip(".") == hostname), None)
+    if record is None and settings.property_id:
+        record = next((item for item in records if item.property_id == settings.property_id), None)
+    if record is None and len(records) == 1:
+        record = records[0]
+    if record is None:
+        return []
+    guardrails = normalize_guardrails(record.guardrails)
+    ranges = list(guardrails.get("trusted_proxy_ranges", []))
+    legacy_proxy = str(((record.app_settings or {}).get("deployment") or {}).get("trusted_proxy") or "").strip()
+    if legacy_proxy:
+        try:
+            normalized = normalize_cidrs([legacy_proxy], "trusted_proxy")
+            ranges.extend(item for item in normalized if item not in ranges)
+        except ValueError:
+            return ranges
+    return ranges
+
+
+def _guest_access_is_disabled(request: Request) -> bool:
+    deployment = _guest_deployment_settings(request)
+    return deployment.get("guest_access_enabled") is False
+
+
+def _guest_https_is_required(request: Request) -> bool:
+    return _guest_deployment_settings(request).get("https_required", True) is not False
+
+
+def _admin_password_reset_url(request: Request, token: str) -> str:
+    del request  # Reset links must never inherit the request Host header.
+    origin = settings.public_base_url
+    if not origin:
+        raise RuntimeError("PUBLIC_BASE_URL must be configured before sending password reset links.")
+    return f"{origin}/admin/login#reset_token={quote(token, safe='')}"
 
 
 @app.get("/api/admin/properties/{property_id}/reports/export.xlsx")
@@ -2358,7 +3390,7 @@ async def save_personalization_policy(property_id: str, payload: GenericPayload)
 
 
 @app.put("/api/admin/properties/{property_id}")
-async def upsert_property(property_id: str, payload: PropertyPayload) -> dict[str, Any]:
+async def upsert_property(property_id: str, payload: PropertyPayload, request: Request) -> dict[str, Any]:
     if property_id != payload.property_id:
         raise HTTPException(status_code=400, detail="Property ID must match the request path.")
     if not payload.hotel_name.strip():
@@ -2369,6 +3401,12 @@ async def upsert_property(property_id: str, payload: PropertyPayload) -> dict[st
     record.hotel_name = payload.hotel_name.strip()
     record.timezone = payload.timezone.strip()
     existing = properties.get(property_id)
+    principal = _admin_principal(request)
+    if existing and not principal.can("network.manage"):
+        if _guest_network_settings(existing) != _guest_network_settings(record):
+            raise HTTPException(status_code=403, detail="Permission required: network.manage")
+        if _deployment_network_settings(existing) != _deployment_network_settings(record) or existing.domain != record.domain:
+            raise HTTPException(status_code=403, detail="Permission required: network.manage")
     if existing and not record.guardrails.get("antlabs_signature_secret"):
         record.guardrails["antlabs_signature_secret"] = (existing.guardrails or {}).get("antlabs_signature_secret", "")
     try:
@@ -2433,11 +3471,14 @@ async def update_property_guardrails(property_id: str, payload: GuardrailConfigP
     if not incoming.get("antlabs_signature_secret"):
         incoming["antlabs_signature_secret"] = secret
     try:
-        record.guardrails = normalize_guardrails(incoming)
+        normalized = normalize_guardrails(incoming)
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    properties.upsert(record)
     principal = _admin_principal(request)
+    if _guest_network_settings(record.guardrails) != _guest_network_settings(normalized) and not principal.can("network.manage"):
+        raise HTTPException(status_code=403, detail="Permission required: network.manage")
+    record.guardrails = normalized
+    properties.upsert(record)
     security_audit.record(_request_id(request), property_id, "network_policy_changed", "success", request.client.host if request.client else "", actor=principal.username)
     return {"config": public_guardrails(record.guardrails)}
 
@@ -2792,6 +3833,181 @@ async def verify_property_deployment(property_id: str) -> dict[str, Any]:
     return result
 
 
+@app.get("/api/admin/properties/{property_id}/network-access/status")
+async def network_access_status(property_id: str, request: Request) -> dict[str, Any]:
+    record = _require_property_record(property_id)
+    principal = _admin_principal(request)
+    return _network_access_status(record, principal)
+
+
+@app.put("/api/admin/properties/{property_id}/network-access/management")
+async def save_management_network_access(
+    property_id: str,
+    payload: ManagementAccessPayload,
+    request: Request,
+) -> dict[str, Any]:
+    record = _require_property_record(property_id)
+    principal = _admin_principal(request)
+    if principal.role_slug != "super-admin":
+        raise HTTPException(status_code=403, detail="Installation-wide management networks require a Super Admin.")
+
+    try:
+        candidate = normalize_management_access(
+            payload.model_dump(),
+            default_allowed_cidrs=(),
+            default_trusted_proxy_ranges=(),
+        )
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    current_raw = _effective_management_access_settings()
+    current = normalize_management_access(current_raw, default_allowed_cidrs=(), default_trusted_proxy_ranges=())
+    guest_ranges = normalize_guardrails(record.guardrails).get("allowed_cidrs", [])
+    unsafe = unsafe_management_networks(candidate["management_allowed_cidrs"])
+    overlaps = find_network_overlaps(guest_ranges, candidate["management_allowed_cidrs"])
+    current_source = management_access_guard.evaluate(
+        request.client.host if request.client else "",
+        request.headers,
+        candidate,
+    )
+    lockout = candidate["management_access_enabled"] and not current_source.allowed
+    required: list[str] = []
+    warnings: list[str] = []
+    if unsafe:
+        required.append("confirm_unsafe")
+        warnings.append("A /0 or public management network can expose Admin outside the hotel's private networks.")
+    if not candidate["management_access_enabled"]:
+        required.append("confirm_public_exposure")
+        warnings.append("Disabling Management Access removes the network restriction from Admin and metrics endpoints.")
+    if overlaps:
+        required.append("confirm_overlap")
+        warnings.append("Management and guest networks overlap: " + ", ".join(f"{management} overlaps {guest}" for guest, management in overlaps) + ".")
+    if lockout:
+        required.append("confirm_lockout")
+        warnings.append("The current administrator source IP is outside the new management allow list. Saving will block this administrator after this response.")
+    missing = [key for key in required if not getattr(payload, key)]
+    if missing:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "network_access_confirmation_required", "confirmations": missing, "warnings": warnings},
+        )
+
+    if lockout:
+        candidate["_rollback_config"] = current
+        candidate["_rollback_deadline"] = int(time.time()) + 600
+    operations.save_network_access_settings(candidate)
+    _audit_management_network_changes(
+        principal,
+        property_id,
+        request,
+        current,
+        normalize_management_access(candidate, default_allowed_cidrs=(), default_trusted_proxy_ranges=()),
+    )
+    return {
+        "management": _network_access_status(record, principal)["management"],
+        "warnings": warnings,
+        "rollback_pending": bool(lockout),
+    }
+
+
+@app.post("/api/admin/properties/{property_id}/network-access/management/finalize")
+async def finalize_management_network_access(property_id: str, request: Request) -> dict[str, bool]:
+    _require_property_record(property_id)
+    principal = _admin_principal(request)
+    if principal.role_slug != "super-admin":
+        raise HTTPException(status_code=403, detail="Installation-wide management networks require a Super Admin.")
+    current = operations.get_network_access_settings(_default_management_access_settings())
+    current.pop("_rollback_config", None)
+    current.pop("_rollback_deadline", None)
+    operations.save_network_access_settings(current)
+    admin_auth.audit(principal, "management_access_change_finalized", "network_access", property_id, property_id=property_id, ip_address=request.client.host if request.client else "")
+    return {"rollback_pending": False}
+
+
+@app.put("/api/admin/properties/{property_id}/network-access/guest")
+async def save_guest_network_access(
+    property_id: str,
+    payload: GuestNetworkAccessPayload,
+    request: Request,
+) -> dict[str, Any]:
+    record = _require_property_record(property_id)
+    principal = _admin_principal(request)
+    old_guardrails = normalize_guardrails(record.guardrails)
+    old_deployment = dict((record.app_settings or {}).get("deployment") or {})
+    try:
+        domain = _validated_guest_domain(payload.guest_domain)
+        cidrs = normalize_cidrs(payload.allowed_cidrs, "allowed_cidrs")
+        proxies = normalize_cidrs(payload.trusted_proxy_ranges, "trusted_proxy_ranges")
+        antlabs_ranges = normalize_cidrs(payload.antlabs_gateway_ranges, "antlabs_gateway_ranges")
+        if payload.session_network_revalidation not in {"suspend", "expire"}:
+            raise ValueError("session_network_revalidation must be 'suspend' or 'expire'.")
+        guest_url = _validated_guest_url(payload.guest_url, domain, payload.guest_https_required)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    management = _effective_management_access_settings()
+    overlaps = find_network_overlaps(cidrs, management.get("management_allowed_cidrs", []))
+    if overlaps and not payload.confirm_overlap:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "network_access_confirmation_required",
+                "confirmations": ["confirm_overlap"],
+                "warnings": ["Guest and management networks overlap: " + ", ".join(f"{guest} overlaps {admin}" for guest, admin in overlaps) + "."],
+            },
+        )
+
+    next_guardrails = dict(record.guardrails or {})
+    next_guardrails.update(
+        {
+            "guest_network_only": payload.guest_network_only,
+            "allowed_cidrs": cidrs,
+            "trusted_proxy_ranges": proxies,
+            "session_network_revalidation": payload.session_network_revalidation,
+            "guest_session_timeout": payload.guest_session_timeout,
+            "antlabs_gateway_enabled": payload.antlabs_gateway_enabled,
+            "antlabs_gateway_ranges": antlabs_ranges,
+        }
+    )
+    try:
+        next_guardrails = normalize_guardrails(next_guardrails)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    app_settings = dict(record.app_settings or {})
+    deployment = dict(old_deployment)
+    previous_domain = str(record.domain or "")
+    deployment.update(
+        {
+            "guest_access_enabled": payload.guest_access_enabled,
+            "public_base_url": guest_url,
+            "reverse_proxy": payload.reverse_proxy,
+            "https_required": payload.guest_https_required,
+            # Keep the historical single-proxy field synchronized for older deployments.
+            "trusted_proxy": proxies[0] if proxies else "",
+        }
+    )
+    if domain != previous_domain:
+        deployment.pop("last_verification", None)
+    app_settings["deployment"] = deployment
+    record.domain = domain
+    record.guardrails = next_guardrails
+    record.app_settings = app_settings
+    properties.upsert(record)
+    _audit_guest_network_changes(
+        principal,
+        property_id,
+        request,
+        previous_domain,
+        domain,
+        old_guardrails,
+        next_guardrails,
+        old_deployment,
+        deployment,
+    )
+    return _network_access_status(record, principal)
+
+
 @app.get("/api/admin/system/email")
 async def get_system_email_settings() -> dict[str, Any]:
     return operations.get_email_settings()
@@ -3004,7 +4220,7 @@ async def upload_floor_map(property_id: str, floor_id: str, payload: UploadPaylo
 async def floor_map_asset(property_id: str, map_id: str) -> FileResponse:
     _require_property(property_id)
     try:
-        return FileResponse(zones.floor_map_path(property_id, map_id))
+        return _floor_map_file_response(zones.floor_map_path(property_id, map_id))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -4283,6 +5499,9 @@ async def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
                 "answer": _authentication_guidance(auth_types),
             }
         )
+    stay_state = StayContextEngine().build(
+        property_record, session, hospitality, guest_identities, personalization, store,
+    )
     guest_context = build_guest_context(session.property_id, session, guest_identities, hospitality, conversation_history).prompt_data()
     try:
         local_now = datetime.now(ZoneInfo(property_record.timezone or "UTC"))
@@ -4315,6 +5534,7 @@ async def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
         ]
     guest_context["personalization_level"] = personalization_context["personalization_level"]
     guest_context["personalization"] = {"level": personalization_context["personalization_level"], "preferences": personalization_context["preferences"]}
+    guest_context["stay_context"] = StayContextEngine.prompt_context(stay_state)
     context.append({"title": "Guest stay context", "answer": json.dumps(guest_context, ensure_ascii=False)[:5000]})
     context = AIInputSanitizer.sanitize_context(context)
     policy = normalize_guardrails(property_record.guardrails)
@@ -4743,6 +5963,225 @@ def _require_property_record(property_id: str) -> PropertyRecord:
     return record
 
 
+GUEST_NETWORK_GUARDRAIL_FIELDS = (
+    "guest_network_only",
+    "allowed_cidrs",
+    "trusted_proxy_ranges",
+    "session_network_revalidation",
+    "guest_session_timeout",
+    "antlabs_gateway_enabled",
+    "antlabs_gateway_ranges",
+)
+
+
+def _guest_network_settings(value: PropertyRecord | dict[str, Any]) -> dict[str, Any]:
+    config = value.guardrails if isinstance(value, PropertyRecord) else value
+    normalized = normalize_guardrails(config)
+    return {key: normalized[key] for key in GUEST_NETWORK_GUARDRAIL_FIELDS}
+
+
+def _deployment_network_settings(record: PropertyRecord) -> dict[str, Any]:
+    deployment = dict((record.app_settings or {}).get("deployment") or {})
+    return {
+        key: deployment.get(key)
+        for key in ("guest_access_enabled", "public_base_url", "reverse_proxy", "https_required", "trusted_proxy")
+    }
+
+
+def _validated_guest_domain(value: str) -> str:
+    domain = str(value or "").strip().casefold().rstrip(".")
+    if not domain:
+        return ""
+    if not re.fullmatch(r"(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}", domain):
+        raise ValueError("Guest domain must be a valid hostname such as concierge.hotelabc.com.")
+    return domain
+
+
+def _validated_guest_url(value: str, domain: str, https_required: bool) -> str:
+    guest_url = str(value or "").strip()
+    if not guest_url:
+        return f"https://{domain}" if domain else ""
+    try:
+        parsed = urlparse(guest_url)
+        parsed_port = parsed.port
+    except ValueError as exc:
+        raise ValueError("Guest URL is invalid.") from exc
+    hostname = (parsed.hostname or "").casefold().rstrip(".")
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not hostname
+        or (domain and hostname != domain)
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+        or parsed.path not in {"", "/"}
+    ):
+        raise ValueError("Guest URL must be an HTTP(S) origin for the configured guest domain.")
+    if https_required and parsed.scheme != "https":
+        raise ValueError("Guest URL must use HTTPS while the HTTPS requirement is enabled.")
+    if parsed_port is not None and parsed_port not in ({443} if parsed.scheme == "https" else {80}):
+        return f"{parsed.scheme}://{hostname}:{parsed_port}"
+    return f"{parsed.scheme}://{hostname}"
+
+
+def _network_access_status(record: PropertyRecord, principal: AdminPrincipal) -> dict[str, Any]:
+    raw_management = operations.get_network_access_settings(_default_management_access_settings())
+    management = _effective_management_access_settings()
+    host_network = detected_server_network()
+    server_ip = host_network["server_ip"]
+    if server_ip:
+        address = ipaddress.ip_address(server_ip)
+        rendered_host = f"[{server_ip}]" if address.version == 6 else server_ip
+        admin_url = f"https://{rendered_host}/admin"
+    else:
+        admin_url = ""
+
+    deployment = dict((record.app_settings or {}).get("deployment") or {})
+    guest_config = public_guardrails(record.guardrails)
+    domain = str(record.domain or "")
+    verification = deployment.get("last_verification") or {}
+    raw_ssl_status = str(verification.get("ssl_status") or "not_checked")
+    days_remaining = verification.get("days_remaining")
+    if raw_ssl_status == "valid" and days_remaining is not None and int(days_remaining) <= 30:
+        ssl_status = "expiring"
+    elif raw_ssl_status == "valid":
+        ssl_status = "valid"
+    elif raw_ssl_status in {"invalid", "expired"}:
+        ssl_status = "invalid"
+    else:
+        ssl_status = "not_configured" if not domain else raw_ssl_status
+    guest_url = deployment.get("public_base_url") or (f"https://{domain}" if domain else "")
+    guest_enabled = deployment.get("guest_access_enabled", True) is not False
+    management_enabled = bool(management.get("management_access_enabled", True))
+    rollback_deadline = raw_management.get("_rollback_deadline")
+    rollback_pending = bool(rollback_deadline and int(rollback_deadline) > int(time.time()))
+    overlaps = find_network_overlaps(
+        guest_config.get("allowed_cidrs", []),
+        management.get("management_allowed_cidrs", []),
+    )
+    guest_ready = bool(
+        guest_enabled
+        and domain
+        and verification.get("domain_status") == "verified"
+        and ssl_status == "valid"
+        and deployment.get("https_required", True) is not False
+    )
+    return {
+        "management": {
+            "enabled": management_enabled,
+            "server_ip": server_ip or "",
+            "admin_url": admin_url,
+            "network_interface": host_network["network_interface"],
+            "allowed_cidrs": management.get("management_allowed_cidrs", []),
+            "trusted_proxy_ranges": management.get("management_trusted_proxy_ranges", []),
+            "https_status": "enabled" if settings.app_environment in SECURE_ENVIRONMENTS else "not_configured",
+            "port": 443,
+            "access_protection": "private_network_only" if management_enabled and not unsafe_management_networks(management.get("management_allowed_cidrs", [])) else "unrestricted",
+            "status": "protected" if management_enabled and management.get("management_allowed_cidrs") and not unsafe_management_networks(management.get("management_allowed_cidrs", [])) else "unprotected",
+            "can_manage": principal.role_slug == "super-admin",
+            "rollback_pending": rollback_pending,
+            "unsafe_networks": unsafe_management_networks(management.get("management_allowed_cidrs", [])),
+            "overlaps_guest_networks": [{"management": admin, "guest": guest} for guest, admin in overlaps],
+        },
+        "guest": {
+            "enabled": guest_enabled,
+            "domain": domain,
+            "url": guest_url,
+            "https_required": deployment.get("https_required", True) is not False,
+            "ssl_status": ssl_status,
+            "ssl_issuer": verification.get("issuer", ""),
+            "ssl_expires_at": verification.get("expires_at"),
+            "ssl_days_remaining": days_remaining,
+            "ssl_error": verification.get("ssl_error", ""),
+            "domain_status": verification.get("domain_status") or ("pending" if domain else "not_configured"),
+            "resolved_addresses": verification.get("resolved_addresses", []),
+            "last_checked_at": verification.get("checked_at"),
+            "reverse_proxy": bool(deployment.get("reverse_proxy", False)),
+            "guest_network_only": guest_config["guest_network_only"],
+            "allowed_cidrs": guest_config["allowed_cidrs"],
+            "trusted_proxy_ranges": guest_config["trusted_proxy_ranges"],
+            "session_network_revalidation": guest_config["session_network_revalidation"],
+            "guest_session_timeout": guest_config["guest_session_timeout"],
+            "antlabs_gateway_enabled": guest_config["antlabs_gateway_enabled"],
+            "antlabs_gateway_ranges": guest_config["antlabs_gateway_ranges"],
+            "status": "ready" if guest_ready else ("not_configured" if not domain else "setup_required"),
+        },
+    }
+
+
+def _audit_network_setting(
+    principal: AdminPrincipal,
+    property_id: str,
+    request: Request,
+    action: str,
+    setting: str,
+    old_value: Any,
+    new_value: Any,
+) -> None:
+    admin_auth.audit(
+        principal,
+        action,
+        "network_access",
+        setting,
+        property_id=property_id,
+        ip_address=request.client.host if request.client else "",
+        metadata={"old_value": old_value, "new_value": new_value},
+    )
+
+
+def _audit_management_network_changes(
+    principal: AdminPrincipal,
+    property_id: str,
+    request: Request,
+    old: dict[str, Any],
+    new: dict[str, Any],
+) -> None:
+    if old["management_access_enabled"] != new["management_access_enabled"]:
+        action = "management_access_enabled" if new["management_access_enabled"] else "management_access_disabled"
+        _audit_network_setting(principal, property_id, request, action, "management_access_enabled", old["management_access_enabled"], new["management_access_enabled"])
+    old_networks, new_networks = set(old["management_allowed_cidrs"]), set(new["management_allowed_cidrs"])
+    for network in sorted(new_networks - old_networks):
+        _audit_network_setting(principal, property_id, request, "management_network_added", network, "", network)
+    for network in sorted(old_networks - new_networks):
+        _audit_network_setting(principal, property_id, request, "management_network_removed", network, network, "")
+    if old["management_trusted_proxy_ranges"] != new["management_trusted_proxy_ranges"]:
+        _audit_network_setting(principal, property_id, request, "management_proxy_changed", "management_trusted_proxy_ranges", old["management_trusted_proxy_ranges"], new["management_trusted_proxy_ranges"])
+
+
+def _audit_guest_network_changes(
+    principal: AdminPrincipal,
+    property_id: str,
+    request: Request,
+    old_domain: str,
+    new_domain: str,
+    old_guardrails: dict[str, Any],
+    new_guardrails: dict[str, Any],
+    old_deployment: dict[str, Any],
+    new_deployment: dict[str, Any],
+) -> None:
+    old_enabled = old_deployment.get("guest_access_enabled", True) is not False
+    new_enabled = new_deployment.get("guest_access_enabled", True) is not False
+    if old_enabled != new_enabled:
+        action = "guest_access_enabled" if new_enabled else "guest_access_disabled"
+        _audit_network_setting(principal, property_id, request, action, "guest_access_enabled", old_enabled, new_enabled)
+    if old_domain != new_domain:
+        _audit_network_setting(principal, property_id, request, "guest_domain_changed", "guest_domain", old_domain, new_domain)
+    if old_deployment.get("https_required", True) != new_deployment.get("https_required", True):
+        _audit_network_setting(principal, property_id, request, "guest_https_requirement_changed", "guest_https_required", old_deployment.get("https_required", True), new_deployment.get("https_required", True))
+    old_networks, new_networks = set(old_guardrails["allowed_cidrs"]), set(new_guardrails["allowed_cidrs"])
+    for network in sorted(new_networks - old_networks):
+        _audit_network_setting(principal, property_id, request, "guest_network_added", network, "", network)
+    for network in sorted(old_networks - new_networks):
+        _audit_network_setting(principal, property_id, request, "guest_network_removed", network, network, "")
+    for field in ("trusted_proxy_ranges", "antlabs_gateway_ranges", "antlabs_gateway_enabled", "guest_network_only", "session_network_revalidation", "guest_session_timeout"):
+        if old_guardrails[field] != new_guardrails[field]:
+            _audit_network_setting(principal, property_id, request, "guest_network_policy_changed", field, old_guardrails[field], new_guardrails[field])
+    for field in ("reverse_proxy", "trusted_proxy", "public_base_url"):
+        if old_deployment.get(field) != new_deployment.get(field):
+            _audit_network_setting(principal, property_id, request, "guest_deployment_changed", field, old_deployment.get(field), new_deployment.get(field))
+
+
 def _deployment_status(record: PropertyRecord) -> dict[str, Any]:
     deployment = dict((record.app_settings or {}).get("deployment") or {})
     domain = str(record.domain or "").strip().lower()
@@ -4788,10 +6227,30 @@ async def _verify_deployment(record: PropertyRecord) -> dict[str, Any]:
     except OSError as exc:
         result["detail"] = f"DNS lookup failed: {exc}"
         return result
+    if not addresses:
+        result["domain_status"] = "unresolved"
+        return result
+    try:
+        resolved_addresses = [ipaddress.ip_address(address) for address in addresses]
+    except ValueError:
+        result.update({"domain_status": "blocked", "ssl_status": "not_checked", "detail": "Domain resolved to an invalid address."})
+        return result
+    if any(
+        address.is_loopback
+        or address.is_link_local
+        or address.is_unspecified
+        or address.is_multicast
+        or address.is_reserved
+        or (not address.is_global and not address.is_private)
+        for address in resolved_addresses
+    ):
+        result.update({"domain_status": "blocked", "ssl_status": "not_checked", "detail": "Domain resolves to a non-public network address."})
+        return result
+    selected_address = str(resolved_addresses[0])
 
     def inspect_certificate() -> dict[str, Any]:
         context = ssl.create_default_context()
-        with socket.create_connection((domain, 443), timeout=7) as raw_socket:
+        with socket.create_connection((selected_address, 443), timeout=7) as raw_socket:
             with context.wrap_socket(raw_socket, server_hostname=domain) as tls_socket:
                 certificate = tls_socket.getpeercert()
         expires = ssl.cert_time_to_seconds(certificate["notAfter"])
@@ -4894,4 +6353,24 @@ async def _dispatch_webhooks(property_id: str, event_name: str, payload: dict[st
 
 # Fail application startup if an administrator API route is missing an explicit
 # permission/authentication policy. The inventory is checked again in tests.
+configuration_action_services = {
+    "properties": properties,
+    "hospitality": hospitality,
+    "operations": operations,
+    "knowledge_management": knowledge_management,
+    "knowledge_categories": CATEGORIES,
+    "ai_provider_store": ai_provider_store,
+    "require_restaurant_access": _require_restaurant_access,
+    "validate_design_config": validate_design_config,
+    "normalize_guardrails": normalize_guardrails,
+    "validated_guest_domain": _validated_guest_domain,
+    "validated_guest_url": _validated_guest_url,
+    "effective_management_access": _effective_management_access_settings,
+    "management_access_guard": management_access_guard,
+    "GuestNetworkAccessPayload": GuestNetworkAccessPayload,
+    "ManagementAccessPayload": ManagementAccessPayload,
+    "save_guest_network_access": save_guest_network_access,
+    "save_management_network_access": save_management_network_access,
+}
+register_admin_configuration_actions(configuration_action_registry, configuration_action_services)
 bind_admin_route_policies(app)

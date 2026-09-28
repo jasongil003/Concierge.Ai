@@ -4,6 +4,7 @@ import io
 import base64
 import sqlite3
 import time
+import zipfile
 from dataclasses import replace
 from pathlib import Path
 
@@ -68,6 +69,34 @@ def test_validation_rejects_unsupported_mime_size_magic_and_paths(monkeypatch):
     monkeypatch.setattr("app.knowledge_management.settings", replace(settings, knowledge_max_file_bytes=3))
     with pytest.raises(ValueError, match="limit"):
         validate_file("guide.txt", "text/plain", b"too many bytes")
+
+
+def test_document_upload_rejects_csv_formulas_and_office_zip_bombs():
+    with pytest.raises(ValueError, match="formula cells"):
+        validate_file("rates.csv", "text/csv", b"item,price\nSuite,=1+1\n")
+
+    bomb = io.BytesIO()
+    with zipfile.ZipFile(bomb, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("word/document.xml", "A" * 100_000)
+    with pytest.raises(ValueError, match="compression ratio"):
+        validate_file(
+            "guide.docx",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            bomb.getvalue(),
+        )
+
+
+def test_office_document_upload_rejects_embedded_active_content():
+    archive_bytes = io.BytesIO()
+    with zipfile.ZipFile(archive_bytes, "w", compression=zipfile.ZIP_STORED) as archive:
+        archive.writestr("word/document.xml", "<document/>")
+        archive.writestr("word/vbaProject.bin", b"macro")
+    with pytest.raises(ValueError, match="unsupported embedded active content"):
+        validate_file(
+            "guide.docx",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            archive_bytes.getvalue(),
+        )
 
 
 def test_review_publish_expiration_visibility_and_deletion(tmp_path: Path):

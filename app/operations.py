@@ -379,6 +379,35 @@ class OperationsStore:
             result["password"] = self.secrets.decrypt(encrypted) if encrypted else ""
         return result
 
+    def get_network_access_settings(self, defaults: dict[str, Any]) -> dict[str, Any]:
+        """Return installation-wide management network policy."""
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT config_json FROM platform_settings WHERE setting_key = 'network_access'"
+            ).fetchone()
+        if row is None:
+            return dict(defaults)
+        try:
+            config = json.loads(row["config_json"] or "{}")
+        except (TypeError, json.JSONDecodeError):
+            return {"management_access_enabled": True, "management_allowed_cidrs": [], "management_trusted_proxy_ranges": []}
+        if not isinstance(config, dict):
+            return {"management_access_enabled": True, "management_allowed_cidrs": [], "management_trusted_proxy_ranges": []}
+        return {**defaults, **config}
+
+    def save_network_access_settings(self, config: dict[str, Any]) -> None:
+        now = int(time.time())
+        with self._connect() as db:
+            db.execute(
+                """
+                INSERT INTO platform_settings(setting_key, config_json, secret_encrypted, updated_at)
+                VALUES ('network_access', ?, '', ?)
+                ON CONFLICT(setting_key) DO UPDATE SET
+                    config_json=excluded.config_json, updated_at=excluded.updated_at
+                """,
+                (json.dumps(config, separators=(",", ":")), now),
+            )
+
     def save_email_settings(self, payload: dict[str, Any]) -> dict[str, Any]:
         current = self.get_email_settings(include_secret=True)
         host = str(payload.get("host", "")).strip()[:255]

@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 const e2eDatabase = join(tmpdir(), `concierge-ai-e2e-${process.pid}.db`);
 const serverCommand = process.env.PLAYWRIGHT_SERVER_COMMAND
-  || ".venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8092";
+  || ".venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8092 --no-proxy-headers";
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -23,7 +23,14 @@ export default defineConfig({
   },
   webServer: {
     command: serverCommand,
-    env: { ...process.env, DB_PATH: e2eDatabase, PROPERTY_ID: "", ALLOW_BODY_PROPERTY_SELECTION: "true" },
+    env: {
+      ...process.env,
+      ADMIN_BOOTSTRAP_PASSWORD: process.env.ADMIN_BOOTSTRAP_PASSWORD || "PlaywrightOnly-Admin-123!",
+      CREDENTIAL_ENCRYPTION_SECRET: process.env.CREDENTIAL_ENCRYPTION_SECRET || "PlaywrightOnly-Encryption-Secret-1234567890",
+      DB_PATH: e2eDatabase,
+      PROPERTY_ID: "",
+      ALLOW_BODY_PROPERTY_SELECTION: "true",
+    },
     url: "http://127.0.0.1:8092/health",
     reuseExistingServer: !process.env.CI,
     timeout: 20_000,

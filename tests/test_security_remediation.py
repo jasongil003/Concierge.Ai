@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
 import app.main as main_module
 from app.admin_auth import AdminAuthStore
@@ -25,6 +26,10 @@ def _production_settings(tmp_path: Path, **overrides) -> Settings:
         antlabs_auth_url="https://gateway.example.test/login/main.ant?c=proc",
         allow_body_property_selection=False,
         metrics_token="m" * 40,
+        canonical_hosts=("concierge.example.test", "admin.example.test"),
+        admin_allowed_cidrs=("198.51.100.14/32",),
+        public_base_url="https://concierge.example.test",
+        forwarded_allow_ips="172.29.0.2,172.29.0.1",
     )
     return replace(safe, **overrides)
 
@@ -47,6 +52,25 @@ def test_production_requires_secure_cookie(tmp_path: Path):
     with pytest.raises(RuntimeError, match="ADMIN_COOKIE_SECURE"):
         validate_production_settings(
             _production_settings(tmp_path, admin_cookie_secure=False)
+        )
+
+
+def test_production_requires_canonical_hosts_and_admin_network_restrictions(tmp_path: Path):
+    with pytest.raises(RuntimeError, match="CANONICAL_HOSTS"):
+        validate_production_settings(_production_settings(tmp_path, canonical_hosts=()))
+    with pytest.raises(RuntimeError, match="ADMIN_ALLOWED_CIDRS"):
+        validate_production_settings(_production_settings(tmp_path, admin_allowed_cidrs=("0.0.0.0/0",)))
+    with pytest.raises(RuntimeError, match="PUBLIC_BASE_URL"):
+        validate_production_settings(_production_settings(tmp_path, public_base_url="http://concierge.example.test"))
+    with pytest.raises(RuntimeError, match="FORWARDED_ALLOW_IPS"):
+        validate_production_settings(_production_settings(tmp_path, forwarded_allow_ips="*"))
+
+
+def test_staging_has_production_auth_and_gateway_requirements(tmp_path: Path):
+    with pytest.raises(RuntimeError, match="ANTLABS_MODE=mock"):
+        validate_production_settings(
+            _production_settings(tmp_path, app_environment="staging", antlabs_mode="mock"),
+            check_filesystem=False,
         )
 
 
@@ -101,10 +125,124 @@ def test_development_can_use_explicit_demo_settings(tmp_path: Path):
         property_id="tenant-a",
         antlabs_mode="mock",
         admin_cookie_secure=False,
-        credential_encryption_secret="",
+        credential_encryption_secret="d" * 32,
         allow_body_property_selection=True,
     )
     validate_production_settings(development)
+
+
+def test_every_environment_requires_explicit_bootstrap_and_encryption_secrets(tmp_path: Path):
+    with pytest.raises(RuntimeError, match="ADMIN_BOOTSTRAP_PASSWORD must be explicitly set"):
+        validate_production_settings(_production_settings(tmp_path, app_environment="development", admin_bootstrap_password=""))
+    with pytest.raises(RuntimeError, match="CREDENTIAL_ENCRYPTION_SECRET must contain at least 32 characters"):
+        validate_production_settings(_production_settings(tmp_path, app_environment="development", credential_encryption_secret=""))
+
+
+def test_production_host_and_transport_boundary_reject_spoofing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    secure_settings = replace(
+        main_module.settings,
+        app_environment="production",
+        canonical_hosts=("concierge.example.test",),
+        admin_allowed_cidrs=("198.51.100.14/32",),
+    )
+    monkeypatch.setattr(main_module, "settings", secure_settings)
+
+    with TestClient(app, base_url="http://concierge.example.test") as client:
+        insecure = client.get("/api/hotel")
+    with TestClient(app, base_url="https://concierge.example.test") as client:
+        spoofed_ip = client.get(
+            "/admin/login",
+            headers={"X-Forwarded-For": "198.51.100.14"},
+            follow_redirects=False,
+        )
+        bad_host = client.get("/admin/login", headers={"Host": "attacker.example"})
+
+    assert insecure.status_code == 426
+    assert insecure.headers["strict-transport-security"].startswith("max-age=")
+    assert spoofed_ip.status_code == 403
+    assert bad_host.status_code == 400
+
+
+def test_production_allows_admin_only_from_configured_network(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    secure_settings = replace(
+        main_module.settings,
+        app_environment="production",
+        canonical_hosts=("concierge.example.test",),
+        admin_allowed_cidrs=("127.0.0.0/8",),
+    )
+    monkeypatch.setattr(main_module, "settings", secure_settings)
+    with TestClient(app, base_url="https://concierge.example.test") as client:
+        response = client.get("/admin/login")
+    assert response.status_code == 200
+
+
+def test_production_documents_are_disabled_but_remain_available_for_development():
+    assert main_module.documentation_options("production") == {
+        "docs_url": None,
+        "redoc_url": None,
+        "openapi_url": None,
+    }
+    assert main_module.documentation_options("staging")["openapi_url"] is None
+    assert main_module.documentation_options("development")["openapi_url"] == "/openapi.json"
+
+
+def test_password_recovery_link_uses_configured_public_origin(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        main_module,
+        "settings",
+        replace(main_module.settings, public_base_url="https://concierge.example.test"),
+    )
+    request = Request({
+        "type": "http",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/api/admin/auth/password-reset/request",
+        "query_string": b"",
+        "headers": [(b"host", b"attacker.example")],
+        "server": ("attacker.example", 80),
+        "client": ("127.0.0.1", 12345),
+        "http_version": "1.1",
+    })
+    assert main_module._admin_password_reset_url(request, "opaque-token") == (
+        "https://concierge.example.test/admin/login#reset_token=opaque-token"
+    )
+
+
+def test_password_recovery_link_fails_closed_without_public_origin(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(main_module, "settings", replace(main_module.settings, public_base_url=""))
+    request = Request({
+        "type": "http",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/api/admin/auth/password-reset/request",
+        "query_string": b"",
+        "headers": [(b"host", b"attacker.example")],
+        "server": ("attacker.example", 80),
+        "client": ("127.0.0.1", 12345),
+        "http_version": "1.1",
+    })
+    with pytest.raises(RuntimeError, match="PUBLIC_BASE_URL"):
+        main_module._admin_password_reset_url(request, "opaque-token")
+
+
+def test_deployment_verification_rejects_private_dns_answers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import asyncio
+    import socket
+
+    record = PropertyRecord(property_id="hotel-a", hotel_name="Hotel A", domain="hotel.example.test")
+    monkeypatch.setattr(
+        main_module.socket,
+        "getaddrinfo",
+        lambda *args, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443))],
+    )
+
+    def unexpected_connection(*args, **kwargs):
+        raise AssertionError("A non-public DNS answer must never receive a connection.")
+
+    monkeypatch.setattr(main_module.socket, "create_connection", unexpected_connection)
+    result = asyncio.run(main_module._verify_deployment(record))
+    assert result["domain_status"] == "blocked"
+    assert result["ssl_status"] == "not_checked"
 
 
 def _tenant_stores(tmp_path: Path) -> tuple[PropertyStore, SessionStore]:
@@ -151,6 +289,23 @@ def test_hotel_a_guest_cannot_access_hotel_b_session(tmp_path: Path, monkeypatch
 
     assert response.status_code == 403
     assert response.json()["policy"] == "property_isolation"
+
+
+def test_stolen_guest_session_id_replays_within_its_property_network(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    property_store = PropertyStore(tmp_path / "guest-replay.db")
+    property_store.upsert(PropertyRecord(property_id="hotel-a", hotel_name="Hotel A", domain="a.example.test"))
+    session_store = SessionStore(tmp_path / "guest-replay.db")
+    session = session_store.create("hotel-a", "original-browser-client")
+    monkeypatch.setattr(main_module, "properties", property_store)
+    monkeypatch.setattr(main_module, "store", session_store)
+    monkeypatch.setattr(main_module, "settings", replace(main_module.settings, allow_body_property_selection=False))
+
+    # Guest APIs treat the high-entropy session ID as a bearer credential; they do not
+    # require the client_id that resume_session checks.
+    with TestClient(app, base_url="http://a.example.test") as client:
+        response = client.get(f"/api/guest/personalization?session_id={session.session_id}")
+
+    assert response.status_code == 200
 
 
 def test_hotel_a_admin_cannot_access_hotel_b_without_permission(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

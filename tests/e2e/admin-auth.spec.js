@@ -64,7 +64,7 @@ test("password recovery buttons open, submit, and close the dialog", async ({ pa
 test("username login opens admin and logout revokes the session", async ({ page }) => {
   await page.goto("/admin/login");
   await page.locator("#username").fill("admin");
-  await page.getByLabel("Password", { exact: true }).fill("ChangeMe123!");
+  await page.getByLabel("Password", { exact: true }).fill("PlaywrightOnly-Admin-123!");
   await page.getByRole("button", { name: "Sign In" }).click();
   await expect(page).toHaveURL(/\/admin$/);
   await expect(page.locator("#overview-title")).toBeVisible();
