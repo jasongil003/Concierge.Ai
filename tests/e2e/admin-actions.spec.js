@@ -57,14 +57,15 @@ test("admin data buttons: catalog, request, and recommendation workflows", async
   await expect(page.locator("#catalog-service-list .compact-row").filter({ hasText: serviceName })).toHaveCount(2);
 
   await openPanel(page, "Guest Requests");
+  await expect(page.locator("#request-last-updated")).toContainText("Updated");
   await page.locator("#service-room").fill("1503");
   await page.locator("#service-type").selectOption({ label: serviceName });
   await page.locator("#service-description").fill("Button workflow verification");
   await page.getByRole("button", { name: "Create Request" }).click();
-  const requestRow = page.locator("#service-request-list .compact-row").filter({ hasText: serviceName }).first();
+  const requestRow = page.locator("#service-request-list article").filter({ hasText: serviceName }).first();
   await expect(requestRow).toBeVisible();
-  await requestRow.getByRole("button", { name: "Mark assigned" }).click();
-  await expect(requestRow).toContainText("assigned");
+  await requestRow.getByRole("button", { name: "Mark Assigned", exact: true }).click();
+  await expect(requestRow).toContainText("Assigned");
 
   await openPanel(page, "Recommendations");
   await page.locator("#recommendation-name").fill(recommendationName);
@@ -86,6 +87,32 @@ test("admin data buttons: catalog, request, and recommendation workflows", async
   await serviceRow.getByRole("button", { name: "Delete" }).click();
 });
 
+test("room types can be created, edited, and deleted with confirmation", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "The room inventory workflow only needs one browser.");
+  const roomName = `Room type audit ${Date.now().toString(36)}`;
+  await page.goto("/admin");
+  await openPanel(page, "Rooms");
+  await page.locator("#room-name").fill(roomName);
+  await page.locator("#room-description").fill("Guest-facing room type created by the admin workflow check.");
+  await page.locator("#room-capacity").fill("2");
+  await page.getByRole("button", { name: "Save Room" }).click();
+  const roomRow = page.locator("#room-list .compact-row").filter({ hasText: roomName });
+  await expect(roomRow).toBeVisible();
+  await roomRow.getByRole("button", { name: "Edit" }).click();
+  await page.locator("#room-description").fill("Updated guest-facing room description.");
+  await page.getByRole("button", { name: "Save Room" }).click();
+  await expect(roomRow).toContainText("Updated guest-facing room description.");
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toContain(roomName);
+    await dialog.dismiss();
+  });
+  await roomRow.getByRole("button", { name: "Delete" }).click();
+  await expect(roomRow).toBeVisible();
+  page.once("dialog", (dialog) => dialog.accept());
+  await roomRow.getByRole("button", { name: "Delete" }).click();
+  await expect(roomRow).toHaveCount(0);
+});
+
 test("admin restaurant workflow creates, approves, publishes, edits, and archives venue content", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium", "The mutation workflow only needs one browser profile.");
   const suffix = Date.now().toString(36);
@@ -96,7 +123,7 @@ test("admin restaurant workflow creates, approves, publishes, edits, and archive
 
   await page.goto("/admin");
   await openPanel(page, "Restaurants");
-  await page.getByRole("button", { name: "+ Add Restaurant" }).click();
+  await page.locator("#add-restaurant").click();
   await page.locator("#restaurant-name").fill(restaurantName);
   await page.locator("#restaurant-hours-monday").fill("06:30-22:00");
   await page.locator("#restaurant-meals").fill("breakfast, dinner");
@@ -202,15 +229,44 @@ test("admin operations buttons: map, stay memory, location, and intro", async ({
 
   await page.goto("/admin");
   await openPanel(page, "Zones & Maps");
-  await page.locator("#map-object-name").fill(`Audit Zone ${suffix}`);
-  await page.getByRole("button", { name: "Save Object" }).click();
-  await expect(page.locator("#toast")).toContainText("Map object saved");
+  const buildingName = `Audit Building ${suffix}`;
+  const floorName = `Audit Floor ${suffix}`;
+  const zoneName = `Audit Zone ${suffix}`;
+  await page.locator("#add-map-building").click();
+  await page.locator("#map-structure-name").fill(buildingName);
+  await page.locator("#map-structure-submit").click();
+  await expect(page.locator("#zone-building-select")).toHaveValue(/.+/);
+  await page.locator("#add-map-floor").click();
+  await page.locator("#map-structure-name").fill(floorName);
+  await page.locator("#map-floor-level").fill("1");
+  await page.locator("#map-structure-submit").click();
+  await expect(page.locator("#zone-floor-select")).toHaveValue(/.+/);
+  await expect(page.locator("#map-canvas-empty")).toBeVisible();
+  await page.locator("#map-empty-start-drawing").click();
+  await expect(page.locator("#floor-map-canvas")).toHaveAttribute("data-tool", "rectangle");
+  await expect(page.locator("#map-canvas-empty")).toBeHidden();
 
-  await page.locator("#map-object-type").selectOption("access_point");
+  await page.locator('[data-map-tool="rectangle"]').click();
+  const canvas = page.locator("#floor-map-canvas");
+  const canvasBounds = await canvas.boundingBox();
+  expect(canvasBounds).not.toBeNull();
+  await page.mouse.move(canvasBounds.x + canvasBounds.width * 0.1, canvasBounds.y + canvasBounds.height * 0.1);
+  await page.mouse.down();
+  await page.mouse.move(canvasBounds.x + canvasBounds.width * 0.8, canvasBounds.y + canvasBounds.height * 0.8);
+  await page.mouse.up();
+  await expect(page.locator("#map-object-form")).toBeVisible();
+  await page.locator("#map-object-name").fill(zoneName);
+  await page.locator("#save-map-object").click();
+  await expect(page.locator("#toast")).toContainText("Map changes saved");
+
+  await page.locator('[data-map-tool="access_point"]').click();
+  await canvas.click({ position: { x: canvasBounds.width / 2, y: canvasBounds.height / 2 } });
+  await expect(page.locator("#map-object-form")).toBeVisible();
+  await page.locator("#map-linked-zone").selectOption({ label: zoneName });
   await page.locator("#map-object-name").fill(`Audit AP ${suffix}`);
   await page.locator("#map-ap-identifier").fill(accessPoint);
-  await page.getByRole("button", { name: "Save Object" }).click();
-  await expect(page.locator("#toast")).toContainText("Map object saved");
+  await page.locator("#save-map-object").click();
+  await expect(page.locator("#toast")).toContainText("Map changes saved");
 
   await page.locator("#floor-map-upload").setInputFiles({
     name: `audit-${suffix}.svg`,
@@ -220,13 +276,20 @@ test("admin operations buttons: map, stay memory, location, and intro", async ({
   await expect(page.locator("#toast")).toContainText("Floor plan uploaded");
 
   await openPanel(page, "Guest Sessions");
+  await expect(page.locator("#session-last-refreshed")).toContainText("Updated");
+  let sessionReads = 0;
+  page.on("request", (request) => { if (/\/sessions$/.test(new URL(request.url()).pathname)) sessionReads += 1; });
+  const sessionReadsBeforeRefresh = sessionReads;
+  await page.getByRole("button", { name: "Refresh records" }).click();
+  await expect.poll(() => sessionReads).toBeGreaterThan(sessionReadsBeforeRefresh);
   await page.locator("#session-raw-mac").fill(mac);
   await page.locator("#session-room").fill("1503");
   await page.getByRole("button", { name: "Create / Restore Stay" }).click();
+  await expect(page.locator("#toast")).toContainText("Guest stay created or restored");
   await expect(page.locator("#memory-stay-id")).not.toHaveValue("");
   await page.locator("#memory-summary").fill("Verified through the admin button workflow.");
-  await page.getByRole("button", { name: "Save Compact Memory" }).click();
-  await expect(page.locator("#toast")).toContainText("Compact stay memory saved");
+  await page.locator("#save-stay-memory").click();
+  await expect(page.locator("#toast")).toContainText("Stay notes saved");
 
   await openPanel(page, "Location");
   await page.locator("#obs-raw-mac").fill(mac);
@@ -237,12 +300,18 @@ test("admin operations buttons: map, stay memory, location, and intro", async ({
   await expect(page.locator("#location-report")).toContainText("visits");
 
   await openPanel(page, "Branding / Intro");
+  const originalMode = await page.locator("#intro-mode").inputValue();
   const originalMessage = await page.locator("#intro-message").inputValue();
+  await page.locator("#intro-mode").selectOption("generate_from_logo");
   await page.locator("#intro-message").fill(`Welcome ${suffix}`);
-  await page.getByRole("button", { name: "Save Intro" }).click();
+  await page.locator("#save-intro").click();
   await expect(page.locator("#toast")).toContainText("Intro experience saved");
-  await page.locator("#intro-message").fill(originalMessage);
-  await page.getByRole("button", { name: "Save Intro" }).click();
+  if (originalMode === "none") {
+    await page.locator("#intro-mode").selectOption("none");
+  } else {
+    await page.locator("#intro-message").fill(originalMessage);
+  }
+  await page.locator("#save-intro").click();
 });
 
 test("admin account buttons: create, edit, reset, status, activity, revoke, and delete", async ({ page }, testInfo) => {
@@ -281,6 +350,9 @@ test("admin account buttons: create, edit, reset, status, activity, revoke, and 
   await page.locator("#password").fill(password);
   await page.getByRole("button", { name: "Sign In" }).click();
   await expect(page.locator("#security")).toBeVisible();
+  const changePasswordButton = page.getByRole("button", { name: "Change Password" });
+  await expect(changePasswordButton).toHaveClass(/btn-primary/);
+  expect(await changePasswordButton.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(42);
   await page.locator("#current-password").fill(password);
   await page.locator("#new-password").fill("AuditPassword456!");
   await page.locator("#confirm-new-password").fill("AuditPassword456!");

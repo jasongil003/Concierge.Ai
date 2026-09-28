@@ -4,14 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Concierge.Ai</title>
-  <link rel="stylesheet" href="/static/styles.css?v=10">
+  <link rel="stylesheet" href="/static/styles.css?v=17">
 </head>
 <body>
   <section class="intro-overlay" id="intro-overlay" hidden>
     <div class="intro-stage" id="intro-stage">
-      <div class="intro-logo" id="intro-logo">C</div>
+      <video class="intro-video" id="intro-video" muted playsinline loop hidden></video>
+      <div class="intro-content"><div class="intro-logo" id="intro-logo"><img id="intro-logo-image" alt="" hidden><span id="intro-logo-mark">C</span></div>
       <p id="intro-message">Welcome</p>
       <button id="intro-skip" type="button">Skip</button>
+      </div>
     </div>
   </section>
   <section class="property-unconfigured" id="property-unconfigured" hidden aria-labelledby="property-unconfigured-title">
@@ -19,8 +21,9 @@
   </section>
   <main class="concierge-shell" id="concierge-shell">
     <header class="concierge-header">
-      <button class="icon-button" id="menu-button" type="button" aria-label="Open hotel menu">
-        <span></span><span></span>
+      <button class="icon-button menu-trigger" id="menu-button" type="button" aria-label="Open hotel menu" aria-controls="hotel-menu" aria-expanded="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+        <span>Menu</span>
       </button>
       <div class="hotel-identity" aria-live="polite">
         <div class="hotel-mark" id="hotel-mark">C</div>
@@ -29,9 +32,6 @@
           <span class="concierge-presence"><i aria-hidden="true"></i><span id="concierge-name">AI concierge</span></span>
         </div>
       </div>
-      <button class="icon-button dots-button" id="options-button" type="button" aria-label="Open options">
-        <span></span><span></span><span></span>
-      </button>
     </header>
     <div class="maintenance-banner" id="maintenance-banner" role="status" hidden></div>
 
@@ -52,7 +52,7 @@
           <div class="suggestion-list" id="suggestion-list" aria-label="Suggested prompts"></div>
           <div class="privacy-note">
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.2 16 4.7v4.5c0 3.8-2.4 6.9-6 8.6-3.6-1.7-6-4.8-6-8.6V4.7L10 2.2Z"/><path d="m7.4 9.9 1.7 1.7 3.7-4"/></svg>
-            <span>Private by default. Personalize only if you choose.</span>
+            <span>Your concierge chat stays private. Confirmed service and restaurant staff requests share only the details you submit.</span>
           </div>
           <button class="personalize-cta" id="personalize-cta" type="button">Personalize my stay</button>
         </section>
@@ -63,15 +63,13 @@
 
     <footer class="composer-region">
       <form class="composer" id="composer-form">
-        <button class="composer-tool" id="upload-button" type="button" aria-label="Upload a document" title="Upload a text document">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17V4M7 9l5-5 5 5M5 20h14"/></svg>
-        </button>
-        <input id="upload-input" type="file" accept=".txt,.md,.csv,.json,.html,text/plain,text/markdown,text/csv,application/json,text/html" hidden>
         <textarea
           id="composer-input"
           rows="1"
           maxlength="2000"
           autocomplete="off"
+          enterkeyhint="send"
+          aria-describedby="composer-note"
           placeholder="Ask a question..."
           aria-label="Ask your concierge"
         ></textarea>
@@ -79,10 +77,10 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4.8 14-2.7-5.5L5 12Z"/><path d="m11.5 13.5 3.6-3.6"/></svg>
         </button>
       </form>
-      <p class="composer-note" id="composer-note">Answers use information configured for this property.</p>
+      <p class="composer-note" id="composer-note">Enter to send <span aria-hidden="true">·</span> Shift+Enter for a new line</p>
     </footer>
 
-    <aside class="hotel-menu" id="hotel-menu" aria-hidden="true" aria-label="Hotel menu">
+  <aside class="hotel-menu" id="hotel-menu" aria-hidden="true" inert aria-label="Hotel menu">
       <div class="menu-panel">
         <div class="menu-header">
           <div>
@@ -92,15 +90,42 @@
           <button class="icon-button" id="close-menu-button" type="button" aria-label="Close menu">×</button>
         </div>
         <p class="menu-section-label">Concierge</p>
-        <button type="button" data-menu-action="new-chat">New conversation</button>
-        <button type="button" data-menu-action="restaurant-staff" hidden>Talk to Restaurant Staff</button>
-        <button type="button" data-menu-action="property-map" hidden>Property map</button>
-        <button type="button" data-menu-action="hotel-info">Hotel information</button>
-        <button type="button" data-menu-action="language">Language</button>
-        <button type="button" data-menu-action="memory">Personalization / Memory</button>
-        <button type="button" data-menu-action="accessibility">Accessibility</button>
-        <button type="button" data-menu-action="privacy">Privacy</button>
-        <button type="button" data-menu-action="help">Help</button>
+        <button type="button" data-menu-action="new-chat">
+          <span class="menu-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/><path d="M5 3.75h14a1.25 1.25 0 0 1 1.25 1.25v14A1.25 1.25 0 0 1 19 20.25H5A1.25 1.25 0 0 1 3.75 19V5A1.25 1.25 0 0 1 5 3.75Z"/></svg></span>
+          <span class="menu-item-copy"><strong>New conversation</strong><small>Start fresh with your concierge</small></span>
+        </button>
+        <button type="button" data-menu-action="restaurant-staff" hidden>
+          <span class="menu-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 19.5V7.75A2.75 2.75 0 0 1 6.75 5h10.5A2.75 2.75 0 0 1 20 7.75v7.5A2.75 2.75 0 0 1 17.25 18H9l-5 3v-1.5Z"/><path d="M8 10h8M8 13.5h5"/></svg></span>
+          <span class="menu-item-copy"><strong>Talk to Restaurant Staff</strong><small>Send a private request to a dining team</small></span>
+        </button>
+        <button type="button" data-menu-action="property-map" hidden>
+          <span class="menu-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m3.75 6 5-2 6.5 2 5-2v14l-5 2-6.5-2-5 2V6Z"/><path d="M8.75 4v14M15.25 6v14M12 8.5a2.5 2.5 0 1 0-5 0c0 2.3 2.5 5 2.5 5s2.5-2.7 2.5-5Z"/></svg></span>
+          <span class="menu-item-copy"><strong>Property map</strong><small>Find your way around</small></span>
+        </button>
+        <button type="button" data-menu-action="hotel-info">
+          <span class="menu-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 20V5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5V20M2.75 20h18.5"/><path d="M8 8h2M14 8h2M8 12h2M14 12h2M10 20v-4h4v4"/></svg></span>
+          <span class="menu-item-copy"><strong>Hotel information</strong><small>Address, amenities, and hours</small></span>
+        </button>
+        <button type="button" data-menu-action="language">
+          <span class="menu-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3.5 9h17M3.5 15h17M12 3c2.2 2.4 3.2 5.4 3.2 9s-1 6.6-3.2 9c-2.2-2.4-3.2-5.4-3.2-9s1-6.6 3.2-9Z"/></svg></span>
+          <span class="menu-item-copy"><strong>Language</strong><small>Switch reply language</small></span>
+        </button>
+        <button type="button" data-menu-action="memory">
+          <span class="menu-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3 1.4 5.6L19 10l-5.6 1.4L12 17l-1.4-5.6L5 10l5.6-1.4L12 3Z"/><path d="m19 15 .7 2.3L22 18l-2.3.7L19 21l-.7-2.3L16 18l2.3-.7L19 15ZM5 3l.7 2.3L8 6l-2.3.7L5 9l-.7-2.3L2 6l2.3-.7L5 3Z"/></svg></span>
+          <span class="menu-item-copy"><strong>Personalization &amp; memory</strong><small>Review or clear saved preferences</small></span>
+        </button>
+        <button type="button" data-menu-action="accessibility">
+          <span class="menu-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="4.5" r="1.75"/><path d="M5 8.25h14M12 8.5v5m0 0-4 6m4-6 4 6m-4-6-5-3m5 3 5-3"/></svg></span>
+          <span class="menu-item-copy"><strong>Accessibility</strong><small>Adjust reading and display</small></span>
+        </button>
+        <button type="button" data-menu-action="privacy">
+          <span class="menu-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3 8 3v5.5c0 4.3-3.2 7.5-8 9.5-4.8-2-8-5.2-8-9.5V6l8-3Z"/><path d="m8.5 11.7 2.2 2.2 4.8-5"/></svg></span>
+          <span class="menu-item-copy"><strong>Privacy</strong><small>How your chat is handled</small></span>
+        </button>
+        <button type="button" data-menu-action="help">
+          <span class="menu-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.7 9a2.4 2.4 0 1 1 4.1 1.7c-1 .9-1.8 1.3-1.8 2.8M12 17.2h.01"/></svg></span>
+          <span class="menu-item-copy"><strong>Help</strong><small>Tips for a smooth stay</small></span>
+        </button>
         <div id="configured-module-list"></div>
       </div>
     </aside>
@@ -165,9 +190,10 @@
     <dialog class="staff-request-dialog" id="restaurant-staff-dialog">
       <form id="restaurant-staff-request-form">
         <header>
-          <div><span>Guest support</span><h2>Talk to Restaurant Staff</h2></div>
+          <div><span>Guest support</span><h2 id="restaurant-staff-title">Talk to Restaurant Staff</h2></div>
           <button class="icon-button" id="close-restaurant-staff-dialog" type="button" aria-label="Close">×</button>
         </header>
+        <p class="field-note">Your selected restaurant and request will be shared with its staff. Your concierge chat stays private.</p>
         <label>Restaurant<select id="restaurant-staff-select" required></select></label>
         <label>What can the team help with?<textarea id="restaurant-staff-reason" rows="3" maxlength="500" placeholder="Optional"></textarea></label>
         <p id="restaurant-staff-status" role="status"></p>
@@ -177,6 +203,6 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </main>
-  <script src="/static/app.js?v=11"></script>
+  <script src="/static/app.js?v=20"></script>
 </body>
 </html>

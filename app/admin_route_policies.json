@@ -11,6 +11,18 @@
     "authentication": "required",
     "permission": "assistant.use"
   },
+  "GET /api/admin/properties/{property_id}/assistant/conversations": {
+    "authentication": "required",
+    "permission": "assistant.use"
+  },
+  "GET /api/admin/properties/{property_id}/assistant/conversations/{conversation_id}": {
+    "authentication": "required",
+    "permission": "assistant.use"
+  },
+  "GET /api/admin/properties/{property_id}/conversations/retention": {
+    "authentication": "required",
+    "permission": "guest_sessions.view"
+  },
   "DELETE /api/admin/properties/{property_id}/departments/{department_id}": {
     "authentication": "required",
     "permission": "properties.edit"
@@ -36,6 +48,22 @@
     "permission": "restaurant.manage"
   },
   "DELETE /api/admin/properties/{property_id}/service-catalog/{service_id}": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "DELETE /api/admin/properties/{property_id}/access-points/{access_point_id}": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "DELETE /api/admin/properties/{property_id}/facilities/{facility_id}": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "DELETE /api/admin/properties/{property_id}/navigation/edges/{edge_id}": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "DELETE /api/admin/properties/{property_id}/navigation/nodes/{node_id}": {
     "authentication": "required",
     "permission": "properties.edit"
   },
@@ -87,10 +115,6 @@
     "authentication": "required",
     "permission": "integrations.view"
   },
-  "GET /api/admin/properties/{property_id}/conversations": {
-    "authentication": "required",
-    "permission": "conversations.view"
-  },
   "GET /api/admin/properties/{property_id}/dashboard": {
     "authentication": "required",
     "permission": "dashboard.view"
@@ -130,6 +154,10 @@
   "GET /api/admin/properties/{property_id}/intro/assets/{filename}": {
     "authentication": "required",
     "permission": "concierge.view"
+  },
+  "DELETE /api/admin/properties/{property_id}/intro/assets/{filename}": {
+    "authentication": "required",
+    "permission": "concierge.edit"
   },
   "GET /api/admin/properties/{property_id}/knowledge": {
     "authentication": "required",
@@ -215,10 +243,6 @@
     "authentication": "required",
     "permission": "restaurant.promotions.view"
   },
-  "GET /api/admin/properties/{property_id}/restaurants/{restaurant_id}/staff": {
-    "authentication": "required",
-    "permission": "restaurant.view"
-  },
   "GET /api/admin/properties/{property_id}/service-catalog": {
     "authentication": "required",
     "permission": "requests.view"
@@ -279,6 +303,10 @@
     "authentication": "required",
     "permission": "properties.edit"
   },
+  "PUT /api/admin/properties/{property_id}/access-points/{access_point_id}": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
   "POST /api/admin/properties/{property_id}/ai/providers/{provider_id}/credentials": {
     "authentication": "required",
     "permission": "ai.configure"
@@ -307,26 +335,6 @@
     "authentication": "required",
     "permission": "properties.edit"
   },
-  "POST /api/admin/properties/{property_id}/conversations/{session_id}/accept": {
-    "authentication": "required",
-    "permission": "conversations.takeover"
-  },
-  "POST /api/admin/properties/{property_id}/conversations/{session_id}/assign": {
-    "authentication": "required",
-    "permission": "conversations.assign"
-  },
-  "POST /api/admin/properties/{property_id}/conversations/{session_id}/messages": {
-    "authentication": "required",
-    "permission": "conversations.reply"
-  },
-  "POST /api/admin/properties/{property_id}/conversations/{session_id}/resolve": {
-    "authentication": "required",
-    "permission": "conversations.resolve"
-  },
-  "POST /api/admin/properties/{property_id}/conversations/{session_id}/return-to-ai": {
-    "authentication": "required",
-    "permission": "conversations.return_to_ai"
-  },
   "POST /api/admin/properties/{property_id}/deployment/verify": {
     "authentication": "required",
     "permission": "domains.configure"
@@ -348,6 +356,10 @@
     "permission": "properties.edit"
   },
   "POST /api/admin/properties/{property_id}/facilities": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "PUT /api/admin/properties/{property_id}/facilities/{facility_id}": {
     "authentication": "required",
     "permission": "properties.edit"
   },
@@ -392,6 +404,10 @@
     "permission": "ai.configure"
   },
   "POST /api/admin/properties/{property_id}/intro/upload": {
+    "authentication": "required",
+    "permission": "concierge.edit"
+  },
+  "DELETE /api/admin/properties/{property_id}/intro/asset": {
     "authentication": "required",
     "permission": "concierge.edit"
   },
@@ -467,7 +483,15 @@
     "authentication": "required",
     "permission": "properties.edit"
   },
+  "PUT /api/admin/properties/{property_id}/navigation/edges/{edge_id}": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
   "POST /api/admin/properties/{property_id}/navigation/nodes": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "PUT /api/admin/properties/{property_id}/navigation/nodes/{node_id}": {
     "authentication": "required",
     "permission": "properties.edit"
   },
@@ -543,6 +567,10 @@
     "authentication": "required",
     "permission": "properties.edit"
   },
+  "PUT /api/admin/properties/{property_id}/logo": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
   "PUT /api/admin/properties/{property_id}/ai/providers/{provider_id}": {
     "authentication": "required",
     "permission": "ai.configure"
@@ -551,17 +579,13 @@
     "authentication": "required",
     "permission": "ai.configure"
   },
-  "PUT /api/admin/properties/{property_id}/conversations/retention": {
-    "authentication": "required",
-    "permission": "conversations.reply"
-  },
-  "PUT /api/admin/properties/{property_id}/conversations/{session_id}": {
-    "authentication": "required",
-    "permission": "conversations.reply"
-  },
   "PUT /api/admin/properties/{property_id}/departments": {
     "authentication": "required",
     "permission": "properties.edit"
+  },
+  "PUT /api/admin/properties/{property_id}/conversations/retention": {
+    "authentication": "required",
+    "permission": "guest_sessions.manage"
   },
   "PUT /api/admin/properties/{property_id}/design/draft": {
     "authentication": "required",
@@ -650,5 +674,37 @@
   "PUT /api/admin/users/{user_id}": {
     "authentication": "required",
     "permission": "users.edit"
+  },
+  "GET /api/admin/properties/{property_id}/conversations": {
+    "authentication": "required",
+    "permission": "conversations.view"
+  },
+  "GET /api/admin/properties/{property_id}/restaurants/{restaurant_id}/staff": {
+    "authentication": "required",
+    "permission": "conversations.assign"
+  },
+  "POST /api/admin/properties/{property_id}/conversations/{session_id}/accept": {
+    "authentication": "required",
+    "permission": "conversations.takeover"
+  },
+  "POST /api/admin/properties/{property_id}/conversations/{session_id}/assign": {
+    "authentication": "required",
+    "permission": "conversations.assign"
+  },
+  "POST /api/admin/properties/{property_id}/conversations/{session_id}/messages": {
+    "authentication": "required",
+    "permission": "conversations.reply"
+  },
+  "POST /api/admin/properties/{property_id}/conversations/{session_id}/resolve": {
+    "authentication": "required",
+    "permission": "conversations.resolve"
+  },
+  "POST /api/admin/properties/{property_id}/conversations/{session_id}/return-to-ai": {
+    "authentication": "required",
+    "permission": "conversations.return_to_ai"
+  },
+  "PUT /api/admin/properties/{property_id}/conversations/{session_id}": {
+    "authentication": "required",
+    "permission": "conversations.reply"
   }
 }

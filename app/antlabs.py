@@ -8,6 +8,15 @@ import httpx
 from .config import settings
 
 
+ANTLABS_AUTHENTICATION_TYPES = (
+    "complimentary",
+    "local",
+    "pms",
+    "credit_card",
+    "access_code",
+)
+
+
 @dataclass
 class AuthResult:
     status: str
@@ -26,8 +35,9 @@ class AntlabsAdapter:
     the client-side captive-portal context instead of making the login request from
     the Concierge server's IP.
 
-    Exact ANTlabs SG5 login fields MUST be validated on a real gateway before this
-    mode is used in production.
+    The built-in processor form fields follow the supplied ANTlabs Custom Portal
+    Developer Guide r1.01. A gateway owner still needs to validate the configured
+    portal, processor settings, and successful access on the target SG5.
     """
 
     def authenticate(
@@ -72,13 +82,44 @@ class AntlabsAdapter:
                 f"Unsupported ANTlabs mode: {settings.antlabs_mode}",
             )
 
+        if auth_type not in ANTLABS_AUTHENTICATION_TYPES:
+            return AuthResult(
+                "failed",
+                "This login method needs a separate ANTlabs integration and is not available through the configured built-in processor.",
+            )
+
         if not settings.antlabs_auth_url:
             return AuthResult(
                 "failed",
                 "ANTLABS_AUTH_URL is not configured.",
             )
 
-        auth_url = settings.antlabs_auth_url
+        try:
+            parsed = urlsplit(settings.antlabs_auth_url)
+        except ValueError:
+            parsed = None
+        if (
+            parsed is None
+            or parsed.scheme not in {"http", "https"}
+            or not parsed.netloc
+            or not parsed.hostname
+            or any(char in parsed.netloc for char in "<>")
+            or not parsed.path.rstrip("/").endswith("/login/main.ant")
+        ):
+            return AuthResult(
+                "failed",
+                "ANTLABS_AUTH_URL must point to the SG5 built-in processor at /login/main.ant.",
+            )
+        if settings.antlabs_auth_method != "POST":
+            return AuthResult(
+                "failed",
+                "The ANTlabs built-in processor requires POST; set ANTLABS_AUTH_METHOD=POST.",
+            )
+
+        processor = "cc" if auth_type == "credit_card" else "proc"
+        query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        query["c"] = processor
+        auth_url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
         fields: dict[str, str] = {}
 
         if auth_type == "pms":
@@ -89,31 +130,15 @@ class AntlabsAdapter:
             })
         elif auth_type == "complimentary":
             fields["p"] = "complimentary"
-            for key in ("code", "plan", "plan_name"):
-                if credentials.get(key):
-                    fields[key] = credentials[key]
         elif auth_type == "local":
             fields.update({"p": "local", "uid": credentials.get("username", ""), "pwd": credentials.get("password", "")})
         elif auth_type == "access_code":
             fields.update({"p": "code", "code": credentials.get("access_code", "")})
         elif auth_type == "credit_card":
             # Card entry remains on the gateway's configured secure payment page.
-            parsed = urlsplit(auth_url)
-            query = dict(parse_qsl(parsed.query, keep_blank_values=True))
-            query["c"] = "cc"
-            auth_url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
+            fields["p"] = "cc"
             if credentials.get("plan"):
-                fields["plan_name"] = credentials["plan"]
-        elif auth_type == "radius":
-            fields.update({"action": "auth_login", "type": "radius", "userid": credentials.get("username", ""), "password": credentials.get("password", "")})
-        elif auth_type == "global_account":
-            fields.update({"action": "auth_login", "type": "acs", "userid": credentials.get("username", ""), "password": credentials.get("password", "")})
-        elif auth_type == "global_code":
-            fields.update({"action": "auth_login", "type": "acs", "code": credentials.get("global_code", "")})
-        elif auth_type == "user_form":
-            fields.update({"action": "user_form", "name": credentials.get("name", ""), "email": credentials.get("email", "")})
-        elif auth_type == "social_network":
-            fields.update({"action": "social", "app": credentials.get("social_provider", "")})
+                fields["plan"] = credentials["plan"]
 
         if settings.antlabs_session_field and settings.antlabs_session_context_key:
             gateway_session_value = gateway_context.get(settings.antlabs_session_context_key)
@@ -139,12 +164,44 @@ class AntlabsAdapter:
         )
 
     def configuration_status(self) -> dict[str, Any]:
-        configured = settings.antlabs_mode == "mock" or bool(settings.antlabs_auth_url)
+        try:
+            parsed = urlsplit(settings.antlabs_auth_url)
+        except ValueError:
+            parsed = None
+        handoff_configured = (
+            parsed is not None
+            and parsed.scheme in {"http", "https"}
+            and bool(parsed.netloc)
+            and bool(parsed.hostname)
+            and not any(char in parsed.netloc for char in "<>")
+            and parsed.path.rstrip("/").endswith("/login/main.ant")
+            and settings.antlabs_auth_method == "POST"
+        )
+        configured = settings.antlabs_mode == "mock" or handoff_configured
+        if settings.antlabs_mode == "mock":
+            supported_authentication_types = [
+                "complimentary", "local", "radius", "pms", "credit_card",
+                "access_code", "global_account", "global_code", "user_form",
+                "social_network",
+            ]
+        elif handoff_configured:
+            supported_authentication_types = list(ANTLABS_AUTHENTICATION_TYPES)
+        else:
+            supported_authentication_types = []
         return {
             "mode": settings.antlabs_mode,
             "configured": configured,
             "status": "simulation" if settings.antlabs_mode == "mock" else ("configured" if configured else "not_configured"),
             "endpoint": settings.antlabs_auth_url.split("?", 1)[0] if settings.antlabs_auth_url else "",
+            "supported_authentication_types": supported_authentication_types,
+            "authentication_verified": False,
+            "detail": (
+                "Mock mode simulates acceptance and does not contact ANTlabs."
+                if settings.antlabs_mode == "mock"
+                else "Configure ANTlabs at /login/main.ant with POST before enabling live guest sign-in."
+                if not handoff_configured
+                else "The built-in processor handoff is configured, but a successful guest login and Internet access have not been verified on the target gateway."
+            ),
         }
 
     async def test_connection(self) -> dict[str, Any]:
@@ -155,6 +212,8 @@ class AntlabsAdapter:
             return {**base, "ok": False, "status": "unsupported_mode", "detail": "The configured ANTlabs mode is not supported."}
         if not settings.antlabs_auth_url:
             return {**base, "ok": False, "status": "not_configured", "detail": "ANTLABS_AUTH_URL is not configured."}
+        if not base["configured"]:
+            return {**base, "ok": False, "status": "not_configured", "detail": base["detail"]}
         started = time.perf_counter()
         try:
             async with httpx.AsyncClient(timeout=8, follow_redirects=False) as client:
@@ -165,7 +224,10 @@ class AntlabsAdapter:
             return {**base, "ok": False, "status": "unreachable", "detail": f"Gateway request failed: {exc.__class__.__name__}."}
         latency = int((time.perf_counter() - started) * 1000)
         if response.status_code in {401, 403}:
-            return {**base, "ok": False, "status": "authentication_failure", "latency_ms": latency, "detail": "The gateway is reachable but rejected the connection check."}
+            return {**base, "ok": False, "status": "authentication_failure", "latency_ms": latency, "detail": f"The endpoint responded with HTTP {response.status_code}; this reachability check does not test guest credentials or Internet access."}
         if response.status_code >= 500:
             return {**base, "ok": False, "status": "unreachable", "latency_ms": latency, "detail": f"Gateway returned HTTP {response.status_code}."}
-        return {**base, "ok": True, "status": "connected", "latency_ms": latency, "detail": f"Gateway responded with HTTP {response.status_code}."}
+        return {**base, "ok": True, "status": "connected", "latency_ms": latency, "detail": f"The processor endpoint responded with HTTP {response.status_code}. Reachability only; complete a guest login to verify authentication and Internet access."}
+
+    def supported_authentication_types(self) -> list[str]:
+        return self.configuration_status()["supported_authentication_types"]

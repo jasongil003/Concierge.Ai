@@ -63,7 +63,7 @@ test("admin onboarding: create the first property from an empty workspace", asyn
   await expect(page.getByRole("heading", { name: "Property not configured" })).toBeVisible();
   await page.locator("#onboarding-create-property").click();
   await page.locator("#property-create-name").fill("E2E Onboarding Property");
-  await page.locator("#property-create-timezone").fill("Asia/Manila");
+  await page.locator("#property-create-timezone").selectOption("Asia/Manila");
   await page.locator("#property-create-submit").click();
 
   await expect(page.locator("#property-switcher")).toHaveValue("e2e-onboarding-property");
@@ -120,6 +120,35 @@ async function getOriginalDesign(request, propertyId) {
   return (await res.json()).published;
 }
 
+test("hotel assistant composer keeps its input and helper text in separate rows", async ({ page }) => {
+  await page.goto("/admin");
+  await openPanel(page, "AI Assistant");
+  const composer = page.locator("#assistant-page-form");
+  const input = page.locator("#assistant-page-input");
+  const row = page.locator(".assistant-compose-row");
+  const helper = composer.locator(":scope > small");
+  const layout = await page.evaluate(() => {
+    const form = document.querySelector("#assistant-page-form");
+    const input = document.querySelector("#assistant-page-input");
+    const row = document.querySelector(".assistant-compose-row");
+    const helper = form.querySelector(":scope > small");
+    const formStyle = getComputedStyle(form);
+    return {
+      columns: formStyle.gridTemplateColumns.trim().split(/\s+/).length,
+      inputWidth: input.getBoundingClientRect().width,
+      rowBottom: row.getBoundingClientRect().bottom,
+      helperTop: helper.getBoundingClientRect().top,
+    };
+  });
+
+  expect(layout.columns).toBe(1);
+  expect(layout.inputWidth).toBeGreaterThan(200);
+  expect(layout.helperTop).toBeGreaterThanOrEqual(layout.rowBottom);
+  await expect(input).toBeVisible();
+  await expect(row).toBeVisible();
+  await expect(helper).toBeVisible();
+});
+
 test("hotel knowledge composer uses Enter, Shift+Enter, and one in-flight request", async ({ page }) => {
   await page.goto("/admin");
   await openPanel(page, "AI Assistant");
@@ -129,14 +158,15 @@ test("hotel knowledge composer uses Enter, Shift+Enter, and one in-flight reques
     await new Promise((resolve) => setTimeout(resolve, 300));
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ answer: "Pool closes at 10 PM.", provider: "test", model: "test", sources: [] }) });
   });
-  const input = page.locator("#hotel-ai-input");
+  await page.locator(".assistant-mode[data-assistant-mode='knowledge']").click();
+  const input = page.locator("#assistant-page-input");
   await input.fill("When does the pool close?");
   await input.press("Shift+Enter");
   await expect(input).toHaveValue("When does the pool close?\n");
   expect(requests).toBe(0);
   await input.press("Enter");
   await input.press("Enter");
-  await expect(page.locator("#hotel-ai-messages .assistant-message.answer")).toContainText("Pool closes at 10 PM.");
+  await expect(page.locator("#assistant-page-messages .assistant-message.answer")).toContainText("Pool closes at 10 PM.");
   expect(requests).toBe(1);
 });
 
@@ -158,10 +188,15 @@ test("topbar: publish state, Save Draft, Publish, Discard, Open guest app", asyn
   await page.locator('body[data-admin-ready="true"]').waitFor();
   const viewportWidth = page.viewportSize()?.width || 1440;
   if (viewportWidth > 640) {
-    await expect(page.locator("#publish-state")).toBeVisible();
+    await expect(page.locator("#publish-state")).toBeHidden();
   }
   if (viewportWidth > 900) {
-    await expect(page.getByRole("button", { name: "Save Draft" })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Save Draft", exact: true })).toBeHidden();
+    await expect(page.getByRole("button", { name: "Publish" })).toBeHidden();
+    await expect(page.getByRole("button", { name: "Discard" })).toBeHidden();
+    await openPanel(page, "Design");
+    await expect(page.locator("#publish-state")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Save Draft", exact: true })).toBeEnabled();
     await expect(page.getByRole("button", { name: "Publish" })).toBeEnabled();
     await expect(page.getByRole("button", { name: "Discard" })).toBeEnabled();
   } else {
@@ -205,11 +240,12 @@ test("topbar: sidebar and profile buttons perform their actions", async ({ page 
 
 test("sidebar: all navigation items are visible and clickable", async ({ page }) => {
   await page.goto("/admin");
+  await expect(page.locator('.nav-item[data-nav-id="knowledge-overview"]')).toHaveCount(0);
   const navLabels = [
     ["Dashboard", "overview"],
     ["Guest Requests", "requests"],
     ["Guest Sessions", "sessions"],
-    ["Guest Preview", "guest"],
+    ["Conversation Modules", "guest"],
     ["Hotel Information", "hotel-information"],
     ["Rooms", "rooms"],
     ["Facilities", "facilities"],
@@ -218,7 +254,12 @@ test("sidebar: all navigation items are visible and clickable", async ({ page })
     ["Knowledge", "knowledge"],
     ["Models & Providers", "ai"],
     ["Usage", "ai-usage"],
-    ["Integrations", "wifi"],
+    ["Integrations", "third-party"],
+    ["ANTlabs / Wi-Fi", "wifi"],
+    ["Authentication Types", "auth-types"],
+    ["Webhooks", "webhooks"],
+    ["Analytics", "analytics"],
+    ["Reports", "reports"],
     ["Design", "appearance"],
     ["Branding / Intro", "intro"],
     ["Location", "location"],
@@ -235,6 +276,135 @@ test("sidebar: all navigation items are visible and clickable", async ({ page })
     await openPanel(page, label);
     await expect(page.locator(`#${panel}`)).toBeVisible();
   }
+});
+
+test("integration directory links open the separate working setup pages", async ({ page }) => {
+  await page.goto("/admin");
+  await openPanel(page, "Integrations");
+  await expect(page.locator("#third-party")).toContainText("No external hospitality services are connected");
+  await expect(page.locator("#third-party .integration-directory article")).toHaveCount(4);
+  await page.getByRole("button", { name: "Open Wi-Fi status" }).click();
+  await expect(page.locator("#wifi")).toBeVisible();
+  await expect(page.locator('.nav-item[data-nav-id="antlabs-wifi"]')).toHaveClass(/active/);
+});
+
+test("webhooks can be created, edited, canceled, and deleted with confirmation", async ({ page }) => {
+  let storedWebhook = null;
+  await page.route("**/webhooks**", async (route) => {
+    const { method } = route.request();
+    const pathname = new URL(route.request().url()).pathname;
+    if (pathname.endsWith("/webhooks") && method === "GET") {
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ webhooks: storedWebhook ? [storedWebhook] : [], deliveries: [], supported_events: ["guest.session.started", "guest.request.created", "guest.request.updated", "conversation.escalated"] }) });
+    }
+    if (pathname.endsWith("/webhooks") && method === "PUT") {
+      const payload = route.request().postDataJSON();
+      storedWebhook = { webhook_id: payload.webhook_id || "webhook_e2e", name: payload.name, endpoint_url: payload.endpoint_url, events: payload.events, enabled: payload.enabled, secret_configured: Boolean(payload.secret) || Boolean(storedWebhook?.secret_configured), last_status: "never_tested", last_error: "" };
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(storedWebhook) });
+    }
+    if (method === "DELETE") {
+      storedWebhook = null;
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ status: "deleted" }) });
+    }
+    return route.continue();
+  });
+  await page.goto("/admin");
+  await openPanel(page, "Webhooks");
+  await page.locator("#webhook-name").fill("Guest Event Relay");
+  await page.getByLabel("HTTPS endpoint URL").fill("https://example.com/concierge-events");
+  await page.locator("#webhook-events").selectOption("guest.request.created");
+  await page.locator("#webhook-secret").fill("test-signing-secret");
+  await page.getByRole("button", { name: "Save Webhook" }).click();
+
+  const row = page.locator("#webhook-list .compact-row").filter({ hasText: "Guest Event Relay" });
+  await expect(row).toContainText("never tested");
+  await row.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByRole("button", { name: "Cancel edit" })).toBeVisible();
+  await expect(page.locator("#webhook-secret")).toHaveAttribute("placeholder", "Saved securely; leave blank to keep");
+  await page.locator("#webhook-name").fill("Guest Event Relay Updated");
+  await page.getByRole("button", { name: "Update Webhook" }).click();
+
+  const updatedRow = page.locator("#webhook-list .compact-row").filter({ hasText: "Guest Event Relay Updated" });
+  await expect(updatedRow).toBeVisible();
+  await updatedRow.getByRole("button", { name: "Edit" }).click();
+  await page.getByRole("button", { name: "Cancel edit" }).click();
+  await expect(page.locator("#webhook-id")).toHaveValue("");
+
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await updatedRow.getByRole("button", { name: "Delete" }).click();
+  await expect(updatedRow).toBeVisible();
+  page.once("dialog", (dialog) => dialog.accept());
+  await updatedRow.getByRole("button", { name: "Delete" }).click();
+  await expect(updatedRow).toHaveCount(0);
+});
+
+test("management report download uses the period selected on its page", async ({ page }) => {
+  await page.route("**/reports/export.xlsx*", (route) => route.fulfill({
+    status: 200,
+    headers: { "Content-Type": "application/octet-stream", "Content-Disposition": "attachment; filename=report.xlsx" },
+    body: "test workbook",
+  }));
+  await page.goto("/admin");
+  await openPanel(page, "Reports");
+  await page.locator("#reports-period").selectOption("30d");
+  const request = page.waitForRequest((item) => item.url().includes("/reports/export.xlsx") && item.url().includes("period=30d"));
+  await page.getByRole("button", { name: "Download workbook" }).click();
+  await request;
+});
+
+test("analytics rejects a backwards custom date range", async ({ page }) => {
+  await page.goto("/admin");
+  await openPanel(page, "Analytics");
+  await page.locator("#manager-period").selectOption("custom");
+  await page.locator("#manager-start").fill("2026-09-28");
+  await page.locator("#manager-end").fill("2026-09-27");
+  await page.getByRole("button", { name: "Apply" }).click();
+  await expect(page.getByRole("status")).toContainText("The end date must be on or after the start date.");
+});
+
+test("system settings use a timezone list and persist the selected zone", async ({ page, request }) => {
+  await page.goto("/admin");
+  await page.locator('body[data-admin-ready="true"]').waitFor();
+  const propertyId = await page.locator("#property-switcher").inputValue();
+  const response = await request.get(`/api/admin/properties/${propertyId}`);
+  expect(response.ok()).toBeTruthy();
+  const originalProperty = await response.json();
+  await openPanel(page, "Settings");
+
+  const language = page.locator("#setting-language");
+  await expect(language).toHaveJSProperty("tagName", "SELECT");
+  await expect(language.locator('option[value="en"]')).toHaveText("English");
+  const timezone = page.locator("#setting-timezone");
+  await expect(timezone).toHaveJSProperty("tagName", "SELECT");
+  await expect(timezone.locator('option[value="Asia/Manila"]')).toHaveCount(1);
+  const originalForm = {
+    language: await language.inputValue(),
+    timezone: await timezone.inputValue(),
+    maintenance: await page.locator("#setting-maintenance").isChecked(),
+    message: await page.locator("#setting-maintenance-message").inputValue(),
+  };
+  const nextTimezone = originalForm.timezone === "UTC" ? "Asia/Manila" : "UTC";
+  const nextLanguage = originalForm.language === "fil" ? "en" : "fil";
+  await language.selectOption(nextLanguage);
+  await timezone.selectOption(nextTimezone);
+  await page.getByRole("button", { name: "Save Application Settings" }).click();
+  await expect(page.getByRole("status")).toContainText("Application settings saved");
+  const updated = await (await request.get(`/api/admin/properties/${propertyId}`)).json();
+  expect(updated.timezone).toBe(nextTimezone);
+  expect(updated.languages).toEqual([...new Set([...(originalProperty.languages || []), nextLanguage])]);
+  expect(updated.app_settings.application.default_language).toBe(nextLanguage);
+
+  await page.goto("/");
+  await expect(page.locator("html")).toHaveAttribute("lang", nextLanguage);
+  await page.goto("/admin");
+  await openPanel(page, "Settings");
+
+  await language.selectOption(originalForm.language);
+  await timezone.selectOption(originalForm.timezone);
+  await page.locator("#setting-maintenance").setChecked(originalForm.maintenance);
+  await page.locator("#setting-maintenance-message").fill(originalForm.message);
+  await page.getByRole("button", { name: "Save Application Settings" }).click();
+  await expect(page.getByRole("status")).toContainText("Application settings saved");
+  expect(originalProperty.timezone).toBeTruthy();
 });
 
 test("sidebar: each visible navigation item has a feature status", async ({ page }) => {
@@ -271,14 +441,90 @@ test("guardrails panel exposes enforced network policy and diagnostics", async (
 });
 
 test("overview panel: operational health is visible and configuration moved out", async ({ page }) => {
+  let dashboardLoads = 0;
+  page.on("request", (request) => {
+    if (request.url().includes("/operations/dashboard?")) dashboardLoads += 1;
+  });
   await page.goto("/admin");
   await expect(page.locator("#overview-title")).not.toBeEmpty();
   await expect(page.locator("#operations-health-banner")).toBeVisible();
   await expect(page.locator("#operations-metrics .operations-metric")).toHaveCount(4);
   await expect(page.locator("#overview-charts .chart-card")).toHaveCount(6);
+  const loadsBeforeRefresh = dashboardLoads;
+  await page.getByRole("button", { name: "Refresh data" }).click();
+  await expect.poll(() => dashboardLoads).toBeGreaterThan(loadsBeforeRefresh);
+  await expect(page.getByRole("button", { name: "Refresh data" })).toBeEnabled();
   await openPanel(page, "Hotel Information");
   await expect(page.locator("#hotel-info-name")).toBeEnabled();
   await expect(page.getByRole("button", { name: "Save & Publish" })).toBeEnabled();
+});
+
+test("system health shows a fresh status summary and refreshes checks", async ({ page }) => {
+  let dashboardLoads = 0;
+  page.on("request", (request) => {
+    if (request.url().includes("/operations/dashboard?")) dashboardLoads += 1;
+  });
+  await page.goto("/admin");
+  await openPanel(page, "System Health");
+  await expect(page.locator("#health-components .component-card")).toHaveCount(7);
+  await expect(page.locator("#system-health-summary")).toContainText("24h timeframe");
+  await expect(page.locator("#system-health-summary")).toContainText(/healthy or simulated/);
+  const loadsBeforeRefresh = dashboardLoads;
+  await page.getByRole("button", { name: "Refresh checks" }).click();
+  await expect.poll(() => dashboardLoads).toBeGreaterThan(loadsBeforeRefresh);
+  await expect(page.getByRole("button", { name: "Refresh checks" })).toBeEnabled();
+  const alertsLink = page.getByRole("button", { name: "View alerts" }).first();
+  if (await alertsLink.count()) {
+    await alertsLink.click();
+    await expect(page.locator(".panel.active")).toHaveAttribute("id", "alerts");
+  }
+});
+
+test("hotel check-in and checkout are time pickers and persist their values", async ({ page, request }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "Property time saving only needs one browser.");
+  const propertyId = await getFirstPropertyId(request);
+  const propertyUrl = `/api/admin/properties/${propertyId}`;
+  const original = await request.get(propertyUrl).then((response) => response.json());
+  const originalContactDetails = structuredClone(original.contact_details || {});
+  try {
+    await page.goto("/admin");
+    await openPanel(page, "Hotel Information");
+    await expect(page.locator("#hotel-info-checkin")).toHaveAttribute("type", "time");
+    await expect(page.locator("#hotel-info-checkout")).toHaveAttribute("type", "time");
+    await page.locator("#hotel-info-checkin").fill("15:45");
+    await page.locator("#hotel-info-checkout").fill("11:30");
+    await page.getByRole("button", { name: "Save & Publish" }).click();
+    await expect(page.locator("#toast")).toContainText("Hotel information saved");
+    const saved = await request.get(propertyUrl).then((response) => response.json());
+    expect(saved.contact_details.check_in).toBe("15:45");
+    expect(saved.contact_details.checkout).toBe("11:30");
+  } finally {
+    const current = await request.get(propertyUrl).then((response) => response.json());
+    current.contact_details = originalContactDetails;
+    const restored = await request.put(propertyUrl, { headers: csrfHeaders(request), data: current });
+    expect(restored.ok()).toBeTruthy();
+  }
+});
+
+test("Alerts show their evaluated timeframe and refresh the current view", async ({ page }) => {
+  let latestDashboardUrl = "";
+  let dashboardLoads = 0;
+  page.on("request", (request) => {
+    if (request.url().includes("/operations/dashboard?")) {
+      latestDashboardUrl = request.url();
+      dashboardLoads += 1;
+    }
+  });
+  await page.goto("/admin");
+  await openPanel(page, "Alerts");
+  await expect(page.locator("#alerts-summary")).toContainText("24h timeframe");
+  await page.getByRole("combobox", { name: "Alerts timeframe" }).selectOption("1h");
+  await expect.poll(() => latestDashboardUrl).toContain("period=1h");
+  await expect(page.locator("#alerts-summary")).toContainText("1h timeframe");
+  const loadsBeforeRefresh = dashboardLoads;
+  await page.getByRole("button", { name: "Refresh alerts" }).click();
+  await expect.poll(() => dashboardLoads).toBeGreaterThan(loadsBeforeRefresh);
+  await expect(page.getByRole("button", { name: "Refresh alerts" })).toBeEnabled();
 });
 
 test("appearance panel: all design controls are wired and update preview", async ({ page }) => {
@@ -286,28 +532,50 @@ test("appearance panel: all design controls are wired and update preview", async
   await openPanel(page, "Design");
 
   const selectedPropertyName = (await page.locator("#property-switcher option:checked").innerText()).trim();
-  await expect(page.locator("#design-hotel-name")).toHaveValue(selectedPropertyName);
-  await expect(page.locator("#welcome-input")).toBeEnabled();
-  await expect(page.locator("#greeting-input")).toBeEnabled();
-  await expect(page.locator("#logo-display-input")).toBeEnabled();
-  await expect(page.locator("#logo-upload-input")).toBeEnabled();
-  await expect(page.locator("#background-input")).toBeEnabled();
-  await expect(page.locator("#text-color-input")).toBeEnabled();
-  await expect(page.locator("#secondary-text-color-input")).toBeEnabled();
-  await expect(page.locator("#background-image-input")).toBeEnabled();
-  await expect(page.locator("#background-overlay-input")).toBeEnabled();
-  await expect(page.locator("#accent-input")).toBeEnabled();
-  await expect(page.locator("#font-input")).toBeEnabled();
-  await expect(page.locator("#density-input")).toBeEnabled();
-  await expect(page.locator("#content-width-input")).toBeEnabled();
-  await expect(page.locator("#message-width-input")).toBeEnabled();
-  await expect(page.locator("#user-style-input")).toBeEnabled();
-  await expect(page.locator("#assistant-style-input")).toBeEnabled();
-  await expect(page.locator("#header-enabled-input")).toBeEnabled();
-  await expect(page.locator("#show-logo-input")).toBeEnabled();
-  await expect(page.locator("#show-name-input")).toBeEnabled();
-  await expect(page.getByRole("button", { name: "Add prompt" })).toBeEnabled();
-  await expect(page.getByText("Guest chat preview")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Live guest chat preview" })).toBeVisible();
+  const previewCanvas = await page.locator("#preview-stage").evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { backgroundColor: style.backgroundColor, backgroundImage: style.backgroundImage };
+  });
+  expect(previewCanvas).toEqual({ backgroundColor: "rgb(255, 255, 255)", backgroundImage: "none" });
+
+  const inspectorControls = {
+    brand: ["design-hotel-name", "logo-display-input", "logo-upload-input", "header-enabled-input", "show-logo-input", "show-name-input"],
+    content: ["greeting-input", "welcome-input", "composer-placeholder-input"],
+    theme: ["background-input", "text-color-input", "secondary-text-color-input", "background-image-input", "background-overlay-input", "accent-input"],
+    layout: ["font-input", "density-input", "content-width-input", "message-width-input", "user-style-input", "assistant-style-input"],
+    prompts: ["add-prompt"],
+  };
+  for (const [inspector, controlIds] of Object.entries(inspectorControls)) {
+    await page.locator(`[data-design-inspector="${inspector}"]`).click();
+    await expect(page.locator(`[data-inspector-panel="${inspector}"]`)).toHaveAttribute("open", "");
+    for (const controlId of controlIds) {
+      await expect(page.locator(`#${controlId}`)).toBeVisible();
+      await expect(page.locator(`#${controlId}`)).toBeEnabled();
+    }
+  }
+  await page.locator('[data-design-inspector="brand"]').click();
+  await page.locator("#design-hotel-name").fill("Preview-only design check");
+  await expect(page.locator("#preview-hotel")).toHaveText("Preview-only design check");
+  await page.locator("#design-hotel-name").fill(selectedPropertyName);
+});
+
+test("appearance panel: logo uploader shows selected-file status and previews the image", async ({ page }) => {
+  await page.goto("/admin");
+  await openPanel(page, "Design");
+  await page.locator('[data-design-inspector="brand"]').click();
+
+  await expect(page.getByLabel("Upload hotel logo")).toBeVisible();
+  await expect(page.getByText("Choose logo")).toBeVisible();
+  await page.locator("#logo-upload-input").setInputFiles({
+    name: "hotel-logo.png",
+    mimeType: "image/png",
+    buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/S4cAAAAASUVORK5CYII=", "base64"),
+  });
+
+  await expect(page.locator("#logo-upload-status")).toHaveText("hotel-logo.png is ready in this draft.");
+  await expect(page.locator("#logo-url-input")).toHaveValue(/^data:image\/png;base64,/);
+  await expect(page.locator("#preview-logo")).toHaveClass(/has-image/);
 });
 
 test("appearance panel: preview size buttons work", async ({ page }) => {
@@ -315,21 +583,22 @@ test("appearance panel: preview size buttons work", async ({ page }) => {
   await openPanel(page, "Design");
 
   await expect(page.locator(".phone-preview")).toHaveClass(/mobile/);
-  await page.getByRole("button", { name: "Tablet" }).click();
+  await page.locator('[data-size="tablet"]').click();
   await expect(page.locator(".phone-preview")).toHaveClass(/tablet/);
-  await page.getByRole("button", { name: "Desktop" }).click();
+  await page.locator('[data-size="desktop"]').click();
   await expect(page.locator(".phone-preview")).toHaveClass(/desktop/);
-  await page.getByRole("button", { name: "Mobile" }).click();
+  await page.locator('[data-size="mobile"]').click();
   await expect(page.locator(".phone-preview")).toHaveClass(/mobile/);
 });
 
 test("appearance panel: add and remove prompt buttons work", async ({ page }) => {
   await page.goto("/admin");
   await openPanel(page, "Design");
+  await page.locator('[data-design-inspector="prompts"]').click();
   const rows = page.locator("#prompt-list .prompt-row");
   const initialCount = await rows.count();
 
-  await page.getByRole("button", { name: "Add prompt" }).click();
+  await page.locator("#add-prompt").click();
   await expect(rows).toHaveCount(initialCount + 1);
   await rows.last().getByRole("button", { name: "Remove prompt" }).click();
   await expect(rows).toHaveCount(initialCount);
@@ -337,13 +606,19 @@ test("appearance panel: add and remove prompt buttons work", async ({ page }) =>
 
 test("guest experience panel: modules can be managed", async ({ page }) => {
   await page.goto("/admin");
-  await openPanel(page, "Preview");
+  await openPanel(page, "Conversation Modules");
   await expect(page.locator("#guest-module-name")).toBeEnabled();
   await expect(page.locator("#guest-module-prompt")).toBeEnabled();
   await expect(page.getByRole("button", { name: "Save Module" })).toBeEnabled();
 });
 
-test("preview-only controls are explicitly disabled", async ({ page }) => {
+test("preview controls are interactive and intro settings save", async ({ page }) => {
+  const propertyId = (await (await page.request.get("/api/admin/properties")).json()).properties[0].property_id;
+  const resetIntro = await page.request.put(`/api/admin/properties/${propertyId}/intro`, {
+    headers: csrfHeaders(page.request),
+    data: { data: { mode: "none", preset: "none", duration_ms: 1400, background: "#fbfbfa", brand_color: "#18181b", welcome_message: "", first_visit_only: true, allow_skip: true, asset_url: "", asset_type: "" } },
+  });
+  expect(resetIntro.ok()).toBeTruthy();
   await page.goto("/admin");
   await openPanel(page, "Design");
   await expect(page.locator("#chat-preview button[title='Preview only']")).toHaveCount(3);
@@ -352,7 +627,192 @@ test("preview-only controls are explicitly disabled", async ({ page }) => {
   }
 
   await openPanel(page, "Branding / Intro");
-  await expect(page.locator("#intro-preview-card button")).toBeDisabled();
+  await expect(page.locator(".intro-editor")).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(page.locator(".intro-editor-heading")).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(page.locator(".intro-preview-toolbar")).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(page.locator("#intro-preview-stage")).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(page.locator("#play-intro-preview")).toBeDisabled();
+  await expect(page.locator("#intro-preview-empty")).toBeVisible();
+  await expect(page.locator("#intro-preview-card")).toBeHidden();
+  await expect(page.locator("#intro-preview-skip")).toBeHidden();
+  const welcomeStyles = [
+    ["quiet_luxury", "luxury_reveal", "#f4f0e8", "#27352e", "Welcome to a more considered stay."],
+    ["city_boutique", "minimal_fade", "#f3f6fa", "#20304a", "Your city stay, made simple."],
+    ["warm_welcome", "fade_scale", "#fff6ed", "#70452f", "We're glad you're here."],
+    ["coastal_retreat", "logo_to_chat_header", "#eff8f7", "#1e5d61", "Take a breath. You're right where you need to be."],
+  ];
+  for (const [style, preset, background, brand, message] of welcomeStyles) {
+    await page.locator(`[data-intro-template="${style}"]`).click();
+    await expect(page.locator("#intro-mode")).toHaveValue("generate_from_logo");
+    await expect(page.locator("#intro-preset")).toHaveValue(preset);
+    await expect(page.locator("#intro-message")).toHaveValue(message);
+    await expect(page.locator("#intro-background")).toHaveValue(background);
+    await expect(page.locator("#intro-brand-color")).toHaveValue(brand);
+    await expect(page.locator(`[data-intro-template="${style}"]`)).toHaveAttribute("aria-pressed", "true");
+  }
+  await page.locator('[data-intro-template="quiet_luxury"]').click();
+  await expect(page.locator("#intro-accessibility-check")).toContainText("WCAG AAA");
+  await page.locator("#intro-brand-color").fill("#f4f0e8");
+  await expect(page.locator("#intro-accessibility-check")).toContainText("target 4.5:1");
+  await expect(page.locator("#intro-accessibility-check")).toHaveClass(/review/);
+  await page.locator('[data-intro-template="quiet_luxury"]').click();
+  await page.locator("#intro-mode").selectOption("generate_from_logo");
+  await expect(page.locator("#intro-preview-card")).toBeVisible();
+  await expect(page.locator("#intro-preview-empty")).toBeHidden();
+  await page.locator('[data-intro-preset="fade_scale"]').click();
+  await page.locator("#intro-duration").fill("2.2");
+  await page.locator("#intro-skip").uncheck();
+  await expect(page.locator("#intro-preview-skip")).toBeHidden();
+  await page.locator("#intro-skip").check();
+  await expect(page.locator("#intro-preview-skip")).toBeVisible();
+  await page.locator("#intro-first-visit").uncheck();
+  await expect(page.locator("#intro-duration-range")).toHaveValue("2200");
+  await expect(page.locator("#play-intro-preview")).toBeEnabled();
+  await page.locator("#play-intro-preview").click();
+  await expect(page.locator("#intro-preview-card")).toHaveClass(/playing/);
+  await expect(page.locator("#intro-preview-skip")).toBeEnabled();
+  await page.locator("#intro-preview-skip").click();
+  await expect(page.locator("#intro-preview-card")).not.toHaveClass(/playing/);
+  await page.locator('[data-intro-device="desktop"]').click();
+  await expect(page.locator("#intro-preview-device")).toHaveClass(/desktop/);
+  await page.locator("#save-intro").click();
+  await expect(page.locator("#intro-save-status")).toContainText("Saved");
+  await page.reload();
+  await openPanel(page, "Branding / Intro");
+  await expect(page.locator("#intro-mode")).toHaveValue("generate_from_logo");
+  await expect(page.locator("#intro-preset")).toHaveValue("fade_scale");
+  await expect(page.locator("#intro-duration")).toHaveValue("2.2");
+  await expect(page.locator("#intro-first-visit")).not.toBeChecked();
+  await expect(page.locator("#intro-skip")).toBeChecked();
+  await page.locator("#intro-first-visit").check();
+  await page.locator("#intro-mode").selectOption("custom_upload");
+  await expect(page.locator("#play-intro-preview")).toBeDisabled();
+  await page.locator("#intro-upload").setInputFiles({
+    name: "welcome.webm",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x00, 0x00, 0x00, 0x00]),
+  });
+  await expect(page.locator("#intro-asset-status")).toContainText("WebM video uploaded");
+  await expect(page.locator("#intro-mode")).toHaveValue("custom_upload");
+  await expect(page.locator("#play-intro-preview")).toBeEnabled();
+  await page.locator("#intro-remove-asset").click();
+  await expect(page.locator("#intro-asset-status")).toContainText("No custom video uploaded");
+  await expect(page.locator("#intro-mode")).toHaveValue("generate_from_logo");
+});
+
+test("every visible admin tab opens with page-specific guidance", async ({ page }) => {
+  const pageErrors = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  await page.goto("/admin");
+  await page.locator('body[data-admin-ready="true"]').waitFor();
+  const destinations = await page.locator(".nav-item").evaluateAll((items) => {
+    const seen = new Set();
+    return items.flatMap((item) => {
+      const panel = item.dataset.panel;
+      if (!panel || seen.has(panel)) return [];
+      seen.add(panel);
+      return [{ navId: item.dataset.navId, panel }];
+    });
+  });
+
+  for (const { navId, panel } of destinations) {
+    if ((page.viewportSize()?.width || 1440) <= 620) {
+      const shell = page.locator(".platform-shell");
+      if (!(await shell.evaluate((element) => element.classList.contains("mobile-nav-open")))) {
+        await page.locator("#sidebar-toggle").click();
+      }
+      await page.waitForFunction(() => {
+        const sidebar = document.querySelector(".platform-sidebar");
+        return sidebar && sidebar.getBoundingClientRect().left >= -1;
+      });
+    }
+    const item = page.locator(`.nav-item[data-nav-id="${navId}"]`);
+    await item.evaluate((element) => {
+      const group = element.closest("details");
+      if (group) group.open = true;
+    });
+    if ((page.viewportSize()?.width || 1440) <= 620) await item.scrollIntoViewIfNeeded();
+    await item.click({ force: (page.viewportSize()?.width || 1440) <= 620 });
+    const active = page.locator(".panel.active");
+    await expect(active).toHaveAttribute("id", panel);
+    await expect(active.locator(":scope > .page-title h1, :scope > .onboarding-card h1").first()).toBeVisible();
+    const pageGuide = active.locator(":scope > .page-comment, :scope > .contextual-help-disclosure").first();
+    await expect(pageGuide).toBeVisible();
+    await pageGuide.locator("summary").click();
+    const layout = await page.evaluate(() => {
+      const width = document.documentElement.scrollWidth;
+      const viewport = window.innerWidth;
+      const offenders = [...document.querySelectorAll("body *")].map((element) => {
+        const rect = element.getBoundingClientRect();
+        return { tag: element.tagName, id: element.id, className: typeof element.className === "string" ? element.className : "", right: Math.round(rect.right), left: Math.round(rect.left), width: Math.round(rect.width) };
+      }).filter((item) => item.width > 0 && (item.right > viewport + 1 || item.left < -1)).sort((a, b) => b.right - a.right).slice(0, 6);
+      return { width, viewport, offenders };
+    });
+    expect(layout.width, `Horizontal page overflow on ${panel}: ${JSON.stringify(layout)}`).toBeLessThanOrEqual(layout.viewport + 1);
+    const relatedLink = active.locator(".page-comment-related-link").first();
+    await expect(relatedLink).toBeVisible();
+    const relatedPanel = await relatedLink.getAttribute("data-panel");
+    await relatedLink.click();
+    await expect(page.locator(".panel.active")).toHaveAttribute("id", relatedPanel);
+  }
+
+  expect(pageErrors).toEqual([]);
+});
+
+test("admin: page help uses an accessible question-mark icon", async ({ page }) => {
+  await page.goto("/admin");
+  await page.locator('body[data-admin-ready="true"]').waitFor();
+
+  const guide = page.locator("#overview > .page-comment");
+  await expect(guide).toBeVisible();
+  await expect(guide.locator(".page-comment-help-icon")).toHaveText("?");
+  const summary = guide.locator("summary");
+  await expect(summary).toHaveAttribute("aria-label", "Help for Operations overview");
+  await summary.click();
+  await expect(guide).toHaveAttribute("open", "");
+});
+
+test("admin: long workflow guidance is collapsed until requested", async ({ page }) => {
+  await page.goto("/admin");
+  for (const label of ["Guest Requests", "Guest Sessions", "Personalization", "Conversation Modules", "Rooms", "Facilities", "Branding / Intro"]) {
+    await openPanel(page, label);
+    const help = page.locator(".panel.active > .contextual-help-disclosure");
+    await expect(help).toBeVisible();
+    await expect(help).not.toHaveAttribute("open", "");
+    await help.locator("summary").click();
+    await expect(help).toHaveAttribute("open", "");
+    await expect(help.locator(":scope > section, :scope > .card").first()).toBeVisible();
+  }
+});
+
+test("every visible admin page fits the tablet layout", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "The tablet layout sweep needs one browser profile.");
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await page.goto("/admin");
+  await page.locator('body[data-admin-ready="true"]').waitFor();
+  const destinations = await page.locator(".nav-item").evaluateAll((items) => {
+    const panels = [...new Set(items.map((item) => item.dataset.panel).filter(Boolean))];
+    return panels;
+  });
+
+  for (const panel of destinations) {
+    const item = page.locator(`.nav-item[data-panel="${panel}"]`).first();
+    await item.evaluate((element) => {
+      const group = element.closest("details");
+      if (group) group.open = true;
+    });
+    await item.click();
+    await expect(page.locator(".panel.active")).toHaveAttribute("id", panel);
+    const layout = await page.evaluate(() => {
+      const viewport = window.innerWidth;
+      const offenders = [...document.querySelectorAll("body *")].map((element) => {
+        const rect = element.getBoundingClientRect();
+        return { tag: element.tagName, id: element.id, className: typeof element.className === "string" ? element.className : "", left: Math.round(rect.left), right: Math.round(rect.right), width: Math.round(rect.width) };
+      }).filter((item) => item.width > 0 && item.right > viewport + 1).sort((a, b) => b.right - a.right).slice(0, 6);
+      return { width: document.documentElement.scrollWidth, viewport, offenders };
+    });
+    expect(layout.width, `Horizontal overflow on ${panel} at tablet width: ${JSON.stringify(layout)}`).toBeLessThanOrEqual(layout.viewport + 1);
+  }
 });
 
 test("AI providers panel: provider management controls are available", async ({ page }) => {
@@ -381,14 +841,34 @@ test("zones map toolbar buttons switch tools and execute safely", async ({ page 
   await page.goto("/admin");
   await openPanel(page, "Zones & Maps");
 
-  for (const tool of ["Rectangle", "Polygon", "Ellipse", "Freeform", "Select"]) {
-    const button = page.getByRole("button", { name: tool, exact: true });
+  for (const tool of ["select", "rectangle", "polygon", "ellipse", "freeform", "waypoint", "connect", "access_point"]) {
+    const button = page.locator(`[data-map-tool="${tool}"]`);
     await button.click();
     await expect(button).toHaveClass(/active/);
+    await expect(button).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator("#floor-map-canvas")).toHaveAttribute("data-tool", tool);
   }
-  for (const action of ["Duplicate", "Delete", "Undo", "Redo"]) {
-    await page.getByRole("button", { name: action, exact: true }).click();
-  }
+  const zoomBefore = await page.locator("#map-zoom-label").innerText();
+  await page.locator("#map-zoom-in").click();
+  await expect(page.locator("#map-zoom-label")).not.toHaveText(zoomBefore);
+  await page.locator("#map-fit-canvas").click();
+  await expect(page.locator("#map-zoom-label")).toHaveText("100%");
+});
+
+test("map workspace adapts to a short desktop viewport", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto("/admin");
+  await openPanel(page, "Zones & Maps");
+  const workspace = await page.locator(".map-workspace").boundingBox();
+  expect(workspace).not.toBeNull();
+  expect(workspace.height).toBeLessThanOrEqual(440);
+  const canvasViewport = await page.locator("#map-canvas-viewport").boundingBox();
+  expect(canvasViewport).not.toBeNull();
+  expect(canvasViewport.y + canvasViewport.height).toBeLessThanOrEqual(720);
+  await page.setViewportSize({ width: 390, height: 844 });
+  const mobileCanvas = await page.locator("#map-canvas-viewport").boundingBox();
+  expect(mobileCanvas).not.toBeNull();
+  expect(mobileCanvas.width).toBeLessThanOrEqual(390);
 });
 
 test("obsolete product sections are removed from navigation", async ({ page }) => {
@@ -396,11 +876,12 @@ test("obsolete product sections are removed from navigation", async ({ page }) =
   await expect(page.locator('.nav-item .nav-label', { hasText: "Improvement Loop" })).toHaveCount(0);
   await expect(page.locator('.nav-item .nav-label', { hasText: "PMS" })).toHaveCount(0);
   await expect(page.locator('.nav-item .nav-label', { hasText: "License" })).toHaveCount(0);
+  await expect(page.locator('.nav-item .nav-label', { hasText: "Exports" })).toHaveCount(0);
 });
 
 test("knowledge panel exposes managed source controls", async ({ page }) => {
   await page.goto("/admin");
-  await openPanel(page, "Overview");
+  await openPanel(page, "Knowledge");
   await expect(page.locator("#knowledge-title")).toBeEnabled();
   await expect(page.getByRole("button", { name: "Save Knowledge" })).toBeEnabled();
   await expect(page.locator("#knowledge-list")).toBeVisible();
@@ -417,16 +898,49 @@ test("authentication type panel: toggles are available", async ({ page }) => {
   await page.goto("/admin");
   await openPanel(page, "Authentication Types");
   await expect(page.locator("#auth-types .poc-note")).toBeVisible();
+  await expect(page.locator("#authentication-enabled")).toBeEnabled();
   await expect(page.locator(".auth-type-row")).toHaveCount(10);
-  await expect(page.getByText("PMS / Room Login")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "PMS / Room Login" })).toBeVisible();
   const pmsToggle = page.locator('[data-auth-type="pms"]');
   await expect(pmsToggle).toBeEnabled();
+  const saveButton = page.getByRole("button", { name: "Save authentication settings" });
+  await expect(saveButton).toBeDisabled();
+  await expect(page.locator(".auth-save-bar")).toHaveCSS("position", "static");
   const wasPmsEnabled = await pmsToggle.isChecked();
-  await page.locator('[data-auth-type="pms"] + span').click();
+  await pmsToggle.click();
   await expect(pmsToggle).toBeChecked({ checked: !wasPmsEnabled });
-  await page.getByRole("button", { name: "Save Authentication Methods" }).click();
-  await expect(page.getByRole("status")).toContainText("Authentication methods saved");
+  await expect(page.locator("#auth-save-state")).toContainText("Unsaved changes");
+  await expect(saveButton).toBeEnabled();
+  await saveButton.click();
+  await expect(page.locator("#toast")).toContainText("Authentication methods saved");
   await expect(pmsToggle).toBeChecked({ checked: !wasPmsEnabled });
+  await expect(saveButton).toBeDisabled();
+  await expect(page.locator("#auth-save-state")).toContainText("All changes saved");
+});
+
+test("authentication master switch saves and reloads independently of method choices", async ({ page }) => {
+  await page.goto("/admin");
+  await openPanel(page, "Authentication Types");
+  const master = page.locator("#authentication-enabled");
+  const original = await master.isChecked();
+  const pms = page.locator('[data-auth-type="pms"]');
+  const originalPms = await pms.isChecked();
+  const saveButton = page.getByRole("button", { name: "Save authentication settings" });
+  await expect(saveButton).toBeDisabled();
+
+  await master.click();
+  await expect(saveButton).toBeEnabled();
+  await saveButton.click();
+  await expect(page.locator("#toast")).toContainText(original ? "sign-in is off" : "sign-in is on");
+  await expect(saveButton).toBeDisabled();
+  await page.reload();
+  await openPanel(page, "Authentication Types");
+  await expect(page.locator("#authentication-enabled")).toBeChecked({ checked: !original });
+  await expect(page.locator('[data-auth-type="pms"]')).toBeChecked({ checked: originalPms });
+
+  await page.locator("#authentication-enabled").click();
+  await expect(saveButton).toBeEnabled();
+  await saveButton.click();
 });
 
 test("requests panel: service request controls are available", async ({ page }) => {
@@ -436,6 +950,86 @@ test("requests panel: service request controls are available", async ({ page }) 
   await expect(page.locator("#service-type")).toBeVisible();
   await expect(page.getByRole("button", { name: "Create Request" })).toBeVisible();
   await expect(page.locator("#service-request-list")).toBeVisible();
+  await expect(page.locator("#request-last-updated")).toContainText("Updated");
+});
+
+test("requests panel: operational summary counts and filters use property-local dates", async ({ page }) => {
+  const now = Math.floor(Date.now() / 1000);
+  const requests = [
+    { request_id: "open-1", status: "new", sla_state: "within_sla", request_type: "Water", room: "101", description: "Water", created_at: now, updated_at: now, notes: [] },
+    { request_id: "progress-1", status: "in_progress", sla_state: "within_sla", request_type: "Towels", room: "102", description: "Towels", created_at: now, updated_at: now, notes: [] },
+    { request_id: "soon-1", status: "assigned", sla_state: "warning", request_type: "Pillows", room: "103", description: "Pillows", created_at: now, updated_at: now, notes: [] },
+    { request_id: "late-1", status: "new", sla_state: "overdue", request_type: "Taxi", room: "104", description: "Taxi", created_at: now, updated_at: now, notes: [] },
+    { request_id: "done-today", status: "completed", sla_state: "completed", request_type: "Ice", room: "105", description: "Ice", completed_at: now, created_at: now, updated_at: now, notes: [] },
+    { request_id: "done-before", status: "completed", sla_state: "completed", request_type: "Laundry", room: "106", description: "Laundry", completed_at: now - 172800, created_at: now - 172800, updated_at: now - 172800, notes: [] },
+  ];
+  await page.route("**/api/admin/properties/*/hospitality", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ service_requests: requests }),
+  }));
+  await page.goto("/admin");
+  await openPanel(page, "Guest Requests");
+
+  await expect(page.locator("#request-count-open")).toHaveText("4");
+  await expect(page.locator("#request-count-in_progress")).toHaveText("1");
+  await expect(page.locator("#request-count-due_soon")).toHaveText("1");
+  await expect(page.locator("#request-count-overdue")).toHaveText("1");
+  await expect(page.locator("#request-count-completed_today")).toHaveText("1");
+
+  for (const [filter, requestId] of [["in_progress", "progress-1"], ["due_soon", "soon-1"], ["overdue", "late-1"], ["completed_today", "done-today"]]) {
+    await page.locator(`[data-request-filter="${filter}"]`).click();
+    await expect(page.locator("#service-request-result-count")).toHaveText("1 request");
+    await expect(page.locator("#service-request-list")).toContainText(requestId);
+  }
+});
+
+test("operations assistant formats evidence, completes the first reply, and keeps follow-up context", async ({ page }) => {
+  const requests = [];
+  await page.route("**/assistant/query", async (route) => {
+    const request = route.request().postDataJSON();
+    requests.push(request);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        question: request.question,
+        conversation_id: "assistant-ui-audit",
+        answer: "### Confirmed observations\n\n**Database:** responding normally.\n\n- API: healthy\n- Error count: 0",
+        finding: "System checks completed.",
+        component: "system",
+        timeframe: "Last 24 hours",
+        evidence_items: [{ label: "Database", state: "healthy", detail: "Probe completed." }],
+        recommendations: [],
+        links: [],
+        downloads: [],
+      }),
+    });
+  });
+  await page.goto("/admin");
+  await openPanel(page, "AI Assistant");
+  const input = page.locator("#assistant-page-input");
+  const submit = page.locator("#assistant-page-form button[type='submit']");
+  await input.fill("Check the system health");
+  await submit.click();
+  await expect(page.locator("#assistant-page-messages .assistant-message.loading")).toBeVisible();
+  await expect(submit).toHaveText("Thinking…");
+  await expect(page.locator("#assistant-page-messages .assistant-answer-copy h4")).toHaveText("Confirmed observations");
+  const answerCopy = page.locator("#assistant-page-messages .assistant-answer-copy");
+  await expect(answerCopy.locator("strong")).toContainText("Database:");
+  await expect(answerCopy.locator("li")).toHaveCount(2);
+  expect(await answerCopy.innerText()).not.toMatch(/###|\*\*/);
+  await expect(submit).toBeEnabled();
+  await expect(submit).toHaveText("Send");
+  await expect(page.locator("#assistant-page-messages .assistant-message.user")).toHaveCount(1);
+
+  await input.fill("What did the database check show?");
+  await submit.click();
+  await expect(page.locator("#assistant-page-messages .assistant-message.user")).toHaveCount(2);
+  expect(requests).toHaveLength(2);
+  expect(requests[1].conversation_id).toBe("assistant-ui-audit");
+  await expect(submit).toBeEnabled();
 });
 
 test("deployment panel: status info displayed", async ({ page }) => {
@@ -504,12 +1098,16 @@ test.describe("config workflow (serial)", () => {
       await page.goto("/admin");
       await openPanel(page, "Design");
 
+      await page.locator('[data-design-inspector="brand"]').click();
       await page.locator("#design-hotel-name").fill(qaHotelName);
+      await page.locator('[data-design-inspector="content"]').click();
       await page.locator("#welcome-input").fill(qaHeadline);
+      await page.locator('[data-design-inspector="theme"]').click();
       await page.locator("#accent-input").fill(qaAccent);
-      await page.getByRole("button", { name: "Add prompt" }).click();
+      await page.locator('[data-design-inspector="prompts"]').click();
+      await page.locator("#add-prompt").click();
 
-      await page.getByRole("button", { name: "Save Draft" }).click();
+      await page.getByRole("button", { name: "Save Draft", exact: true }).click();
       await expect(page.getByText("Draft saved.")).toBeVisible();
 
       // Guest still shows original published config
@@ -555,8 +1153,9 @@ test.describe("config workflow (serial)", () => {
       await page.goto("/admin");
       await openPanel(page, "Design");
 
+      await page.locator('[data-design-inspector="content"]').click();
       await page.locator("#welcome-input").fill(discardHeadline);
-      await page.getByRole("button", { name: "Save Draft" }).click();
+      await page.getByRole("button", { name: "Save Draft", exact: true }).click();
       await expect(page.getByText("Draft saved.")).toBeVisible();
 
       await page.getByRole("button", { name: "Discard" }).click();
@@ -587,20 +1186,22 @@ test.describe("config workflow (serial)", () => {
       // Publish version A
       await page.goto("/admin");
       await openPanel(page, "Design");
+      await page.locator('[data-design-inspector="content"]').click();
       await page.locator("#welcome-input").fill("Version A headline");
-      await page.getByRole("button", { name: "Save Draft" }).click();
+      await page.getByRole("button", { name: "Save Draft", exact: true }).click();
       await expect(page.getByText("Draft saved.")).toBeVisible();
       await page.getByRole("button", { name: "Publish" }).click();
       await expect(page.locator("#publish-state")).toContainText("Published");
 
       // Publish version B
       await page.locator("#welcome-input").fill("Version B headline");
-      await page.getByRole("button", { name: "Save Draft" }).click();
+      await page.getByRole("button", { name: "Save Draft", exact: true }).click();
       await expect(page.getByText("Draft saved.")).toBeVisible();
       await page.getByRole("button", { name: "Publish" }).click();
       await expect(page.locator("#publish-state")).toContainText("Published");
 
       // Verify version list has entries
+      await page.locator('[data-design-inspector="versions"]').click();
       const versionRows = page.locator(".version-row");
       await expect(versionRows.first()).toBeVisible();
       const count = await versionRows.count();

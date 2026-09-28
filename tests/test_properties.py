@@ -1,7 +1,12 @@
+import base64
+import copy
+from dataclasses import replace
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+import app.antlabs as antlabs_module
+import app.main as main_module
 from app.hospitality import HospitalityStore
 from app.main import app
 from app.operations import OperationsStore
@@ -64,6 +69,41 @@ def test_property_round_trip_rich_configuration(tmp_path: Path):
     assert loaded.public_profile["quick_actions"][0]["label"] == "Checkout"
 
 
+def test_property_logo_upload_is_scoped_validated_and_immediately_saved(admin_client: TestClient):
+    property_id = "test-property"
+    record = main_module.properties.get(property_id)
+    original_logo = record.logo_url
+    original_draft = copy.deepcopy(record.design_draft)
+    logo = "data:image/png;base64," + base64.b64encode(
+        b"\x89PNG\r\n\x1a\nlogo-test"
+    ).decode("ascii")
+
+    try:
+        response = admin_client.put(
+            f"/api/admin/properties/{property_id}/logo",
+            json={"logo_url": logo},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json() == {"logo_url": logo}
+        saved = main_module.properties.get(property_id)
+        assert saved.logo_url == logo
+        assert saved.design_draft == original_draft
+
+        rejected = admin_client.put(
+            f"/api/admin/properties/{property_id}/logo",
+            json={"logo_url": "data:image/png;base64," + base64.b64encode(b"not a PNG").decode("ascii")},
+        )
+        assert rejected.status_code == 422
+
+        removed = admin_client.put(f"/api/admin/properties/{property_id}/logo", json={"logo_url": ""})
+        assert removed.status_code == 200
+        assert main_module.properties.get(property_id).logo_url == ""
+    finally:
+        restored = main_module.properties.get(property_id)
+        restored.logo_url = original_logo
+        main_module.properties.upsert(restored)
+
+
 def test_public_profile_exposes_enabled_authentication_rules(tmp_path: Path):
     store = PropertyStore(tmp_path / "concierge.db")
     record = PropertyRecord(
@@ -82,9 +122,104 @@ def test_public_profile_exposes_enabled_authentication_rules(tmp_path: Path):
     profile = store.get("auth-hotel").public_profile
 
     enabled = profile["authentication"]["enabled_types"]
+    assert profile["authentication"]["enabled"] is True
     assert [item["id"] for item in enabled] == ["pms", "access_code"]
     assert enabled[0]["fields"] == ["room", "last_name"]
     assert enabled[1]["fields"] == ["access_code"]
+
+
+def test_authentication_master_switch_hides_methods_without_erasing_configuration(tmp_path: Path):
+    store = PropertyStore(tmp_path / "auth-master.db")
+    store.upsert(PropertyRecord(
+        property_id="auth-master-hotel",
+        hotel_name="Auth Master Hotel",
+        antlabs_config={
+            "authentication_enabled": False,
+            "authentication_types": {"pms": {"label": "PMS / Room Login", "enabled": True}},
+        },
+    ))
+
+    loaded = store.get("auth-master-hotel")
+    assert loaded.public_profile["authentication"] == {"enabled": False, "enabled_types": []}
+    assert loaded.antlabs_config["authentication_types"]["pms"]["enabled"] is True
+
+    loaded.antlabs_config["authentication_enabled"] = True
+    store.upsert(loaded)
+    enabled_profile = store.get("auth-master-hotel").public_profile["authentication"]
+    assert enabled_profile["enabled"] is True
+    assert [item["id"] for item in enabled_profile["enabled_types"]] == ["pms"]
+
+
+def test_live_guest_profile_and_auth_api_match_sg5_builtin_processor(tmp_path: Path, monkeypatch):
+    store = PropertyStore(tmp_path / "live-auth.db")
+    store.upsert(PropertyRecord(
+        property_id="test-property",
+        hotel_name="SG5 Test Property",
+        antlabs_config={
+            "authentication_enabled": True,
+            "authentication_types": {
+                "pms": {"label": "PMS / Room Login", "enabled": True},
+                "global_code": {"label": "Global Code", "enabled": True},
+            },
+        },
+    ))
+    live_settings = replace(
+        main_module.settings,
+        antlabs_mode="browser_handoff",
+        antlabs_auth_url="https://sg5.example.test/login/main.ant?c=proc",
+        antlabs_auth_method="POST",
+    )
+    monkeypatch.setattr(main_module, "properties", store)
+    monkeypatch.setattr(main_module, "settings", live_settings)
+    monkeypatch.setattr(
+        antlabs_module,
+        "settings",
+        replace(
+            antlabs_module.settings,
+            antlabs_mode="browser_handoff",
+            antlabs_auth_url="https://sg5.example.test/login/main.ant?c=proc",
+            antlabs_auth_method="POST",
+            antlabs_room_field="uid",
+            antlabs_last_name_field="pwd",
+            antlabs_session_field="",
+            antlabs_session_context_key="",
+            antlabs_passthrough_fields=(),
+        ),
+    )
+
+    with TestClient(app) as client:
+        profile = client.get("/api/hotel")
+        assert profile.status_code == 200
+        assert [item["id"] for item in profile.json()["authentication"]["enabled_types"]] == ["pms"]
+
+        session = client.post(
+            "/api/session/start",
+            json={"client_id": "sg5-live-handoff-test", "property_id": "test-property"},
+        )
+        assert session.status_code == 200
+        session_id = session.json()["session_id"]
+
+        handoff = client.post(
+            "/api/authenticate",
+            json={
+                "session_id": session_id,
+                "auth_type": "pms",
+                "credentials": {"room": "412", "last_name": "Smith"},
+            },
+        )
+        assert handoff.status_code == 200
+        assert handoff.json()["status"] == "handoff_required"
+        assert handoff.json()["handoff"] == {
+            "method": "POST",
+            "url": "https://sg5.example.test/login/main.ant?c=proc",
+            "fields": {"p": "pms", "uid": "412", "pwd": "Smith"},
+        }
+
+        unsupported = client.post(
+            "/api/authenticate",
+            json={"session_id": session_id, "auth_type": "global_code", "credentials": {"global_code": "sample"}},
+        )
+        assert unsupported.status_code == 422
 
 
 def test_start_session_rejects_unknown_property():

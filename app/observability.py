@@ -244,7 +244,6 @@ class ObservabilityStore:
             ai_provider_rows = db.execute("SELECT provider_id,model,COUNT(*) count FROM ai_usage WHERE property_id=? AND created_at>=? AND created_at<=? GROUP BY provider_id,model ORDER BY count DESC", (property_id, start, end)).fetchall() if not department_id and self._table_exists(db, "ai_usage") else []
             auth_row = db.execute("SELECT COUNT(*) total,SUM(success) success FROM authentication_attempts WHERE property_id=? AND created_at>=? AND created_at<=?", (property_id, start, end)).fetchone() if not department_id and self._table_exists(db, "authentication_attempts") else None
             message_rows = db.execute("SELECT provider,COUNT(*) count FROM conversation_messages WHERE property_id=? AND role='assistant' AND created_at>=? AND created_at<=? GROUP BY provider", (property_id, start, end)).fetchall() if not department_id and self._table_exists(db, "conversation_messages") else []
-            question_rows = db.execute("SELECT content,COUNT(*) count FROM conversation_messages WHERE property_id=? AND role='guest' AND created_at>=? AND created_at<=? GROUP BY lower(trim(content)) ORDER BY count DESC LIMIT 10", (property_id, start, end)).fetchall() if not department_id and self._table_exists(db, "conversation_messages") else []
 
         completed = [row for row in request_rows if row["status"] == "completed"]
         resolution_times = [max(0, int(row["updated_at"]) - int(row["created_at"])) for row in completed]
@@ -262,23 +261,22 @@ class ObservabilityStore:
                 "guests_assisted": int(sessions), "ai_conversations": int(conversations), "service_requests": int(requests),
                 "open_requests": sum(1 for row in request_rows if row["status"] != "completed"), "overdue_requests": len(overdue),
                 "average_resolution_seconds": round(sum(resolution_times) / len(resolution_times)) if resolution_times else None,
-                "sla_performance_percent": round((1 - len(overdue) / max(1, len(request_rows))) * 100, 1),
-                "ai_resolution_rate_percent": round((assistant_total - fallback_count) / max(1, assistant_total) * 100, 1),
-                "fallback_rate_percent": round(fallback_count / max(1, assistant_total) * 100, 1),
-                "human_escalation_rate_percent": round(provider_counts.get("human_queue", 0) / max(1, assistant_total) * 100, 1),
+                "sla_performance_percent": round((1 - len(overdue) / len(request_rows)) * 100, 1) if request_rows else None,
+                "ai_resolution_rate_percent": round((assistant_total - fallback_count) / assistant_total * 100, 1) if assistant_total else None,
+                "fallback_rate_percent": round(fallback_count / assistant_total * 100, 1) if assistant_total else None,
                 "request_change_percent": comparison,
             },
             "request_volume": [{"timestamp": key, "value": buckets.get(key, 0)} for key in range((start // bucket) * bucket, end + 1, bucket)],
             "busiest_periods": [{"timestamp": key, "requests": value} for key, value in sorted(buckets.items(), key=lambda item: item[1], reverse=True)[:5]],
             "requests_by_department": [{"name": key, "value": value} for key, value in departments.most_common()],
             "top_services": [{"name": key, "value": value} for key, value in services.most_common(10)],
-            "top_questions": [{"question": row["content"], "count": int(row["count"])} for row in question_rows],
+            "top_questions": [],
             "ai": {"requests": int(ai_row["total"] or 0) if ai_row else 0, "errors": int(ai_row["errors"] or 0) if ai_row else 0, "error_rate_percent": round(int(ai_row["errors"] or 0) / max(1, int(ai_row["total"] or 0)) * 100, 1) if ai_row else 0, "average_latency_ms": round(float(ai_row["latency"] or 0), 1) if ai_row and ai_row["latency"] is not None else None, "first_token_latency_ms": None, "first_token_latency_availability": "unavailable", "tokens": int(ai_row["tokens"] or 0) if ai_row else 0, "provider_usage": provider_counts, "provider_model_usage": [{"provider": row["provider_id"], "model": row["model"], "requests": int(row["count"])} for row in ai_provider_rows], "request_volume": [{"timestamp": int(row["bucket_at"]), "value": int(row["count"])} for row in ai_time_rows], "estimated_cost": None},
-            "guest_auth": {"attempts": int(auth_row["total"] or 0) if auth_row else 0, "success_rate": round(int(auth_row["success"] or 0) / max(1, int(auth_row["total"] or 0)) * 100, 1) if auth_row else None},
+            "guest_auth": {"attempts": int(auth_row["total"] or 0) if auth_row else 0, "success_rate": round(int(auth_row["success"] or 0) / int(auth_row["total"]) * 100, 1) if auth_row and auth_row["total"] else None},
             "raw_requests": [dict(row) for row in request_rows],
         }
 
-    def evaluate_alerts(self, property_id: str, dashboard: dict[str, Any]) -> list[dict[str, Any]]:
+    def evaluate_alerts(self, property_id: str, dashboard: dict[str, Any], permitted_components: set[str] | None = None) -> list[dict[str, Any]]:
         candidates: list[tuple[str, str, str, str, str]] = []
         summary = dashboard.get("analytics", {}).get("summary", {})
         ai = dashboard.get("analytics", {}).get("ai", {})
@@ -289,6 +287,8 @@ class ObservabilityStore:
             candidates.append(("ai_providers", "warning", "AI provider error rate elevated", f"{ai['errors']} of {ai['requests']} provider requests failed in the selected period.", "ai_error_rate"))
         if database.get("state") in {"warning", "critical"}:
             candidates.append(("database", database["state"], "Database probe requires attention", database.get("evidence", "Database health check failed."), "database_latency_ms"))
+        if permitted_components is not None:
+            candidates = [candidate for candidate in candidates if candidate[0] in permitted_components]
         now = int(time.time())
         active_ids: set[str] = set()
         with self._connect() as db:
@@ -300,7 +300,23 @@ class ObservabilityStore:
                     VALUES(?,?,?,?,?,?,?,?,?,1) ON CONFLICT(alert_id) DO UPDATE SET severity=excluded.severity,title=excluded.title,evidence=excluded.evidence,last_seen_at=excluded.last_seen_at,active=1""",
                     (alert_id, property_id, component, severity, title, evidence, metric, now, now),
                 )
-            if active_ids:
+            if permitted_components is not None and not permitted_components:
+                pass
+            elif permitted_components is not None:
+                component_placeholders = ",".join("?" for _ in permitted_components)
+                component_params = tuple(sorted(permitted_components))
+                if active_ids:
+                    placeholders = ",".join("?" for _ in active_ids)
+                    db.execute(
+                        f"UPDATE operational_alerts SET active=0 WHERE property_id=? AND component IN ({component_placeholders}) AND alert_id NOT IN ({placeholders})",
+                        (property_id, *component_params, *active_ids),
+                    )  # nosec B608
+                else:
+                    db.execute(
+                        f"UPDATE operational_alerts SET active=0 WHERE property_id=? AND component IN ({component_placeholders})",
+                        (property_id, *component_params),
+                    )  # nosec B608
+            elif active_ids:
                 placeholders = ",".join("?" for _ in active_ids)
                 db.execute(f"UPDATE operational_alerts SET active=0 WHERE property_id=? AND alert_id NOT IN ({placeholders})", (property_id, *active_ids))  # nosec B608
             else:

@@ -263,6 +263,8 @@ class SessionStore:
 
     def delete(self, session_id: str) -> None:
         with self._connect() as db:
+            db.execute("DELETE FROM conversation_messages WHERE session_id=?", (session_id,))
+            db.execute("DELETE FROM conversation_state WHERE session_id=?", (session_id,))
             db.execute("DELETE FROM sessions WHERE session_id=?", (session_id,))
 
     def mark_authenticated(self, session_id: str) -> None:
@@ -280,6 +282,25 @@ class SessionStore:
                 (cutoff,),
             )
             return cursor.rowcount
+
+    def record_ai_activity(
+        self,
+        session_id: str,
+        property_id: str,
+        *,
+        provider: str | None,
+        model: str | None,
+        latency_ms: int | None = None,
+        error: str | None = None,
+    ) -> None:
+        """Store provider metrics without retaining guest or assistant text."""
+        with self._connect() as db:
+            db.execute(
+                """INSERT INTO conversation_messages
+                (message_id,property_id,session_id,role,content,provider,model,latency_ms,error,created_at,sender_user_id)
+                VALUES(?,?,?,'assistant','',?,?,?,?,?,NULL)""",
+                (uuid.uuid4().hex, property_id, session_id, provider, model, latency_ms, error, int(time.time())),
+            )
 
     def record_authentication(self, session_id: str, property_id: str, success: bool) -> None:
         with self._connect() as db:

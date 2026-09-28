@@ -52,7 +52,7 @@ def test_runtime_postgres_configuration_rejects_sqlite_database_urls():
         app_environment="production",
         property_id="hotel-a",
         antlabs_mode="browser_handoff",
-        antlabs_auth_url="https://gateway.example/auth",
+        antlabs_auth_url="https://gateway.example/login/main.ant?c=proc",
         admin_bootstrap_password="A-Strong-Production-Pass-123!",
         credential_encryption_secret="x" * 48,
         admin_cookie_secure=True,
