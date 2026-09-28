@@ -295,6 +295,7 @@ class PersonalizationStore:
             return 0
         placeholders = ",".join("?" for _ in categories)
         with self._connect() as db:
+            # B608 rationale: only placeholder tokens are generated; preference categories and IDs are bound.
             cursor = db.execute(f"DELETE FROM guest_preferences WHERE property_id=? AND session_id=? AND category IN ({placeholders})", (property_id, session_id, *sorted(categories)))  # nosec B608
             return int(cursor.rowcount)
 
@@ -385,7 +386,9 @@ class PersonalizationStore:
         placeholders = ",".join("?" for _ in session_ids)
         params = (property_id, *session_ids)
         with self._connect() as db:
+            # B608 rationale: only placeholder tokens are generated; property and session IDs are bound.
             cursor = db.execute(f"DELETE FROM guest_preferences WHERE property_id=? AND session_id IN ({placeholders})", params)  # nosec B608
+            # B608 rationale: only placeholder tokens are generated; property and session IDs are bound.
             db.execute(f"DELETE FROM guest_personalization WHERE property_id=? AND session_id IN ({placeholders})", params)  # nosec B608
             return int(cursor.rowcount)
 

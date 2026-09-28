@@ -986,6 +986,7 @@ class AdminAuthStore:
         found = {
             row["restaurant_id"]
             for row in db.execute(
+                # B608 rationale: only placeholder tokens are generated; property ID and restaurant IDs are bound below.
                 f"SELECT restaurant_id FROM restaurants WHERE property_id=? AND restaurant_id IN ({','.join('?' for _ in ids)})",  # nosec B608
                 (property_id, *ids),
             ).fetchall()
@@ -1086,6 +1087,7 @@ class AdminAuthStore:
         params.append(max(1, min(limit, 500)))
         with self._connect() as db:
             rows = db.execute(
+                # B608 rationale: where clauses use fixed allowlisted fields; all filter values are bound.
                 f"SELECT * FROM admin_audit_logs {where} ORDER BY timestamp DESC, audit_id DESC LIMIT ?", params  # nosec B608
             ).fetchall()
         return [

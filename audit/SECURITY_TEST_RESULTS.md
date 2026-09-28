@@ -6,21 +6,21 @@ Run date: 2026-09-28. Tests were run only against the local repository and local
 
 | Check | Result |
 |---|---|
-| Python test suite | **653 passed, 8 skipped**. Two dependency deprecation warnings from Starlette/httpx and AnyIO. |
-| Playwright | **214 passed, 18 skipped, 2 failed** in the final 212.8-second full run. Both failures are guest-home screenshot baseline differences: 2% pixel difference in desktop Chromium and 4% in mobile Chrome. No functional test failed in this final run. Three mobile workflow cases that had failed in earlier full runs pass when isolated. The visual baselines were not updated. |
-| Bandit | **0 High findings.** Seven Medium B608 SQL-construction warnings remain in generated placeholder counts, constant SQL fragments, and fixed schema-column construction; manual review found bound parameters and no user-controlled SQL fragments. Twenty Low findings are informational. The seven locations are `app/hospitality.py:1069`, `app/hospitality.py:1077`, `app/observability.py:311`, `app/observability.py:316`, `app/properties.py:515`, `app/session_store.py:503`, and `app/zones.py:341`. No SQL injection was confirmed. |
-| pip-audit | **No known vulnerabilities found** in `requirements.txt`. |
-| npm audit | **0 vulnerabilities found.** |
-| Secret scanning | Gitleaks is not installed. A local candidate-pattern scan of 100 source/config files found 0 candidate matches; tests and local environment files were excluded. It does not scan repository history and is not equivalent to Gitleaks. No production `.env` file was present or read. |
-| Docker build/runtime | Docker CLI is installed, but the Docker daemon is unavailable. Both Compose files pass `docker compose config -q` with temporary synthetic values. Image build and runtime checks could not run. |
-| Trivy / Grype | Neither executable is installed; image scanning could not run. |
+| Python test suite | **667 passed, 8 skipped**. The skipped tests require PostgreSQL/Redis services unavailable in this local environment. Two Starlette/httpx and AnyIO deprecation warnings remain. |
+| Playwright | **216 passed, 18 skipped, 0 failed** across desktop and mobile Chromium. The skipped cases follow existing Playwright test/project annotations. The guest-home baselines were refreshed only after inspecting the current intentional dashboard and isolating each visual test with a fresh property ID. |
+| Bandit | The CI-equivalent command exits **0** with no unsuppressed Medium-or-higher findings. B608 detections are narrowly suppressed beside reviewed fixed fragments, generated placeholders, and fixed schema identifiers, each with an explanation. SQL injection regression tests pass. |
+| pip-audit | **Not verified.** `pip-audit -r requirements-dev.txt` could not create its temporary environment because package installation/upgrade network access is unavailable. |
+| npm audit | **Not verified.** The npm advisory request failed DNS resolution for `registry.npmjs.org`. |
+| Secret scanning | Gitleaks is configured in CI, but no local history scan was available. No production `.env` was read. |
+| Docker build/runtime | **Not verified locally.** Docker cannot connect to the daemon socket, so image build, container persistence, and non-root runtime checks were not run. |
+| Trivy | **Not verified locally.** The Docker image could not be built/scanned; CI uses `aquasecurity/trivy-action@v0.36.0`. |
 
 ## Authorization and tenancy probes
 
 - Direct API test `tests/test_rbac_policy_inventory.py::test_every_system_role_is_enforced_by_direct_api_requests` signs in as every built-in role, checks permission-gated API access, and attempts a cross-property path for each non-global role.
 - Route inventory tests assert exact admin API policy coverage, reject anonymous requests on authenticated routes, and reject authenticated users without the route permission.
 - Property isolation tests cover cross-property administrator reads, guest session property selection, guest stay context, knowledge search, and operational records.
-- A direct guest session replay test is intentionally retained as a proof of the confirmed GUEST-SESSION-01 finding.
+- Guest session tests now prove that session ID alone and legacy uncredentialed rows are rejected; valid original credentials work; cross-property replay is denied; expiry and revocation are enforced; resume rotates credentials; and raw tokens do not appear in logs.
 
 ## Attack cases exercised locally
 
@@ -36,6 +36,6 @@ Run date: 2026-09-28. Tests were run only against the local repository and local
 
 ## Scanner triage
 
-Bandit’s remaining B608 findings arise where SQL is assembled from internally generated `?` placeholders, fixed query fragments, or a constant column list. Runtime values are passed separately as query parameters. No arbitrary user value was found in SQL syntax during manual review, and the SQL injection regression tests pass. The warnings are recorded rather than suppressed so future query changes remain visible.
+Bandit B608 detections arise where SQL is assembled from internally generated `?` placeholders, fixed query fragments, or constant schema identifiers. Runtime values are passed separately as query parameters. No arbitrary user value was found in SQL syntax during manual review. The scanner command passes with narrow, adjacent suppressions and rationale comments, and the SQL injection regression tests pass.
 
-Dependency advisories cover installed Python and npm package manifests only. They do not establish the safety of the mutable `python:3.12-slim` and `nginx:1.29-alpine` image tags. A future image scan is required after Docker is available.
+Current Python and npm dependency advisory status is unknown because both online audits were blocked by network access. Dependency advisories also do not establish the safety of the mutable `python:3.12-slim` and `nginx:1.29-alpine` image tags. The CI workflow contains dependency and image scan jobs; their remote results must be checked before merge.

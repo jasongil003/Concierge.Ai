@@ -1,5 +1,7 @@
 import json
 import hashlib
+import hmac
+import secrets
 import sqlite3
 import time
 import uuid
@@ -21,6 +23,11 @@ class SessionRecord:
     last_seen_at: int
     network_status: str = "active"
     network_failure_at: int | None = None
+    guest_token_hash: str | None = None
+    guest_context_hash: str | None = None
+    guest_token_expires_at: int | None = None
+    guest_token_revoked_at: int | None = None
+    antlabs_session_id: str | None = None
 
 
 class SessionStore:
@@ -47,7 +54,12 @@ class SessionStore:
                     created_at INTEGER NOT NULL,
                     last_seen_at INTEGER NOT NULL,
                     network_status TEXT NOT NULL DEFAULT 'active',
-                    network_failure_at INTEGER
+                    network_failure_at INTEGER,
+                    guest_token_hash TEXT,
+                    guest_context_hash TEXT,
+                    guest_token_expires_at INTEGER,
+                    guest_token_revoked_at INTEGER,
+                    antlabs_session_id TEXT
                 )
                 """
             )
@@ -56,6 +68,14 @@ class SessionStore:
                 db.execute("ALTER TABLE sessions ADD COLUMN network_status TEXT NOT NULL DEFAULT 'active'")
             if "network_failure_at" not in columns:
                 db.execute("ALTER TABLE sessions ADD COLUMN network_failure_at INTEGER")
+            for name, definition in (
+                ("guest_token_hash", "TEXT"),
+                ("guest_context_hash", "TEXT"),
+                ("guest_token_expires_at", "INTEGER"),
+                ("guest_token_revoked_at", "INTEGER"),
+                ("antlabs_session_id", "TEXT"),
+            ):
+                self._ensure_session_column(db, name, definition)
             db.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS authentication_attempts (
@@ -142,6 +162,24 @@ class SessionStore:
             db.execute("CREATE INDEX IF NOT EXISTS idx_conversation_state_queue ON conversation_state(property_id,restaurant_id,state,assigned_user_id)")
 
     @staticmethod
+    def _ensure_session_column(db: sqlite3.Connection, name: str, definition: str) -> None:
+        allowed = {
+            "guest_token_hash": "TEXT",
+            "guest_context_hash": "TEXT",
+            "guest_token_expires_at": "INTEGER",
+            "guest_token_revoked_at": "INTEGER",
+            "antlabs_session_id": "TEXT",
+        }
+        if allowed.get(name) != definition:
+            raise ValueError("Unsupported session schema column migration.")
+        columns = {row["name"] for row in db.execute("PRAGMA table_info(sessions)")}
+        if name not in columns:
+            # name and definition come only from the fixed allowlist above.
+            # B608 rationale: name and definition are checked against the fixed schema allowlist above.
+            db.execute(f"ALTER TABLE sessions ADD COLUMN {name} {definition}")  # nosec B608
+        db.execute("CREATE INDEX IF NOT EXISTS idx_sessions_guest_token ON sessions(guest_token_hash) WHERE guest_token_hash IS NOT NULL")
+
+    @staticmethod
     def _ensure_column(db: sqlite3.Connection, table: str, name: str, definition: str) -> None:
         allowed_definitions = {
             "conversation_messages": {"sender_user_id": "TEXT"},
@@ -158,8 +196,10 @@ class SessionStore:
         if allowed_definitions.get(table, {}).get(name) != definition:
             raise ValueError("Unsupported schema column migration.")
         # Identifiers and DDL are selected from the fixed migration map above.
+        # B608 rationale: table is selected from the fixed migration map above.
         columns = {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}  # nosec B608
         if name not in columns:
+            # B608 rationale: table, name, and definition are checked against the fixed migration map above.
             db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")  # nosec B608
 
     def consume_gateway_nonce(self, property_id: str, nonce: str, now: int | None = None) -> bool:
@@ -237,6 +277,11 @@ class SessionStore:
             last_seen_at=now,
             network_status=row["network_status"],
             network_failure_at=row["network_failure_at"],
+            guest_token_hash=row["guest_token_hash"],
+            guest_context_hash=row["guest_context_hash"],
+            guest_token_expires_at=row["guest_token_expires_at"],
+            guest_token_revoked_at=row["guest_token_revoked_at"],
+            antlabs_session_id=row["antlabs_session_id"],
         )
 
     def peek(self, session_id: str) -> SessionRecord | None:
@@ -250,7 +295,133 @@ class SessionStore:
             gateway_context=json.loads(row["gateway_context"]), authenticated=bool(row["authenticated"]),
             created_at=row["created_at"], last_seen_at=row["last_seen_at"],
             network_status=row["network_status"], network_failure_at=row["network_failure_at"],
+            guest_token_hash=row["guest_token_hash"], guest_context_hash=row["guest_context_hash"],
+            guest_token_expires_at=row["guest_token_expires_at"], guest_token_revoked_at=row["guest_token_revoked_at"],
+            antlabs_session_id=row["antlabs_session_id"],
         )
+
+    @staticmethod
+    def _credential_hash(value: str) -> str:
+        return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+    def issue_guest_credentials(
+        self,
+        session_id: str,
+        *,
+        ttl_seconds: int,
+        existing_token: str | None = None,
+        existing_context: str | None = None,
+    ) -> tuple[str, str]:
+        """Issue high-entropy browser credentials; only hashes are stored."""
+        now = int(time.time())
+        token = existing_token or ""
+        context = existing_context or ""
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            reusable = False
+            if token and context:
+                token_hash = self._credential_hash(token)
+                context_hash = self._credential_hash(context)
+                row = db.execute(
+                    "SELECT 1 FROM sessions WHERE guest_token_hash=? AND guest_context_hash=? "
+                    "AND guest_token_expires_at>? AND guest_token_revoked_at IS NULL LIMIT 1",
+                    (token_hash, context_hash, now),
+                ).fetchone()
+                reusable = row is not None
+            if not reusable:
+                token = secrets.token_urlsafe(32)
+                context = secrets.token_urlsafe(32)
+                token_hash = self._credential_hash(token)
+                context_hash = self._credential_hash(context)
+            cursor = db.execute(
+                "UPDATE sessions SET guest_token_hash=?,guest_context_hash=?,guest_token_expires_at=?,guest_token_revoked_at=NULL "
+                "WHERE session_id=?",
+                (token_hash, context_hash, now + max(60, int(ttl_seconds)), session_id),
+            )
+            if not cursor.rowcount:
+                raise KeyError("Guest session not found.")
+        return token, context
+
+    def rotate_guest_credentials(
+        self, session_id: str, token: str, context: str, *, ttl_seconds: int
+    ) -> tuple[str, str] | None:
+        """Rotate credentials for all sessions sharing this browser context."""
+        now = int(time.time())
+        token_hash = self._credential_hash(token)
+        context_hash = self._credential_hash(context)
+        next_token = secrets.token_urlsafe(32)
+        next_context = secrets.token_urlsafe(32)
+        next_token_hash = self._credential_hash(next_token)
+        next_context_hash = self._credential_hash(next_context)
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT guest_token_hash,guest_context_hash,guest_token_expires_at,guest_token_revoked_at "
+                "FROM sessions WHERE session_id=?",
+                (session_id,),
+            ).fetchone()
+            if (
+                row is None or row["guest_token_revoked_at"] is not None
+                or row["guest_token_expires_at"] is None or int(row["guest_token_expires_at"]) <= now
+                or not hmac.compare_digest(str(row["guest_token_hash"] or ""), token_hash)
+                or not hmac.compare_digest(str(row["guest_context_hash"] or ""), context_hash)
+            ):
+                return None
+            db.execute(
+                "UPDATE sessions SET guest_token_hash=?,guest_context_hash=?,guest_token_expires_at=? "
+                "WHERE guest_token_hash=? AND guest_context_hash=? AND guest_token_revoked_at IS NULL",
+                (next_token_hash, next_context_hash, now + max(60, int(ttl_seconds)), token_hash, context_hash),
+            )
+        return next_token, next_context
+
+    def verify_guest_credentials(self, session_id: str, token: str | None, context: str | None) -> bool:
+        if not token or not context:
+            return False
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT guest_token_hash,guest_context_hash,guest_token_expires_at,guest_token_revoked_at "
+                "FROM sessions WHERE session_id=?",
+                (session_id,),
+            ).fetchone()
+        if row is None or row["guest_token_revoked_at"] is not None or row["guest_token_expires_at"] is None:
+            return False
+        if int(row["guest_token_expires_at"]) <= int(time.time()):
+            return False
+        return hmac.compare_digest(str(row["guest_token_hash"] or ""), self._credential_hash(token)) and hmac.compare_digest(
+            str(row["guest_context_hash"] or ""), self._credential_hash(context)
+        )
+
+    def find_by_guest_credentials(self, token: str | None, context: str | None) -> str | None:
+        if not token or not context:
+            return None
+        token_hash = self._credential_hash(token)
+        context_hash = self._credential_hash(context)
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT session_id FROM sessions WHERE guest_token_hash=? AND guest_context_hash=? "
+                "AND guest_token_expires_at>? AND guest_token_revoked_at IS NULL "
+                "ORDER BY last_seen_at DESC LIMIT 1",
+                (token_hash, context_hash, int(time.time())),
+            ).fetchone()
+        return str(row["session_id"]) if row else None
+
+    def revoke_guest_credentials(self, session_id: str) -> None:
+        with self._connect() as db:
+            db.execute(
+                "UPDATE sessions SET guest_token_hash=NULL,guest_context_hash=NULL,guest_token_expires_at=NULL,guest_token_revoked_at=? WHERE session_id=?",
+                (int(time.time()), session_id),
+            )
+
+    def bind_antlabs_session(self, session_id: str, gateway_session_id: str) -> None:
+        """Record a gateway identifier only after a verified gateway assertion."""
+        value = str(gateway_session_id).strip()
+        if not value or len(value) > 256:
+            raise ValueError("Invalid ANTlabs session identifier.")
+        with self._connect() as db:
+            db.execute(
+                "UPDATE sessions SET antlabs_session_id=? WHERE session_id=?",
+                (value, session_id),
+            )
 
     def mark_network_status(self, session_id: str, status: str) -> None:
         if status not in {"active", "suspended"}:
@@ -485,7 +656,9 @@ class SessionStore:
                 return 0
             placeholders = ",".join("?" for _ in session_ids)
             params = (property_id, *session_ids)
+            # B608 rationale: only placeholder tokens are generated; property and session IDs are bound.
             db.execute(f"DELETE FROM conversation_messages WHERE property_id=? AND session_id IN ({placeholders})", params)  # nosec B608
+            # B608 rationale: only placeholder tokens are generated; property and session IDs are bound.
             db.execute(f"DELETE FROM conversation_state WHERE property_id=? AND session_id IN ({placeholders})", params)  # nosec B608
         return len(session_ids)
 
@@ -497,6 +670,7 @@ class SessionStore:
         restaurant_params: tuple[Any, ...] = ()
         if restaurant_ids is not None:
             ordered_ids = sorted(restaurant_ids)
+            # B608 rationale: only placeholder tokens are generated; restaurant IDs are bound below.
             restaurant_clause = f"AND cs.restaurant_id IN ({','.join('?' for _ in ordered_ids)})"  # nosec B608
             restaurant_params = tuple(ordered_ids)
         query = (
@@ -513,6 +687,7 @@ class SessionStore:
         )
         with self._connect() as db:
             # The optional clause consists only of generated placeholders; all restaurant IDs are bound values.
+            # B608 rationale: optional clause contains generated placeholders only; restaurant IDs are bound here.
             rows = db.execute(query, (property_id, *restaurant_params)).fetchall()  # nosec B608
             result = []
             for row in rows:

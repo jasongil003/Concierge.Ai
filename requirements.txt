@@ -16,3 +16,4 @@ alembic==1.18.5
 psycopg[binary]==3.3.6
 redis==8.1.0
 prometheus-client==0.25.0
+psutil>=5.9,<8

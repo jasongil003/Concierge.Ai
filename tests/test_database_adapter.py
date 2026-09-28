@@ -1,6 +1,9 @@
+import sqlite3
+
 import pytest
 
-from app.database import _CompatRow, _qmark_to_named, _split_statements, _translate_sql
+from app import metrics
+from app.database import _CompatRow, _qmark_to_named, _split_statements, _translate_sql, connect_database
 
 
 def test_qmark_translation_preserves_question_marks_inside_sql_strings():
@@ -68,3 +71,16 @@ def test_runtime_postgres_configuration_rejects_sqlite_database_urls():
     )
     with pytest.raises(RuntimeError, match="DATABASE_URL must use PostgreSQL when a server database is configured"):
         validate_production_settings(values, check_filesystem=False)
+
+
+def test_sqlite_execution_errors_are_counted_for_loadtest_metrics(tmp_path):
+    before = metrics.REGISTRY.get_sample_value(
+        "concierge_database_errors_total", {"operation": "sqlite_query"}
+    ) or 0
+    with connect_database(tmp_path / "database-errors.db") as db:
+        with pytest.raises(sqlite3.OperationalError):
+            db.execute("SELEC invalid syntax")
+    after = metrics.REGISTRY.get_sample_value(
+        "concierge_database_errors_total", {"operation": "sqlite_query"}
+    ) or 0
+    assert after == before + 1

@@ -4,9 +4,9 @@
 
 Concierge.Ai is intended to turn the hotel Wi-Fi login journey into a temporary digital concierge experience. The gateway remains responsible for guest authentication and Internet access; Concierge.Ai provides the guest interface, local AI, hotel knowledge, and service workflows.
 
-## Current prototype
+## Current repository
 
-The `feature/onprem-mvp` branch now includes:
+The repository currently includes:
 
 - mobile-first guest concierge UI
 - temporary guest session lifecycle
@@ -83,7 +83,7 @@ ollama serve
 ```bash
 git clone https://github.com/jasongil003/Concierge.Ai.git
 cd Concierge.Ai
-git checkout feature/onprem-mvp
+git checkout main
 
 python3 -m venv .venv
 source .venv/bin/activate

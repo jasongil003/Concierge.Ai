@@ -151,7 +151,7 @@ function setActiveView(view) {
 
 async function refreshHome() {
   if (!state.sessionId) return;
-  const data = await jsonFetch(`/api/guest/home?session_id=${encodeURIComponent(state.sessionId)}`);
+  const data = await jsonFetch("/api/guest/home");
   state.homeData = data;
   renderHome(data);
   if (state.activeView === "explore") renderExplore();
@@ -272,7 +272,7 @@ const requestStatusLabels = { new: "New", assigned: "Staff assigned", accepted: 
 
 async function loadRequests() {
   if (!state.sessionId) return;
-  const data = await jsonFetch(`/api/guest/requests?session_id=${encodeURIComponent(state.sessionId)}`);
+  const data = await jsonFetch("/api/guest/requests");
   const list = $("request-list");
   list.replaceChildren();
   const records = data.requests || [];
@@ -1119,7 +1119,7 @@ async function sendChat(message, conversationHistory = []) {
     thinking.results = recommendationResults.map((place) => ({ ...place, category: place.category || "Live Places result", description: place.description || place.address }));
     renderMessages();
     if (result.source === "personalization") {
-      jsonFetch(`/api/guest/personalization?session_id=${encodeURIComponent(state.sessionId)}`)
+      jsonFetch("/api/guest/personalization")
         .then(renderPersonalization)
         .catch(() => {});
     }
@@ -1294,7 +1294,7 @@ async function openMemoryPanel() {
   $("memory-modal").hidden = false;
   $("memory-level").disabled = true;
   setText("memory-status", "Loading your settings…");
-  const data = await jsonFetch(`/api/guest/personalization?session_id=${encodeURIComponent(state.sessionId)}`);
+  const data = await jsonFetch("/api/guest/personalization");
   renderPersonalization(data);
   $("close-memory-button").focus();
 }
@@ -1417,14 +1417,14 @@ async function saveMemoryPreference(event) {
 }
 
 async function removeMemoryPreference(key) {
-  const data = await jsonFetch(`/api/guest/personalization/preferences/${encodeURIComponent(key)}?session_id=${encodeURIComponent(state.sessionId)}`, { method: "DELETE" });
+  const data = await jsonFetch(`/api/guest/personalization/preferences/${encodeURIComponent(key)}`, { method: "DELETE" });
   renderPersonalization(data);
   await refreshHome().catch(() => {});
   showToast("Preference removed.");
 }
 
 async function clearMemoryPreferences() {
-  const data = await jsonFetch(`/api/guest/personalization/preferences?session_id=${encodeURIComponent(state.sessionId)}`, { method: "DELETE" });
+  const data = await jsonFetch("/api/guest/personalization/preferences", { method: "DELETE" });
   renderPersonalization(data);
   await refreshHome().catch(() => {});
   showToast("Saved preferences cleared.");
@@ -1463,7 +1463,7 @@ async function handleMenuAction(action) {
     document.documentElement.lang = next;
     localStorage.setItem("concierge-language", next);
     try {
-      const memory = await jsonFetch(`/api/guest/personalization?session_id=${encodeURIComponent(state.sessionId)}`);
+      const memory = await jsonFetch("/api/guest/personalization");
       if (memory.enabled) {
         await jsonFetch("/api/guest/personalization/preferences", {
           method: "PUT",
@@ -1812,7 +1812,7 @@ async function startGuestSession() {
   sessionStorage.setItem("concierge-session-id", session.session_id);
   state.staffMessagingEnabled = sessionStorage.getItem("concierge-staff-messaging-session-id") === session.session_id;
   try {
-    const memory = await jsonFetch(`/api/guest/personalization?session_id=${encodeURIComponent(state.sessionId)}`);
+    const memory = await jsonFetch("/api/guest/personalization");
     renderPersonalization(memory);
   } catch { /* The concierge remains available if optional personalization can't load. */ }
   try { await refreshHome(); } catch { /* The deterministic guest app stays available if the home summary endpoint is offline. */ }

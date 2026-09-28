@@ -220,6 +220,8 @@ async def lifespan(app: FastAPI):
 
 
 SECURE_ENVIRONMENTS = {"production", "staging"}
+GUEST_SESSION_COOKIE = "concierge_guest_session"
+GUEST_CONTEXT_COOKIE = "concierge_guest_context"
 
 
 def documentation_options(environment: str) -> dict[str, Any]:
@@ -462,9 +464,38 @@ def _enforce_guest_network(request: Request, property_record: PropertyRecord, ac
     return decision
 
 
-def _guest_session(request: Request, session_id: str, action_level: int = 1):
-    session = store.peek(session_id)
+def _guest_cookie_names() -> tuple[str, str]:
+    if settings.app_environment in SECURE_ENVIRONMENTS:
+        return "__Host-concierge_guest_session", "__Host-concierge_guest_context"
+    return GUEST_SESSION_COOKIE, GUEST_CONTEXT_COOKIE
+
+
+def _set_guest_cookies(response: Response, token: str, context: str, ttl_seconds: int) -> None:
+    secure = settings.app_environment in SECURE_ENVIRONMENTS or settings.admin_cookie_secure
+    token_cookie, context_cookie = _guest_cookie_names()
+    options = {
+        "max_age": max(60, int(ttl_seconds)),
+        "httponly": True,
+        "secure": secure,
+        "samesite": "strict",
+        "path": "/",
+    }
+    response.set_cookie(token_cookie, token, **options)
+    response.set_cookie(context_cookie, context, **options)
+    response.headers["Cache-Control"] = "no-store"
+
+
+def _guest_session(request: Request, session_id: str | None, action_level: int = 1):
+    token_cookie, context_cookie = _guest_cookie_names()
+    token = request.cookies.get(token_cookie)
+    context = request.cookies.get(context_cookie)
+    resolved_session_id = session_id or store.find_by_guest_credentials(token, context)
+    session = store.peek(resolved_session_id) if resolved_session_id else None
     if session is None:
+        decision = GuardrailDecision(False, "Concierge session expired.", "session_validation", None, action_level, False, False, _request_id(request))
+        raise GuardrailDenied(decision, status_code=401)
+    if not store.verify_guest_credentials(session.session_id, token, context):
+        # Legacy sessions without browser credentials fail closed in every environment.
         decision = GuardrailDecision(False, "Concierge session expired.", "session_validation", None, action_level, False, False, _request_id(request))
         raise GuardrailDenied(decision, status_code=401)
     property_record = _guest_property(request, session.property_id)
@@ -973,6 +1004,7 @@ async def prometheus_metrics(request: Request) -> Response:
         raise HTTPException(status_code=404, detail="Not found.")
     if not supplied.startswith("Bearer ") or not secrets_compare(supplied[7:], expected):
         raise HTTPException(status_code=401, detail="Metrics authentication required.")
+    metrics.update_process_resources()
     return Response(metrics.render_metrics(), media_type=CONTENT_TYPE_LATEST)
 
 
@@ -1112,7 +1144,7 @@ async def guest_recommendations(request: Request, property_id: str | None = None
 
 
 @app.get("/api/guest/home")
-async def guest_home(session_id: str, request: Request) -> dict[str, Any]:
+async def guest_home(request: Request, session_id: str | None = None) -> dict[str, Any]:
     session, property_record = _guest_session(request, session_id)
     context = StayContextEngine().build(
         property_record, session, hospitality, guest_identities, personalization, store,
@@ -1143,7 +1175,7 @@ async def guest_home(session_id: str, request: Request) -> dict[str, Any]:
 
 
 @app.get("/api/guest/requests")
-async def guest_requests(session_id: str, request: Request) -> dict[str, Any]:
+async def guest_requests(request: Request, session_id: str | None = None) -> dict[str, Any]:
     session, property_record = _guest_session(request, session_id)
     context = StayContextEngine().build(
         property_record, session, hospitality, guest_identities, personalization, store,
@@ -1152,7 +1184,7 @@ async def guest_requests(session_id: str, request: Request) -> dict[str, Any]:
 
 
 @app.get("/api/guest/personalization")
-async def get_guest_personalization(session_id: str, request: Request) -> dict[str, Any]:
+async def get_guest_personalization(request: Request, session_id: str | None = None) -> dict[str, Any]:
     session, _ = _guest_session(request, session_id)
     return personalization.guest_state(session.property_id, session.session_id)
 
@@ -1183,14 +1215,14 @@ async def save_guest_preference(payload: GuestPreferencePayload, request: Reques
 
 
 @app.delete("/api/guest/personalization/preferences")
-async def clear_guest_preferences(session_id: str, request: Request) -> dict[str, Any]:
+async def clear_guest_preferences(request: Request, session_id: str | None = None) -> dict[str, Any]:
     session, _ = _guest_session(request, session_id)
     deleted = personalization.clear_preferences(session.property_id, session.session_id)
     return {"deleted": deleted, **personalization.guest_state(session.property_id, session.session_id)}
 
 
 @app.delete("/api/guest/personalization/preferences/{preference_key}")
-async def delete_guest_preference(preference_key: str, session_id: str, request: Request) -> dict[str, Any]:
+async def delete_guest_preference(preference_key: str, request: Request, session_id: str | None = None) -> dict[str, Any]:
     session, _ = _guest_session(request, session_id)
     deleted = personalization.delete_preference(session.property_id, session.session_id, preference_key)
     return {"deleted": deleted, **personalization.guest_state(session.property_id, session.session_id)}
@@ -5252,7 +5284,7 @@ async def decide_improvement_loop(property_id: str, payload: ImprovementLoopDeci
 
 
 @app.post("/api/session/start")
-async def start_session(payload: StartSessionRequest, request: Request) -> dict[str, Any]:
+async def start_session(payload: StartSessionRequest, request: Request, response: Response) -> dict[str, Any]:
     property_record = _guest_property(request, payload.property_id)
     network = _enforce_guest_network(request, property_record)
     policy = normalize_guardrails(property_record.guardrails)
@@ -5286,6 +5318,17 @@ async def start_session(payload: StartSessionRequest, request: Request) -> dict[
         client_id=payload.client_id,
         gateway_context=gateway_context,
     )
+    if policy["antlabs_gateway_enabled"] and gateway_context.get("guest_session_id"):
+        # This value is stored only after GatewayGuard accepted the signed request.
+        store.bind_antlabs_session(session.session_id, str(gateway_context["guest_session_id"]))
+    token_cookie, context_cookie = _guest_cookie_names()
+    token, context = store.issue_guest_credentials(
+        session.session_id,
+        ttl_seconds=int(policy["guest_session_timeout"]) * 60,
+        existing_token=request.cookies.get(token_cookie),
+        existing_context=request.cookies.get(context_cookie),
+    )
+    _set_guest_cookies(response, token, context, int(policy["guest_session_timeout"]) * 60)
     await _dispatch_webhooks(
         property_record.property_id,
         "guest.session.started",
@@ -5298,7 +5341,7 @@ async def start_session(payload: StartSessionRequest, request: Request) -> dict[
 
 
 @app.post("/api/session/resume")
-async def resume_session(payload: ResumeSessionRequest, request: Request) -> dict[str, Any]:
+async def resume_session(payload: ResumeSessionRequest, request: Request, response: Response) -> dict[str, Any]:
     candidate = store.peek(payload.session_id)
     if candidate is None or candidate.client_id != payload.client_id:
         raise HTTPException(status_code=401, detail="Concierge session expired.")
@@ -5306,6 +5349,19 @@ async def resume_session(payload: ResumeSessionRequest, request: Request) -> dic
         raise HTTPException(status_code=429, detail="Too many resume attempts. Please wait a moment.")
     session, property_record = _guest_session(request, payload.session_id)
     policy = normalize_guardrails(property_record.guardrails)
+    token_cookie, context_cookie = _guest_cookie_names()
+    credentials = store.rotate_guest_credentials(
+        session.session_id,
+        request.cookies.get(token_cookie, ""),
+        request.cookies.get(context_cookie, ""),
+        ttl_seconds=int(policy["guest_session_timeout"]) * 60,
+    )
+    if credentials is None:
+        credentials = store.issue_guest_credentials(
+            session.session_id,
+            ttl_seconds=int(policy["guest_session_timeout"]) * 60,
+        )
+    _set_guest_cookies(response, *credentials, int(policy["guest_session_timeout"]) * 60)
     return {"session_id": session.session_id, "expires_after_minutes": policy["guest_session_timeout"]}
 
 

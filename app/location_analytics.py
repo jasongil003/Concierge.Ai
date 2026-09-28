@@ -170,6 +170,7 @@ class LocationAnalyticsStore:
             where += " AND zone_id=?"
             params.append(filters["zone_id"])
         with self._connect() as db:
+            # B608 rationale: where contains only fixed predicates appended above; zone values are bound.
             visits = [dict(row) for row in db.execute(f"SELECT * FROM zone_visits WHERE {where}", params)]  # nosec B608
             transitions = [
                 dict(row)
