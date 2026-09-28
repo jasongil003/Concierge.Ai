@@ -11,6 +11,10 @@
     "authentication": "required",
     "permission": "assistant.use"
   },
+  "DELETE /api/admin/properties/{property_id}/assistant/actions/{proposal_id}": {
+    "authentication": "required",
+    "permission": "assistant.use"
+  },
   "GET /api/admin/properties/{property_id}/assistant/conversations": {
     "authentication": "required",
     "permission": "assistant.use"
@@ -123,6 +127,10 @@
     "authentication": "required",
     "permission": "domains.view"
   },
+  "GET /api/admin/properties/{property_id}/network-access/status": {
+    "authentication": "required",
+    "permission": "network.view"
+  },
   "GET /api/admin/properties/{property_id}/design": {
     "authentication": "required",
     "permission": "concierge.view"
@@ -198,6 +206,10 @@
   "GET /api/admin/properties/{property_id}/navigation/route": {
     "authentication": "required",
     "permission": "properties.view"
+  },
+  "GET /api/admin/properties/{property_id}/network-access/status": {
+    "authentication": "required",
+    "permission": "network.view"
   },
   "GET /api/admin/properties/{property_id}/operations/alerts": {
     "authentication": "required",
@@ -327,7 +339,15 @@
     "authentication": "required",
     "permission": "assistant.use"
   },
+  "POST /api/admin/properties/{property_id}/assistant/menu-import": {
+    "authentication": "required",
+    "permission": "assistant.use"
+  },
   "POST /api/admin/properties/{property_id}/assistant/query": {
+    "authentication": "required",
+    "permission": "assistant.use"
+  },
+  "POST /api/admin/properties/{property_id}/assistant/actions/{proposal_id}/confirm": {
     "authentication": "required",
     "permission": "assistant.use"
   },
@@ -338,6 +358,10 @@
   "POST /api/admin/properties/{property_id}/deployment/verify": {
     "authentication": "required",
     "permission": "domains.configure"
+  },
+  "POST /api/admin/properties/{property_id}/network-access/management/finalize": {
+    "authentication": "required",
+    "permission": "network.manage"
   },
   "POST /api/admin/properties/{property_id}/design/discard": {
     "authentication": "required",
@@ -483,6 +507,14 @@
     "authentication": "required",
     "permission": "properties.edit"
   },
+  "PUT /api/admin/properties/{property_id}/network-access/guest": {
+    "authentication": "required",
+    "permission": "network.manage"
+  },
+  "PUT /api/admin/properties/{property_id}/network-access/management": {
+    "authentication": "required",
+    "permission": "network.manage"
+  },
   "PUT /api/admin/properties/{property_id}/navigation/edges/{edge_id}": {
     "authentication": "required",
     "permission": "properties.edit"
@@ -490,6 +522,10 @@
   "POST /api/admin/properties/{property_id}/navigation/nodes": {
     "authentication": "required",
     "permission": "properties.edit"
+  },
+  "POST /api/admin/properties/{property_id}/network-access/management/finalize": {
+    "authentication": "required",
+    "permission": "network.manage"
   },
   "PUT /api/admin/properties/{property_id}/navigation/nodes/{node_id}": {
     "authentication": "required",
@@ -706,5 +742,13 @@
   "PUT /api/admin/properties/{property_id}/conversations/{session_id}": {
     "authentication": "required",
     "permission": "conversations.reply"
+  },
+  "PUT /api/admin/properties/{property_id}/network-access/guest": {
+    "authentication": "required",
+    "permission": "network.manage"
+  },
+  "PUT /api/admin/properties/{property_id}/network-access/management": {
+    "authentication": "required",
+    "permission": "network.manage"
   }
 }

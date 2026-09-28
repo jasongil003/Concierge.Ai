@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 
 FACILITY_STATUSES = {"open", "closed", "temporarily_closed", "full", "maintenance", "private_event"}
 RESTAURANT_STATUSES = FACILITY_STATUSES | {"disabled", "archived"}
-SERVICE_STATUSES = ("new", "assigned", "accepted", "in_progress", "delivered", "completed")
+SERVICE_STATUSES = ("new", "assigned", "accepted", "in_progress", "delivered", "completed", "cancelled")
 NOTIFICATION_CATEGORIES = {"operational", "assistance", "experience", "promotional"}
 
 
@@ -1463,6 +1463,31 @@ class HospitalityStore:
             raise KeyError("Service request not found.")
         return self._service_dict(row)
 
+    def cancel_guest_service_request(self, property_id: str, request_id: str, stay_ids: set[str]) -> dict[str, Any]:
+        """Cancel only a new request owned by one of the caller's stay handles."""
+        ids = sorted(value for value in stay_ids if value)
+        if not ids:
+            raise KeyError("Service request not found.")
+        marks = ",".join("?" for _ in ids)
+        now = _now()
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                f"SELECT * FROM service_requests WHERE property_id=? AND request_id=? AND stay_id IN ({marks})",  # nosec B608
+                (property_id, request_id, *ids),
+            ).fetchone()
+            if not row:
+                raise KeyError("Service request not found.")
+            if row["status"] != "new":
+                raise ValueError("This request can no longer be cancelled online. Please contact hotel staff.")
+            db.execute(
+                "UPDATE service_requests SET status='cancelled',completed_at=?,updated_at=? WHERE property_id=? AND request_id=? AND status='new'",
+                (now, now, property_id, request_id),
+            )
+            self._record_request_history(db, property_id, request_id, "guest_cancelled", {"status": "cancelled"}, now)
+            updated = db.execute("SELECT * FROM service_requests WHERE property_id=? AND request_id=?", (property_id, request_id)).fetchone()
+        return self._service_dict(updated)
+
     def update_service_request(self, property_id: str, request_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         allowed = {"priority", "department", "assigned_to"}
         updates = {key: _clean(payload.get(key), 160) for key in allowed if key in payload}
@@ -1695,8 +1720,8 @@ class HospitalityStore:
         with self._connect() as db:
             row = db.execute(
                 """SELECT COUNT(*) AS total,
-                SUM(CASE WHEN status!='completed' THEN 1 ELSE 0 END) AS open_count,
-                SUM(CASE WHEN status!='completed' AND due_at IS NOT NULL AND due_at<? THEN 1 ELSE 0 END) AS overdue_count
+                SUM(CASE WHEN status NOT IN ('completed','cancelled') THEN 1 ELSE 0 END) AS open_count,
+                SUM(CASE WHEN status NOT IN ('completed','cancelled') AND due_at IS NOT NULL AND due_at<? THEN 1 ELSE 0 END) AS overdue_count
                 FROM service_requests WHERE property_id=?""",
                 (_now(), property_id),
             ).fetchone()
@@ -1798,8 +1823,8 @@ class HospitalityStore:
         data = dict(row)
         data["notes"] = _load(data.get("notes") or "[]")
         now = _now()
-        if data["status"] == "completed":
-            data["sla_state"] = "completed"
+        if data["status"] in {"completed", "cancelled"}:
+            data["sla_state"] = data["status"]
         elif data.get("due_at") and now > data["due_at"]:
             data["sla_state"] = "overdue"
         elif data.get("due_at") and now > data["due_at"] - 300:

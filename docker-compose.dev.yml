@@ -1,8 +1,6 @@
 services:
   concierge:
     build: .
-    ports:
-      - "8080:8080"
     env_file:
       - .env
     environment:
@@ -16,6 +14,9 @@ services:
       UPLOAD_ROOT: /state/uploads
     volumes:
       - concierge-dev-state:/state
+    ports:
+      # Development profile is for same-machine use only; it has no TLS layer.
+      - "127.0.0.1:8080:8080"
     restart: unless-stopped
 
 volumes:

@@ -90,7 +90,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 cp .env.example .env
-uvicorn app.main:app --host 0.0.0.0 --port 8080
+uvicorn app.main:app --host 127.0.0.1 --port 8080 --no-proxy-headers
 ```
 
 Open:
@@ -183,4 +183,3 @@ No license has been selected yet. Do not assume commercial redistribution rights
 # Hotel Knowledge Management
 
 Admin AI document ingestion, review, publishing, source citations, and the Guest AI retrieval boundary are described in [Hotel Knowledge Management](docs/KNOWLEDGE_MANAGEMENT.md). Use the [manual QA checklist](docs/KNOWLEDGE_MANAGEMENT_QA.md) after deployment.
-

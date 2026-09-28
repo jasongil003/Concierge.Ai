@@ -129,7 +129,7 @@ def test_security_audit_excludes_secret_metadata(tmp_path: Path):
 
 
 def test_direct_guest_api_call_from_external_network_is_denied():
-    with TestClient(app, client=("203.0.113.20", 50000)) as client:
+    with TestClient(app, base_url="https://testserver", client=("203.0.113.20", 50000)) as client:
         response = client.post("/api/session/start", json={"client_id": "external-guest"})
     assert response.status_code == 403
     assert response.json()["allowed"] is False
@@ -137,7 +137,7 @@ def test_direct_guest_api_call_from_external_network_is_denied():
 
 
 def test_spoofed_forwarded_header_does_not_bypass_guest_api():
-    with TestClient(app, client=("203.0.113.20", 50000)) as client:
+    with TestClient(app, base_url="https://testserver", client=("203.0.113.20", 50000)) as client:
         response = client.post(
             "/api/session/start",
             headers={"X-Forwarded-For": "127.0.0.1"},

@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .database import connect_database
+from .database import connect_database, database_url_configured
 
 
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -65,6 +65,8 @@ PERMISSIONS: dict[str, str] = {
     "integrations.configure": "Configure integrations",
     "domains.view": "View domain and deployment settings",
     "domains.configure": "Configure domains and deployment",
+    "network.view": "View management and guest network access settings",
+    "network.manage": "Manage management and guest network access settings",
     "security.view": "View security settings",
     "security.configure": "Configure security and sessions",
     "audit.view": "View audit logs",
@@ -95,7 +97,7 @@ DEFAULT_ROLES: dict[str, dict[str, Any]] = {
             "restaurant.promotions.approve",
             "requests.view", "requests.manage", "analytics.view", "assistant.use", "diagnostics.view",
             "reports.export", "ai.view", "integrations.view",
-            "domains.view",
+            "domains.view", "network.view",
         ],
     },
     "department-manager": {
@@ -466,7 +468,8 @@ class AdminAuthStore:
     def login(self, username: str, password: str, ip_address: str, user_agent: str) -> tuple[str, AdminPrincipal]:
         normalized = normalize_username(username)
         now = int(time.time())
-        if self._login_rate_limited(ip_address, now):
+        attempt_id = self._reserve_login_attempt(ip_address, now)
+        if ip_address and attempt_id is None:
             self.audit(None, "auth.login_throttled", "session", normalized, ip_address=ip_address)
             raise AccountLockedError("Too many sign-in attempts. Try again later.")
         with self._connect() as db:
@@ -474,33 +477,40 @@ class AdminAuthStore:
                 "SELECT * FROM admin_users WHERE normalized_username = ?", (normalized,)
             ).fetchone()
             if row is None:
-                self._record_login_attempt(ip_address, False, now)
+                self._finish_login_attempt(attempt_id, False, now)
                 self.audit(None, "auth.login_failed", "session", normalized, ip_address=ip_address, metadata={"reason": "unknown_username"})
                 raise AuthenticationError("Invalid username or password.")
             if row["status"] == "disabled":
-                self._record_login_attempt(ip_address, False, now)
+                self._finish_login_attempt(attempt_id, False, now)
                 self.audit_row(row, "auth.login_failed", "session", row["user_id"], ip_address, metadata={"reason": "disabled"})
                 raise AuthenticationError("Invalid username or password.")
             if row["status"] == "locked" and row["locked_until"] is None:
-                self._record_login_attempt(ip_address, False, now)
+                self._finish_login_attempt(attempt_id, False, now)
                 self.audit_row(row, "auth.login_blocked", "session", row["user_id"], ip_address, metadata={"reason": "manual_lock"})
                 raise AccountLockedError("Account is locked. Contact an administrator.")
             if row["locked_until"] and row["locked_until"] > now:
-                self._record_login_attempt(ip_address, False, now)
+                self._finish_login_attempt(attempt_id, False, now)
                 self.audit_row(row, "auth.login_blocked", "session", row["user_id"], ip_address, metadata={"reason": "locked"})
                 raise AccountLockedError("Account is temporarily locked. Try again later or contact an administrator.")
             if not verify_password(password, row["password_hash"]):
-                failures = int(row["failed_login_count"]) + 1
-                locked_until = now + self.lockout_minutes * 60 if failures >= self.lockout_attempts else None
-                status = "locked" if locked_until else row["status"]
                 db.execute(
-                    "UPDATE admin_users SET failed_login_count = ?, locked_until = ?, status = ?, updated_at = ? WHERE user_id = ?",
-                    (failures, locked_until, status, now, row["user_id"]),
+                    """UPDATE admin_users
+                       SET failed_login_count = failed_login_count + 1,
+                           locked_until = CASE WHEN failed_login_count + 1 >= ? THEN ? ELSE NULL END,
+                           status = CASE WHEN failed_login_count + 1 >= ? THEN 'locked' ELSE status END,
+                           updated_at = ?
+                       WHERE user_id = ?""",
+                    (self.lockout_attempts, now + self.lockout_minutes * 60, self.lockout_attempts, now, row["user_id"]),
                 )
+                updated = db.execute(
+                    "SELECT failed_login_count, locked_until FROM admin_users WHERE user_id = ?",
+                    (row["user_id"],),
+                ).fetchone()
                 db.commit()
-                self._record_login_attempt(ip_address, False, now)
+                self._finish_login_attempt(attempt_id, False, now)
+                failures = int(updated["failed_login_count"])
                 self.audit_row(row, "auth.login_failed", "session", row["user_id"], ip_address, metadata={"attempt": failures})
-                if locked_until:
+                if updated["locked_until"] and int(updated["locked_until"]) > now:
                     raise AccountLockedError("Account is temporarily locked. Try again later or contact an administrator.")
                 raise AuthenticationError("Invalid username or password.")
 
@@ -508,7 +518,7 @@ class AdminAuthStore:
                 "UPDATE admin_users SET failed_login_count = 0, locked_until = NULL, status = 'active', last_login_at = ?, updated_at = ? WHERE user_id = ?",
                 (now, now, row["user_id"]),
             )
-        self._record_login_attempt(ip_address, True, now)
+        self._finish_login_attempt(attempt_id, True, now)
 
         token = secrets.token_urlsafe(48)
         token_hash = self._token_hash(token)
@@ -1145,25 +1155,38 @@ class AdminAuthStore:
         if not principal.can("properties.all") and user["property_id"] != principal.property_id:
             raise PermissionError("You cannot manage a user outside your assigned property.")
 
-    def _login_rate_limited(self, ip_address: str, now: int) -> bool:
+    def _reserve_login_attempt(self, ip_address: str, now: int) -> int | None:
+        """Atomically reserve an IP login attempt before password verification."""
         if not ip_address:
-            return False
+            return None
         with self._connect() as db:
+            # SQLite serializes this check/insert with a write lock. PostgreSQL
+            # uses a transaction advisory lock keyed by source IP for the same
+            # guarantee across application workers.
+            db.execute("BEGIN IMMEDIATE")
+            if database_url_configured():
+                db.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (ip_address[:120],)).fetchone()
             row = db.execute(
                 "SELECT COUNT(*) AS failures FROM admin_login_attempts WHERE ip_address = ? AND success = 0 AND attempted_at >= ?",
                 (ip_address[:120], now - 300),
             ).fetchone()
-        return bool(row and row["failures"] >= 20)
+            if row and int(row["failures"]) >= 20:
+                return None
+            cursor = db.execute(
+                "INSERT INTO admin_login_attempts (ip_address, attempted_at, success) VALUES (?, ?, 0)",
+                (ip_address[:120], now),
+            )
+            db.execute("DELETE FROM admin_login_attempts WHERE attempted_at < ?", (now - 86400,))
+            return int(cursor.lastrowid)
 
-    def _record_login_attempt(self, ip_address: str, success: bool, now: int) -> None:
-        if not ip_address:
+    def _finish_login_attempt(self, attempt_id: int | None, success: bool, now: int) -> None:
+        if attempt_id is None:
             return
         with self._connect() as db:
             db.execute(
-                "INSERT INTO admin_login_attempts (ip_address, attempted_at, success) VALUES (?, ?, ?)",
-                (ip_address[:120], now, 1 if success else 0),
+                "UPDATE admin_login_attempts SET success = ?, attempted_at = ? WHERE attempt_id = ?",
+                (1 if success else 0, now, attempt_id),
             )
-            db.execute("DELETE FROM admin_login_attempts WHERE attempted_at < ?", (now - 86400,))
 
     @staticmethod
     def _token_hash(token: str) -> str:

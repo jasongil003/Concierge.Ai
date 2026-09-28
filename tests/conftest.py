@@ -6,11 +6,20 @@ from fastapi.testclient import TestClient
 
 os.environ["ALLOW_BODY_PROPERTY_SELECTION"] = "true"
 os.environ["PROPERTY_ID"] = "test-property"
+os.environ.setdefault("ADMIN_BOOTSTRAP_PASSWORD", "PytestOnly-Admin-123!")
+os.environ.setdefault("CREDENTIAL_ENCRYPTION_SECRET", "PytestOnly-Encryption-Secret-1234567890")
 
 import app.main as main_module
 from app.admin_auth import AdminAuthStore
+from app.guardrails import RateLimiter
 from app.main import app
 from app.properties import PropertyRecord, PropertyStore
+
+
+@pytest.fixture(autouse=True)
+def isolate_api_rate_limiter(monkeypatch: pytest.MonkeyPatch):
+    """Keep API tests independent of persistent local rate-limit state."""
+    monkeypatch.setattr(main_module, "rate_limiter", RateLimiter())
 
 
 @pytest.fixture(scope="session", autouse=True)

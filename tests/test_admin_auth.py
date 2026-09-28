@@ -1,5 +1,7 @@
 import sqlite3
 import time
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -133,6 +135,7 @@ def test_password_reset_confirmation_is_throttled_with_hashed_token_key(monkeypa
 
 def test_password_reset_email_places_token_in_url_fragment(monkeypatch: pytest.MonkeyPatch):
     sent_urls: list[str] = []
+    monkeypatch.setattr(main_module, "settings", replace(main_module.settings, public_base_url="https://concierge.example.test"))
 
     class AllowLimiter:
         def allow(self, key: str, limit: int, seconds: int) -> bool:
@@ -186,6 +189,51 @@ def test_temporary_lockout_blocks_login(auth_store: AdminAuthStore):
         auth_store.login("admin", "WrongPassword1!", "10.0.0.5", "test")
     with pytest.raises(AccountLockedError):
         auth_store.login("admin", ADMIN_PASSWORD, "10.0.0.6", "test")
+
+
+def test_parallel_failed_logins_atomically_trigger_account_lockout(tmp_path: Path):
+    store = AdminAuthStore(tmp_path / "parallel-account-lockout.db", lockout_attempts=3)
+    store.ensure_bootstrap_admin("parallel-admin", "ParallelAdmin123!")
+
+    def attempt(_index: int) -> None:
+        try:
+            store.login("parallel-admin", "WrongPassword123!", "198.51.100.10", "parallel-test")
+        except (AuthenticationError, AccountLockedError):
+            return
+        raise AssertionError("An incorrect password must never authenticate.")
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        list(executor.map(attempt, range(8)))
+
+    with store._connect() as db:
+        user = db.execute(
+            "SELECT failed_login_count, status, locked_until FROM admin_users WHERE normalized_username = ?",
+            ("parallel-admin",),
+        ).fetchone()
+    assert user["failed_login_count"] >= 3
+    assert user["status"] == "locked"
+    assert user["locked_until"] is not None
+
+
+def test_parallel_login_burst_is_atomically_limited_per_ip(tmp_path: Path):
+    store = AdminAuthStore(tmp_path / "parallel-ip-lockout.db")
+
+    def attempt(index: int) -> None:
+        try:
+            store.login(f"unknown-user-{index}", "WrongPassword123!", "198.51.100.11", "parallel-test")
+        except (AuthenticationError, AccountLockedError):
+            return
+        raise AssertionError("Unknown users must never authenticate.")
+
+    with ThreadPoolExecutor(max_workers=32) as executor:
+        list(executor.map(attempt, range(32)))
+
+    with store._connect() as db:
+        attempts = db.execute(
+            "SELECT COUNT(*) FROM admin_login_attempts WHERE ip_address = ? AND success = 0",
+            ("198.51.100.11",),
+        ).fetchone()[0]
+    assert attempts == 20
 
 
 def test_temporary_lockout_expires(auth_store: AdminAuthStore):
@@ -328,7 +376,10 @@ def test_default_roles_have_expected_permission_boundaries(auth_store: AdminAuth
     super_admin = auth_store.get_role("role-super-admin")
     assert set(super_admin["permissions"]) == set(PERMISSIONS)
     assert "properties.all" not in auth_store.get_role("role-property-administrator")["permissions"]
+    assert {"network.view", "network.manage"} <= set(auth_store.get_role("role-property-administrator")["permissions"])
     assert "security.configure" not in auth_store.get_role("role-property-manager")["permissions"]
+    assert "network.view" in auth_store.get_role("role-property-manager")["permissions"]
+    assert "network.manage" not in auth_store.get_role("role-property-manager")["permissions"]
     assert "requests.manage" in auth_store.get_role("role-concierge-front-desk")["permissions"]
     assert "knowledge.edit" in auth_store.get_role("role-content-manager")["permissions"]
     assert "properties.edit" not in auth_store.get_role("role-viewer-auditor")["permissions"]
@@ -342,6 +393,8 @@ def test_default_roles_have_expected_permission_boundaries(auth_store: AdminAuth
     restaurant_staff = set(auth_store.get_role("role-restaurant-staff")["permissions"])
     assert {"restaurant.view", "restaurant.menu.view", "conversations.takeover", "conversations.reply", "conversations.resolve"} <= restaurant_staff
     assert not ({"restaurant.manage", "restaurant.menu.edit", "restaurant.menu.approve", "restaurant.promotions.approve", "users.create", "roles.manage", "ai.configure"} & restaurant_staff)
+    assert not ({"network.view", "network.manage"} & restaurant_manager)
+    assert not ({"network.view", "network.manage"} & restaurant_staff)
 
 
 def test_user_custom_role_and_password_management(auth_client: TestClient):
