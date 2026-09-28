@@ -74,6 +74,21 @@ DATABASE_POOL_OVERFLOW = Gauge(
     "PostgreSQL pool connections currently above the base pool size.",
     registry=REGISTRY,
 )
+APP_PROCESS_CPU_PERCENT = Gauge(
+    "concierge_app_process_cpu_percent",
+    "CPU usage percentage for this API process since the previous metrics scrape.",
+    registry=REGISTRY,
+)
+APP_PROCESS_MEMORY_PERCENT = Gauge(
+    "concierge_app_process_memory_percent",
+    "Resident memory as a percentage of system memory for this API process.",
+    registry=REGISTRY,
+)
+APP_PROCESS_MEMORY_BYTES = Gauge(
+    "concierge_app_process_memory_bytes",
+    "Resident memory bytes for this API process.",
+    registry=REGISTRY,
+)
 AI_PROVIDER_REQUESTS = Counter(
     "concierge_ai_provider_requests_total",
     "Provider generation outcomes observed by this API replica.",
@@ -85,6 +100,13 @@ AI_PROVIDER_DURATION = Histogram(
     "Provider generation latency in seconds.",
     ("provider", "outcome"),
     buckets=(0.1, 0.25, 0.5, 1, 2.5, 5, 10, 20, 45, 90),
+    registry=REGISTRY,
+)
+AI_PROVIDER_QUEUE_WAIT_DURATION = Histogram(
+    "concierge_ai_provider_queue_wait_seconds",
+    "Time spent waiting to acquire a local or distributed provider concurrency slot.",
+    ("provider",),
+    buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10),
     registry=REGISTRY,
 )
 AI_PROVIDER_QUEUE_DEPTH = Gauge(
@@ -145,3 +167,18 @@ def request_finished() -> None:
 
 def render_metrics() -> bytes:
     return generate_latest(REGISTRY)
+
+
+def update_process_resources() -> None:
+    """Refresh API process resource gauges when the protected endpoint is scraped."""
+    try:
+        import os
+        import psutil
+
+        process = psutil.Process(os.getpid())
+        APP_PROCESS_CPU_PERCENT.set(process.cpu_percent(interval=None))
+        APP_PROCESS_MEMORY_PERCENT.set(process.memory_percent())
+        APP_PROCESS_MEMORY_BYTES.set(process.memory_info().rss)
+    except Exception:
+        # Resource metrics are diagnostic; a collection failure must not break /metrics.
+        return

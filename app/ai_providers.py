@@ -1093,7 +1093,17 @@ class AIModelService:
         last_error: Exception | None = None
         try:
             for attempt in range(settings.ai_provider_retry_attempts + 1):
-                slots, distributed_token = await self._acquire_provider_slot(provider_id, request.timeout_seconds)
+                queue_started = time.perf_counter()
+                try:
+                    slots, distributed_token = await self._acquire_provider_slot(provider_id, request.timeout_seconds)
+                except ProviderBulkheadFull:
+                    metrics.AI_PROVIDER_QUEUE_WAIT_DURATION.labels(provider_id).observe(
+                        max(0.0, time.perf_counter() - queue_started)
+                    )
+                    raise
+                metrics.AI_PROVIDER_QUEUE_WAIT_DURATION.labels(provider_id).observe(
+                    max(0.0, time.perf_counter() - queue_started)
+                )
                 try:
                     response = await asyncio.wait_for(
                         adapter.send_message(request, credential),

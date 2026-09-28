@@ -223,6 +223,9 @@ def test_provider_bulkhead_limits_concurrency_and_bounds_waiters(tmp_path: Path,
     )
     monkeypatch.setattr(ai_provider_module, "settings", settings)
     service = AIModelService(AIProviderStore(tmp_path / "bulkhead.db"))
+    wait_observations_before = ai_provider_module.metrics.REGISTRY.get_sample_value(
+        "concierge_ai_provider_queue_wait_seconds_count", {"provider": "local"}
+    ) or 0
 
     class SlowAdapter:
         async def send_message(self, _request, _credential):
@@ -241,6 +244,10 @@ def test_provider_bulkhead_limits_concurrency_and_bounds_waiters(tmp_path: Path,
         await asyncio.gather(first, second)
 
     asyncio.run(run())
+    wait_observations_after = ai_provider_module.metrics.REGISTRY.get_sample_value(
+        "concierge_ai_provider_queue_wait_seconds_count", {"provider": "local"}
+    ) or 0
+    assert wait_observations_after - wait_observations_before >= 3
 
 
 def test_provider_circuit_opens_and_allows_one_recovery_probe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

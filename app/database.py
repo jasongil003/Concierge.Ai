@@ -21,12 +21,37 @@ from sqlalchemy.exc import SQLAlchemyError
 from . import metrics
 
 
-CURRENT_SCHEMA_REVISION = "20260928_0002"
+CURRENT_SCHEMA_REVISION = "20260928_0003"
 _migration_schema_mode: ContextVar[bool] = ContextVar("migration_schema_mode", default=False)
 _migration_connection: ContextVar[Connection | None] = ContextVar("migration_connection", default=None)
 _engine: Engine | None = None
 _configured_url: str | None = None
 _engine_options: dict[str, Any] = {}
+
+
+class _InstrumentedSQLiteConnection(sqlite3.Connection):
+    """Count SQLite execution failures using the same DB error metric as PostgreSQL."""
+
+    def execute(self, *args: Any, **kwargs: Any):
+        try:
+            return super().execute(*args, **kwargs)
+        except sqlite3.Error:
+            metrics.DATABASE_ERRORS.labels("sqlite_query").inc()
+            raise
+
+    def executemany(self, *args: Any, **kwargs: Any):
+        try:
+            return super().executemany(*args, **kwargs)
+        except sqlite3.Error:
+            metrics.DATABASE_ERRORS.labels("sqlite_batch").inc()
+            raise
+
+    def executescript(self, *args: Any, **kwargs: Any):
+        try:
+            return super().executescript(*args, **kwargs)
+        except sqlite3.Error:
+            metrics.DATABASE_ERRORS.labels("sqlite_script").inc()
+            raise
 
 
 def configure_database(url: str, **engine_options: Any) -> None:
@@ -355,7 +380,7 @@ def connect_database(path: str | Path, timeout: float = 30) -> Any:
         except SQLAlchemyError as exc:
             metrics.DATABASE_ERRORS.labels("connection_acquire").inc()
             raise sqlite3.DatabaseError("A database connection is temporarily unavailable.") from exc
-    connection = sqlite3.connect(path, timeout=timeout)
+    connection = sqlite3.connect(path, timeout=timeout, factory=_InstrumentedSQLiteConnection)
     connection.row_factory = sqlite3.Row
     return connection
 

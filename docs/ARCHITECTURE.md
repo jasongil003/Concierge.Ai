@@ -100,7 +100,9 @@ EXPIRED
 CLEANUP
 ```
 
-The current prototype uses an inactivity TTL. Production should also consume an authoritative ANTlabs/PMS logout or checkout event when available.
+The Concierge session ID is an opaque record identifier, not guest authentication. Guest API requests require a high-entropy server-issued token and browser-context cookie; only token hashes are stored. In production and staging both cookies are Secure, HttpOnly, SameSite strict, path-wide, and expire with the configured guest timeout. Resume rotates the credentials. Concierge guest-session state is separate from ANTlabs network state: only an explicit gateway confirmation may establish network authentication, and the browser handoff itself does not.
+
+The current session store uses an inactivity TTL. Production should also consume an authoritative ANTlabs/PMS logout or checkout event when available. A verified gateway assertion may populate the separate `antlabs_session_id` field when the integration supplies a gateway session identifier; this hook does not assume an SG5 field name or authenticate a guest by itself.
 
 ## Zone, Navigation, and Location Model
 
@@ -183,9 +185,9 @@ Restaurant Manager and Restaurant Staff are property-scoped roles with per-resta
 
 ### Database and migration boundary
 
-The on-prem deployment uses one Concierge API instance with SQLite at `/state/concierge.db`, persisted through the `concierge-state` Docker volume. Compose does not start a database or Redis container, and there is no restaurant-specific database. Existing SQLite databases receive additive columns and indexes when the stores initialize. The optional PostgreSQL adapter and migration tooling present in the synchronized main branch are not selected by this deployment; no SQLite-to-PostgreSQL migration is performed for the on-prem MVP.
+SQLite remains the lightweight single-node on-prem mode and should run as one API process against its persistent volume. The application also has a PostgreSQL adapter selected with `DATABASE_URL` and an Alembic migration path. Its SQLAlchemy pool defaults to 20 connections plus 10 overflow connections, with a five-second checkout timeout, pre-ping, recycling, and statement/idle-transaction timeouts. PostgreSQL supports multi-worker deployments only after the target connection budget, migration, backup/restore, lock behavior, and integration tests are verified for that deployment.
 
-Store classes own SQL and expose property-scoped operations to route handlers. SQLite remains the supported on-prem MVP database. PostgreSQL is a possible scaling path for heavier concurrent deployments; using the optional adapter requires its own migration, backup/restore, concurrency, and operational validation before an operator enables it.
+Store classes own SQL and expose property-scoped operations to route handlers. Existing stores use a compatibility adapter while migration proceeds incrementally. Redis can provide shared rate limits and AI-provider bulkheads across replicas; without Redis, SQLite-backed controls are intended for the single-node SQLite deployment. The CI workflow contains PostgreSQL, Redis, backup/restore, and distributed concurrency integration checks, but passing workflow definitions are not themselves runtime evidence.
 
 ## Network zones
 
@@ -226,12 +228,4 @@ The runtime is intentionally abstracted behind `app/llm.py` so production can la
 
 ## Scale
 
-Do not size by total connected guests alone. Size by:
-
-- simultaneous active AI generations
-- prompt/context length
-- output length
-- model size and quantization
-- percentage of requests served from cache/tools
-
-A 1,000-guest hotel should aim to keep most repetitive requests off the LLM and benchmark realistic concurrent generation loads before production rollout.
+Do not infer capacity from total connected guests alone. Measure active AI generations, prompt/context and output lengths, model size and quantization, and the share of requests handled without an LLM. Use the controlled 10, 50, 100, 250, 500, and 1,000-user stages in [LOAD_TESTING.md](LOAD_TESTING.md). No capacity result is claimed until the stages run against representative hardware, database, Redis, and network conditions.
