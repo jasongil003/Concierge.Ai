@@ -718,18 +718,22 @@ test("every visible admin tab opens with page-specific guidance", async ({ page 
       if (!(await shell.evaluate((element) => element.classList.contains("mobile-nav-open")))) {
         await page.locator("#sidebar-toggle").click();
       }
-      await page.waitForFunction(() => {
-        const sidebar = document.querySelector(".platform-sidebar");
-        return sidebar && sidebar.getBoundingClientRect().left >= -1;
-      });
+      await expect(shell).toHaveClass(/mobile-nav-open/);
+      await expect(page.locator("#sidebar-toggle")).toHaveAttribute("aria-label", "Close navigation");
+      const sidebar = page.locator(".platform-sidebar");
+      await expect(sidebar).toBeVisible();
+      await expect(sidebar).toBeInViewport();
     }
     const item = page.locator(`.nav-item[data-nav-id="${navId}"]`);
     await item.evaluate((element) => {
       const group = element.closest("details");
       if (group) group.open = true;
     });
-    if ((page.viewportSize()?.width || 1440) <= 620) await item.scrollIntoViewIfNeeded();
-    await item.click({ force: (page.viewportSize()?.width || 1440) <= 620 });
+    if ((page.viewportSize()?.width || 1440) <= 620) {
+      await item.scrollIntoViewIfNeeded();
+      await expect(item).toBeInViewport();
+    }
+    await item.click();
     const active = page.locator(".panel.active");
     await expect(active).toHaveAttribute("id", panel);
     await expect(active.locator(":scope > .page-title h1, :scope > .onboarding-card h1").first()).toBeVisible();

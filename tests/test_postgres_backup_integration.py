@@ -56,7 +56,7 @@ def test_postgres_backup_restores_expected_records_to_clean_database(tmp_path: P
                 (property_id,),
             ).fetchone()
         assert row == ("Restore Drill Property", "restore.example.test")
-        assert (restored_uploads / "evidence.txt").read_text(encoding="utf-8") == "Restore Drill evidence"
+        assert (restored_uploads / "evidence.txt").read_text(encoding="utf-8") == "Restore drill evidence"
     finally:
         with connect_database(tmp_path / "postgres-ignored.db") as connection:
             connection.execute("DELETE FROM properties WHERE property_id=?", (property_id,))

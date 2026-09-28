@@ -40,9 +40,11 @@ function showToast(message, tone = "default") {
 }
 
 async function jsonFetch(url, options = {}) {
+  const { headers = {}, ...fetchOptions } = options;
+  const sessionHeader = state.sessionId ? { "X-Concierge-Session": state.sessionId } : {};
   const response = await fetch(url, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-    ...options,
+    ...fetchOptions,
+    headers: { "Content-Type": "application/json", ...sessionHeader, ...headers },
   });
   const data = await response.json();
   if (!response.ok) {
@@ -1792,6 +1794,7 @@ async function startGuestSession() {
     try {
       session = await jsonFetch("/api/session/resume", {
         method: "POST",
+        headers: { "X-Concierge-Session": previousSessionId },
         body: JSON.stringify({ client_id: state.clientId, session_id: previousSessionId }),
       });
     } catch {

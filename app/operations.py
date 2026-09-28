@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .database import connect_database
+from .database import connect_database, enable_foreign_keys
 from urllib.parse import urlparse
 
 from .ai_providers import SecretBox, redact_secret
@@ -35,7 +35,7 @@ class OperationsStore:
 
     def _connect(self) -> sqlite3.Connection:
         connection = connect_database(self.path)
-        connection.execute("PRAGMA foreign_keys = ON")
+        enable_foreign_keys(connection)
         return connection
 
     def _init_db(self) -> None:

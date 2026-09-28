@@ -4,14 +4,55 @@ from __future__ import annotations
 
 import os
 import uuid
+import json
+from pathlib import Path
 
-from locust import HttpUser, between, task
+from locust import HttpUser, LoadTestShape, between, task
 
 
 PROPERTY_ID = os.getenv("PROPERTY_ID", "load-test-property")
 ADMIN_USERNAME = os.getenv("LOADTEST_ADMIN_USERNAME", "")
 ADMIN_PASSWORD = os.getenv("LOADTEST_ADMIN_PASSWORD", "")
 ADMIN_ENABLED = bool(ADMIN_USERNAME and ADMIN_PASSWORD)
+
+
+SHAPE_NAME = os.getenv("LOADTEST_SHAPE", "").strip()
+if SHAPE_NAME:
+    _profiles = json.loads((Path(__file__).with_name("profiles.json")).read_text(encoding="utf-8"))
+    _profile = next(
+        (
+            item for item in _profiles["high_scale_profiles"]
+            if item["name"] == SHAPE_NAME
+        ),
+        _profiles["spike_profile"] if _profiles["spike_profile"]["name"] == SHAPE_NAME else None,
+    )
+    if _profile is None and _profiles["soak_profile"]["name"] == SHAPE_NAME:
+        _profile = _profiles["soak_profile"]
+    if _profile is None:
+        raise RuntimeError(f"Unknown load-test shape: {SHAPE_NAME}")
+
+    class SelectedCapacityShape(LoadTestShape):
+        """Apply a named high-scale, spike, or soak profile from profiles.json."""
+
+        def tick(self):
+            elapsed = self.get_run_time()
+            if SHAPE_NAME == _profiles["spike_profile"]["name"]:
+                profile = _profiles["spike_profile"]
+                warmup = int(profile["warmup_duration_seconds"])
+                if elapsed < warmup:
+                    return int(profile["warmup_users"]), int(profile["warmup_spawn_rate_per_second"])
+                if elapsed < warmup + int(profile["hold_duration_seconds"]):
+                    return int(profile["users"]), int(profile["spawn_rate_per_second"])
+                return None
+            if elapsed < _duration_seconds(_profile["duration"]):
+                return int(_profile["users"]), int(_profile["spawn_rate_per_second"])
+            return None
+
+
+def _duration_seconds(value: str) -> int:
+    amount = int(value[:-1])
+    unit = value[-1].casefold()
+    return amount * {"s": 1, "m": 60, "h": 3600}[unit]
 
 
 class GuestUser(HttpUser):
@@ -21,6 +62,7 @@ class GuestUser(HttpUser):
     def on_start(self) -> None:
         self.client_id = "load-" + uuid.uuid4().hex
         self.session_id = ""
+        self.session_headers = {}
         self.service_id = ""
         self.service_submitted = False
         self._start_session()
@@ -39,6 +81,7 @@ class GuestUser(HttpUser):
             if not self.session_id:
                 response.failure("session creation returned no session_id")
                 return
+            self.session_headers = {"X-Concierge-Session": self.session_id}
         catalog = self.client.get(
             "/api/guest/service-catalog",
             params={"property_id": PROPERTY_ID},
@@ -71,10 +114,12 @@ class GuestUser(HttpUser):
         self.client.post(
             "/api/session/resume",
             json={"client_id": self.client_id, "session_id": self.session_id},
+            headers=self.session_headers,
             name="POST /api/session/resume",
         )
         self.client.get(
             f"/api/guest/conversations/{self.session_id}/staff-messages",
+            headers=self.session_headers,
             name="GET /api/guest/conversations/{session_id}/staff-messages",
         )
 
@@ -89,6 +134,7 @@ class GuestUser(HttpUser):
                 "message": "Compare the quiet guest areas and suggest a calm place to spend an afternoon.",
                 "mode": "advanced",
             },
+            headers=self.session_headers,
             name="POST /api/chat [deterministic provider]",
         )
 
@@ -105,6 +151,7 @@ class GuestUser(HttpUser):
                 "client_request_id": f"load-{self.client_id}",
                 "confirmed": True,
             },
+            headers=self.session_headers,
             name="POST /api/guest/service-requests",
             catch_response=True,
         ) as response:

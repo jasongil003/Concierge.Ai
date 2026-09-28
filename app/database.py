@@ -14,14 +14,14 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Iterator, Mapping, Sequence
 
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import create_engine, event, inspect as sqlalchemy_inspect, text
 from sqlalchemy.engine import Connection, CursorResult, Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from . import metrics
 
 
-CURRENT_SCHEMA_REVISION = "20260928_0003"
+CURRENT_SCHEMA_REVISION = "20260928_0004"
 _migration_schema_mode: ContextVar[bool] = ContextVar("migration_schema_mode", default=False)
 _migration_connection: ContextVar[Connection | None] = ContextVar("migration_connection", default=None)
 _engine: Engine | None = None
@@ -334,6 +334,59 @@ class PostgresCompatConnection:
         finally:
             self.close()
         return False
+
+
+def _sqlalchemy_connection(connection: Any) -> Connection | None:
+    if isinstance(connection, PostgresCompatConnection):
+        return connection._connection
+    if isinstance(connection, Connection):
+        return connection
+    return None
+
+
+def _validate_table_name(table_name: str) -> str:
+    value = str(table_name or "").strip()
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value):
+        raise ValueError("Invalid database table name.")
+    return value
+
+
+def table_exists(connection: Any, table_name: str) -> bool:
+    """Check for a table using the active database's schema inspection API."""
+    name = _validate_table_name(table_name)
+    sqlalchemy_connection = _sqlalchemy_connection(connection)
+    if sqlalchemy_connection is not None:
+        return bool(sqlalchemy_inspect(sqlalchemy_connection).has_table(name))
+    if isinstance(connection, sqlite3.Connection):
+        return connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
+        ).fetchone() is not None
+    raise TypeError("Unsupported database connection type.")
+
+
+def table_columns(connection: Any, table_name: str) -> set[str]:
+    """Return column names without exposing dialect-specific introspection SQL."""
+    name = _validate_table_name(table_name)
+    sqlalchemy_connection = _sqlalchemy_connection(connection)
+    if sqlalchemy_connection is not None:
+        return {str(column["name"]) for column in sqlalchemy_inspect(sqlalchemy_connection).get_columns(name)}
+    if isinstance(connection, sqlite3.Connection):
+        return {
+            str(row["name"])
+            for row in connection.execute(f'PRAGMA table_info("{name}")').fetchall()
+        }
+    raise TypeError("Unsupported database connection type.")
+
+
+def enable_foreign_keys(connection: Any) -> None:
+    """Enable SQLite foreign keys; PostgreSQL enforces them through its schema."""
+    sqlalchemy_connection = _sqlalchemy_connection(connection)
+    if sqlalchemy_connection is not None:
+        return
+    if isinstance(connection, sqlite3.Connection):
+        connection.execute("PRAGMA foreign_keys = ON")
+        return
+    raise TypeError("Unsupported database connection type.")
 
 
 def _split_statements(sql: str) -> list[str]:

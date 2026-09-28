@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .database import connect_database
+from .database import connect_database, enable_foreign_keys, table_columns
 
 
 @dataclass
@@ -38,7 +38,7 @@ class SessionStore:
 
     def _connect(self) -> sqlite3.Connection:
         connection = connect_database(self.path)
-        connection.execute("PRAGMA foreign_keys = ON")
+        enable_foreign_keys(connection)
         return connection
 
     def _init_db(self) -> None:
@@ -63,7 +63,7 @@ class SessionStore:
                 )
                 """
             )
-            columns = {row["name"] for row in db.execute("PRAGMA table_info(sessions)").fetchall()}
+            columns = table_columns(db, "sessions")
             if "network_status" not in columns:
                 db.execute("ALTER TABLE sessions ADD COLUMN network_status TEXT NOT NULL DEFAULT 'active'")
             if "network_failure_at" not in columns:
@@ -76,6 +76,19 @@ class SessionStore:
                 ("antlabs_session_id", "TEXT"),
             ):
                 self._ensure_session_column(db, name, definition)
+            # SQLite deployments upgrade schema at process start. Revoke any
+            # duplicate credentials issued by versions before the per-session
+            # cookie model, then make token ownership unique on SQLite too.
+            db.execute(
+                "UPDATE sessions SET guest_token_hash=NULL,guest_context_hash=NULL,"
+                "guest_token_expires_at=NULL,guest_token_revoked_at=COALESCE(guest_token_revoked_at,0) "
+                "WHERE guest_token_hash IN (SELECT guest_token_hash FROM sessions "
+                "WHERE guest_token_hash IS NOT NULL GROUP BY guest_token_hash HAVING COUNT(*)>1)"
+            )
+            db.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_sessions_guest_token_hash "
+                "ON sessions(guest_token_hash) WHERE guest_token_hash IS NOT NULL"
+            )
             db.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS authentication_attempts (
@@ -172,7 +185,7 @@ class SessionStore:
         }
         if allowed.get(name) != definition:
             raise ValueError("Unsupported session schema column migration.")
-        columns = {row["name"] for row in db.execute("PRAGMA table_info(sessions)")}
+        columns = table_columns(db, "sessions")
         if name not in columns:
             # name and definition come only from the fixed allowlist above.
             # B608 rationale: name and definition are checked against the fixed schema allowlist above.
@@ -197,7 +210,7 @@ class SessionStore:
             raise ValueError("Unsupported schema column migration.")
         # Identifiers and DDL are selected from the fixed migration map above.
         # B608 rationale: table is selected from the fixed migration map above.
-        columns = {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}  # nosec B608
+        columns = table_columns(db, table)
         if name not in columns:
             # B608 rationale: table, name, and definition are checked against the fixed migration map above.
             db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")  # nosec B608
@@ -309,43 +322,28 @@ class SessionStore:
         session_id: str,
         *,
         ttl_seconds: int,
-        existing_token: str | None = None,
-        existing_context: str | None = None,
     ) -> tuple[str, str]:
-        """Issue high-entropy browser credentials; only hashes are stored."""
+        """Issue one new credential pair for a session that has never had credentials."""
         now = int(time.time())
-        token = existing_token or ""
-        context = existing_context or ""
+        token = secrets.token_urlsafe(32)
+        context = secrets.token_urlsafe(32)
+        token_hash = self._credential_hash(token)
+        context_hash = self._credential_hash(context)
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            reusable = False
-            if token and context:
-                token_hash = self._credential_hash(token)
-                context_hash = self._credential_hash(context)
-                row = db.execute(
-                    "SELECT 1 FROM sessions WHERE guest_token_hash=? AND guest_context_hash=? "
-                    "AND guest_token_expires_at>? AND guest_token_revoked_at IS NULL LIMIT 1",
-                    (token_hash, context_hash, now),
-                ).fetchone()
-                reusable = row is not None
-            if not reusable:
-                token = secrets.token_urlsafe(32)
-                context = secrets.token_urlsafe(32)
-                token_hash = self._credential_hash(token)
-                context_hash = self._credential_hash(context)
             cursor = db.execute(
-                "UPDATE sessions SET guest_token_hash=?,guest_context_hash=?,guest_token_expires_at=?,guest_token_revoked_at=NULL "
-                "WHERE session_id=?",
+                "UPDATE sessions SET guest_token_hash=?,guest_context_hash=?,guest_token_expires_at=? "
+                "WHERE session_id=? AND guest_token_hash IS NULL AND guest_token_revoked_at IS NULL",
                 (token_hash, context_hash, now + max(60, int(ttl_seconds)), session_id),
             )
             if not cursor.rowcount:
-                raise KeyError("Guest session not found.")
+                raise KeyError("Guest session is missing or already has credentials.")
         return token, context
 
     def rotate_guest_credentials(
         self, session_id: str, token: str, context: str, *, ttl_seconds: int
     ) -> tuple[str, str] | None:
-        """Rotate credentials for all sessions sharing this browser context."""
+        """Rotate credentials for exactly one unexpired session."""
         now = int(time.time())
         token_hash = self._credential_hash(token)
         context_hash = self._credential_hash(context)
@@ -367,12 +365,55 @@ class SessionStore:
                 or not hmac.compare_digest(str(row["guest_context_hash"] or ""), context_hash)
             ):
                 return None
-            db.execute(
+            cursor = db.execute(
                 "UPDATE sessions SET guest_token_hash=?,guest_context_hash=?,guest_token_expires_at=? "
-                "WHERE guest_token_hash=? AND guest_context_hash=? AND guest_token_revoked_at IS NULL",
-                (next_token_hash, next_context_hash, now + max(60, int(ttl_seconds)), token_hash, context_hash),
+                "WHERE session_id=? AND guest_token_hash=? AND guest_context_hash=? "
+                "AND guest_token_expires_at>? AND guest_token_revoked_at IS NULL",
+                (next_token_hash, next_context_hash, now + max(60, int(ttl_seconds)), session_id, token_hash, context_hash, now),
             )
+            if cursor.rowcount != 1:
+                return None
         return next_token, next_context
+
+    def extend_guest_credentials_if_needed(
+        self,
+        session_id: str,
+        token: str | None,
+        context: str | None,
+        *,
+        ttl_seconds: int,
+        refresh_threshold_seconds: int,
+    ) -> bool:
+        """Slide expiry only for a valid, unrevoked credential near expiration."""
+        if not token or not context:
+            return False
+        now = int(time.time())
+        token_hash = self._credential_hash(token)
+        context_hash = self._credential_hash(context)
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT guest_token_hash,guest_context_hash,guest_token_expires_at,guest_token_revoked_at "
+                "FROM sessions WHERE session_id=?",
+                (session_id,),
+            ).fetchone()
+            if (
+                row is None
+                or row["guest_token_revoked_at"] is not None
+                or row["guest_token_expires_at"] is None
+                or int(row["guest_token_expires_at"]) <= now
+                or not hmac.compare_digest(str(row["guest_token_hash"] or ""), token_hash)
+                or not hmac.compare_digest(str(row["guest_context_hash"] or ""), context_hash)
+                or int(row["guest_token_expires_at"]) - now > max(0, int(refresh_threshold_seconds))
+            ):
+                return False
+            cursor = db.execute(
+                "UPDATE sessions SET guest_token_expires_at=? WHERE session_id=? "
+                "AND guest_token_hash=? AND guest_context_hash=? AND guest_token_expires_at>? "
+                "AND guest_token_revoked_at IS NULL",
+                (now + max(60, int(ttl_seconds)), session_id, token_hash, context_hash, now),
+            )
+            return cursor.rowcount == 1
 
     def verify_guest_credentials(self, session_id: str, token: str | None, context: str | None) -> bool:
         if not token or not context:
@@ -397,13 +438,12 @@ class SessionStore:
         token_hash = self._credential_hash(token)
         context_hash = self._credential_hash(context)
         with self._connect() as db:
-            row = db.execute(
+            rows = db.execute(
                 "SELECT session_id FROM sessions WHERE guest_token_hash=? AND guest_context_hash=? "
-                "AND guest_token_expires_at>? AND guest_token_revoked_at IS NULL "
-                "ORDER BY last_seen_at DESC LIMIT 1",
+                "AND guest_token_expires_at>? AND guest_token_revoked_at IS NULL LIMIT 2",
                 (token_hash, context_hash, int(time.time())),
-            ).fetchone()
-        return str(row["session_id"]) if row else None
+            ).fetchall()
+        return str(rows[0]["session_id"]) if len(rows) == 1 else None
 
     def revoke_guest_credentials(self, session_id: str) -> None:
         with self._connect() as db:
@@ -447,10 +487,13 @@ class SessionStore:
 
     def cleanup_expired(self) -> int:
         cutoff = int(time.time()) - self.ttl_seconds
+        now = int(time.time())
         with self._connect() as db:
             cursor = db.execute(
-                "DELETE FROM sessions WHERE last_seen_at < ?",
-                (cutoff,),
+                "DELETE FROM sessions WHERE "
+                "(guest_token_hash IS NOT NULL AND (guest_token_expires_at IS NULL OR guest_token_expires_at<=?)) "
+                "OR (guest_token_hash IS NULL AND last_seen_at<?)",
+                (now, cutoff),
             )
             return cursor.rowcount
 
@@ -542,11 +585,11 @@ class SessionStore:
     def metrics(self, property_id: str) -> dict[str, Any]:
         now = int(time.time())
         day_start = now - (now % 86400)
-        active_cutoff = now - self.ttl_seconds
         with self._connect() as db:
             active_guests = db.execute(
-                "SELECT COUNT(DISTINCT client_id) FROM sessions WHERE property_id=? AND last_seen_at>=?",
-                (property_id, active_cutoff),
+                "SELECT COUNT(DISTINCT client_id) FROM sessions WHERE property_id=? "
+                "AND guest_token_hash IS NOT NULL AND guest_token_expires_at>? AND guest_token_revoked_at IS NULL",
+                (property_id, now),
             ).fetchone()[0]
             ai_requests = db.execute(
                 "SELECT COUNT(*) FROM conversation_messages WHERE property_id=? AND role='assistant' AND provider IS NOT NULL AND created_at>=?",
@@ -597,10 +640,11 @@ class SessionStore:
 
     def sessions(self, property_id: str) -> list[dict[str, Any]]:
         now = int(time.time())
-        active_cutoff = now - self.ttl_seconds
         with self._connect() as db:
             rows = db.execute(
                 """SELECT s.session_id,s.property_id,s.authenticated,s.created_at,s.last_seen_at,
+                CASE WHEN s.guest_token_hash IS NOT NULL AND s.guest_token_expires_at>?
+                    AND s.guest_token_revoked_at IS NULL THEN 'active' ELSE 'expired' END AS session_status,
                 COALESCE(cs.status,'open') AS interaction_status,
                 COALESCE(cs.human_takeover,0) AS human_takeover,
                 COUNT(m.message_id) AS message_count,
@@ -609,14 +653,13 @@ class SessionStore:
                 LEFT JOIN conversation_state cs ON cs.session_id=s.session_id AND cs.property_id=s.property_id
                 LEFT JOIN conversation_messages m ON m.session_id=s.session_id AND m.property_id=s.property_id
                 WHERE s.property_id=? GROUP BY s.session_id ORDER BY s.last_seen_at DESC""",
-                (property_id,),
+                (now, property_id),
             ).fetchall()
         return [
             {
                 **dict(row),
                 "authenticated": bool(row["authenticated"]),
                 "human_takeover": bool(row["human_takeover"]),
-                "session_status": "active" if int(row["last_seen_at"]) >= active_cutoff else "expired",
             }
             for row in rows
         ]

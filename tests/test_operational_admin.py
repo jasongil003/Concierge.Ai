@@ -48,6 +48,29 @@ def test_conversation_retention_sessions_and_usage_are_property_scoped(tmp_path:
     assert usage["providers"][0]["model"] == "qwen"
 
 
+def test_guest_activity_metrics_and_admin_status_follow_credential_expiry(tmp_path: Path):
+    store = SessionStore(tmp_path / "guest-expiry.db", ttl_minutes=1)
+    session = store.create("hotel-a", "guest-a")
+    store.issue_guest_credentials(session.session_id, ttl_seconds=3600)
+    now = int(time.time())
+    with store._connect() as db:
+        db.execute(
+            "UPDATE sessions SET last_seen_at=?,guest_token_expires_at=? WHERE session_id=?",
+            (now - 600, now + 600, session.session_id),
+        )
+
+    assert store.metrics("hotel-a")["active_guests"] == 1
+    assert store.sessions("hotel-a")[0]["session_status"] == "active"
+
+    with store._connect() as db:
+        db.execute(
+            "UPDATE sessions SET guest_token_expires_at=? WHERE session_id=?",
+            (now - 1, session.session_id),
+        )
+    assert store.metrics("hotel-a")["active_guests"] == 0
+    assert store.sessions("hotel-a")[0]["session_status"] == "expired"
+
+
 def test_facility_restaurant_and_department_deletes_are_scoped(tmp_path: Path):
     db = tmp_path / "hospitality.db"
     properties = PropertyStore(db)

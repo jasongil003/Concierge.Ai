@@ -2280,7 +2280,6 @@ details:not([open]) > :not(summary) { display: none !important; }
 .change-password-submit:hover { border-color: #263951; background: #263951; }
 @media (max-width: 620px) {
   :root { --topbar-height: 104px; }
-  .platform-sidebar { transform: translateX(-105%); }
   .operations-insight { grid-template-columns: 1fr; }
   .operations-insight > button { grid-column: 1; grid-row: auto; justify-self: start; }
   .auth-save-bar { align-items: stretch; flex-direction: column; gap: 8px; }

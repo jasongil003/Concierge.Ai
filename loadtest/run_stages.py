@@ -7,6 +7,7 @@ workload creates service requests in the selected test property.
 from __future__ import annotations
 
 import csv
+import argparse
 import json
 import os
 from pathlib import Path
@@ -121,6 +122,21 @@ def _locust_summary(path: Path) -> dict[str, float | int | None]:
     }
 
 
+def _selected_profiles(profiles: dict[str, object], selection: str) -> list[dict[str, object]]:
+    if selection == "controlled":
+        return [
+            {**stage, "name": f"stage-{stage['users']}"}
+            for stage in profiles["controlled_stages"]
+        ]
+    if selection == "high-scale":
+        return list(profiles["high_scale_profiles"])
+    if selection == "spike":
+        return [profiles["spike_profile"]]
+    if selection == "soak":
+        return [profiles["soak_profile"]]
+    raise ValueError("Unknown load-test profile.")
+
+
 def _sample_api_resources(
     stop: threading.Event, output: list[dict[str, float | None]], base_url: str, token: str
 ) -> None:
@@ -143,6 +159,14 @@ def _system_summary(samples: list[dict[str, float | None]]) -> dict[str, float |
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Run one or more defined Concierge.Ai load profiles.")
+    parser.add_argument(
+        "--profile",
+        choices=("controlled", "high-scale", "spike", "soak"),
+        default="controlled",
+        help="The 10–1,000 guest stages, all high-scale targets, the 100→5,000 spike, or the 5,000-user soak.",
+    )
+    arguments = parser.parse_args()
     if os.getenv("LOADTEST_CONFIRMATION") != "YES":
         raise SystemExit("Set LOADTEST_CONFIRMATION=YES after confirming the target is a disposable test property.")
     base_url = os.getenv("LOADTEST_BASE_URL", "").rstrip("/")
@@ -165,9 +189,10 @@ def main() -> None:
         raise SystemExit("Locust is not installed. Install loadtest/requirements.txt first.")
     results: list[dict[str, object]] = []
 
-    for stage in profiles["controlled_stages"]:
+    for stage in _selected_profiles(profiles, arguments.profile):
         users = int(stage["users"])
-        prefix = output_root / f"stage-{users}"
+        profile_name = str(stage["name"])
+        prefix = output_root / profile_name
         before = _scrape_metrics(base_url, token)
         system_samples: list[dict[str, float | None]] = []
         stop = threading.Event()
@@ -184,6 +209,9 @@ def main() -> None:
             "--csv", str(prefix), "--only-summary",
         ]
         environment = {**os.environ, "PROPERTY_ID": property_id}
+        environment.pop("LOADTEST_SHAPE", None)
+        if arguments.profile in {"high-scale", "spike", "soak"}:
+            environment["LOADTEST_SHAPE"] = profile_name
         completed = subprocess.run(command, cwd=ROOT, env=environment, check=False)
         stop.set()
         sampler.join(timeout=3)
@@ -199,10 +227,10 @@ def main() -> None:
             "locust_csv_prefix": str(prefix),
         }
         results.append(item)
-        (output_root / f"stage-{users}.json").write_text(json.dumps(item, indent=2), encoding="utf-8")
+        (output_root / f"{profile_name}.json").write_text(json.dumps(item, indent=2), encoding="utf-8")
         print(json.dumps(item, indent=2))
 
-    report = {"base_url": base_url, "property_id": property_id, "results": results}
+    report = {"profile": arguments.profile, "base_url": base_url, "property_id": property_id, "results": results}
     report_path = output_root / "summary.json"
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"Saved staged load results to {report_path}")
