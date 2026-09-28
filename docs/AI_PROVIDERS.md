@@ -72,6 +72,8 @@ http://ollama.hotel-lan.local:11434
 
 For Ollama, the model refresh button calls `/api/tags`. LM Studio and other OpenAI-compatible servers should expose `/v1/models` when configured as compatible endpoints.
 
+Local AI requests can reach the server's private network, so its endpoint must be approved by the deployment operator. Set `OLLAMA_BASE_URL` for the primary server and add any additional endpoints to the comma-separated `LOCAL_AI_ALLOWED_ENDPOINTS` environment setting. The Admin provider editor accepts only those configured endpoints; a database value is checked again before each provider connection is created.
+
 ## Local-Only Mode
 
 When enabled, the backend rejects cloud defaults. The UI disables cloud providers in the default-provider selector. This is enforced server-side by `AIProviderStore.save_settings(...)` and again during provider resolution.
@@ -80,10 +82,10 @@ When enabled, the backend rejects cloud defaults. The UI disables cloud provider
 
 Credentials are encrypted at rest with `CREDENTIAL_ENCRYPTION_SECRET` using Fernet. Saved secrets are never returned to the browser. Admin responses include only a display hint such as `gsk••••3456`.
 
-Set a strong secret in production:
+Set a unique secret of at least 32 characters before starting the application in any environment. For example, generate one locally with `openssl rand -hex 32` and store it in `.env`:
 
 ```env
-CREDENTIAL_ENCRYPTION_SECRET=replace-with-a-long-random-secret
+CREDENTIAL_ENCRYPTION_SECRET=<generated-random-value>
 ```
 
 Rotating this secret requires re-entering provider credentials unless a migration/decryption process is added.

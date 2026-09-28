@@ -5,7 +5,7 @@ const csrfByRequest = new WeakMap();
 
 async function loginAdmin(api) {
   const response = await api.post("/api/admin/auth/login", {
-    data: { username: "admin", password: "ChangeMe123!", remember_me: false },
+    data: { username: "admin", password: "PlaywrightOnly-Admin-123!", remember_me: false },
   });
   expect(response.ok()).toBeTruthy();
   const csrf = (await response.json()).user.csrf_token;
@@ -266,9 +266,7 @@ test("sidebar: all navigation items are visible and clickable", async ({ page })
     ["Users", "users"],
     ["Roles", "roles"],
     ["Permissions", "permissions"],
-    ["Domain", "domain"],
-    ["SSL", "ssl"],
-    ["Network", "network"],
+    ["Network Access", "network-access"],
     ["Audit", "audit"],
     ["Security", "security"],
   ];
@@ -429,15 +427,14 @@ test("sidebar: each visible navigation item has a feature status", async ({ page
   }
 });
 
-test("guardrails panel exposes enforced network policy and diagnostics", async ({ page }, testInfo) => {
+test("guardrails panel exposes security controls and network diagnostics", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium", "The security configuration workflow needs one browser profile.");
   await page.goto("/admin");
   await openPanel(page, "Guardrails");
 
-  await expect(page.getByLabel("Require approved hotel network")).toBeVisible();
-  await expect(page.getByLabel("Approved subnets (CIDR)")).toHaveValue(/127\.0\.0\.0\/8/);
   await expect(page.locator("#guardrail-diagnostic-property")).not.toHaveText("—");
   await expect(page.locator("#guardrail-antlabs-secret")).toHaveAttribute("type", "password");
+  await expect(page.getByLabel("Security audit logging enabled")).toBeVisible();
 });
 
 test("overview panel: operational health is visible and configuration moved out", async ({ page }) => {
@@ -1034,9 +1031,10 @@ test("operations assistant formats evidence, completes the first reply, and keep
 
 test("deployment panel: status info displayed", async ({ page }) => {
   await page.goto("/admin");
-  await openPanel(page, "Domain");
+  await openPanel(page, "Network Access");
   await expect(page.locator("#domain-status")).not.toHaveText("");
-  await expect(page.getByRole("button", { name: "Verify Domain & SSL" })).toBeEnabled();
+  await expect(page.locator("#ssl-status")).not.toHaveText("");
+  await expect(page.getByRole("button", { name: "Verify DNS & SSL" })).toBeEnabled();
 });
 
 test("users and access panels expose username-first management", async ({ page }) => {

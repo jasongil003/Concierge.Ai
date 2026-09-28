@@ -247,7 +247,7 @@ class ObservabilityStore:
 
         completed = [row for row in request_rows if row["status"] == "completed"]
         resolution_times = [max(0, int(row["updated_at"]) - int(row["created_at"])) for row in completed]
-        overdue = [row for row in request_rows if row["status"] != "completed" and row["due_at"] and int(row["due_at"]) < end]
+        overdue = [row for row in request_rows if row["status"] not in {"completed", "cancelled"} and row["due_at"] and int(row["due_at"]) < end]
         departments = Counter(str(row["department"] or "Unassigned") for row in request_rows)
         services = Counter(str(row["request_type"] or row["description"] or "Request") for row in request_rows)
         buckets: dict[int, int] = Counter((int(row["created_at"]) // bucket) * bucket for row in request_rows)
@@ -259,7 +259,7 @@ class ObservabilityStore:
             "period": period, "start": start, "end": end, "department_scope": department_name,
             "summary": {
                 "guests_assisted": int(sessions), "ai_conversations": int(conversations), "service_requests": int(requests),
-                "open_requests": sum(1 for row in request_rows if row["status"] != "completed"), "overdue_requests": len(overdue),
+                "open_requests": sum(1 for row in request_rows if row["status"] not in {"completed", "cancelled"}), "overdue_requests": len(overdue),
                 "average_resolution_seconds": round(sum(resolution_times) / len(resolution_times)) if resolution_times else None,
                 "sla_performance_percent": round((1 - len(overdue) / len(request_rows)) * 100, 1) if request_rows else None,
                 "ai_resolution_rate_percent": round((assistant_total - fallback_count) / assistant_total * 100, 1) if assistant_total else None,

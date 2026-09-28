@@ -282,6 +282,41 @@ def test_provider_limit_blocks_request(tmp_path: Path, monkeypatch: pytest.Monke
         asyncio.run(service.concierge_chat("hotel-a", "second", "Hotel A", []))
 
 
+def test_local_ai_endpoint_must_be_explicitly_trusted_at_save_and_use(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        ai_provider_module,
+        "settings",
+        replace(
+            ai_provider_module.settings,
+            ollama_base_url="http://ollama.hotel-lan.test:11434",
+            local_ai_allowed_endpoints=("http://lmstudio.hotel-lan.test:1234",),
+        ),
+    )
+    store = AIProviderStore(tmp_path / "local-endpoint-allowlist.db")
+    allowed = store.save_connection(
+        "hotel-a",
+        "local",
+        {"enabled": True, "endpoint_url": "http://lmstudio.hotel-lan.test:1234"},
+    )
+    assert allowed["endpoint_url"] == "http://lmstudio.hotel-lan.test:1234"
+    with pytest.raises(ValueError, match="LOCAL_AI_ALLOWED_ENDPOINTS"):
+        store.save_connection(
+            "hotel-a",
+            "local",
+            {"enabled": True, "endpoint_url": "http://169.254.169.254/latest/meta-data"},
+        )
+
+    # Old or manually modified database rows are checked again before any provider request.
+    with store._connect() as db:
+        db.execute(
+            "UPDATE ai_provider_connections SET endpoint_url=? WHERE property_id=? AND provider_id='local'",
+            ("http://127.0.0.1:2375", "hotel-a"),
+        )
+    service = AIModelService(store)
+    with pytest.raises(ValueError, match="LOCAL_AI_ALLOWED_ENDPOINTS"):
+        service.adapter_for("local", store.get_connection("hotel-a", "local")["endpoint_url"])
+
+
 def test_property_a_usage_not_counted_against_property_b(tmp_path: Path):
     store = AIProviderStore(tmp_path / "tenant-limits.db")
     for property_id in ("hotel-a", "hotel-b"):

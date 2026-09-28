@@ -4,7 +4,7 @@ import { ensureTestProperty } from "./support.js";
 
 async function login(page) {
   const response = await page.request.post("/api/admin/auth/login", {
-    data: { username: "admin", password: "ChangeMe123!", remember_me: false },
+    data: { username: "admin", password: "PlaywrightOnly-Admin-123!", remember_me: false },
   });
   expect(response.ok()).toBeTruthy();
   const csrf = (await response.json()).user.csrf_token;

@@ -1,6 +1,7 @@
 import os
 import json
 from dataclasses import dataclass, field
+import ipaddress
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -74,8 +75,20 @@ class Settings:
     admin_lockout_attempts: int = int(os.getenv("ADMIN_LOCKOUT_ATTEMPTS", "5"))
     admin_lockout_minutes: int = int(os.getenv("ADMIN_LOCKOUT_MINUTES", "15"))
     admin_bootstrap_username: str = os.getenv("ADMIN_BOOTSTRAP_USERNAME", "admin").strip()
-    admin_bootstrap_password: str = os.getenv("ADMIN_BOOTSTRAP_PASSWORD", "ChangeMe123!")
+    admin_bootstrap_password: str = os.getenv("ADMIN_BOOTSTRAP_PASSWORD", "")
     admin_cookie_secure: bool = _bool("ADMIN_COOKIE_SECURE", False)
+    canonical_hosts: tuple[str, ...] = tuple(
+        item.strip().casefold().rstrip(".")
+        for item in os.getenv("CANONICAL_HOSTS", "").split(",")
+        if item.strip()
+    )
+    admin_allowed_cidrs: tuple[str, ...] = tuple(
+        item.strip()
+        for item in os.getenv("ADMIN_ALLOWED_CIDRS", "").split(",")
+        if item.strip()
+    )
+    public_base_url: str = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
+    forwarded_allow_ips: str = os.getenv("FORWARDED_ALLOW_IPS", "172.29.0.2").strip()
     app_debug: bool = _bool("APP_DEBUG", False)
     allow_body_property_selection: bool = _bool("ALLOW_BODY_PROPERTY_SELECTION", False)
     allow_demo_settings: bool = _bool("ALLOW_DEMO_SETTINGS", False)
@@ -87,6 +100,11 @@ class Settings:
     credential_encryption_secret: str = os.getenv("CREDENTIAL_ENCRYPTION_SECRET", "").strip()
 
     ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
+    local_ai_allowed_endpoints: tuple[str, ...] = tuple(
+        item.strip().rstrip("/")
+        for item in os.getenv("LOCAL_AI_ALLOWED_ENDPOINTS", "").split(",")
+        if item.strip()
+    )
     ollama_model: str = os.getenv("OLLAMA_MODEL", "qwen3:8b")
     ollama_timeout_seconds: int = int(os.getenv("OLLAMA_TIMEOUT_SECONDS", "45"))
     ollama_think: bool = _bool("OLLAMA_THINK", False)
@@ -142,7 +160,15 @@ DEFAULT_ENCRYPTION_SECRETS = {
 
 def validate_production_settings(value: Settings, *, check_filesystem: bool = True) -> None:
     """Fail closed before any production database or account initialization occurs."""
-    if value.app_environment != "production":
+    if (
+        not value.admin_bootstrap_password
+        or value.admin_bootstrap_password == "ChangeMe123!"
+        or len(value.admin_bootstrap_password) < 12
+    ):
+        raise RuntimeError("ADMIN_BOOTSTRAP_PASSWORD must be explicitly set to a unique value of at least 12 characters.")
+    if len(value.credential_encryption_secret.strip()) < 32:
+        raise RuntimeError("CREDENTIAL_ENCRYPTION_SECRET must contain at least 32 characters before starting the application.")
+    if value.app_environment not in {"production", "staging"}:
         return
     errors: list[str] = []
     try:
@@ -167,8 +193,6 @@ def validate_production_settings(value: Settings, *, check_filesystem: bool = Tr
             errors.append("ANTLABS_AUTH_URL must target the SG5 built-in processor at /login/main.ant")
         if value.antlabs_auth_method != "POST":
             errors.append("ANTLABS_AUTH_METHOD must be POST for the SG5 built-in processor")
-    if value.admin_bootstrap_password == "ChangeMe123!" or len(value.admin_bootstrap_password) < 12:
-        errors.append("ADMIN_BOOTSTRAP_PASSWORD must be changed to a strong value")
     encryption_secret = value.credential_encryption_secret.strip()
     if (
         encryption_secret.casefold() in DEFAULT_ENCRYPTION_SECRETS
@@ -182,8 +206,53 @@ def validate_production_settings(value: Settings, *, check_filesystem: bool = Tr
         errors.append("APP_DEBUG must be disabled")
     if value.allow_body_property_selection:
         errors.append("ALLOW_BODY_PROPERTY_SELECTION must be disabled")
-    if not value.allow_demo_settings and value.antlabs_mode == "mock":
+    if value.allow_demo_settings:
+        errors.append("ALLOW_DEMO_SETTINGS must be disabled")
+    if value.antlabs_mode == "mock":
         errors.append("ANTLABS_MODE=mock is not allowed for production")
+    canonical_hosts = tuple(str(host).strip().casefold().rstrip(".") for host in value.canonical_hosts if str(host).strip())
+    if not canonical_hosts:
+        errors.append("CANONICAL_HOSTS must include the public application hostnames")
+    else:
+        for host in canonical_hosts:
+            if any(character in host for character in "/@*?#") or ":" in host:
+                errors.append("CANONICAL_HOSTS entries must be exact hostnames without schemes, ports, or wildcards")
+                break
+            try:
+                parsed_host = urlsplit("//" + host)
+                if not parsed_host.hostname or parsed_host.hostname != host:
+                    raise ValueError
+            except ValueError:
+                errors.append("CANONICAL_HOSTS contains an invalid hostname")
+                break
+    try:
+        admin_networks = [ipaddress.ip_network(str(item).strip(), strict=False) for item in value.admin_allowed_cidrs if str(item).strip()]
+        if not admin_networks:
+            errors.append("ADMIN_ALLOWED_CIDRS must restrict administrator access to trusted source networks")
+        elif any(network.prefixlen == 0 for network in admin_networks):
+            errors.append("ADMIN_ALLOWED_CIDRS cannot allow every IPv4 or IPv6 address")
+    except ValueError:
+        errors.append("ADMIN_ALLOWED_CIDRS contains an invalid CIDR range")
+    public_base = value.public_base_url
+    try:
+        parsed_base = urlsplit(public_base)
+    except ValueError:
+        parsed_base = None
+    if (
+        parsed_base is None
+        or parsed_base.scheme != "https"
+        or not parsed_base.hostname
+        or parsed_base.hostname.casefold().rstrip(".") not in canonical_hosts
+        or parsed_base.username
+        or parsed_base.password
+        or parsed_base.query
+        or parsed_base.fragment
+        or parsed_base.path not in {"", "/"}
+    ):
+        errors.append("PUBLIC_BASE_URL must be an HTTPS origin whose hostname is listed in CANONICAL_HOSTS")
+    forwarded_allow_ips = [item.strip() for item in value.forwarded_allow_ips.split(",") if item.strip()]
+    if not forwarded_allow_ips or "*" in forwarded_allow_ips:
+        errors.append("FORWARDED_ALLOW_IPS must list only trusted proxy addresses; wildcard trust is unsafe")
     if value.database_url and not value.database_url.lower().startswith(("postgresql://", "postgresql+psycopg://", "postgres://")):
         errors.append("DATABASE_URL must use PostgreSQL when a server database is configured")
     if value.redis_url and not value.redis_url.lower().startswith(("redis://", "rediss://")):
@@ -195,7 +264,7 @@ def validate_production_settings(value: Settings, *, check_filesystem: bool = Tr
         if not parent.is_dir() or not os.access(parent, os.W_OK):
             errors.append("DB_PATH parent directory must exist and be writable")
     if errors:
-        raise RuntimeError("Unsafe production configuration: " + "; ".join(errors) + ".")
+        raise RuntimeError("Unsafe production/staging configuration: " + "; ".join(errors) + ".")
 
 
 settings = Settings()

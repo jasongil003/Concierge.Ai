@@ -2,6 +2,7 @@ import base64
 import asyncio
 import hashlib
 import json
+import ipaddress
 import random
 import sqlite3
 import time
@@ -10,6 +11,7 @@ from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, AsyncIterator, Protocol
+from urllib.parse import urlsplit
 
 import httpx
 from cryptography.fernet import Fernet
@@ -19,6 +21,46 @@ from .database import connect_database
 from .guardrails import AIInputSanitizer, AIOutputValidator
 from .llm import build_prompt
 from . import metrics
+
+
+def _local_ai_endpoint_key(value: str) -> tuple[str, str, int, str]:
+    try:
+        parsed = urlsplit(str(value).strip())
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("Local AI endpoint must be a valid HTTP(S) URL.") from exc
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("Local AI endpoint must be a credential-free HTTP(S) base URL.")
+    host = parsed.hostname.casefold().rstrip(".")
+    try:
+        host = ipaddress.ip_address(host).compressed
+    except ValueError:
+        if any(character in host for character in "/\\%"):
+            raise ValueError("Local AI endpoint contains an invalid host.")
+    effective_port = port or (443 if parsed.scheme == "https" else 80)
+    return parsed.scheme.casefold(), host, effective_port, parsed.path.rstrip("/")
+
+
+def validate_local_ai_endpoint(endpoint_url: str, config: Any = settings) -> str:
+    """Only connect to endpoints explicitly trusted by the installation operator."""
+    requested = _local_ai_endpoint_key(endpoint_url)
+    trusted_urls = {str(config.ollama_base_url or ""), *config.local_ai_allowed_endpoints}
+    trusted = set()
+    for value in trusted_urls:
+        try:
+            trusted.add(_local_ai_endpoint_key(value))
+        except ValueError:
+            continue
+    if requested not in trusted:
+        raise ValueError("Local AI endpoint is not in LOCAL_AI_ALLOWED_ENDPOINTS or OLLAMA_BASE_URL.")
+    return endpoint_url.strip().rstrip("/")
 
 
 PROVIDER_DEFINITIONS: dict[str, dict[str, Any]] = {
@@ -172,10 +214,8 @@ class AIProvider(Protocol):
 
 class SecretBox:
     def __init__(self, secret: str) -> None:
-        if not secret:
-            if settings.app_environment in ("production", "staging"):
-                raise RuntimeError("CREDENTIAL_ENCRYPTION_SECRET must be set in production/staging.")
-            secret = "local-development-secret"
+        if len(secret.strip()) < 32:
+            raise RuntimeError("CREDENTIAL_ENCRYPTION_SECRET must contain at least 32 characters.")
         self.secret = secret
         digest = hashlib.sha256(self.secret.encode("utf-8")).digest()
         self._fernet = Fernet(base64.urlsafe_b64encode(digest))
@@ -458,6 +498,8 @@ class AIProviderStore:
         endpoint_url = str(payload.get("endpoint_url") or "").strip().rstrip("/")
         if provider_id == "local" and not endpoint_url:
             endpoint_url = settings.ollama_base_url
+        if provider_id == "local":
+            endpoint_url = validate_local_ai_endpoint(endpoint_url, settings)
         enabled = bool(payload.get("enabled", False))
         if definition.get("unavailable"):
             enabled = False
@@ -1098,7 +1140,7 @@ class AIModelService:
         if provider_id == "claude":
             return ClaudeProviderAdapter()
         if provider_id == "local":
-            return LocalProviderAdapter((endpoint_url or settings.ollama_base_url).rstrip("/"))
+            return LocalProviderAdapter(validate_local_ai_endpoint(endpoint_url or settings.ollama_base_url, settings))
         return UnavailableProviderAdapter()
 
     def resolve_connection(self, property_id: str) -> dict[str, Any]:
