@@ -40,8 +40,8 @@ Use this checklist before routing any public traffic to a production Concierge.A
 - [ ] Configure the ANTlabs signing secret and exact gateway source CIDRs. Keep the secret out of UI exports and logs.
 - [ ] Run a live signed assertion test to confirm the gateway signs the raw request body, timestamp, nonce, and property ID exactly as expected.
 - [ ] Verify a captured gateway assertion cannot be replayed. **Atomic nonce replay rejection is verified in repository tests; live SG5 behavior remains unverified.**
-- [ ] Bind authenticated guest sessions to an SG5 guest/device/session identity if that identity is available and trustworthy on every request.
-- [ ] Resolve GUEST-SESSION-01 before a production guest pilot: guest session IDs currently act as bearer credentials on same-property APIs when disclosed.
+- [ ] Validate whether the target SG5 can supply a stable, signed guest/device/session identifier on every request. The current Concierge session stores a verified gateway session identifier when the signed integration supplies one, but it does not infer ANTlabs authentication from the browser handoff.
+- [x] Resolve GUEST-SESSION-01 in application code: session IDs alone are rejected; guest token and context credentials are hashed, expire, revoke, rotate on resume, and are set in HttpOnly cookies. Real SG5 binding remains deployment-dependent.
 - [ ] Verify guest network ranges and admin network ranges do not overlap; keep the guest network isolated from management and database networks.
 
 ## Files and AI
@@ -62,10 +62,10 @@ Use this checklist before routing any public traffic to a production Concierge.A
 - [ ] Confirm application, Nginx, host, database, and backup logs do not record passwords, reset tokens, session tokens, provider keys, guest personal data, or raw authorization headers.
 - [ ] Configure monitoring and alerting for repeated admin login failures, rate limits, cross-property denials, failed gateway signatures, unusual upload volume, and provider endpoint failures.
 - [ ] Preserve the single API worker/instance requirement for the SQLite Compose profile. Use Redis/shared rate limits and a supported server database before increasing replicas.
-- [ ] Run `pip-audit`, `npm audit`, secret scanning, and an image scanner on every release. This audit found no Python/npm advisories; Gitleaks and Trivy/Grype were unavailable, and image scan remains open.
+- [ ] Run `pip-audit`, `npm audit`, secret scanning, and an image scanner on every release. CI defines these checks; the current local dependency audits were blocked by unavailable package/advisory network access, and image scanning still needs a Docker runner.
 - [ ] Build and run the exact production image in CI with Docker, then run Trivy or an equivalent image scanner before production deployment.
 - [ ] Pin or otherwise monitor base-image versions and rebuild promptly when the Python, Nginx, or OS image receives security updates.
 
 ## Go/no-go
 
-**Current result: NO-GO for public production exposure.** Close the confirmed guest-session replay finding, validate PDF processing limits, supply and verify production networking/TLS/CIDR values, test the real ANTlabs gateway contract, and complete Docker/image scans before opening `/admin` or guest traffic to the public Internet.
+**Current result: NO-GO for public production exposure.** Guest session ID replay is fixed in this checkout. Validate PDF processing limits, supply and verify production networking/TLS/CIDR values, test the real ANTlabs gateway contract, complete current dependency and Docker/image scans, and verify backup/restore before opening `/admin` or guest traffic to the public Internet.

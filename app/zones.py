@@ -338,7 +338,8 @@ class ZoneStore:
             if node_ids:
                 placeholders = ",".join("?" for _ in node_ids)
                 db.execute(
-                    f"DELETE FROM navigation_edges WHERE property_id=? AND (from_node_id IN ({placeholders}) OR to_node_id IN ({placeholders}))",
+                    # B608 rationale: only placeholder tokens are generated; node IDs are bound below.
+                    f"DELETE FROM navigation_edges WHERE property_id=? AND (from_node_id IN ({placeholders}) OR to_node_id IN ({placeholders}))",  # nosec B608
                     (property_id, *node_ids, *node_ids),
                 )
             db.execute("DELETE FROM navigation_nodes WHERE property_id=? AND zone_id=?", (property_id, zone_id))
@@ -457,6 +458,7 @@ class ZoneStore:
             raise ValueError("Unsupported map object type.")
         table, key = table_key
         with self._connect() as db:
+            # B608 rationale: table and key come from the fixed records mapping above.
             exists = db.execute(f"SELECT 1 FROM {table} WHERE {key}=? AND property_id=?", (object_id, property_id)).fetchone()  # nosec B608
             if not exists:
                 return False
@@ -465,6 +467,7 @@ class ZoneStore:
                     "DELETE FROM navigation_edges WHERE property_id=? AND (from_node_id=? OR to_node_id=?)",
                     (property_id, object_id, object_id),
                 )
+            # B608 rationale: table and key come from the fixed records mapping above.
             db.execute(f"DELETE FROM {table} WHERE {key}=? AND property_id=?", (object_id, property_id))  # nosec B608
         return True
 
@@ -563,9 +566,13 @@ class ZoneStore:
             buildings = [dict(row) for row in db.execute("SELECT * FROM buildings WHERE property_id=? ORDER BY name", (property_id,))]
             floors = [dict(row) for row in db.execute("SELECT * FROM floors WHERE property_id=? ORDER BY building_id, level", (property_id,))]
             maps = [self._map_row(row) for row in db.execute("SELECT * FROM floor_maps WHERE property_id=? ORDER BY created_at DESC,rowid DESC", (property_id,))]
+            # B608 rationale: suffix is a fixed visibility predicate selected only by the guest flag.
             zones = [self._public(row) for row in db.execute(f"SELECT * FROM zones WHERE property_id=?{suffix} ORDER BY name", (property_id,))]  # nosec B608
+            # B608 rationale: suffix is a fixed visibility predicate selected only by the guest flag.
             facilities = [self._public(row) for row in db.execute(f"SELECT * FROM facilities WHERE property_id=?{suffix} ORDER BY name", (property_id,))]  # nosec B608
+            # B608 rationale: suffix is a fixed visibility predicate selected only by the guest flag.
             nodes = [self._public(row) for row in db.execute(f"SELECT * FROM navigation_nodes WHERE property_id=?{suffix} ORDER BY label", (property_id,))]  # nosec B608
+            # B608 rationale: suffix is a fixed visibility predicate selected only by the guest flag.
             edges = [self._public(row) for row in db.execute(f"SELECT * FROM navigation_edges WHERE property_id=?{suffix}", (property_id,))]  # nosec B608
             aps = [] if guest else [dict(row) for row in db.execute("SELECT * FROM access_points WHERE property_id=? ORDER BY name", (property_id,))]
         return {"buildings": buildings, "floors": floors, "maps": maps, "zones": zones, "facilities": facilities, "access_points": aps, "navigation_nodes": nodes, "navigation_edges": edges}
@@ -575,9 +582,11 @@ class ZoneStore:
         labels: dict[str, str] = {}
         visibility = " AND guest_visible=1" if guest else ""
         with self._connect() as db:
+            # B608 rationale: visibility is a fixed guest predicate controlled by a boolean.
             for row in db.execute(f"SELECT node_id,label FROM navigation_nodes WHERE property_id=?{visibility}", (property_id,)):  # nosec B608
                 labels[row["node_id"]] = row["label"]
                 graph[row["node_id"]] = []
+            # B608 rationale: visibility is a fixed guest predicate controlled by a boolean.
             for row in db.execute(f"SELECT * FROM navigation_edges WHERE property_id=?{visibility}", (property_id,)):  # nosec B608
                 if row["from_node_id"] in graph and row["to_node_id"] in graph:
                     graph[row["from_node_id"]].append((row["to_node_id"], float(row["distance"])))
@@ -638,6 +647,7 @@ class ZoneStore:
         if key not in allowed_keys.get(table, set()):
             raise ValueError("Unsupported ownership lookup.")
         with self._connect() as db:
+            # B608 rationale: table and key are checked against the fixed allowed_keys mapping above.
             row = db.execute(f"SELECT 1 FROM {table} WHERE {key}=? AND property_id=?", (value, property_id)).fetchone()  # nosec B608
         if row is None:
             raise KeyError(f"{table[:-1].replace('_', ' ').title()} not found.")

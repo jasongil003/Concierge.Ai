@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import argparse
+import http.cookiejar
 import json
 import ipaddress
 import os
-import urllib.error
 import urllib.request
+import urllib.error
 
 
 BASE_URL = os.getenv("CONCIERGE_SMOKE_URL", "http://127.0.0.1:8080")
 PASSWORD = os.environ["ADMIN_BOOTSTRAP_PASSWORD"]
+COOKIE_JAR = http.cookiejar.CookieJar()
+HTTP_CLIENT = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(COOKIE_JAR))
 
 
 def request(path: str, method: str = "GET", payload=None, headers=None, *, raw: bool = False):
@@ -21,7 +24,7 @@ def request(path: str, method: str = "GET", payload=None, headers=None, *, raw: 
         request_headers["Content-Type"] = "application/json"
     req = urllib.request.Request(BASE_URL + path, data=body, headers=request_headers, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=15) as response:
+        with HTTP_CLIENT.open(req, timeout=15) as response:
             content = response.read()
             return (response, content) if raw else json.loads(content or b"{}")
     except urllib.error.HTTPError as exc:

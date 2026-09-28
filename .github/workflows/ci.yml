@@ -80,7 +80,8 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
 
   browser-tests:
-    runs-on: windows-latest
+    # Visual snapshots are checked in for macOS; keep CI on the same renderer platform.
+    runs-on: macos-latest
     timeout-minutes: 20
 
     steps:
@@ -167,6 +168,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y postgresql-client
           pg_dump --version
+      - name: Generate integration-only application credentials
+        run: |
+          echo "ADMIN_BOOTSTRAP_PASSWORD=$(openssl rand -hex 16)A!" >> "$GITHUB_ENV"
+          echo "CREDENTIAL_ENCRYPTION_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
       - name: Apply fresh schema and confirm repeatable migration
         run: |
           alembic upgrade head
@@ -226,10 +231,33 @@ jobs:
         run: |
           echo "ADMIN_BOOTSTRAP_PASSWORD=$(openssl rand -hex 16)A!" >> "$GITHUB_ENV"
           echo "CREDENTIAL_ENCRYPTION_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          echo "METRICS_TOKEN=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
       - name: Build production image
         run: docker build -t concierge-ai:ci .
+      - name: Execute production environment validation in the image
+        run: |
+          docker run --rm --entrypoint python \
+            -e APP_ENVIRONMENT=production \
+            -e PROPERTY_ID=hotel-a \
+            -e DB_PATH=/state/concierge.db \
+            -e UPLOAD_ROOT=/state/uploads \
+            -e ADMIN_BOOTSTRAP_PASSWORD \
+            -e CREDENTIAL_ENCRYPTION_SECRET \
+            -e METRICS_TOKEN \
+            -e ADMIN_COOKIE_SECURE=true \
+            -e ALLOW_BODY_PROPERTY_SELECTION=false \
+            -e ALLOW_DEMO_SETTINGS=false \
+            -e APP_DEBUG=false \
+            -e CANONICAL_HOSTS=hotel-a.test \
+            -e PUBLIC_BASE_URL=https://hotel-a.test \
+            -e ADMIN_ALLOWED_CIDRS=127.0.0.1/32 \
+            -e FORWARDED_ALLOW_IPS=127.0.0.1 \
+            -e ANTLABS_MODE=browser_handoff \
+            -e ANTLABS_AUTH_URL=https://gateway.example.test/login/main.ant?c=proc \
+            -e ANTLABS_AUTH_METHOD=POST \
+            concierge-ai:ci -c 'from app.config import settings; assert settings.app_environment == "production"'
       - name: Scan production image for known vulnerabilities
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: concierge-ai:ci
           format: table
@@ -253,10 +281,12 @@ jobs:
       - name: Create persistent volume and start container
         run: |
           docker volume create concierge-ci-state
-          docker run -d --name concierge-ci -p 8080:8080 --health-cmd="python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=4)\"" --health-interval=5s --health-retries=12 --health-start-period=5s -e APP_ENVIRONMENT=development -e ALLOW_DEMO_SETTINGS=true -e PROPERTY_ID=hotel-a -e DB_PATH=/state/concierge.db -e UPLOAD_ROOT=/state/uploads -e ADMIN_BOOTSTRAP_PASSWORD -e CREDENTIAL_ENCRYPTION_SECRET -e ADMIN_COOKIE_SECURE=true -e ALLOW_BODY_PROPERTY_SELECTION=false -e ANTLABS_MODE=mock -e ENABLE_BACKGROUND_WORKERS=false -v concierge-ci-state:/state concierge-ai:ci
+          docker run -d --name concierge-ci -p 8080:8080 --health-cmd="python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=4)\"" --health-interval=5s --health-retries=12 --health-start-period=5s -e APP_ENVIRONMENT=development -e ALLOW_DEMO_SETTINGS=true -e PROPERTY_ID=hotel-a -e DB_PATH=/state/concierge.db -e UPLOAD_ROOT=/state/uploads -e ADMIN_BOOTSTRAP_PASSWORD -e CREDENTIAL_ENCRYPTION_SECRET -e ADMIN_COOKIE_SECURE=false -e ALLOW_BODY_PROPERTY_SELECTION=false -e ANTLABS_MODE=mock -e ENABLE_BACKGROUND_WORKERS=false -v concierge-ci-state:/state concierge-ai:ci
       - name: Verify non-root, healthy runtime, and write workflows
         run: |
-          test "$(docker exec concierge-ci id -u)" != "0"
+          app_uid="$(docker exec concierge-ci id -u)"
+          test "$app_uid" != "0"
+          docker exec --user "$app_uid" concierge-ci sh -c 'test -w /state && test ! -w /app/app/main.py'
           for attempt in $(seq 1 18); do
             test "$(docker inspect --format '{{.State.Health.Status}}' concierge-ci)" = healthy && break
             sleep 5
@@ -266,7 +296,7 @@ jobs:
       - name: Recreate container and verify volume persistence
         run: |
           docker rm -f concierge-ci
-          docker run -d --name concierge-ci -p 8080:8080 --health-cmd="python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=4)\"" --health-interval=5s --health-retries=12 --health-start-period=5s -e APP_ENVIRONMENT=development -e ALLOW_DEMO_SETTINGS=true -e PROPERTY_ID=hotel-a -e DB_PATH=/state/concierge.db -e UPLOAD_ROOT=/state/uploads -e ADMIN_BOOTSTRAP_PASSWORD -e CREDENTIAL_ENCRYPTION_SECRET -e ADMIN_COOKIE_SECURE=true -e ALLOW_BODY_PROPERTY_SELECTION=false -e ANTLABS_MODE=mock -e ENABLE_BACKGROUND_WORKERS=false -v concierge-ci-state:/state concierge-ai:ci
+          docker run -d --name concierge-ci -p 8080:8080 --health-cmd="python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=4)\"" --health-interval=5s --health-retries=12 --health-start-period=5s -e APP_ENVIRONMENT=development -e ALLOW_DEMO_SETTINGS=true -e PROPERTY_ID=hotel-a -e DB_PATH=/state/concierge.db -e UPLOAD_ROOT=/state/uploads -e ADMIN_BOOTSTRAP_PASSWORD -e CREDENTIAL_ENCRYPTION_SECRET -e ADMIN_COOKIE_SECURE=false -e ALLOW_BODY_PROPERTY_SELECTION=false -e ANTLABS_MODE=mock -e ENABLE_BACKGROUND_WORKERS=false -v concierge-ci-state:/state concierge-ai:ci
           for attempt in $(seq 1 18); do
             test "$(docker inspect --format '{{.State.Health.Status}}' concierge-ci)" = healthy && break
             sleep 5

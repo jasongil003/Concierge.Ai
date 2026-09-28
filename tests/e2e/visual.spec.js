@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { randomUUID } from "node:crypto";
 import { ensureTestProperty } from "./support.js";
 
 async function loginAdmin(page) {
@@ -20,9 +21,12 @@ test.beforeEach(async ({ page }) => {
     });
     expect(removed.ok()).toBeTruthy();
   }
-  const created = await page.request.put("/api/admin/properties/e2e-property", {
+  // Hospitality tables are property-scoped and intentionally outlive property profiles.
+  // Use a fresh ID so prior E2E data cannot appear in a visual snapshot.
+  const propertyId = `visual-${randomUUID()}`;
+  const created = await page.request.put(`/api/admin/properties/${propertyId}`, {
     headers: { "X-CSRF-Token": csrf },
-    data: { property_id: "e2e-property", hotel_name: "E2E Property", timezone: "Asia/Manila" },
+    data: { property_id: propertyId, hotel_name: "E2E Property", timezone: "Asia/Manila" },
   });
   expect(created.ok()).toBeTruthy();
   await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "light" });
@@ -34,7 +38,11 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("guest home visual baseline", async ({ page }) => {
+  const homeLoaded = page.waitForResponse((response) =>
+    response.url().includes("/api/guest/home") && response.status() === 200,
+  );
   await page.goto("/");
+  await homeLoaded;
   await expect(page.locator("#suggestion-list button")).toHaveCount(0);
 
   await expect(page).toHaveScreenshot("guest-home.png", {

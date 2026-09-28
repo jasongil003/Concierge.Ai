@@ -1,5 +1,6 @@
 from dataclasses import replace
 from pathlib import Path
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -276,6 +277,8 @@ def test_hotel_a_host_cannot_select_hotel_b():
 def test_hotel_a_guest_cannot_access_hotel_b_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     property_store, session_store = _tenant_stores(tmp_path)
     session = session_store.create("hotel-b", "hotel-b-guest")
+    token, context = session_store.issue_guest_credentials(session.session_id, ttl_seconds=300)
+    token_name, context_name = main_module._guest_cookie_names()
     monkeypatch.setattr(main_module, "properties", property_store)
     monkeypatch.setattr(main_module, "store", session_store)
     monkeypatch.setattr(
@@ -285,27 +288,152 @@ def test_hotel_a_guest_cannot_access_hotel_b_session(tmp_path: Path, monkeypatch
     )
 
     with TestClient(app, base_url="http://a.example.test") as client:
-        response = client.get(f"/api/guest/personalization?session_id={session.session_id}")
+        response = client.get(
+            f"/api/guest/personalization?session_id={session.session_id}",
+            headers={"Cookie": f"{token_name}={token}; {context_name}={context}"},
+        )
 
     assert response.status_code == 403
     assert response.json()["policy"] == "property_isolation"
 
 
-def test_stolen_guest_session_id_replays_within_its_property_network(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def _guest_replay_stores(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, two_properties: bool = False):
     property_store = PropertyStore(tmp_path / "guest-replay.db")
     property_store.upsert(PropertyRecord(property_id="hotel-a", hotel_name="Hotel A", domain="a.example.test"))
+    if two_properties:
+        property_store.upsert(PropertyRecord(property_id="hotel-b", hotel_name="Hotel B", domain="b.example.test"))
     session_store = SessionStore(tmp_path / "guest-replay.db")
-    session = session_store.create("hotel-a", "original-browser-client")
     monkeypatch.setattr(main_module, "properties", property_store)
     monkeypatch.setattr(main_module, "store", session_store)
     monkeypatch.setattr(main_module, "settings", replace(main_module.settings, allow_body_property_selection=False))
+    return session_store
 
-    # Guest APIs treat the high-entropy session ID as a bearer credential; they do not
-    # require the client_id that resume_session checks.
+
+def _start_guest(client: TestClient, property_id: str = "hotel-a") -> str:
+    response = client.post("/api/session/start", json={"client_id": "browser-client", "property_id": property_id})
+    assert response.status_code == 200, response.text
+    return response.json()["session_id"]
+
+
+def test_stolen_guest_session_id_alone_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _guest_replay_stores(tmp_path, monkeypatch)
+    with TestClient(app, base_url="http://a.example.test") as original:
+        session_id = _start_guest(original)
+        assert original.get("/api/guest/personalization").status_code == 200
+
+        with TestClient(app, base_url="http://a.example.test") as replay:
+            response = replay.get(f"/api/guest/personalization?session_id={session_id}")
+
+    assert response.status_code == 401
+
+
+def test_legacy_guest_session_without_credentials_fails_closed_in_development(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    session_store = _guest_replay_stores(tmp_path, monkeypatch)
+    legacy_session = session_store.create("hotel-a", "legacy-browser")
+    with TestClient(app, base_url="http://a.example.test") as replay:
+        response = replay.get(f"/api/guest/personalization?session_id={legacy_session.session_id}")
+    assert response.status_code == 401
+
+
+def test_guest_credentials_reject_cross_property_replay(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    session_store = _guest_replay_stores(tmp_path, monkeypatch, two_properties=True)
+    with TestClient(app, base_url="http://a.example.test") as original:
+        session_id = _start_guest(original)
+        token_name, context_name = main_module._guest_cookie_names()
+        credentials = (
+            f"{token_name}={original.cookies.get(token_name)}; "
+            f"{context_name}={original.cookies.get(context_name)}"
+        )
+        # The original browser can still access its session.
+        assert original.get("/api/guest/personalization").status_code == 200
+
+        with TestClient(app, base_url="http://b.example.test") as other_property:
+            _start_guest(other_property, "hotel-b")
+            response = other_property.get(
+                f"/api/guest/personalization?session_id={session_id}",
+                headers={"Cookie": credentials},
+            )
+
+    assert response.status_code == 403
+    assert response.json()["policy"] == "property_isolation"
+    assert session_store.peek(session_id).property_id == "hotel-a"
+
+
+def test_expired_guest_credential_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    session_store = _guest_replay_stores(tmp_path, monkeypatch)
     with TestClient(app, base_url="http://a.example.test") as client:
-        response = client.get(f"/api/guest/personalization?session_id={session.session_id}")
+        session_id = _start_guest(client)
+        with session_store._connect() as db:
+            db.execute(
+                "UPDATE sessions SET guest_token_expires_at=? WHERE session_id=?",
+                (int(time.time()) - 1, session_id),
+            )
+        response = client.get("/api/guest/personalization")
 
-    assert response.status_code == 200
+    assert response.status_code == 401
+
+
+def test_revoked_guest_credential_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    session_store = _guest_replay_stores(tmp_path, monkeypatch)
+    with TestClient(app, base_url="http://a.example.test") as client:
+        session_id = _start_guest(client)
+        session_store.revoke_guest_credentials(session_id)
+        response = client.get("/api/guest/personalization")
+
+    assert response.status_code == 401
+
+
+def test_guest_tokens_are_opaque_hashed_and_not_logged(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog):
+    session_store = _guest_replay_stores(tmp_path, monkeypatch)
+    with TestClient(app, base_url="http://a.example.test") as client:
+        response = client.post("/api/session/start", json={"client_id": "browser-client", "property_id": "hotel-a"})
+        assert response.status_code == 200, response.text
+        session_id = response.json()["session_id"]
+        token_name, context_name = main_module._guest_cookie_names()
+        token = client.cookies.get(token_name)
+        context = client.cookies.get(context_name)
+        assert token and context
+        assert len(token) >= 40 and len(context) >= 40
+        assert token not in response.text and context not in response.text
+        record = session_store.peek(session_id)
+        assert record.guest_token_hash != token
+        assert record.guest_context_hash != context
+        assert client.get("/api/guest/personalization").status_code == 200
+
+    assert token not in caplog.text
+    assert context not in caplog.text
+
+
+def test_guest_session_credentials_rotate_on_resume(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _guest_replay_stores(tmp_path, monkeypatch)
+    with TestClient(app, base_url="http://a.example.test") as client:
+        session_id = _start_guest(client)
+        token_name, context_name = main_module._guest_cookie_names()
+        old_credentials = (client.cookies.get(token_name), client.cookies.get(context_name))
+        resumed = client.post(
+            "/api/session/resume",
+            json={"client_id": "browser-client", "session_id": session_id},
+        )
+        assert resumed.status_code == 200, resumed.text
+        new_credentials = (client.cookies.get(token_name), client.cookies.get(context_name))
+        assert new_credentials != old_credentials
+        assert client.get("/api/guest/personalization").status_code == 200
+
+
+def test_production_guest_cookies_are_secure_httponly_and_same_site(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        main_module,
+        "settings",
+        replace(main_module.settings, app_environment="production", admin_cookie_secure=True),
+    )
+    response = main_module.Response()
+    main_module._set_guest_cookies(response, "random-token", "random-context", 300)
+
+    cookies = response.headers.getlist("set-cookie")
+    assert len(cookies) == 2
+    assert all("Secure" in cookie and "HttpOnly" in cookie and "SameSite=strict" in cookie for cookie in cookies)
+    assert all("Path=/" in cookie and "Max-Age=300" in cookie for cookie in cookies)
+    assert any(cookie.startswith("__Host-concierge_guest_session=") for cookie in cookies)
 
 
 def test_hotel_a_admin_cannot_access_hotel_b_without_permission(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

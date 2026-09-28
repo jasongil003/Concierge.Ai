@@ -32,6 +32,9 @@ def test_restaurant_manager_and_staff_are_limited_to_assigned_restaurants(tmp_pa
     sessions = SessionStore(database)
     assigned_session = sessions.create("hotel-a", "guest-assigned")
     hidden_session = sessions.create("hotel-a", "guest-hidden")
+    guest_token, guest_context = sessions.issue_guest_credentials(assigned_session.session_id, ttl_seconds=300)
+    guest_token_name, guest_context_name = main_module._guest_cookie_names()
+    guest_headers = {"Cookie": f"{guest_token_name}={guest_token}; {guest_context_name}={guest_context}"}
     sessions.record_message(assigned_session.session_id, "hotel-a", "guest", "PRIVATE_CONCIERGE_QUESTION")
     sessions.record_message(assigned_session.session_id, "hotel-a", "assistant", "PRIVATE_CONCIERGE_ANSWER")
     sessions.escalate_conversation(assigned_session.session_id, "hotel-a", grill["restaurant_id"], "Menu question")
@@ -84,9 +87,16 @@ def test_restaurant_manager_and_staff_are_limited_to_assigned_restaurants(tmp_pa
         assert manager_client.get("/api/admin/properties/other-hotel").status_code == 403
 
         guest_escalation_session = sessions.create("hotel-a", "guest-escalation")
+        sessions.issue_guest_credentials(
+            guest_escalation_session.session_id,
+            ttl_seconds=300,
+            existing_token=guest_token,
+            existing_context=guest_context,
+        )
         guest_escalation = manager_client.post(
             f"/api/guest/conversations/{guest_escalation_session.session_id}/escalate",
             json={"restaurant_id": grill["restaurant_id"], "reason": "Please confirm an allergy question."},
+            headers=guest_headers,
         )
         assert guest_escalation.status_code == 200, guest_escalation.text
         assert guest_escalation.json()["status"] == "waiting_for_staff"
@@ -134,10 +144,17 @@ def test_restaurant_manager_and_staff_are_limited_to_assigned_restaurants(tmp_pa
         staff_inbox = staff_client.get("/api/admin/properties/hotel-a/conversations").json()["conversations"]
         staff_record = next(item for item in staff_inbox if item["session_id"] == assigned_session.session_id)
         assert [message["content"] for message in staff_record["messages"]] == ["I can help with that."]
-        guest_messages = staff_client.get(f"/api/guest/conversations/{assigned_session.session_id}/staff-messages")
+        guest_messages = staff_client.get(
+            f"/api/guest/conversations/{assigned_session.session_id}/staff-messages",
+            headers=guest_headers,
+        )
         assert guest_messages.status_code == 200, guest_messages.text
         assert guest_messages.json()["messages"][0]["content"] == "I can help with that."
-        paused_chat = staff_client.post("/api/chat", json={"session_id": assigned_session.session_id, "message": "Can I get another detail?", "mode": "fast"})
+        paused_chat = staff_client.post(
+            "/api/chat",
+            json={"session_id": assigned_session.session_id, "message": "Can I get another detail?", "mode": "fast"},
+            headers=guest_headers,
+        )
         assert paused_chat.status_code == 200, paused_chat.text
         assert paused_chat.json()["answer"] == ""
         assert paused_chat.json()["ai_paused"] is True

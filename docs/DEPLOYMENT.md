@@ -17,7 +17,7 @@ A domain and SSL certificate are not required for the first LAN test.
 ```bash
 git clone https://github.com/jasongil003/Concierge.Ai.git
 cd Concierge.Ai
-git checkout feature/onprem-mvp
+git checkout main
 
 python3 -m venv .venv
 source .venv/bin/activate
