@@ -228,4 +228,4 @@ The runtime is intentionally abstracted behind `app/llm.py` so production can la
 
 ## Scale
 
-Do not infer capacity from total connected guests alone. Measure active AI generations, prompt/context and output lengths, model size and quantization, and the share of requests handled without an LLM. Use the controlled 10, 50, 100, 250, 500, and 1,000-user stages in [LOAD_TESTING.md](LOAD_TESTING.md). No capacity result is claimed until the stages run against representative hardware, database, Redis, and network conditions.
+Do not infer capacity from total connected guests alone. Measure active AI generations, prompt/context and output lengths, model size and quantization, and the share of requests handled without an LLM. [LOAD_TESTING.md](LOAD_TESTING.md) defines progressive 10–1,000-user stages, 5,000/10,000/30,000-user high-scale profiles, a 100-to-5,000-user spike, and a four-hour 5,000-user soak. These are test definitions, not verified capacity; no capacity result is claimed until the matching profile runs against representative hardware, database, Redis, AI, and network conditions.

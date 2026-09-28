@@ -3,7 +3,7 @@ import sqlite3
 import pytest
 
 from app import metrics
-from app.database import _CompatRow, _qmark_to_named, _split_statements, _translate_sql, connect_database
+from app.database import _CompatRow, _qmark_to_named, _split_statements, _translate_sql, connect_database, table_columns, table_exists
 
 
 def test_qmark_translation_preserves_question_marks_inside_sql_strings():
@@ -84,3 +84,13 @@ def test_sqlite_execution_errors_are_counted_for_loadtest_metrics(tmp_path):
         "concierge_database_errors_total", {"operation": "sqlite_query"}
     ) or 0
     assert after == before + 1
+
+
+def test_schema_inspection_helpers_detect_sqlite_tables_and_columns(tmp_path):
+    with connect_database(tmp_path / "schema-inspection.db") as db:
+        db.execute("CREATE TABLE schema_fixture (fixture_id TEXT PRIMARY KEY, value TEXT)")
+        assert table_exists(db, "schema_fixture")
+        assert not table_exists(db, "missing_fixture")
+        assert table_columns(db, "schema_fixture") == {"fixture_id", "value"}
+        with pytest.raises(ValueError, match="table name"):
+            table_exists(db, "schema_fixture; DROP TABLE sessions")

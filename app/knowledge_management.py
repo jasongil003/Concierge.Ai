@@ -17,7 +17,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from .database import connect_database
+from .database import connect_database, enable_foreign_keys, table_columns
 
 from .config import settings
 
@@ -270,12 +270,12 @@ class KnowledgeStore:
               item_b TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open', note TEXT NOT NULL DEFAULT '',
               resolved_by TEXT, resolved_at INTEGER);
             """)
-            columns = {row[1] for row in db.execute("PRAGMA table_info(km_items)")}
+            columns = table_columns(db, "km_items")
             if "structured_json" not in columns:
                 db.execute("ALTER TABLE km_items ADD COLUMN structured_json TEXT NOT NULL DEFAULT '{}' ")
             if "risk_flags_json" not in columns:
                 db.execute("ALTER TABLE km_items ADD COLUMN risk_flags_json TEXT NOT NULL DEFAULT '[]'")
-            source_columns = {row[1] for row in db.execute("PRAGMA table_info(km_sources)")}
+            source_columns = table_columns(db, "km_sources")
             for column, definition in (
                 ("retry_count", "INTEGER NOT NULL DEFAULT 0"),
                 ("next_retry_at", "INTEGER"),
@@ -287,7 +287,7 @@ class KnowledgeStore:
 
     def _db(self):
         db = connect_database(self.path, timeout=30)
-        db.execute("PRAGMA foreign_keys=ON")
+        enable_foreign_keys(db)
         return db
 
     def _file_path(self, property_id: str, source_id: str) -> Path:

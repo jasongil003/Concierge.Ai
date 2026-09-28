@@ -316,9 +316,21 @@ def restore_backup(
         if postgres:
             _assert_empty_postgres_database(database_url)
             switches, environment = _postgres_environment(database_url)
+            database_name = make_url(database_url).database
+            if not database_name:
+                raise RuntimeError("DATABASE_URL must include a PostgreSQL database name for restore.")
             try:
                 result = subprocess.run(
-                    ["pg_restore", "--exit-on-error", "--single-transaction", "--no-owner", "--no-acl", str(staged_db)] + switches,
+                    [
+                        "pg_restore",
+                        "--exit-on-error",
+                        "--single-transaction",
+                        "--no-owner",
+                        "--no-acl",
+                        f"--dbname={unquote(database_name)}",
+                        str(staged_db),
+                    ]
+                    + switches,
                     check=False,
                     capture_output=True,
                     text=True,

@@ -292,7 +292,8 @@ jobs:
             sleep 5
           done
           test "$(docker inspect --format '{{.State.Health.Status}}' concierge-ci)" = healthy
-          python scripts/docker_smoke.py write
+          docker cp scripts/docker_smoke.py concierge-ci:/tmp/docker_smoke.py
+          docker exec --user "$app_uid" -e CONCIERGE_SMOKE_URL=http://127.0.0.1:8080 -e ADMIN_BOOTSTRAP_PASSWORD="$ADMIN_BOOTSTRAP_PASSWORD" concierge-ci python /tmp/docker_smoke.py write
       - name: Recreate container and verify volume persistence
         run: |
           docker rm -f concierge-ci
@@ -301,7 +302,9 @@ jobs:
             test "$(docker inspect --format '{{.State.Health.Status}}' concierge-ci)" = healthy && break
             sleep 5
           done
-          python scripts/docker_smoke.py verify
+          docker cp scripts/docker_smoke.py concierge-ci:/tmp/docker_smoke.py
+          app_uid="$(docker exec concierge-ci id -u)"
+          docker exec --user "$app_uid" -e CONCIERGE_SMOKE_URL=http://127.0.0.1:8080 -e ADMIN_BOOTSTRAP_PASSWORD="$ADMIN_BOOTSTRAP_PASSWORD" concierge-ci python /tmp/docker_smoke.py verify
       - name: Container logs on failure
         if: failure()
         run: docker logs concierge-ci

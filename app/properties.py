@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .database import connect_database
+from .database import connect_database, table_columns
 
 from .guardrails import public_guardrails
 
@@ -691,7 +691,7 @@ class PropertyStore:
         }
         if allowed_definitions.get(name) != definition:
             raise ValueError("Unsupported property schema column migration.")
-        columns = {row["name"] for row in db.execute("PRAGMA table_info(properties)").fetchall()}
+        columns = table_columns(db, "properties")
         if name not in columns:
             # B608 rationale: name and definition are checked against the fixed map immediately above.
             db.execute(f"ALTER TABLE properties ADD COLUMN {name} {definition}")  # nosec B608

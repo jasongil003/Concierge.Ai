@@ -5,7 +5,7 @@ import sys
 import csv
 import json
 
-from loadtest.run_stages import _ai_wait_percentiles, _api_resource_sample, _counter_delta, _locust_summary
+from loadtest.run_stages import _ai_wait_percentiles, _api_resource_sample, _counter_delta, _locust_summary, _selected_profiles
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -59,8 +59,50 @@ def test_controlled_load_profile_has_requested_stages_and_metrics():
         "success_rate_percent", "request_throughput_per_second", "http_latency_p50_ms",
         "http_latency_p95_ms", "http_latency_p99_ms", "http_errors", "database_errors",
         "cpu_percent_mean_max", "memory_percent_mean_max", "ai_provider_queue_wait_p50_p95_ms",
-        "rate_limit_events",
+        "api_process_rss_mb_mean_max", "locust_failures", "rate_limit_events",
     } == set(profile["collected_metrics"])
+
+
+def test_high_scale_spike_and_soak_profiles_are_defined_without_capacity_claims():
+    profile = json.loads((ROOT / "loadtest" / "profiles.json").read_text(encoding="utf-8"))
+    assert [stage["users"] for stage in profile["high_scale_profiles"]] == [5000, 10000, 30000]
+    assert [stage["name"] for stage in _selected_profiles(profile, "high-scale")] == [
+        "high-scale-5000", "high-scale-10000", "high-scale-30000"
+    ]
+    assert profile["spike_profile"]["warmup_users"] == 100
+    assert profile["spike_profile"]["users"] == 5000
+    assert profile["soak_profile"]["users"] == 5000
+    assert profile["soak_profile"]["duration"] == "4h"
+    assert any("not capacity claims" in item for item in profile["notes"])
+
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "loadtest" / "run_stages.py"), "--help"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert all(name in result.stdout for name in ("controlled", "high-scale", "spike", "soak"))
+
+    environment = os.environ.copy()
+    environment["LOADTEST_SHAPE"] = "spike-100-to-5000"
+    shape_check = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from loadtest.locustfile import SelectedCapacityShape; "
+            "shape=SelectedCapacityShape(); elapsed=[0]; shape.get_run_time=lambda: elapsed[0]; "
+            "assert shape.tick()==(100,10); elapsed[0]=60; assert shape.tick()==(5000,500); "
+            "elapsed[0]=360; assert shape.tick() is None",
+        ],
+        cwd=ROOT,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert shape_check.returncode == 0, shape_check.stderr
 
 
 def test_loadtest_metric_helpers_compute_counter_deltas_and_wait_buckets():

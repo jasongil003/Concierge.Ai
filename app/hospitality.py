@@ -5,7 +5,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .database import connect_database
+from .database import connect_database, enable_foreign_keys, table_columns
 from urllib.parse import urlsplit
 
 
@@ -42,7 +42,7 @@ class HospitalityStore:
 
     def _connect(self) -> sqlite3.Connection:
         connection = connect_database(self.path)
-        connection.execute("PRAGMA foreign_keys = ON")
+        enable_foreign_keys(connection)
         return connection
 
     def _init_db(self) -> None:
@@ -382,7 +382,7 @@ class HospitalityStore:
             raise ValueError("Unsupported schema column migration.")
         # Identifiers and DDL are selected from the fixed migration map above.
         # B608 rationale: table is selected from the fixed migration map above.
-        columns = {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}  # nosec B608
+        columns = table_columns(db, table)
         if name not in columns:
             # B608 rationale: identifiers and types are selected from the fixed migration map above.
             db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")  # nosec B608

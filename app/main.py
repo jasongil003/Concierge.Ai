@@ -464,15 +464,21 @@ def _enforce_guest_network(request: Request, property_record: PropertyRecord, ac
     return decision
 
 
-def _guest_cookie_names() -> tuple[str, str]:
-    if settings.app_environment in SECURE_ENVIRONMENTS:
-        return "__Host-concierge_guest_session", "__Host-concierge_guest_context"
-    return GUEST_SESSION_COOKIE, GUEST_CONTEXT_COOKIE
+def _guest_cookie_names(session_id: str | None = None) -> tuple[str, str]:
+    if session_id is None:
+        # Read-only compatibility names for credentials issued before the
+        # per-session cookie migration.
+        if settings.app_environment in SECURE_ENVIRONMENTS:
+            return "__Host-concierge_guest_session", "__Host-concierge_guest_context"
+        return GUEST_SESSION_COOKIE, GUEST_CONTEXT_COOKIE
+    selector = hashlib.sha256(str(session_id).encode("utf-8")).hexdigest()[:24]
+    prefix = "__Host-concierge_guest_" if settings.app_environment in SECURE_ENVIRONMENTS else "concierge_guest_"
+    return f"{prefix}{selector}_session", f"{prefix}{selector}_context"
 
 
-def _set_guest_cookies(response: Response, token: str, context: str, ttl_seconds: int) -> None:
+def _set_guest_cookies(response: Response, session_id: str, token: str, context: str, ttl_seconds: int) -> None:
     secure = settings.app_environment in SECURE_ENVIRONMENTS or settings.admin_cookie_secure
-    token_cookie, context_cookie = _guest_cookie_names()
+    token_cookie, context_cookie = _guest_cookie_names(session_id)
     options = {
         "max_age": max(60, int(ttl_seconds)),
         "httponly": True,
@@ -485,11 +491,57 @@ def _set_guest_cookies(response: Response, token: str, context: str, ttl_seconds
     response.headers["Cache-Control"] = "no-store"
 
 
+def _clear_legacy_guest_cookies(response: Response) -> None:
+    secure = settings.app_environment in SECURE_ENVIRONMENTS or settings.admin_cookie_secure
+    for cookie_name in _guest_cookie_names():
+        response.delete_cookie(cookie_name, path="/", httponly=True, secure=secure, samesite="strict")
+
+
+def _refresh_guest_cookie_response(request: Request, response: Response) -> Response:
+    candidate = getattr(request.state, "guest_cookie_refresh", None)
+    if not candidate or response.status_code >= 400:
+        return response
+    session_id, token, context, ttl_seconds, legacy = candidate
+    if legacy:
+        credentials = store.rotate_guest_credentials(
+            session_id, token, context, ttl_seconds=ttl_seconds
+        )
+        if credentials is None:
+            return response
+        _set_guest_cookies(response, session_id, *credentials, ttl_seconds)
+        _clear_legacy_guest_cookies(response)
+        return response
+    threshold = max(30, min(300, ttl_seconds // 3))
+    if store.extend_guest_credentials_if_needed(
+        session_id,
+        token,
+        context,
+        ttl_seconds=ttl_seconds,
+        refresh_threshold_seconds=threshold,
+    ):
+        _set_guest_cookies(response, session_id, token, context, ttl_seconds)
+    return response
+
+
 def _guest_session(request: Request, session_id: str | None, action_level: int = 1):
-    token_cookie, context_cookie = _guest_cookie_names()
-    token = request.cookies.get(token_cookie)
-    context = request.cookies.get(context_cookie)
-    resolved_session_id = session_id or store.find_by_guest_credentials(token, context)
+    selector = request.headers.get("X-Concierge-Session", "").strip()
+    if session_id and selector and not hmac.compare_digest(session_id, selector):
+        resolved_session_id = None
+    else:
+        resolved_session_id = session_id or selector or None
+    token_cookie, context_cookie = _guest_cookie_names(resolved_session_id) if resolved_session_id else ("", "")
+    token = request.cookies.get(token_cookie) if token_cookie else None
+    context = request.cookies.get(context_cookie) if context_cookie else None
+    legacy = False
+    # Upgrade uniquely owned pre-0004 credentials after validating them against
+    # this specific session. Ambiguous legacy pairs have been revoked by 0004.
+    if resolved_session_id and (not token or not context):
+        legacy_token_name, legacy_context_name = _guest_cookie_names()
+        legacy_token = request.cookies.get(legacy_token_name)
+        legacy_context = request.cookies.get(legacy_context_name)
+        if store.verify_guest_credentials(resolved_session_id, legacy_token, legacy_context):
+            token, context = legacy_token, legacy_context
+            legacy = True
     session = store.peek(resolved_session_id) if resolved_session_id else None
     if session is None:
         decision = GuardrailDecision(False, "Concierge session expired.", "session_validation", None, action_level, False, False, _request_id(request))
@@ -515,6 +567,13 @@ def _guest_session(request: Request, session_id: str | None, action_level: int =
         raise
     if session.network_status != "active":
         store.mark_network_status(session.session_id, "active")
+    request.state.guest_cookie_refresh = (
+        session.session_id,
+        token,
+        context,
+        int(policy_config["guest_session_timeout"]) * 60,
+        legacy,
+    )
     refreshed = store.get(session.session_id)
     if refreshed is None or refreshed.property_id != property_record.property_id:
         decision = GuardrailDecision(False, "Concierge session expired.", "session_validation", property_record.property_id, action_level, False, False, _request_id(request))
@@ -3208,7 +3267,8 @@ async def enforce_guest_origin(request: Request, call_next):
             security_audit.record(_request_id(request), None, "guest_origin_blocked", "denied", request.client.host if request.client else "", metadata={"path": path})
             response = JSONResponse({"detail": "Cross-origin guest mutation denied."}, status_code=403)
             return _apply_security_headers(request, response)
-    return await call_next(request)
+    response = await call_next(request)
+    return _refresh_guest_cookie_response(request, response)
 
 
 def _source_ip_allowed(source_ip: str, allowed_cidrs: tuple[str, ...] | list[str]) -> bool:
@@ -5321,14 +5381,10 @@ async def start_session(payload: StartSessionRequest, request: Request, response
     if policy["antlabs_gateway_enabled"] and gateway_context.get("guest_session_id"):
         # This value is stored only after GatewayGuard accepted the signed request.
         store.bind_antlabs_session(session.session_id, str(gateway_context["guest_session_id"]))
-    token_cookie, context_cookie = _guest_cookie_names()
-    token, context = store.issue_guest_credentials(
-        session.session_id,
-        ttl_seconds=int(policy["guest_session_timeout"]) * 60,
-        existing_token=request.cookies.get(token_cookie),
-        existing_context=request.cookies.get(context_cookie),
-    )
-    _set_guest_cookies(response, token, context, int(policy["guest_session_timeout"]) * 60)
+    ttl_seconds = int(policy["guest_session_timeout"]) * 60
+    token, context = store.issue_guest_credentials(session.session_id, ttl_seconds=ttl_seconds)
+    _set_guest_cookies(response, session.session_id, token, context, ttl_seconds)
+    _clear_legacy_guest_cookies(response)
     await _dispatch_webhooks(
         property_record.property_id,
         "guest.session.started",
@@ -5349,19 +5405,17 @@ async def resume_session(payload: ResumeSessionRequest, request: Request, respon
         raise HTTPException(status_code=429, detail="Too many resume attempts. Please wait a moment.")
     session, property_record = _guest_session(request, payload.session_id)
     policy = normalize_guardrails(property_record.guardrails)
-    token_cookie, context_cookie = _guest_cookie_names()
+    _, current_token, current_context, _, _ = request.state.guest_cookie_refresh
     credentials = store.rotate_guest_credentials(
         session.session_id,
-        request.cookies.get(token_cookie, ""),
-        request.cookies.get(context_cookie, ""),
+        current_token or "",
+        current_context or "",
         ttl_seconds=int(policy["guest_session_timeout"]) * 60,
     )
     if credentials is None:
-        credentials = store.issue_guest_credentials(
-            session.session_id,
-            ttl_seconds=int(policy["guest_session_timeout"]) * 60,
-        )
-    _set_guest_cookies(response, *credentials, int(policy["guest_session_timeout"]) * 60)
+        raise HTTPException(status_code=401, detail="Concierge session expired.")
+    _set_guest_cookies(response, session.session_id, *credentials, int(policy["guest_session_timeout"]) * 60)
+    _clear_legacy_guest_cookies(response)
     return {"session_id": session.session_id, "expires_after_minutes": policy["guest_session_timeout"]}
 
 

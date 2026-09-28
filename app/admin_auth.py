@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .database import connect_database, database_url_configured
+from .database import connect_database, database_url_configured, enable_foreign_keys, table_columns, table_exists
 
 
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -277,7 +277,7 @@ class AdminAuthStore:
 
     def _connect(self) -> sqlite3.Connection:
         connection = connect_database(self.path)
-        connection.execute("PRAGMA foreign_keys = ON")
+        enable_foreign_keys(connection)
         return connection
 
     def _init_db(self) -> None:
@@ -396,7 +396,7 @@ class AdminAuthStore:
                 "INSERT OR IGNORE INTO admin_schema_migrations (version, name, applied_at) VALUES (1, 'username_auth_rbac', ?)",
                 (int(time.time()),),
             )
-            columns = {row[1] for row in db.execute("PRAGMA table_info(admin_users)").fetchall()}
+            columns = table_columns(db, "admin_users")
             if "department_id" not in columns:
                 db.execute("ALTER TABLE admin_users ADD COLUMN department_id TEXT")
             db.execute(
@@ -942,10 +942,7 @@ class AdminAuthStore:
         if not property_id or not department_id:
             return False
         with self._connect() as db:
-            table = db.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='departments'"
-            ).fetchone()
-            if table is None:
+            if not table_exists(db, "departments"):
                 return False
             row = db.execute(
                 "SELECT 1 FROM departments WHERE property_id=? AND department_id=?",
@@ -969,10 +966,7 @@ class AdminAuthStore:
         ids = list(dict.fromkeys(str(value).strip() for value in restaurant_ids if str(value).strip()))
         if len(ids) > 100:
             raise ValueError("A user can be assigned to at most 100 restaurants.")
-        restaurant_table = db.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='restaurants'"
-        ).fetchone()
-        if not restaurant_table:
+        if not table_exists(db, "restaurants"):
             if ids:
                 raise ValueError("Restaurants must be initialized before assigning restaurant access.")
             return set()
@@ -1022,10 +1016,7 @@ class AdminAuthStore:
     ) -> None:
         if not property_id or not (before ^ after):
             return
-        exists = db.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='restaurant_audit_events'"
-        ).fetchone()
-        if not exists:
+        if not table_exists(db, "restaurant_audit_events"):
             return
         now = int(time.time())
         for restaurant_id in sorted(after - before):

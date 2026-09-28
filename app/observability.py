@@ -10,7 +10,7 @@ import threading
 import time
 from typing import Any, Callable
 
-from .database import connect_database
+from .database import connect_database, table_exists
 from . import metrics
 
 
@@ -216,7 +216,7 @@ class ObservabilityStore:
         ]
 
     def _table_exists(self, db: sqlite3.Connection, table: str) -> bool:
-        return db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone() is not None
+        return table_exists(db, table)
 
     def property_analytics(self, property_id: str, period: str, department_id: str | None = None, start_at: int | None = None, end_at: int | None = None) -> dict[str, Any]:
         start, end, bucket = period_window(period, start_at, end_at)
