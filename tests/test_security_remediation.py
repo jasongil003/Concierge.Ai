@@ -22,7 +22,7 @@ def _production_settings(tmp_path: Path, **overrides) -> Settings:
         admin_cookie_secure=True,
         credential_encryption_secret="a" * 32,
         antlabs_mode="browser_handoff",
-        antlabs_auth_url="https://gateway.example.test/auth",
+        antlabs_auth_url="https://gateway.example.test/login/main.ant?c=proc",
         allow_body_property_selection=False,
         metrics_token="m" * 40,
     )
@@ -81,6 +81,19 @@ def test_antlabs_mode_is_explicitly_validated(tmp_path: Path):
         validate_production_settings(_production_settings(tmp_path, antlabs_auth_url=""), check_filesystem=False)
 
 
+def test_production_requires_sg5_builtin_processor_endpoint_and_post(tmp_path: Path):
+    with pytest.raises(RuntimeError, match="ANTLABS_AUTH_URL must target the SG5 built-in processor"):
+        validate_production_settings(
+            _production_settings(tmp_path, antlabs_auth_url="https://gateway.example.test/custom-login"),
+            check_filesystem=False,
+        )
+    with pytest.raises(RuntimeError, match="ANTLABS_AUTH_METHOD must be POST"):
+        validate_production_settings(
+            _production_settings(tmp_path, antlabs_auth_method="GET"),
+            check_filesystem=False,
+        )
+
+
 def test_development_can_use_explicit_demo_settings(tmp_path: Path):
     development = replace(
         _production_settings(tmp_path),
@@ -134,7 +147,7 @@ def test_hotel_a_guest_cannot_access_hotel_b_session(tmp_path: Path, monkeypatch
     )
 
     with TestClient(app, base_url="http://a.example.test") as client:
-        response = client.get(f"/api/guest/conversations/{session.session_id}/staff-messages")
+        response = client.get(f"/api/guest/personalization?session_id={session.session_id}")
 
     assert response.status_code == 403
     assert response.json()["policy"] == "property_isolation"

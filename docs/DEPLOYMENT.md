@@ -52,9 +52,12 @@ docker compose up --build
 
 The production Compose profile fails closed until `.env` contains a unique
 `ADMIN_BOOTSTRAP_PASSWORD`, `CREDENTIAL_ENCRYPTION_SECRET`, and `METRICS_TOKEN`.
-Set `ANTLABS_MODE=browser_handoff` and configure `ANTLABS_AUTH_URL` for the
-target gateway before starting it. The example's `mock` mode is for local
-development only.
+Set `ANTLABS_MODE=browser_handoff` and configure `ANTLABS_AUTH_URL` as
+`https://<sg5-host>/login/main.ant?c=proc` before starting it. The live adapter
+uses the SG5 built-in processor; its connection check verifies reachability, not
+guest authentication or Internet access. Complete the guest-device validation
+in `docs/ANTLABS_INTEGRATION.md` before production. The example's `mock` mode is
+for local development only.
 
 On a clean installation, the database starts without a property profile.
 Sign in with the bootstrap administrator and create the first property from the
@@ -64,6 +67,11 @@ is loaded during startup. `PROPERTY_ID` is optional and can identify the
 configured property in a single-property deployment; leave it blank when
 property routing is based on each property's domain. Do not reuse a development
 database volume for production: stored property data survives image rebuilds.
+
+New properties receive an editable starter service catalog for Housekeeping,
+Maintenance, Front Desk, and Bell Services. Review it for the hotel's actual
+offerings; existing non-empty catalogs are preserved, and removed starter
+items do not return on later restarts.
 
 This on-prem profile runs one Concierge API instance and stores its database at
 `/state/concierge.db` inside the `concierge-state` Docker volume. It does not

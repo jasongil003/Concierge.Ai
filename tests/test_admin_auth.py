@@ -440,7 +440,8 @@ def test_staff_cannot_export_or_run_infrastructure_tools(auth_store: AdminAuthSt
         json={"question": "Check the database", "period": "24h", "current_page": "overview"},
     )
     assert diagnostic.status_code == 403
-    assert "infrastructure.view" in diagnostic.json()["detail"]
+    assert "does not have access to this system check" in diagnostic.json()["detail"]
+    assert "infrastructure.view" not in diagnostic.json()["detail"]
 
 
 def test_property_viewer_does_not_receive_service_request_records(auth_store: AdminAuthStore, auth_client: TestClient):

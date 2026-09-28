@@ -69,8 +69,11 @@ def test_guest_chat_does_not_escape_property_provider_chain_on_outage(admin_clie
         "/api/chat",
         json={"session_id": started.json()["session_id"], "message": "Where can I find a quiet reading spot?", "mode": "advanced"},
     )
-    assert response.status_code == 503
-    assert response.json()["detail"] == "The AI service is temporarily unavailable. Please try again."
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["source"] == "concierge_contact"
+    assert payload["contact_concierge"] is True
+    assert "configured provider unavailable" not in payload["answer"]
 
 
 def test_admin_ai_provider_api_does_not_return_secret(admin_client: TestClient):

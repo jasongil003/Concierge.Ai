@@ -58,8 +58,8 @@ test("guest-supplied service request text is rendered as inert text (stored XSS 
   await button.click();
   await expect(page.locator("#service-request-list")).toBeVisible();
 
-  const row = page.locator("#service-request-list .compact-row").filter({ hasText: payload }).first();
-  await expect(row).toContainText(payload);
+  const requestCard = page.locator("#service-request-list .service-request-card").filter({ hasText: payload }).first();
+  await expect(requestCard).toContainText(payload);
 
   await expect.poll(async () => page.evaluate(() => window.__xss_proof)).toBeUndefined();
   expect(await page.locator("#service-request-list script").count()).toBe(0);

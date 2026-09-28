@@ -20,8 +20,6 @@ FLOOR_PLAN_TYPES = {
     "application/pdf": ".pdf",
 }
 ANIMATION_TYPES = {
-    "application/json": ".json",
-    "application/octet-stream": ".lottie",
     "video/webm": ".webm",
     "video/mp4": ".mp4",
 }
@@ -253,8 +251,151 @@ class ZoneStore:
 
     def delete_zone(self, property_id: str, zone_id: str) -> bool:
         with self._connect() as db:
-            row = db.execute("DELETE FROM zones WHERE property_id=? AND zone_id=?", (property_id, zone_id))
-            return row.rowcount > 0
+            exists = db.execute(
+                "SELECT 1 FROM zones WHERE property_id=? AND zone_id=?",
+                (property_id, zone_id),
+            ).fetchone()
+            if not exists:
+                return False
+            node_ids = [
+                row["node_id"]
+                for row in db.execute(
+                    "SELECT node_id FROM navigation_nodes WHERE property_id=? AND zone_id=?",
+                    (property_id, zone_id),
+                )
+            ]
+            if node_ids:
+                placeholders = ",".join("?" for _ in node_ids)
+                db.execute(
+                    f"DELETE FROM navigation_edges WHERE property_id=? AND (from_node_id IN ({placeholders}) OR to_node_id IN ({placeholders}))",
+                    (property_id, *node_ids, *node_ids),
+                )
+            db.execute("DELETE FROM navigation_nodes WHERE property_id=? AND zone_id=?", (property_id, zone_id))
+            db.execute("DELETE FROM access_points WHERE property_id=? AND zone_id=?", (property_id, zone_id))
+            db.execute("DELETE FROM facilities WHERE property_id=? AND zone_id=?", (property_id, zone_id))
+            db.execute("DELETE FROM zones WHERE property_id=? AND zone_id=?", (property_id, zone_id))
+            return True
+
+    def update_facility(self, property_id: str, facility_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        self._require_owned("facilities", "facility_id", facility_id, property_id)
+        zone_id = str(payload.get("zone_id") or "")
+        self._require_owned("zones", "zone_id", zone_id, property_id)
+        record = {
+            "facility_id": facility_id,
+            "property_id": property_id,
+            "zone_id": zone_id,
+            "name": _safe_text(payload.get("name"), 120),
+            "facility_type": _safe_text(payload.get("facility_type") or "amenity", 80),
+            "description": _safe_text(payload.get("description"), 500),
+            "guest_visible": 1 if payload.get("guest_visible", True) else 0,
+            "updated_at": _now(),
+        }
+        if not record["name"]:
+            raise ValueError("Facility name is required.")
+        with self._connect() as db:
+            db.execute(
+                """UPDATE facilities SET zone_id=:zone_id,name=:name,facility_type=:facility_type,
+                description=:description,guest_visible=:guest_visible,updated_at=:updated_at
+                WHERE facility_id=:facility_id AND property_id=:property_id""",
+                record,
+            )
+            row = db.execute("SELECT * FROM facilities WHERE facility_id=? AND property_id=?", (facility_id, property_id)).fetchone()
+        return self._public(row)
+
+    def update_access_point(self, property_id: str, access_point_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        self._require_owned("access_points", "access_point_id", access_point_id, property_id)
+        zone_id = str(payload.get("zone_id") or "")
+        self._require_owned("zones", "zone_id", zone_id, property_id)
+        name = _safe_text(payload.get("name"), 120)
+        identifier = _safe_text(payload.get("identifier"), 160)
+        if not name or not identifier:
+            raise ValueError("Access point name and identifier are required.")
+        x = float(payload["x"]) if payload.get("x") is not None else None
+        y = float(payload["y"]) if payload.get("y") is not None else None
+        with self._connect() as db:
+            db.execute(
+                """UPDATE access_points SET zone_id=?,name=?,identifier=?,x=?,y=?,updated_at=?
+                WHERE access_point_id=? AND property_id=?""",
+                (zone_id, name, identifier, x, y, _now(), access_point_id, property_id),
+            )
+            row = db.execute("SELECT * FROM access_points WHERE access_point_id=? AND property_id=?", (access_point_id, property_id)).fetchone()
+        return dict(row)
+
+    def update_node(self, property_id: str, node_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        self._require_owned("navigation_nodes", "node_id", node_id, property_id)
+        floor_id = str(payload.get("floor_id") or "")
+        self._require_owned("floors", "floor_id", floor_id, property_id)
+        zone_id = payload.get("zone_id") or None
+        if zone_id:
+            self._require_owned("zones", "zone_id", str(zone_id), property_id)
+            with self._connect() as db:
+                zone = db.execute("SELECT floor_id FROM zones WHERE zone_id=? AND property_id=?", (zone_id, property_id)).fetchone()
+            if zone["floor_id"] != floor_id:
+                raise ValueError("Waypoint zone must be on the selected floor.")
+        label = _safe_text(payload.get("label"), 120)
+        if not label:
+            raise ValueError("Navigation node label is required.")
+        record = {
+            "node_id": node_id,
+            "property_id": property_id,
+            "floor_id": floor_id,
+            "zone_id": zone_id,
+            "label": label,
+            "x": float(payload.get("x") or 0),
+            "y": float(payload.get("y") or 0),
+            "node_type": _safe_text(payload.get("node_type") or "waypoint", 80),
+            "guest_visible": 1 if payload.get("guest_visible", True) else 0,
+            "updated_at": _now(),
+        }
+        with self._connect() as db:
+            db.execute(
+                """UPDATE navigation_nodes SET floor_id=:floor_id,zone_id=:zone_id,label=:label,x=:x,y=:y,
+                node_type=:node_type,guest_visible=:guest_visible,updated_at=:updated_at
+                WHERE node_id=:node_id AND property_id=:property_id""",
+                record,
+            )
+            row = db.execute("SELECT * FROM navigation_nodes WHERE node_id=? AND property_id=?", (node_id, property_id)).fetchone()
+        return self._public(row)
+
+    def update_edge(self, property_id: str, edge_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        with self._connect() as db:
+            edge = db.execute("SELECT * FROM navigation_edges WHERE edge_id=? AND property_id=?", (edge_id, property_id)).fetchone()
+        if edge is None:
+            raise KeyError("Navigation edge not found.")
+        distance = float(payload.get("distance") or 0)
+        if distance <= 0:
+            raise ValueError("Route distance must be greater than zero.")
+        with self._connect() as db:
+            db.execute(
+                """UPDATE navigation_edges SET distance=?,bidirectional=?,guest_visible=?,updated_at=?
+                WHERE edge_id=? AND property_id=?""",
+                (distance, 1 if payload.get("bidirectional", True) else 0, 1 if payload.get("guest_visible", True) else 0, _now(), edge_id, property_id),
+            )
+            row = db.execute("SELECT * FROM navigation_edges WHERE edge_id=? AND property_id=?", (edge_id, property_id)).fetchone()
+        return self._public(row)
+
+    def delete_map_record(self, property_id: str, object_type: str, object_id: str) -> bool:
+        records = {
+            "facility": ("facilities", "facility_id"),
+            "access_point": ("access_points", "access_point_id"),
+            "navigation_node": ("navigation_nodes", "node_id"),
+            "navigation_edge": ("navigation_edges", "edge_id"),
+        }
+        table_key = records.get(object_type)
+        if not table_key:
+            raise ValueError("Unsupported map object type.")
+        table, key = table_key
+        with self._connect() as db:
+            exists = db.execute(f"SELECT 1 FROM {table} WHERE {key}=? AND property_id=?", (object_id, property_id)).fetchone()  # nosec B608
+            if not exists:
+                return False
+            if object_type == "navigation_node":
+                db.execute(
+                    "DELETE FROM navigation_edges WHERE property_id=? AND (from_node_id=? OR to_node_id=?)",
+                    (property_id, object_id, object_id),
+                )
+            db.execute(f"DELETE FROM {table} WHERE {key}=? AND property_id=?", (object_id, property_id))  # nosec B608
+        return True
 
     def create_facility(self, property_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         zone_id = str(payload.get("zone_id") or "")
@@ -350,7 +491,7 @@ class ZoneStore:
             suffix = " AND guest_visible=1" if guest else ""
             buildings = [dict(row) for row in db.execute("SELECT * FROM buildings WHERE property_id=? ORDER BY name", (property_id,))]
             floors = [dict(row) for row in db.execute("SELECT * FROM floors WHERE property_id=? ORDER BY building_id, level", (property_id,))]
-            maps = [self._map_row(row) for row in db.execute("SELECT * FROM floor_maps WHERE property_id=? ORDER BY created_at DESC", (property_id,))]
+            maps = [self._map_row(row) for row in db.execute("SELECT * FROM floor_maps WHERE property_id=? ORDER BY created_at DESC,rowid DESC", (property_id,))]
             zones = [self._public(row) for row in db.execute(f"SELECT * FROM zones WHERE property_id=?{suffix} ORDER BY name", (property_id,))]  # nosec B608
             facilities = [self._public(row) for row in db.execute(f"SELECT * FROM facilities WHERE property_id=?{suffix} ORDER BY name", (property_id,))]  # nosec B608
             nodes = [self._public(row) for row in db.execute(f"SELECT * FROM navigation_nodes WHERE property_id=?{suffix} ORDER BY label", (property_id,))]  # nosec B608
@@ -419,6 +560,8 @@ class ZoneStore:
             "buildings": {"building_id"},
             "floors": {"floor_id"},
             "zones": {"zone_id"},
+            "facilities": {"facility_id"},
+            "access_points": {"access_point_id"},
             "navigation_nodes": {"node_id"},
         }
         if key not in allowed_keys.get(table, set()):

@@ -174,8 +174,10 @@ def test_department_manager_is_scoped_to_its_department_on_request_operations(
         assert dashboard.status_code == 200, dashboard.text
         dashboard_data = dashboard.json()
         assert dashboard_data["analytics"]["summary"]["service_requests"] == 2
-        assert dashboard_data["analytics"]["summary"]["guests_assisted"] == 0
-        assert dashboard_data["analytics"]["ai"]["requests"] == 0
+        assert dashboard_data["analytics"]["summary"]["guests_assisted"] is None
+        assert dashboard_data["analytics"]["summary"]["ai_conversations"] is None
+        assert dashboard_data["analytics"]["ai"]["requests"] is None
+        assert dashboard_data["analytics"]["ai"]["availability"] == "restricted"
         assert dashboard_data["health"]["providers"] == []
         assert dashboard_data["integrations"]["antlabs"]["status"] == "restricted"
         assert all(not values for values in dashboard_data["histories"].values())
