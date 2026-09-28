@@ -1,13 +1,29 @@
 {
-  "baseline": [10, 100, 500, 1000],
-  "scale": [5000, 10000, 30000],
-  "spike": {"from": 100, "to": 5000, "seconds": 30},
-  "soak": {"users": 5000, "duration": "4h"},
-  "default_spawn_rate_per_worker": 25,
+  "controlled_stages": [
+    {"users": 10, "spawn_rate_per_second": 2, "duration": "60s"},
+    {"users": 50, "spawn_rate_per_second": 5, "duration": "60s"},
+    {"users": 100, "spawn_rate_per_second": 10, "duration": "60s"},
+    {"users": 250, "spawn_rate_per_second": 10, "duration": "60s"},
+    {"users": 500, "spawn_rate_per_second": 10, "duration": "60s"},
+    {"users": 1000, "spawn_rate_per_second": 10, "duration": "60s"}
+  ],
   "admin_users_per_run": 1,
+  "collected_metrics": [
+    "success_rate_percent",
+    "request_throughput_per_second",
+    "http_latency_p50_ms",
+    "http_latency_p95_ms",
+    "http_latency_p99_ms",
+    "http_errors",
+    "database_errors",
+    "cpu_percent_mean_max",
+    "memory_percent_mean_max",
+    "ai_provider_queue_wait_p50_p95_ms",
+    "rate_limit_events"
+  ],
   "notes": [
-    "Run Locust in distributed mode for the scale profile.",
-    "Use enough injector IP addresses to reflect real client source IPs and the configured session-start rate limits.",
-    "The deterministic AI endpoint prevents paid provider traffic."
+    "Use a disposable test property and a deterministic AI endpoint; the workload creates one idempotent service request per guest and may perform an optional admin retention write.",
+    "Run the injector and API on separate hosts for representative capacity results; CPU and memory samples otherwise describe the local machine or the explicitly selected API process.",
+    "These are test stages, not capacity claims."
   ]
 }

@@ -693,4 +693,5 @@ class PropertyStore:
             raise ValueError("Unsupported property schema column migration.")
         columns = {row["name"] for row in db.execute("PRAGMA table_info(properties)").fetchall()}
         if name not in columns:
+            # B608 rationale: name and definition are checked against the fixed map immediately above.
             db.execute(f"ALTER TABLE properties ADD COLUMN {name} {definition}")  # nosec B608

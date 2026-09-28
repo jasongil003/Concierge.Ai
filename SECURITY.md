@@ -1,24 +1,31 @@
 # Security Policy and Prototype Boundaries
 
-Concierge.Ai is currently a prototype.
+Concierge.Ai has security controls for development and controlled testing, but
+this repository checkout does not establish production readiness. See
+[`audit/CURRENT_READINESS.md`](audit/CURRENT_READINESS.md) for the current
+evidence and open deployment gates.
 
-## Do not use the current branch as-is for production guest authentication.
+## Current control status
 
-Before a hotel pilot:
+**Implemented and locally tested:** guest API routes require a server-issued,
+high-entropy guest token and a separate browser-context cookie; only hashes are
+stored; the cookies expire and can be revoked; resume rotates credentials.
+Session IDs alone no longer authenticate guest API calls. Property isolation,
+admin authentication, RBAC, CSRF, and the Admin AI confirmation/allowlist
+workflow remain enforced by server-side checks. SQL runtime values use bound
+parameters; the narrowly suppressed Bandit B608 cases were reviewed as fixed
+SQL fragments, generated placeholders, or constant schema identifiers.
 
-- validate the supported ANTlabs authentication contract
-- use HTTPS
-- isolate the Concierge host on a service VLAN
-- allowlist gateway-supplied parameters
-- sign or otherwise protect redirect state
-- implement replay protection
-- rate-limit authentication and chat endpoints
-- add audit logging
-- implement administrator authentication and RBAC
-- encrypt stored secrets
-- minimize PMS/guest data
-- define data retention and deletion policies
-- conduct dependency and application security scanning
+**Deployment-dependent:** use HTTPS, set unique bootstrap and encryption
+secrets, restrict canonical hosts and administrator CIDRs, configure trusted
+proxy ranges, isolate the service on hotel networks, and set retention policy.
+ANTlabs remains responsible for network admission and Internet access.
+
+**Open or not verified here:** PDF expansion/resource limits need isolated
+runtime validation. No real SG5, PMS, TLS proxy, production network, PostgreSQL
+or Redis service, Docker daemon, or current online dependency advisory service
+was available for this checkout's verification. A CI workflow definition is
+not evidence that its remote jobs have passed.
 
 ## AI safety boundaries
 

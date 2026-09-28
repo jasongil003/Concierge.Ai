@@ -381,8 +381,10 @@ class HospitalityStore:
         if allowed_definitions.get(table, {}).get(name) != definition:
             raise ValueError("Unsupported schema column migration.")
         # Identifiers and DDL are selected from the fixed migration map above.
+        # B608 rationale: table is selected from the fixed migration map above.
         columns = {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}  # nosec B608
         if name not in columns:
+            # B608 rationale: identifiers and types are selected from the fixed migration map above.
             db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")  # nosec B608
 
     def upsert_department(self, property_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -992,6 +994,7 @@ class HospitalityStore:
         clause = "AND workflow_status='published' AND active=1" if guest else ""
         with self._connect() as db:
             menus = db.execute(
+                # B608 rationale: clause is one of two fixed literals selected by the guest flag; values remain bound.
                 f"SELECT * FROM menus WHERE property_id=? AND restaurant_id=? {clause} ORDER BY meal_period,name",  # nosec B608
                 (property_id, restaurant_id),
             ).fetchall()
@@ -1065,18 +1068,20 @@ class HospitalityStore:
             message_time_clause = " AND m.created_at>=? AND m.created_at<=?"
             message_time_params = (start_at, end_at)
         with self._connect() as db:
+            # B608 rationale: time_clause is a fixed pair of predicates; timestamps are bound below.
             conversations = db.execute(
                 f"""SELECT COUNT(*) AS total,
                 SUM(CASE WHEN state IN ('waiting_for_staff','assigned') THEN 1 ELSE 0 END) AS waiting,
                 SUM(CASE WHEN state='human_active' THEN 1 ELSE 0 END) AS active,
                 SUM(CASE WHEN state IN ('resolved','returned_to_ai') THEN 1 ELSE 0 END) AS completed
-                FROM conversation_state WHERE property_id=? AND restaurant_id=?{time_clause}""",
+                FROM conversation_state WHERE property_id=? AND restaurant_id=?{time_clause}""",  # nosec B608
                 (property_id, restaurant_id, *time_params),
             ).fetchone()
+            # B608 rationale: message_time_clause is a fixed pair of predicates; timestamps are bound below.
             messages = db.execute(
                 f"""SELECT COUNT(*) FROM conversation_messages m
                 JOIN conversation_state cs ON cs.property_id=m.property_id AND cs.session_id=m.session_id
-                WHERE cs.property_id=? AND cs.restaurant_id=?{message_time_clause}""",
+                WHERE cs.property_id=? AND cs.restaurant_id=?{message_time_clause}""",  # nosec B608
                 (property_id, restaurant_id, *message_time_params),
             ).fetchone()[0]
             menus = db.execute(
@@ -1473,6 +1478,7 @@ class HospitalityStore:
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
+                # B608 rationale: marks contains only generated placeholders; stay IDs are bound below.
                 f"SELECT * FROM service_requests WHERE property_id=? AND request_id=? AND stay_id IN ({marks})",  # nosec B608
                 (property_id, request_id, *ids),
             ).fetchone()
@@ -1506,6 +1512,7 @@ class HospitalityStore:
                 if not set(updates) <= allowed_columns:
                     raise ValueError("Unsupported service request update field.")
                 clause = ",".join(f"{key}=?" for key in updates)
+                # B608 rationale: update columns are checked against a fixed allowlist; all values are bound.
                 db.execute(f"UPDATE service_requests SET {clause},updated_at=? WHERE property_id=? AND request_id=?", (*updates.values(), now, property_id, request_id))  # nosec B608
                 self._record_request_history(db, property_id, request_id, "updated", {key: value for key, value in updates.items() if key != "notes"} | ({"note": note} if note else {}), now)
             row = db.execute("SELECT * FROM service_requests WHERE property_id=? AND request_id=?", (property_id, request_id)).fetchone()
@@ -1735,6 +1742,7 @@ class HospitalityStore:
         marks = ",".join("?" for _ in ids)
         with self._connect() as db:
             rows = db.execute(
+                # B608 rationale: marks contains only generated placeholders; stay IDs are bound below.
                 f"SELECT * FROM service_requests WHERE property_id=? AND stay_id IN ({marks}) ORDER BY created_at DESC LIMIT 20",  # nosec B608
                 (property_id, *ids),
             ).fetchall()
@@ -1766,6 +1774,7 @@ class HospitalityStore:
         if key not in allowed_keys.get(table, set()):
             raise ValueError("Unsupported ownership lookup.")
         with self._connect() as db:
+            # B608 rationale: table and key are selected from the fixed allowed_keys mapping above.
             row = db.execute(f"SELECT 1 FROM {table} WHERE property_id=? AND {key}=?", (property_id, value)).fetchone()  # nosec B608
         if row is None:
             raise KeyError(f"{table} record not found.")
