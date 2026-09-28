@@ -32,6 +32,8 @@ def test_restaurant_manager_and_staff_are_limited_to_assigned_restaurants(tmp_pa
     sessions = SessionStore(database)
     assigned_session = sessions.create("hotel-a", "guest-assigned")
     hidden_session = sessions.create("hotel-a", "guest-hidden")
+    sessions.record_message(assigned_session.session_id, "hotel-a", "guest", "PRIVATE_CONCIERGE_QUESTION")
+    sessions.record_message(assigned_session.session_id, "hotel-a", "assistant", "PRIVATE_CONCIERGE_ANSWER")
     sessions.escalate_conversation(assigned_session.session_id, "hotel-a", grill["restaurant_id"], "Menu question")
     sessions.escalate_conversation(hidden_session.session_id, "hotel-a", cafe["restaurant_id"], "Cafe question")
 
@@ -64,7 +66,13 @@ def test_restaurant_manager_and_staff_are_limited_to_assigned_restaurants(tmp_pa
         assert "internal_notes" not in restaurants[0]
         overview = manager_client.get("/api/admin/properties/hotel-a/hospitality").json()
         assert [item["restaurant_id"] for item in overview["restaurants"]] == [grill["restaurant_id"]]
-        assert {item["session_id"] for item in manager_client.get("/api/admin/properties/hotel-a/conversations").json()["conversations"]} == {assigned_session.session_id}
+        inbox = manager_client.get("/api/admin/properties/hotel-a/conversations").json()["conversations"]
+        assert {item["session_id"] for item in inbox} == {assigned_session.session_id}
+        assigned_record = next(item for item in inbox if item["session_id"] == assigned_session.session_id)
+        assert assigned_record["escalation_reason"] == "Menu question"
+        assert assigned_record["messages"] == []
+        assert "PRIVATE_CONCIERGE_QUESTION" not in str(inbox)
+        assert "PRIVATE_CONCIERGE_ANSWER" not in str(inbox)
 
         assert manager_client.get(f"/api/admin/properties/hotel-a/restaurants/{cafe['restaurant_id']}/menus").status_code == 403
         assert manager_client.get(f"/api/admin/properties/hotel-a/restaurants/{cafe['restaurant_id']}/promotions").status_code == 403
@@ -123,6 +131,9 @@ def test_restaurant_manager_and_staff_are_limited_to_assigned_restaurants(tmp_pa
         )
         assert staff_reply.status_code == 200, staff_reply.text
         assert sessions.staff_messages(assigned_session.session_id, "hotel-a")[0]["sender_user_id"] == staff["id"]
+        staff_inbox = staff_client.get("/api/admin/properties/hotel-a/conversations").json()["conversations"]
+        staff_record = next(item for item in staff_inbox if item["session_id"] == assigned_session.session_id)
+        assert [message["content"] for message in staff_record["messages"]] == ["I can help with that."]
         guest_messages = staff_client.get(f"/api/guest/conversations/{assigned_session.session_id}/staff-messages")
         assert guest_messages.status_code == 200, guest_messages.text
         assert guest_messages.json()["messages"][0]["content"] == "I can help with that."

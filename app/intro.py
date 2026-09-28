@@ -80,9 +80,15 @@ class IntroExperienceStore:
                 "transition": str(payload.get("transition") or "fade")[:40],
                 "first_visit_only": bool(payload.get("first_visit_only", True)),
                 "allow_skip": bool(payload.get("allow_skip", True)),
+                "asset_url": str(payload.get("asset_url", record.get("asset_url", "")) or "")[:500],
+                "asset_type": str(payload.get("asset_type", record.get("asset_type", "")) or "")[:80],
                 "updated_at": int(time.time()),
             }
         )
+        if record["asset_type"] and record["asset_type"] not in ANIMATION_TYPES:
+            raise ValueError("Custom intro assets must be MP4 or WebM videos.")
+        if mode == "custom_upload" and (not record["asset_url"] or not record["asset_type"]):
+            raise ValueError("Upload a valid MP4 or WebM video before selecting custom video mode.")
         with self._connect() as db:
             db.execute(
                 """INSERT INTO intro_experience_configs VALUES
@@ -100,10 +106,17 @@ class IntroExperienceStore:
     def upload_asset(self, property_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         content_type = str(payload.get("content_type") or "")
         if content_type not in ANIMATION_TYPES:
-            raise ValueError("Unsupported animation file type.")
+            raise ValueError("Unsupported video type. Upload an MP4 or WebM file.")
+        extension = ANIMATION_TYPES[content_type]
+        if Path(str(payload.get("filename") or "")).suffix.lower() != extension:
+            raise ValueError("Video extension does not match its content type.")
         raw = base64.b64decode(str(payload.get("content_base64") or ""), validate=True)
         if not raw or len(raw) > 12 * 1024 * 1024:
-            raise ValueError("Animation asset must be between 1 byte and 12 MB.")
+            raise ValueError("Intro video must be between 1 byte and 12 MB.")
+        if content_type == "video/webm" and not raw.startswith(b"\x1aE\xdf\xa3"):
+            raise ValueError("This file is not a valid WebM video.")
+        if content_type == "video/mp4" and (len(raw) < 12 or raw[4:8] != b"ftyp"):
+            raise ValueError("This file is not a valid MP4 video.")
         asset_id = "intro_" + uuid.uuid4().hex[:16]
         directory = UPLOAD_ROOT / property_id / "intro"
         directory.mkdir(parents=True, exist_ok=True)
@@ -115,6 +128,27 @@ class IntroExperienceStore:
         record["mode"] = "custom_upload"
         self.save(property_id, record)
         return self.get(property_id)
+
+    def remove_asset(self, property_id: str) -> dict[str, Any]:
+        record = self.get(property_id)
+        asset_url = str(record.get("asset_url") or "")
+        if asset_url:
+            filename = Path(asset_url.split("?", 1)[0]).name
+            try:
+                self.asset_path(property_id, filename).unlink(missing_ok=True)
+            except KeyError:
+                pass
+        record.update({"asset_url": "", "asset_type": ""})
+        if record.get("mode") == "custom_upload":
+            record["mode"] = "generate_from_logo"
+        return self.save(property_id, record)
+
+    def delete_asset_file(self, property_id: str, filename: str) -> bool:
+        try:
+            self.asset_path(property_id, filename).unlink()
+        except KeyError:
+            return False
+        return True
 
     def asset_path(self, property_id: str, filename: str) -> Path:
         clean = Path(filename).name

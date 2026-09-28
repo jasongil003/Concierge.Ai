@@ -283,7 +283,7 @@ class PrivacyGuard:
     def safe_response(reason: str) -> str:
         if reason == "prompt_injection":
             return "I can’t override security rules or reveal system instructions, credentials, or hidden configuration. I can still help with hotel services and verified local information."
-        return "I can’t confirm or disclose another guest’s identity, room, stay, contact details, payment data, or other private information. Please contact hotel staff for a properly authorized request."
+        return "I can’t confirm or disclose another guest’s identity, room, stay, contact details, payment data, or other private information. Please call the hotel concierge for an authorized request. [[CALL_CONCIERGE]]"
 
 
 class AIInputSanitizer:
@@ -320,9 +320,9 @@ class AIOutputValidator:
     @classmethod
     def validate(cls, text: str) -> str:
         if cls.SECRET_OUTPUT.search(text):
-            return "I can’t provide credentials or private system configuration. Please contact authorized hotel staff."
+            return "I can’t provide credentials or private system configuration. Please call the hotel concierge for help. [[CALL_CONCIERGE]]"
         if cls.UNVERIFIED_CONFIRMATION.search(text):
-            return "I can’t confirm that transaction without a verified response from the hotel system. Please ask hotel staff to verify it."
+            return "I can’t confirm that transaction without a verified response from the hotel system. Please call the hotel concierge to verify it. [[CALL_CONCIERGE]]"
         return text
 
 

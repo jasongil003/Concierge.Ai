@@ -34,7 +34,9 @@ The LLM must not:
 
 The design target is temporary guest context tied to the active hotel/Wi-Fi session.
 
-Operational records such as a housekeeping ticket may outlive the AI chat session if hotel operations require it, but guest chat context should follow the configured retention policy.
+Guest and assistant message text stays in the open browser session for short-term context and is sent to the property's configured AI service to generate answers. The application does not write new raw chat text to its database or expose transcripts through staff APIs or analytics. If the concierge cannot verify an answer, it directs the guest to call the hotel. Confirmed service requests and preferences the guest explicitly saves are separate records with their own workflows.
+
+Transcript rows written by earlier versions may remain in an existing database; this change removes their staff-facing application access but does not erase those historical rows.
 
 ## Zone, session, and location privacy
 

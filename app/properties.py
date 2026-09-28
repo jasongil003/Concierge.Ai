@@ -378,8 +378,9 @@ class PropertyRecord:
 
     @property
     def public_profile(self) -> dict[str, Any]:
-        authentication_types = self.antlabs_config.get("authentication_types", {})
-        enabled_authentication_types = [
+        antlabs_config = self.antlabs_config if isinstance(self.antlabs_config, dict) else {}
+        authentication_types = antlabs_config.get("authentication_types", {})
+        configured_authentication_types = [
             {
                 "id": auth_id,
                 "label": value.get("label", auth_id.replace("_", " ").title()),
@@ -389,6 +390,12 @@ class PropertyRecord:
             for auth_id, value in authentication_types.items()
             if isinstance(value, dict) and value.get("enabled")
         ]
+        authentication_enabled = (
+            antlabs_config.get("authentication_enabled") is True
+            if "authentication_enabled" in antlabs_config
+            else bool(configured_authentication_types)
+        )
+        enabled_authentication_types = configured_authentication_types if authentication_enabled else []
         return {
             "property_id": self.property_id,
             "name": self.hotel_name,
@@ -401,6 +408,7 @@ class PropertyRecord:
                 "longitude": self.longitude,
                 "address": self.address,
             },
+            "concierge_phone": " ".join(str((self.contact_details or {}).get("phone") or "").split())[:80],
             "logo_url": self.logo_url,
             "concierge_name": self.concierge_name,
             "concierge_avatar_url": self.concierge_avatar_url,
@@ -429,6 +437,7 @@ class PropertyRecord:
             "welcome": self.welcome,
             "ai": self.ai_settings,
             "authentication": {
+                "enabled": authentication_enabled,
                 "enabled_types": enabled_authentication_types,
             },
             "design": self.design_published,
