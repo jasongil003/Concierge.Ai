@@ -22,8 +22,14 @@ async function loginAdmin(request) {
   return csrf;
 }
 
-test.beforeEach(async ({ request }) => {
+test.beforeEach(async ({ page, request }) => {
   await loginAdmin(request);
+  // Guest workflow checks should not inherit branding-test intro settings.
+  await page.route("**/api/guest/intro**", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ mode: "none", first_visit_only: true, allow_skip: true }),
+  }));
 });
 
 async function setAuthTypes(request, enabledIds) {
@@ -44,10 +50,23 @@ async function setAuthTypes(request, enabledIds) {
   };
   prop.antlabs_config = {
     ...(prop.antlabs_config || {}),
+    authentication_enabled: true,
     authentication_types: Object.fromEntries(
       Object.entries(labels).map(([id, label]) => [id, { label, enabled: enabledIds.includes(id) }])
     ),
   };
+  const response = await request.put(`/api/admin/properties/${propertyId}`, {
+    headers: { "X-CSRF-Token": csrf },
+    data: prop,
+  });
+  expect(response.ok()).toBeTruthy();
+}
+
+async function setAuthenticationEnabled(request, enabled) {
+  const csrf = await loginAdmin(request);
+  const propertyId = (await (await request.get("/api/admin/properties")).json()).properties[0].property_id;
+  const prop = await (await request.get(`/api/admin/properties/${propertyId}`)).json();
+  prop.antlabs_config = { ...(prop.antlabs_config || {}), authentication_enabled: enabled };
   const response = await request.put(`/api/admin/properties/${propertyId}`, {
     headers: { "X-CSRF-Token": csrf },
     data: prop,
@@ -101,9 +120,46 @@ test("guest: hotel name and concierge name are displayed", async ({ page }) => {
 
 test("guest: chat submit works with direct input", async ({ page }) => {
   await page.goto("/");
-  await page.getByLabel("Ask your concierge").fill("What time is breakfast?");
+  const input = page.getByLabel("Ask your concierge");
+  await input.fill("What time is breakfast?");
   await page.getByRole("button", { name: "Send message" }).click();
   await expect(page.locator(".message-row.user")).toContainText("What time is breakfast?");
+  await expect(input).toHaveValue("");
+});
+
+test("guest: submitted message stays in the composer when session startup fails", async ({ page }) => {
+  await page.route("**/api/session/start", (route) => route.fulfill({
+    status: 503,
+    contentType: "application/json",
+    body: JSON.stringify({ detail: "Session service unavailable" }),
+  }));
+  await page.goto("/");
+  await expect(page.locator(".message-row.error")).toHaveCount(1);
+
+  const input = page.getByLabel("Ask your concierge");
+  await input.fill("Hello concierge");
+  await page.getByRole("button", { name: "Send message" }).click();
+
+  await expect(page.locator(".message-row.user")).toContainText("Hello concierge");
+  await expect(input).toHaveValue("Hello concierge");
+  await expect(page.locator(".message-row.error")).toHaveCount(1);
+  await expect(page.locator(".message-row.error").first()).toContainText("Session service unavailable");
+});
+
+test("guest: failed chat request keeps the submitted draft", async ({ page }) => {
+  await page.route("**/api/chat", (route) => route.fulfill({
+    status: 503,
+    contentType: "application/json",
+    body: JSON.stringify({ detail: "Chat service unavailable" }),
+  }));
+  await page.goto("/");
+  const input = page.getByLabel("Ask your concierge");
+  await input.fill("What time is breakfast?");
+  await page.getByRole("button", { name: "Send message" }).click();
+
+  await expect(page.locator(".message-row.concierge-contact")).toContainText("can't reach the concierge service right now");
+  await expect(input).toHaveValue("What time is breakfast?");
+  await expect(page.locator("#send-button")).toBeEnabled();
 });
 
 test("guest: empty submit is prevented", async ({ page }) => {
@@ -198,6 +254,30 @@ test("guest API rejects an authentication type disabled for the property", async
   });
   expect(response.status()).toBe(403);
   await expect(response.json()).resolves.toMatchObject({ detail: "This authentication method is disabled for this hotel." });
+});
+
+test("master switch hides guest sign-in and rejects direct authentication requests", async ({ page, request }) => {
+  await setAuthTypes(request, ["pms"]);
+  await setAuthenticationEnabled(request, false);
+
+  const hotel = await (await request.get("/api/hotel")).json();
+  expect(hotel.authentication).toEqual({ enabled: false, enabled_types: [] });
+
+  const sessionResponse = await request.post("/api/session/start", {
+    data: { client_id: "master-auth-off-test" },
+  });
+  expect(sessionResponse.ok()).toBeTruthy();
+  const session = await sessionResponse.json();
+  const response = await request.post("/api/authenticate", {
+    data: { session_id: session.session_id, auth_type: "pms", credentials: { room: "412", last_name: "Guest" } },
+  });
+  expect(response.status()).toBe(403);
+  await expect(response.json()).resolves.toMatchObject({ detail: "Guest Wi-Fi authentication is turned off for this hotel." });
+
+  await page.goto("/");
+  await page.getByLabel("Ask your concierge").fill("Connect me to Wi-Fi");
+  await page.getByRole("button", { name: "Send message" }).click();
+  await expect(page.getByText(/sign-in through Concierge is turned off/i)).toBeVisible();
 });
 
 test("guest login selector contains every enabled authentication type and no disabled type", async ({ page, request }) => {
@@ -353,7 +433,7 @@ test("guest: menu opens and closes", async ({ page }) => {
 
 test("guest: options button opens the same working menu", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Open options" }).click();
+  await page.getByRole("button", { name: "Open hotel menu" }).click();
   await expect(page.locator("#hotel-menu")).toHaveClass(/open/);
   await page.getByRole("button", { name: "Close menu" }).click();
   await expect(page.locator("#hotel-menu")).not.toHaveClass(/open/);
@@ -363,7 +443,7 @@ test("guest: hotel information menu action responds with configured property det
   const hotel = await (await request.get("/api/hotel")).json();
   await page.goto("/");
   await page.getByRole("button", { name: "Open hotel menu" }).click();
-  await page.getByRole("button", { name: "Hotel information", exact: true }).click();
+  await page.getByRole("button", { name: /Hotel information/ }).click();
   await expect(page.locator(".message-row.assistant").last()).toContainText(hotel.description || hotel.name);
   await expect(page.locator("#hotel-menu")).not.toHaveClass(/open/);
 });
@@ -371,13 +451,13 @@ test("guest: hotel information menu action responds with configured property det
 for (const [label, expectedText] of [
   ["Language", "Language preference set"],
   ["Accessibility", "Accessibility display mode"],
-  ["Privacy", "session is temporary"],
+  ["Privacy", "Chat context stays in this open session"],
   ["Help", "Ask a question about this property"],
 ]) {
   test(`guest: ${label.toLowerCase()} menu action responds`, async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: "Open hotel menu" }).click();
-    await page.getByRole("button", { name: label, exact: true }).click();
+    await page.getByRole("button", { name: new RegExp(label, "i") }).click();
     await expect(page.locator(".message-row.assistant").last()).toContainText(expectedText);
     await expect(page.locator("#hotel-menu")).not.toHaveClass(/open/);
   });
@@ -422,11 +502,12 @@ test("guest: composer input uses the available width", async ({ page }) => {
   expect(sizes.input).toBeGreaterThan(sizes.form * 0.7);
 });
 
-// --- 9. Unsupported attachment control is not exposed ---
+// --- 9. Guest document upload is not exposed ---
 
-test("guest: unsupported attachment control is not exposed", async ({ page }) => {
+test("guest: document upload control is not exposed", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("button", { name: "More actions" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Upload a document" })).toHaveCount(0);
+  await expect(page.locator("#upload-input")).toHaveCount(0);
 });
 
 // --- 10. Dark mode (if supported) ---

@@ -6,6 +6,7 @@ const state = {
   authenticated: false,
   room: null,
   draftKey: "concierge-draft",
+  inputPending: false,
   mode: "auto",
   intro: null,
   services: [],
@@ -13,7 +14,7 @@ const state = {
   restaurants: [],
   personalization: null,
   staffMessageIds: new Set(),
-  pendingAttachment: null,
+  staffMessagingEnabled: false,
   hasPropertyMap: false,
 };
 
@@ -173,7 +174,32 @@ function renderMessage(message) {
 
   if (message.type === "recommendation") {
     row.appendChild(renderText(message.text));
+    if (message.contactPhone) {
+      const phone = String(message.contactPhone).trim();
+      const tel = phone.replace(/[^0-9+]/g, "");
+      if (/^\+?\d{3,15}$/.test(tel)) {
+        const link = document.createElement("a");
+        link.className = "concierge-call-link";
+        link.href = `tel:${tel}`;
+        link.textContent = `Call concierge ${phone}`;
+        row.appendChild(link);
+      }
+    }
     row.appendChild(renderRecommendationResults(message.results || []));
+    return row;
+  }
+
+  if (message.type === "concierge-contact") {
+    row.appendChild(renderText(message.text));
+    const phone = String(message.phone || "").trim();
+    const tel = phone.replace(/[^0-9+]/g, "");
+    if (/^\+?\d{3,15}$/.test(tel)) {
+      const link = document.createElement("a");
+      link.className = "concierge-call-link";
+      link.href = `tel:${tel}`;
+      link.textContent = `Call concierge ${phone}`;
+      row.appendChild(link);
+    }
     return row;
   }
 
@@ -198,16 +224,99 @@ function renderMessage(message) {
 function renderText(text) {
   const body = document.createElement("div");
   body.className = "message-text";
-  const lines = String(text || "").split("\n");
-  for (const [index, line] of lines.entries()) {
-    if (index) body.appendChild(document.createElement("br"));
-    body.appendChild(document.createTextNode(line));
+  const lines = String(text || "").replace(/\r\n?/g, "\n").split("\n");
+  let activeList = null;
+  let codeBlock = null;
+
+  for (const rawLine of lines) {
+    const line = rawLine.replace(/^\*{4,}([^*\n]*?)\*{4,}$/, "$1");
+    if (/^\s*```/.test(line)) {
+      codeBlock = codeBlock ? null : document.createElement("pre");
+      if (codeBlock) {
+        codeBlock.className = "message-code-block";
+        body.appendChild(codeBlock);
+      }
+      activeList = null;
+      continue;
+    }
+    if (codeBlock) {
+      codeBlock.textContent += `${line}\n`;
+      continue;
+    }
+    if (!line.trim()) {
+      activeList = null;
+      continue;
+    }
+    if (/^\s{0,3}(?:\*{3,}|-{3,}|_{3,})\s*$/.test(line)) {
+      activeList = null;
+      body.appendChild(document.createElement("hr"));
+      continue;
+    }
+
+    const heading = line.match(/^\s{0,3}(#{1,6})\s*(.*)$/);
+    if (heading) {
+      activeList = null;
+      if (!heading[2].trim()) continue;
+      const section = document.createElement("h3");
+      section.className = "message-heading";
+      appendInlineMarkdown(section, heading[2]);
+      body.appendChild(section);
+      continue;
+    }
+
+    const listItem = line.match(/^\s{0,3}([-+*]|\d+[.)])\s+(.+)$/);
+    if (listItem) {
+      const numbered = /^\d/.test(listItem[1]);
+      const listTag = numbered ? "ol" : "ul";
+      if (!activeList || activeList.tagName.toLowerCase() !== listTag) {
+        activeList = document.createElement(listTag);
+        activeList.className = "message-list-items";
+        body.appendChild(activeList);
+      }
+      const item = document.createElement("li");
+      appendInlineMarkdown(item, listItem[2]);
+      activeList.appendChild(item);
+      continue;
+    }
+
+    const quote = line.match(/^\s{0,3}>\s?(.*)$/);
+    const paragraph = document.createElement(quote ? "blockquote" : "p");
+    paragraph.className = quote ? "message-quote" : "message-paragraph";
+    appendInlineMarkdown(paragraph, quote ? quote[1] : line.trim());
+    body.appendChild(paragraph);
+    activeList = null;
   }
   return body;
 }
 
+function appendInlineMarkdown(target, value, depth = 0) {
+  const text = String(value || "");
+  if (depth >= 4) {
+    target.appendChild(document.createTextNode(text.replace(/(?:\*{2,}|~~|`{1,3})/g, "")));
+    return;
+  }
+
+  const markdown = /(\*{1,3}|~~|`)(.+?)\1/g;
+  let cursor = 0;
+  for (const match of text.matchAll(markdown)) {
+    if (match.index > cursor) {
+      target.appendChild(document.createTextNode(text.slice(cursor, match.index).replace(/(?:\*{2,}|~~|`{1,3})/g, "")));
+    }
+    const marker = match[1];
+    const content = match[2];
+    const element = document.createElement(marker === "`" ? "code" : marker === "~~" ? "del" : marker.length > 1 ? "strong" : "em");
+    if (marker === "`") element.textContent = content;
+    else appendInlineMarkdown(element, content, depth + 1);
+    target.appendChild(element);
+    cursor = match.index + match[0].length;
+  }
+  if (cursor < text.length) {
+    target.appendChild(document.createTextNode(text.slice(cursor).replace(/(?:\*{2,}|~~|`{1,3})/g, "")));
+  }
+}
+
 const guestAuthFieldDefinitions = {
-  complimentary: [{ name: "code", label: "Access code", autocomplete: "off" }],
+  complimentary: [],
   local: [{ name: "username", label: "Username", autocomplete: "username" }, { name: "password", label: "Password", type: "password", autocomplete: "current-password" }],
   radius: [{ name: "username", label: "Username", autocomplete: "username" }, { name: "password", label: "Password", type: "password", autocomplete: "current-password" }],
   pms: [{ name: "room", label: "Room number", autocomplete: "off", inputmode: "numeric" }, { name: "last_name", label: "Last name or PMS password", autocomplete: "family-name" }],
@@ -440,43 +549,60 @@ function submitGatewayHandoff(handoff) {
 
 async function handleGuestInput(rawMessage) {
   const message = rawMessage.trim();
-  if (!message) return;
-  if (!state.sessionId) {
-    try {
-      await ensureStarted();
-    } catch (error) {
-      addMessage({ role: "assistant", type: "error", text: "Unable to start the concierge: " + error.message });
+  if (!message || state.inputPending) return;
+  state.inputPending = true;
+  updateComposerState();
+  try {
+    const conversationHistory = state.messages
+      .filter((item) => (item.role === "user" && item.type === "text") || (item.role === "assistant" && ["text", "recommendation", "concierge-contact"].includes(item.type)))
+      .filter((item) => String(item.text || "").trim())
+      .slice(-10)
+      .map((item) => ({ role: item.role === "user" ? "guest" : "assistant", content: item.text.slice(0, 2000) }));
+    addMessage({ role: "user", type: "text", text: message });
+
+    if (!state.sessionId) {
+      try {
+        await ensureStarted();
+      } catch (error) {
+        reportStartupError(error);
+        return;
+      }
+    }
+
+    if (isWifiRequest(message)) {
+      clearSubmittedComposer(message);
+      handleWifiRequest();
       return;
     }
-  }
-  addMessage({ role: "user", type: "text", text: message });
-  setDraft("");
 
-  if (isWifiRequest(message)) {
-    handleWifiRequest();
-    return;
-  }
+    const matchedService = isInformationRequest(message) ? null : matchService(message);
+    if (matchedService) {
+      addMessage({
+        role: "assistant",
+        type: "confirmation",
+        text: `Absolutely — I can arrange ${matchedService.name.toLowerCase()} for you. Please confirm and I’ll send it to the hotel team.`,
+        actionLabel: "Confirm request",
+        service: matchedService,
+        description: message,
+        clientRequestId: createClientId(),
+      });
+      clearSubmittedComposer(message);
+      return;
+    }
 
-  const matchedService = isInformationRequest(message) ? null : matchService(message);
-  if (matchedService) {
-    addMessage({
-      role: "assistant",
-      type: "confirmation",
-      text: `Absolutely — I can arrange ${matchedService.name.toLowerCase()} for you. Please confirm and I’ll send it to the hotel team.`,
-      actionLabel: "Confirm request",
-      service: matchedService,
-      description: message,
-      clientRequestId: createClientId(),
-    });
-    return;
+    if (await sendChat(message, conversationHistory)) clearSubmittedComposer(message);
+  } finally {
+    state.inputPending = false;
+    updateComposerState();
   }
-
-  const messageForAI = state.pendingAttachment ? `${message}\n\n${state.pendingAttachment}` : message;
-  state.pendingAttachment = null;
-  await sendChat(messageForAI);
 }
 
-async function sendChat(message) {
+function clearSubmittedComposer(message) {
+  const input = $("composer-input");
+  if (input.value.trim() === message) setDraft("");
+}
+
+async function sendChat(message, conversationHistory = []) {
   const initialRecommendations = isRestaurantRequest(message) ? state.recommendations : [];
   const thinking = {
     role: "assistant",
@@ -493,25 +619,24 @@ async function sendChat(message) {
         session_id: state.sessionId,
         message,
         mode: state.mode,
+        conversation_history: conversationHistory,
       }),
     });
-    if (result.human_takeover) {
+    if (result.human_takeover || result.ai_paused) {
       thinking.type = "status";
-      thinking.text = "Your message is with the restaurant team. A staff member can reply here.";
+      thinking.text = result.human_takeover
+        ? "Your request is with the restaurant team. A staff member can reply here."
+        : "This staff request is closed. Start a new conversation if you need more help.";
       renderMessages();
-      return;
-    }
-    if (result.ai_paused) {
-      thinking.type = "status";
-      thinking.text = "This conversation is closed. Start a new chat if you need more help.";
-      renderMessages();
-      return;
+      return true;
     }
     const livePlaces = result.places || [];
     const savedRecommendations = isRestaurantRequest(message) && !result.personalized_recommendations ? state.recommendations : [];
     const recommendationResults = livePlaces.length ? livePlaces : savedRecommendations;
-    thinking.type = recommendationResults.length ? "recommendation" : "text";
+    thinking.type = result.contact_concierge && !recommendationResults.length ? "concierge-contact" : recommendationResults.length ? "recommendation" : "text";
     thinking.text = result.answer;
+    thinking.contactPhone = result.contact_concierge ? result.concierge_phone || "" : "";
+    thinking.phone = thinking.contactPhone;
     thinking.results = recommendationResults.map((place) => ({ ...place, category: place.category || "Live Places result", description: place.description || place.address }));
     renderMessages();
     if (result.source === "personalization") {
@@ -519,18 +644,29 @@ async function sendChat(message) {
         .then(renderPersonalization)
         .catch(() => {});
     }
+    return true;
   } catch (error) {
     const savedRecommendations = isRestaurantRequest(message) ? state.recommendations : [];
-    thinking.type = savedRecommendations.length ? "recommendation" : "error";
-    thinking.text = savedRecommendations.length
-      ? "The AI service is temporarily unavailable. Here are the hotel's saved recommendations."
-      : error.message;
+    const phone = String(state.hotel?.concierge_phone || "");
+    if (!error.status || error.status >= 500) {
+      thinking.type = "concierge-contact";
+      thinking.text = phone
+        ? "I can't reach the concierge service right now. Please call the hotel concierge."
+        : "I can't reach the concierge service right now. Please call the hotel concierge directly from your room phone or contact the front desk.";
+      thinking.phone = phone;
+    } else {
+      thinking.type = savedRecommendations.length ? "recommendation" : "error";
+      thinking.text = savedRecommendations.length
+        ? "The AI service is temporarily unavailable. Here are the hotel's saved recommendations."
+        : error.message;
+    }
     thinking.results = savedRecommendations.map((place) => ({
       ...place,
       category: place.category || "Hotel recommendation",
       description: place.description || place.address,
     }));
     renderMessages();
+    return false;
   }
 }
 
@@ -546,10 +682,13 @@ function enabledAuthenticationTypes() {
 function handleWifiRequest() {
   const enabled = enabledAuthenticationTypes();
   if (!enabled.length) {
+    const authenticationEnabled = state.hotel?.authentication?.enabled;
     addMessage({
       role: "assistant",
       type: "text",
-      text: "Wi-Fi authentication is not enabled for this hotel in the admin settings yet. Please contact the front desk for access.",
+      text: authenticationEnabled === false
+        ? "Hotel Wi-Fi sign-in through Concierge is turned off. ANTlabs may still require a gateway login; please contact the front desk if you cannot connect."
+        : "No supported Wi-Fi login method is currently enabled for this hotel. Please contact the front desk for access.",
     });
     return;
   }
@@ -586,7 +725,7 @@ function updateComposerState() {
   const input = $("composer-input");
   input.style.height = "auto";
   input.style.height = Math.min(input.scrollHeight, 148) + "px";
-  $("send-button").disabled = !input.value.trim();
+  $("send-button").disabled = state.inputPending || !input.value.trim();
 }
 
 function setupComposer() {
@@ -601,7 +740,7 @@ function setupComposer() {
   });
 
   input.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && !event.shiftKey) {
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
       event.preventDefault();
       $("composer-form").requestSubmit();
     }
@@ -612,44 +751,14 @@ function setupComposer() {
     handleGuestInput(input.value);
   });
 
-  $("upload-button").addEventListener("click", () => $("upload-input").click());
-  $("upload-input").addEventListener("change", async (event) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-    try {
-      await ensureStarted();
-      if (file.size > 1_000_000) throw new Error("Guest uploads are limited to 1 MB.");
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      let binary = "";
-      for (const byte of bytes) binary += String.fromCharCode(byte);
-      const result = await jsonFetch("/api/guest/uploads", {
-        method: "POST",
-        body: JSON.stringify({ session_id: state.sessionId, filename: file.name, content_type: file.type || "text/plain", content_base64: btoa(binary) }),
-      });
-      addMessage({ role: "user", type: "text", text: `Uploaded ${result.filename}` });
-      state.pendingAttachment = result.message_context;
-      addMessage({ role: "assistant", type: "text", text: `${result.filename} is ready. Ask me a question about the document.` });
-    } catch (error) {
-      showToast(error.message, "error");
-    }
-  });
-
 }
 
 function setupMenu() {
   $("personalize-cta").addEventListener("click", () => openMemoryPanel().catch((error) => showToast(error.message, "warning")));
-  $("menu-button").addEventListener("click", () => {
-    $("hotel-menu").classList.add("open");
-    $("hotel-menu").setAttribute("aria-hidden", "false");
-  });
-  $("options-button").addEventListener("click", () => {
-    $("hotel-menu").classList.add("open");
-    $("hotel-menu").setAttribute("aria-hidden", "false");
-  });
-  $("close-menu-button").addEventListener("click", closeMenu);
+  $("menu-button").addEventListener("click", openMenu);
+  $("close-menu-button").addEventListener("click", () => closeMenu(true));
   $("hotel-menu").addEventListener("click", (event) => {
-    if (event.target === $("hotel-menu")) closeMenu();
+    if (event.target === $("hotel-menu")) closeMenu(true);
   });
   for (const button of document.querySelectorAll("[data-menu-action]")) {
     button.addEventListener("click", () => handleMenuAction(button.dataset.menuAction).catch((error) => showToast(error.message, "warning")));
@@ -670,14 +779,28 @@ function setupMenu() {
     if (event.target === $("property-map-modal")) closePropertyMap();
   });
   document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && $("hotel-menu").classList.contains("open")) closeMenu(true);
     if (event.key === "Escape" && !$("property-map-modal").hidden) closePropertyMap();
     if (event.key === "Escape" && !$("memory-modal").hidden) closeMemoryPanel();
   });
 }
 
-function closeMenu() {
-  $("hotel-menu").classList.remove("open");
-  $("hotel-menu").setAttribute("aria-hidden", "true");
+function openMenu() {
+  const menu = $("hotel-menu");
+  menu.inert = false;
+  menu.classList.add("open");
+  menu.setAttribute("aria-hidden", "false");
+  $("menu-button").setAttribute("aria-expanded", "true");
+  $("close-menu-button").focus();
+}
+
+function closeMenu(restoreFocus = false) {
+  const menu = $("hotel-menu");
+  menu.classList.remove("open");
+  menu.setAttribute("aria-hidden", "true");
+  menu.inert = true;
+  $("menu-button").setAttribute("aria-expanded", "false");
+  if (restoreFocus) $("menu-button").focus();
 }
 
 const memoryCategoryLabels = {
@@ -830,8 +953,10 @@ async function handleMenuAction(action) {
   if (action === "new-chat") {
     state.messages = [];
     state.sessionId = null;
+    state.staffMessagingEnabled = false;
+    state.staffMessageIds = new Set();
     sessionStorage.removeItem("concierge-session-id");
-    state.staffMessageIds.clear();
+    sessionStorage.removeItem("concierge-staff-messaging-session-id");
     await startGuestSession();
     renderMessages();
     showToast("Started a new conversation.");
@@ -867,7 +992,7 @@ async function handleMenuAction(action) {
     localStorage.setItem("concierge-accessibility", enabled ? "1" : "0");
     addMessage({ role: "assistant", type: "status", text: `Accessibility display mode ${enabled ? "enabled" : "disabled"}.` });
   } else if (action === "privacy") {
-    addMessage({ role: "assistant", type: "text", text: "Your chat session is temporary and expires after inactivity under this hotel's session settings. Personalization starts private. Saved preferences are used only after you opt in, and you can review, remove, or clear them in Personalization / Memory. Avoid sharing payment details or passwords in chat." });
+    addMessage({ role: "assistant", type: "text", text: "Your messages are processed by this property's configured AI service and aren't shown to hotel staff. Chat context stays in this open session and expires after inactivity. Confirmed service requests are shared with the hotel team. Personalization is optional; you can review or clear saved preferences in Personalization / Memory." });
   } else if (action === "help") {
     addMessage({ role: "assistant", type: "text", text: "Ask a question about this property. The concierge uses information configured for guests." });
   }
@@ -878,37 +1003,37 @@ function openRestaurantStaffRequest() {
   select.replaceChildren();
   for (const restaurant of state.restaurants) {
     if (["disabled", "archived"].includes(restaurant.status) || restaurant.archived) continue;
-    const option = document.createElement("option");
-    option.value = restaurant.restaurant_id;
-    option.textContent = restaurant.name;
-    select.appendChild(option);
+    select.appendChild(new Option(restaurant.name, restaurant.restaurant_id));
   }
   $("restaurant-staff-status").textContent = "";
+  $("restaurant-staff-reason").value = "";
   if (!select.options.length) {
     addMessage({ role: "assistant", type: "status", text: "No restaurant staff contact is configured for this property yet." });
     return;
   }
   $("restaurant-staff-dialog").showModal();
+  $("restaurant-staff-select").focus();
 }
 
 async function requestRestaurantStaff(event) {
   event.preventDefault();
-  if (!state.sessionId) throw new Error("Your concierge session has expired.");
-  const button = $("restaurant-staff-request-form").querySelector('button[type="submit"]');
+  if (!state.sessionId) await ensureStarted();
+  const form = $("restaurant-staff-request-form");
+  const button = form.querySelector('button[type="submit"]');
   button.disabled = true;
+  setText("restaurant-staff-status", "Sending your request…");
   try {
     await jsonFetch("/api/guest/conversations/" + encodeURIComponent(state.sessionId) + "/escalate", {
       method: "POST",
-      body: JSON.stringify({
-        restaurant_id: $("restaurant-staff-select").value,
-        reason: $("restaurant-staff-reason").value.trim(),
-      }),
+      body: JSON.stringify({ restaurant_id: $("restaurant-staff-select").value, reason: $("restaurant-staff-reason").value.trim() }),
     });
+    state.staffMessagingEnabled = true;
+    sessionStorage.setItem("concierge-staff-messaging-session-id", state.sessionId);
     $("restaurant-staff-dialog").close();
-    $("restaurant-staff-reason").value = "";
-    addMessage({ role: "assistant", type: "status", text: "Your request is with the restaurant team. A team member can reply in this chat." });
+    addMessage({ role: "assistant", type: "status", text: "Your request is with the restaurant team. A team member can reply here." });
+    pollStaffMessages();
   } catch (error) {
-    $("restaurant-staff-status").textContent = error.message;
+    setText("restaurant-staff-status", error.message || "We couldn't send your request. Please try again.");
   } finally {
     button.disabled = false;
   }
@@ -983,7 +1108,20 @@ function renderConfiguredModules(modules) {
   const list = $("configured-module-list");
   list.innerHTML = "";
   for (const module of [...modules].sort((a, b) => Number(a.order || 0) - Number(b.order || 0))) {
-    const button = document.createElement("button"); button.type = "button"; button.textContent = module.name;
+    const button = document.createElement("button");
+    button.type = "button";
+    const icon = document.createElement("span");
+    icon.className = "menu-item-icon menu-item-icon-module";
+    icon.setAttribute("aria-hidden", "true");
+    icon.innerHTML = '<svg viewBox="0 0 24 24"><path d="m12 3 1.6 5.4L19 10l-5.4 1.6L12 17l-1.6-5.4L5 10l5.4-1.6L12 3Z"/><path d="m19 15 .7 2.3L22 18l-2.3.7L19 21l-.7-2.3L16 18l2.3-.7L19 15Z"/></svg>';
+    const copy = document.createElement("span");
+    copy.className = "menu-item-copy";
+    const title = document.createElement("strong");
+    title.textContent = module.name;
+    const description = document.createElement("small");
+    description.textContent = module.description || "Explore this service";
+    copy.append(title, description);
+    button.append(icon, copy);
     button.addEventListener("click", () => { closeMenu(); sendChat(module.prompt).catch((error) => showToast(error.message, "warning")); });
     list.appendChild(button);
   }
@@ -994,26 +1132,62 @@ async function maybeShowIntro() {
     const intro = await jsonFetch("/api/guest/intro");
     state.intro = intro;
     if (!intro || intro.mode === "none") return;
-    if (intro.first_visit_only && localStorage.getItem("concierge-intro-seen") === "1") return;
+    const seenKey = `concierge-intro-seen:${state.hotel?.property_id || "property"}`;
+    if (intro.first_visit_only && localStorage.getItem(seenKey) === "1") return;
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const overlay = $("intro-overlay");
     const stage = $("intro-stage");
+    const video = $("intro-video");
+    const branding = state.hotel?.design?.branding || {};
+    const logoUrl = branding.logoUrl || state.hotel?.logo_url || "";
     overlay.dataset.preset = reducedMotion ? "none" : intro.preset;
     overlay.style.background = intro.background || "#fbfbfa";
     overlay.style.color = intro.brand_color || "#18181b";
+    overlay.style.setProperty("--intro-background", intro.background || "#fbfbfa");
+    overlay.style.setProperty("--intro-brand", intro.brand_color || "#18181b");
+    overlay.style.setProperty("--intro-duration", `${Math.max(300, Math.min(8000, intro.duration_ms || 1400))}ms`);
     $("intro-logo").style.background = intro.brand_color || "#18181b";
-    $("intro-logo").textContent = (state.hotel?.name || "Concierge").slice(0, 1).toUpperCase();
+    $("intro-logo-mark").textContent = (state.hotel?.name || "Concierge").slice(0, 1).toUpperCase();
+    const logoImage = $("intro-logo-image");
+    if (logoUrl) {
+      logoImage.src = logoUrl;
+      logoImage.hidden = false;
+      $("intro-logo-mark").hidden = true;
+    } else {
+      logoImage.removeAttribute("src");
+      logoImage.hidden = true;
+      $("intro-logo-mark").hidden = false;
+    }
     $("intro-message").textContent = intro.welcome_message || state.hotel?.welcome || "Welcome";
     $("intro-skip").hidden = !intro.allow_skip;
-    overlay.hidden = false;
+    let finished = false;
+    let finishTimer = null;
     const finish = () => {
+      if (finished) return;
+      finished = true;
+      if (finishTimer) clearTimeout(finishTimer);
+      video.pause();
+      video.removeAttribute("src");
+      video.hidden = true;
       overlay.hidden = true;
-      localStorage.setItem("concierge-intro-seen", "1");
+      if (intro.first_visit_only) localStorage.setItem(seenKey, "1");
     };
     $("intro-skip").onclick = finish;
-    window.setTimeout(finish, reducedMotion ? 450 : intro.duration_ms || 1400);
-    stage.addEventListener("animationend", () => {}, { once: true });
+    overlay.hidden = false;
+    if (!reducedMotion && intro.mode === "custom_upload" && intro.asset_url && ["video/webm", "video/mp4"].includes(intro.asset_type)) {
+      video.hidden = false;
+      video.src = intro.asset_url;
+      video.load();
+      video.play().catch(() => { video.hidden = true; });
+    }
+    finishTimer = window.setTimeout(finish, reducedMotion ? 450 : Math.max(300, Math.min(8000, intro.duration_ms || 1400)));
+    stage.addEventListener("animationend", () => {
+      if (state.intro?.duration_ms && Number(state.intro.duration_ms) <= 800) finish();
+    }, { once: true });
   } catch {
+    $("intro-video").pause();
+    $("intro-video").removeAttribute("src");
+    $("intro-video").hidden = true;
     $("intro-overlay").hidden = true;
   }
 }
@@ -1095,20 +1269,18 @@ async function start() {
     }
     throw error;
   }
-  const [catalog, recommendations, zones] = await Promise.all([
+  const [catalog, recommendations, zones, hospitality] = await Promise.all([
     jsonFetch("/api/guest/service-catalog"),
     jsonFetch("/api/guest/recommendations"),
     jsonFetch("/api/guest/zones").catch(() => ({ maps: [] })),
+    jsonFetch("/api/guest/facilities").catch(() => ({ restaurants: [] })),
   ]);
   state.services = catalog.services || [];
   state.recommendations = recommendations.recommendations || [];
   state.hasPropertyMap = Boolean(zones.maps?.length);
-  try {
-    const hospitality = await jsonFetch("/api/guest/facilities");
-    state.restaurants = hospitality.restaurants || [];
-  } catch { state.restaurants = []; }
+  state.restaurants = hospitality.restaurants || [];
+  document.querySelector('[data-menu-action="restaurant-staff"]').hidden = !state.restaurants.some((item) => item.status !== "disabled" && item.status !== "archived" && !item.archived);
   document.querySelector('[data-menu-action="property-map"]').hidden = !state.hasPropertyMap;
-  document.querySelector('[data-menu-action="restaurant-staff"]').hidden = !state.restaurants.length;
   applyHotelProfile(profile);
   await maybeShowIntro();
 
@@ -1116,7 +1288,10 @@ async function start() {
   localStorage.setItem("concierge-client-id", state.clientId);
 
   if (localStorage.getItem("concierge-accessibility") === "1") document.body.classList.add("accessibility-mode");
-  document.documentElement.lang = localStorage.getItem("concierge-language") || document.documentElement.lang;
+  document.documentElement.lang = localStorage.getItem("concierge-language")
+    || state.hotel?.application?.default_language
+    || state.hotel?.languages?.[0]
+    || document.documentElement.lang;
   await startGuestSession();
 }
 
@@ -1145,6 +1320,7 @@ async function startGuestSession() {
   }
   state.sessionId = session.session_id;
   sessionStorage.setItem("concierge-session-id", session.session_id);
+  state.staffMessagingEnabled = sessionStorage.getItem("concierge-staff-messaging-session-id") === session.session_id;
   try {
     const memory = await jsonFetch(`/api/guest/personalization?session_id=${encodeURIComponent(state.sessionId)}`);
     renderPersonalization(memory);
@@ -1152,7 +1328,7 @@ async function startGuestSession() {
 }
 
 async function pollStaffMessages() {
-  if (!state.sessionId || document.hidden) return;
+  if (!state.sessionId || !state.staffMessagingEnabled || document.hidden) return;
   try {
     const data = await jsonFetch(`/api/guest/conversations/${encodeURIComponent(state.sessionId)}/staff-messages`);
     for (const message of data.messages || []) {
@@ -1160,17 +1336,33 @@ async function pollStaffMessages() {
       state.staffMessageIds.add(message.message_id);
       addMessage({ role: "assistant", sender_label: "Restaurant Staff", type: "text", text: message.content });
     }
+    if (["resolved", "returned_to_ai"].includes(data.state)) {
+      state.staffMessagingEnabled = false;
+      sessionStorage.removeItem("concierge-staff-messaging-session-id");
+      addMessage({ role: "assistant", type: "status", text: data.state === "resolved"
+        ? "The restaurant team resolved this request. Start a new conversation if you need more help."
+        : "The restaurant team returned this conversation to your concierge." });
+    }
   } catch (error) {
     if (!String(error.message).toLowerCase().includes("expired")) console.warn("Unable to refresh staff replies", error);
   }
 }
 
 function ensureStarted() {
-  if (!startupPromise) startupPromise = start();
+  if (!startupPromise) {
+    startupPromise = start().catch((error) => {
+      startupPromise = null;
+      throw error;
+    });
+  }
   return startupPromise;
 }
 
-ensureStarted().catch((error) => {
-  addMessage({ role: "assistant", type: "error", text: "Unable to start the concierge: " + error.message });
-});
-window.setInterval(pollStaffMessages, 3000);
+function reportStartupError(error) {
+  const text = "Unable to start the concierge: " + error.message;
+  if (state.messages.some((message) => message.role === "assistant" && message.type === "error" && message.text === text)) return;
+  addMessage({ role: "assistant", type: "error", text });
+}
+
+ensureStarted().catch(reportStartupError);
+window.setInterval(pollStaffMessages, 5000);

@@ -211,6 +211,10 @@ class HospitalityStore:
                     updated_at INTEGER NOT NULL,
                     UNIQUE(property_id, name)
                 );
+                CREATE TABLE IF NOT EXISTS service_catalog_seed_state (
+                    property_id TEXT PRIMARY KEY,
+                    initialized_at INTEGER NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS recommendations (
                     recommendation_id TEXT PRIMARY KEY,
                     property_id TEXT NOT NULL,
@@ -470,6 +474,118 @@ class HospitalityStore:
         with self._connect() as db:
             cursor = db.execute("DELETE FROM service_catalog WHERE property_id=? AND service_id=?", (property_id, service_id))
         return cursor.rowcount > 0
+
+    def seed_starter_service_catalog(self, property_id: str) -> bool:
+        departments = (
+            {"key": "housekeeping", "name": "Housekeeping", "sla": 30, "escalation": "Front Desk"},
+            {"key": "maintenance", "name": "Maintenance", "sla": 45, "escalation": "Front Desk"},
+            {"key": "front_desk", "name": "Front Desk", "sla": 15, "escalation": "Duty Manager"},
+            {"key": "bell_services", "name": "Bell Services", "sla": 15, "escalation": "Front Desk"},
+        )
+        services = (
+            (
+                "housekeeping", "Room cleaning",
+                "Request routine or additional room cleaning. Hotel staff will confirm availability and timing.",
+                ["clean room", "housekeeping", "room cleaning", "tidy room"], 60,
+            ),
+            (
+                "housekeeping", "Extra towels",
+                "Request fresh towels for your room. Hotel staff will confirm availability and timing.",
+                ["towel", "towels", "bath towel", "pool towel"], 30,
+            ),
+            (
+                "housekeeping", "Extra pillows or blanket",
+                "Request additional bedding for your room, subject to availability.",
+                ["pillow", "pillows", "blanket", "duvet", "bedding"], 30,
+            ),
+            (
+                "housekeeping", "Toiletries or guest amenities",
+                "Request available toiletries or in-room guest amenities.",
+                ["toiletries", "shampoo", "conditioner", "soap", "toothbrush", "amenities"], 30,
+            ),
+            (
+                "housekeeping", "Baby cot or crib",
+                "Request a baby cot or crib, subject to availability.",
+                ["baby cot", "crib", "cot", "baby bed"], 30,
+            ),
+            (
+                "maintenance", "Air conditioning issue",
+                "Report an air conditioning or room temperature issue for hotel staff to review.",
+                ["air conditioning", "aircon", "a/c", "ac", "temperature", "thermostat"], 45,
+            ),
+            (
+                "maintenance", "Plumbing issue",
+                "Report a sink, shower, toilet, or water leak issue.",
+                ["plumbing", "leak", "sink", "faucet", "tap", "toilet", "shower"], 45,
+            ),
+            (
+                "maintenance", "Electrical or lighting issue",
+                "Report a room lighting, outlet, or electrical issue.",
+                ["electrical", "light", "lighting", "outlet", "power", "bulb"], 45,
+            ),
+            (
+                "front_desk", "Wake-up call",
+                "Request a wake-up call from the front desk. Add your preferred time in the request details.",
+                ["wake-up call", "wake up", "wakeup", "alarm"], 15,
+            ),
+            (
+                "front_desk", "Late check-out request",
+                "Request a later check-out time. Approval depends on availability.",
+                ["late checkout", "late check-out", "extend checkout", "extend stay"], 15,
+            ),
+            (
+                "front_desk", "Contact the front desk",
+                "Ask the front desk to follow up with you. Include a preferred contact method in the details.",
+                ["front desk", "call me", "contact me", "staff assistance"], 15,
+            ),
+            (
+                "bell_services", "Luggage assistance",
+                "Request help with luggage. Add the number of bags and your preferred time in the details.",
+                ["luggage", "bags", "baggage", "porter"], 15,
+            ),
+        )
+        now = _now()
+        department_ids = {item["key"]: _id("dept") for item in departments}
+
+        with self._connect() as db:
+            inserted = db.execute(
+                "INSERT INTO service_catalog_seed_state (property_id, initialized_at) VALUES (?, ?) "
+                "ON CONFLICT(property_id) DO NOTHING",
+                (property_id, now),
+            )
+            if inserted.rowcount == 0:
+                return False
+
+            existing = db.execute(
+                "SELECT 1 FROM departments WHERE property_id=? "
+                "UNION ALL SELECT 1 FROM service_catalog WHERE property_id=? LIMIT 1",
+                (property_id, property_id),
+            ).fetchone()
+            if existing:
+                return False
+
+            for department in departments:
+                db.execute(
+                    "INSERT INTO departments (department_id, property_id, name, enabled, default_sla_minutes, "
+                    "escalation_target, operating_hours, webhook_url, created_at, updated_at) "
+                    "VALUES (?, ?, ?, 1, ?, ?, '{}', '', ?, ?)",
+                    (
+                        department_ids[department["key"]], property_id, department["name"],
+                        department["sla"], department["escalation"], now, now,
+                    ),
+                )
+
+            for sort_order, (department_key, name, description, keywords, sla) in enumerate(services):
+                db.execute(
+                    "INSERT INTO service_catalog (service_id, property_id, department_id, name, description, keywords, "
+                    "sla_minutes, confirmation_required, enabled, archived, sort_order, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, 0, ?, ?, ?)",
+                    (
+                        _id("svc"), property_id, department_ids[department_key], name,
+                        description, _json(keywords), sla, sort_order, now, now,
+                    ),
+                )
+        return True
 
     def upsert_recommendation(self, property_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         now = _now()

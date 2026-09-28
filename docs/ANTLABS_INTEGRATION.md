@@ -7,9 +7,7 @@ The repository contains a configurable ANTlabs adapter with two modes:
 - `mock`: simulates successful authentication for UI and local-AI development.
 - `browser_handoff`: returns a form definition that the guest browser submits to the configured ANTlabs authentication endpoint.
 
-The exact SG5 authentication URL, required form fields, success callback, failure callback, and gateway session parameters are intentionally not hard-coded yet.
-
-They must be validated against a real ANTlabs SG5 deployment.
+The live adapter now follows the built-in processor path and form fields in the supplied ANTlabs Custom Portal Developer Guide r1.01. This documents the handoff contract; it does not prove the target property's portal, processor, PMS, or Internet-access policy is configured correctly.
 
 ## Authentication methods in scope
 
@@ -32,7 +30,21 @@ The supplied ANTlabs docs describe multiple supported gateway mechanisms, but do
 
 The V5 Gateway API's `auth_login` supports local, RADIUS, and ACS account/code paths. The custom portal guide also documents built-in complimentary, local, PMS, access-code, and credit-card processor paths, plus gateway social-login APIs. User-form verification and payment/social provider setup require their own site configuration. The ASP API V2 management API is not a substitute for guest login.
 
-The guest UI now renders forms from the property's enabled methods, and the `/api/authenticate` endpoint rejects any method that is disabled for that property. Mock mode can exercise all ten form paths, but it simulates acceptance only. Live gateway handoff mappings still require validation against the site's configured processor and provider setup; a handoff response by itself must not be treated as proof of successful authentication.
+The guest UI renders only enabled methods supported by the active adapter, and `/api/authenticate` rejects disabled methods and a disabled property-level authentication switch. Mock mode can exercise all ten form paths, but it simulates acceptance only. Live `browser_handoff` currently implements only the built-in processor methods listed below. RADIUS, ACS/global accounts and codes, user registration, and social login need their own validated ANTlabs flow; they are not advertised to guests by this adapter.
+
+### Built-in processor handoff implemented here
+
+For the live built-in processor, configure `ANTLABS_AUTH_URL` with the SG5 host and `/login/main.ant` path. The adapter sets the query parameter to `c=proc` for Complimentary, Local, PMS, and Access Code, or `c=cc` for Credit Card. It sends a POST with the guide's `p` values: `complimentary`, `local`, `pms`, `code`, or `cc`.
+
+- Local credentials map to `uid` and `pwd`.
+- PMS room and password map to `uid` and `pwd`; the default Concierge label collects last name, so the hotel's PMS policy must actually accept that value as its configured password.
+- Access Code maps to `code`.
+- Complimentary sends no guest credential.
+- Credit-card payment details remain on ANTlabs' configured secure payment page; Concierge does not collect card data.
+
+ANTlabs' guide describes the built-in processor and its success/failure pages as gateway-managed. Concierge submits the browser handoff but does not receive a trusted success callback or independently verify Internet access. The admin connection check is an endpoint reachability check only. A live guest-device test is still required before production.
+
+The property-level **Require guest sign-in** setting controls whether Concierge shows the handoff choices and accepts its authentication API. Turning it off preserves the configured methods but does not change ANTlabs VLAN, portal, or Internet-access policy. Configure ANTlabs separately if the hotel intends to permit Internet access without gateway authentication.
 
 ## Why browser handoff
 
@@ -100,16 +112,16 @@ Example only:
 
 ```env
 ANTLABS_MODE=browser_handoff
-ANTLABS_AUTH_URL=http://<gateway-auth-endpoint>
+ANTLABS_AUTH_URL=https://<sg5-host>/login/main.ant?c=proc
 ANTLABS_AUTH_METHOD=POST
-ANTLABS_ROOM_FIELD=<validated-room-field>
-ANTLABS_LAST_NAME_FIELD=<validated-last-name-field>
+ANTLABS_ROOM_FIELD=uid
+ANTLABS_LAST_NAME_FIELD=pwd
 ANTLABS_SESSION_FIELD=<validated-session-field-if-required>
 ANTLABS_SESSION_CONTEXT_KEY=<validated-query/context-key-if-required>
 ANTLABS_PASSTHROUGH_FIELDS=<validated-field-1>,<validated-field-2>
 ```
 
-Do not deploy `browser_handoff` using placeholder field names. No ANTlabs session field is sent by default; it must be mapped from validated gateway-provided context. Startup accepts only `mock` and `browser_handoff`; unsupported values such as `live` fail configuration loading. Production startup also requires an auth URL for browser handoff. These checks validate configuration shape, not gateway compatibility.
+Replace `<sg5-host>` with the property's actual gateway hostname. The built-in processor requires the `/login/main.ant` path and POST. No ANTlabs session field is sent by default; only map session or passthrough values after validating them against the gateway-provided context. Startup accepts only `mock` and `browser_handoff`; unsupported values such as `live` fail configuration loading. Production startup also requires an auth URL for browser handoff. These checks validate configuration shape, not gateway compatibility.
 
 ## Real SG5 validation checklist
 

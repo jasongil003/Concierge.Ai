@@ -70,9 +70,9 @@ The guest sees a simple Fast / Auto / Advanced mode switch. Provider names remai
 
 See [AI providers and routing](AI_PROVIDERS.md).
 
-The guest conversation API supports explicit restaurant staff requests. The conversation store tracks `ai_active`, `waiting_for_staff`, `assigned`, `human_active`, `resolved`, and `returned_to_ai`. Assignment and acceptance are separate atomic transitions. AI writes re-check the state inside their database transaction, so an in-flight model response cannot be stored after staff takeover. Restaurant conversations remain paused after resolution and resume only when staff returns them to the AI.
+Guest chat history stays in the open browser session and is sent with each request only to provide short-term AI context. Raw guest and assistant message text is not written to the application database or exposed in staff analytics. If the concierge cannot verify an answer, it directs the guest to call the hotel's configured concierge number; confirmed service requests remain a separate, explicit workflow.
 
-PMS-aware tools, semantic cache, and an intent router remain future work. Automated classification into a restaurant escalation is not a substitute for the explicit guest request and verified staff workflow.
+PMS-aware tools, semantic cache, and an intent router remain future work.
 
 ## Session lifecycle
 
@@ -175,12 +175,11 @@ Restaurants are owned by one property. The normalized restaurant hierarchy is:
 property -> restaurant -> menu -> menu item
 property -> restaurant -> promotion
 property -> user -> restaurant assignment
-property -> restaurant -> conversation -> messages and audit events
 ```
 
 The SQLite store uses composite property/resource keys and foreign keys for new restaurant, menu, and promotion schemas. Every restaurant-facing data query includes both `property_id` and the restaurant or child resource identifier. User assignments are stored in `user_restaurants`; menu and promotion content records the creator, editor, approver, publisher, and transition times. Menu or promotion edits clear prior approval and return content to `pending_approval`. Guest queries return only published, active menus and current published promotions. Internal restaurant notes are excluded from guest payloads.
 
-Restaurant Manager and Restaurant Staff are property-scoped roles with per-restaurant assignments. Managers edit restaurant details, hours, menu items, and promotions and approve/publish guest content. Staff see approved guest information and handle assigned conversations. Backend permission checks apply to direct API calls as well as the admin UI. Historical records are retained by archiving or disabling a restaurant instead of deleting it.
+Restaurant Manager and Restaurant Staff are property-scoped roles with per-restaurant assignments. Managers edit restaurant details, hours, menu items, and promotions and approve/publish guest content. Staff see approved guest information and handle explicit service requests through the property's configured workflows. Backend permission checks apply to direct API calls as well as the admin UI. Historical records are retained by archiving or disabling a restaurant instead of deleting it.
 
 ### Database and migration boundary
 

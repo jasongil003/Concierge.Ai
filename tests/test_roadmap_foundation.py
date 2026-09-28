@@ -131,9 +131,22 @@ def test_intro_config_and_asset_validation(tmp_path: Path):
     assert config["preset"] == "luxury_reveal"
     uploaded = intro.upload_asset(
         "hotel-a",
-        {"filename": "intro.webm", "content_type": "video/webm", "content_base64": base64.b64encode(b"webm").decode()},
+        {"filename": "intro.webm", "content_type": "video/webm", "content_base64": base64.b64encode(b"\x1aE\xdf\xa3\x00\x00\x00\x00").decode()},
     )
     assert uploaded["mode"] == "custom_upload"
+    assert uploaded["asset_type"] == "video/webm"
+
+    removed = intro.remove_asset("hotel-a")
+    assert removed["asset_url"] == ""
+    assert removed["asset_type"] == ""
+    assert removed["mode"] == "generate_from_logo"
+
+    try:
+        intro.save("hotel-a", {"mode": "custom_upload", "preset": "fade_scale"})
+    except ValueError as exc:
+        assert "Upload a valid" in str(exc)
+    else:
+        raise AssertionError("Custom video mode should require an uploaded video")
 
     try:
         intro.upload_asset(

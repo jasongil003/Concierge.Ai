@@ -70,6 +70,17 @@ def test_department_analytics_cannot_see_other_department(tmp_path):
     assert {item["request_id"] for item in analytics["raw_requests"]} == {"req-1"}
 
 
+def test_empty_period_rates_are_reported_as_unavailable(tmp_path):
+    _, store = build_store(tmp_path)
+
+    analytics = store.property_analytics("hotel-a", "24h")
+
+    assert analytics["summary"]["sla_performance_percent"] is None
+    assert analytics["summary"]["ai_resolution_rate_percent"] is None
+    assert analytics["summary"]["fallback_rate_percent"] is None
+    assert analytics["guest_auth"]["success_rate"] is None
+
+
 def test_diagnostic_registry_checks_each_tool_permission():
     registry = DiagnosticToolRegistry()
     registry.register("database", "infrastructure.view", lambda context: {"state": "healthy"})
@@ -92,6 +103,23 @@ def test_alerts_are_generated_from_measurable_thresholds(tmp_path):
 
     assert {item["component"] for item in alerts} == {"request_queue", "ai_providers"}
     assert all(item["evidence"] for item in alerts)
+
+
+def test_role_filtered_alert_refresh_does_not_clear_other_alert_categories(tmp_path):
+    _, store = build_store(tmp_path)
+    dashboard = {
+        "analytics": {"summary": {"overdue_requests": 3}, "ai": {"requests": 20, "errors": 4}},
+        "database": {"state": "healthy", "evidence": "Probe succeeded."},
+    }
+    store.evaluate_alerts("hotel-a", dashboard)
+
+    refreshed = store.evaluate_alerts(
+        "hotel-a",
+        {"analytics": {"summary": {"overdue_requests": 0}, "ai": {"requests": 20, "errors": 4}}, "database": {"state": "unavailable"}},
+        {"request_queue"},
+    )
+
+    assert {item["component"] for item in refreshed} == {"ai_providers"}
 
 
 def test_reports_are_valid_and_include_required_sections(tmp_path):

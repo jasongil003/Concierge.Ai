@@ -2,6 +2,7 @@ import os
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 
@@ -148,8 +149,24 @@ def validate_production_settings(value: Settings, *, check_filesystem: bool = Tr
         validate_antlabs_mode(value.antlabs_mode)
     except ValueError as exc:
         errors.append(str(exc))
-    if value.antlabs_mode == "browser_handoff" and not value.antlabs_auth_url:
-        errors.append("ANTLABS_AUTH_URL must be configured for browser_handoff mode")
+    if value.antlabs_mode == "browser_handoff":
+        try:
+            parsed_auth_url = urlsplit(value.antlabs_auth_url)
+        except ValueError:
+            parsed_auth_url = None
+        if not value.antlabs_auth_url:
+            errors.append("ANTLABS_AUTH_URL must be configured for browser_handoff mode")
+        elif (
+            parsed_auth_url is None
+            or parsed_auth_url.scheme not in {"http", "https"}
+            or not parsed_auth_url.netloc
+            or not parsed_auth_url.hostname
+            or any(char in parsed_auth_url.netloc for char in "<>")
+            or not parsed_auth_url.path.rstrip("/").endswith("/login/main.ant")
+        ):
+            errors.append("ANTLABS_AUTH_URL must target the SG5 built-in processor at /login/main.ant")
+        if value.antlabs_auth_method != "POST":
+            errors.append("ANTLABS_AUTH_METHOD must be POST for the SG5 built-in processor")
     if value.admin_bootstrap_password == "ChangeMe123!" or len(value.admin_bootstrap_password) < 12:
         errors.append("ADMIN_BOOTSTRAP_PASSWORD must be changed to a strong value")
     encryption_secret = value.credential_encryption_secret.strip()

@@ -77,7 +77,7 @@ def test_admin_assistant_plans_multiple_tools_and_synthesizes_evidence(admin_cli
     assert payload["tool_activity"] == ["check_guest_auth", "get_recent_errors"]
     assert "no cause is confirmed" in payload["answer"]
     assert len(calls) == 2
-    assert "read-only operations copilot" in calls[0]["system_prompt_override"]
+    assert "read-only operations assistant" in calls[0]["system_prompt_override"]
     assert "api_key" not in calls[0]["user_message"].lower()
 
 

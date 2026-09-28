@@ -9,7 +9,7 @@ from app.properties import PropertyStore
 from app.zones import ZoneStore
 
 
-def test_first_property_onboarding_starts_empty(tmp_path: Path, monkeypatch, admin_client: TestClient):
+def test_first_property_onboarding_seeds_editable_request_catalog(tmp_path: Path, monkeypatch, admin_client: TestClient):
     database = tmp_path / "onboarding.db"
     property_store = PropertyStore(database)
     monkeypatch.setattr(main_module, "properties", property_store)
@@ -31,8 +31,12 @@ def test_first_property_onboarding_starts_empty(tmp_path: Path, monkeypatch, adm
 
     hospitality = admin_client.get("/api/admin/properties/test-property/hospitality")
     assert hospitality.status_code == 200
-    for key in ("facilities", "restaurants", "departments", "services", "recommendations"):
-        assert hospitality.json()[key] == []
+    assert hospitality.json()["facilities"] == []
+    assert hospitality.json()["restaurants"] == []
+    assert hospitality.json()["recommendations"] == []
+    assert {item["name"] for item in hospitality.json()["departments"]} == {"Housekeeping", "Maintenance", "Front Desk", "Bell Services"}
+    assert len(hospitality.json()["services"]) == 12
+    assert all(item["enabled"] and not item["archived"] for item in hospitality.json()["services"])
     zones = admin_client.get("/api/admin/properties/test-property/zones").json()
     assert all(zones[key] == [] for key in ("buildings", "floors", "maps", "zones"))
     knowledge = admin_client.get("/api/admin/properties/test-property/knowledge").json()

@@ -1,5 +1,7 @@
 const state = {
   auth: null,
+  authSavedSnapshot: null,
+  authSaving: false,
   properties: [],
   users: [],
   roles: [],
@@ -19,22 +21,35 @@ const state = {
   selectedMapObject: null,
   mapHistory: [],
   mapRedo: [],
+  mapZoom: 1,
+  mapPointer: null,
+  mapPolygonPoints: [],
+  mapConnectFrom: null,
+  designDevice: "mobile",
+  designZoom: 1,
+  designAccentText: "#ffffff",
+  introDirty: false,
+  introPreviewTimer: null,
+  mapStructureMode: "building",
+  mapPropertyId: "",
+  mapSelectedFloorId: "",
+  mapSelectedBuildingId: "",
+  mapDirty: false,
   intro: null,
   catalog: { departments: [], services: [] },
   serviceRequests: [],
   guestSessions: [],
+  conversations: [],
+  selectedConversation: null,
   guestSessionLinks: [],
   guestStays: [],
   guestDevices: [],
   recommendations: [],
-  conversations: [],
-  selectedConversation: null,
   hospitality: null,
   restaurantMenus: [],
   restaurantPromotions: [],
   restaurantAnalytics: null,
   mapBackgrounds: new Map(),
-  freeformDraft: null,
   knowledge: { items: [], documents: [], faqs: [] },
   managedKnowledge: { items: [], sources: [], categories: [] },
   knowledgeHealth: null,
@@ -47,6 +62,15 @@ const state = {
   operationsStart: null,
   operationsEnd: null,
   assistantConversationId: null,
+  assistantConversations: [],
+  assistantMode: "auto",
+};
+
+const INTRO_TEMPLATES = {
+  quiet_luxury: { mode: "generate_from_logo", preset: "luxury_reveal", duration_ms: 2400, background: "#f4f0e8", brand_color: "#27352e", welcome_message: "Welcome to a more considered stay." },
+  city_boutique: { mode: "generate_from_logo", preset: "minimal_fade", duration_ms: 1300, background: "#f3f6fa", brand_color: "#20304a", welcome_message: "Your city stay, made simple." },
+  warm_welcome: { mode: "generate_from_logo", preset: "fade_scale", duration_ms: 1800, background: "#fff6ed", brand_color: "#70452f", welcome_message: "We're glad you're here." },
+  coastal_retreat: { mode: "generate_from_logo", preset: "logo_to_chat_header", duration_ms: 1900, background: "#eff8f7", brand_color: "#1e5d61", welcome_message: "Take a breath. You're right where you need to be." },
 };
 let restaurantAssignmentRequestId = 0;
 
@@ -73,22 +97,23 @@ const FEATURE_STATUS = {
 
 const NAV_SECTIONS = [
   {
-    title: "Overview",
+    title: "Operations",
+    open: true,
     items: [
       { id: "dashboard", label: "Dashboard", panel: "overview", permission: "dashboard.view", icon: "⌂" },
-      { id: "system-health", label: "System Health", panel: "system-health", permission: "dashboard.view", icon: "◉" },
+      { id: "guest-requests", label: "Guest Requests", panel: "requests", permission: "requests.view", icon: "☷" },
+      { id: "guest-sessions", label: "Guest Sessions", panel: "sessions", permission: "guest_sessions.view", icon: "◎" },
       { id: "alerts", label: "Alerts", panel: "alerts", permission: "dashboard.view", icon: "!" },
     ],
   },
   {
     title: "Guest Experience",
-    open: true,
     items: [
       { id: "conversations", label: "Conversations", panel: "conversations", permission: "conversations.view", icon: "◫" },
-      { id: "guest-requests", label: "Guest Requests", panel: "requests", permission: "requests.view", icon: "☷" },
-      { id: "guest-sessions", label: "Guest Sessions", panel: "sessions", permission: "guest_sessions.view", icon: "◎" },
       { id: "personalization", label: "Personalization", panel: "personalization-settings", permission: "properties.view", icon: "✧" },
-      { id: "guest-preview", label: "Guest Preview", panel: "guest", permission: "concierge.view", icon: "◐" },
+      { id: "guest-preview", label: "Conversation Modules", panel: "guest", permission: "concierge.view", icon: "◫" },
+      { id: "recommendations", label: "Recommendations", panel: "recommendations", permission: "properties.view", icon: "✦" },
+      { id: "location", label: "Location", panel: "location", permission: "analytics.view", icon: "⌖" },
     ],
   },
   {
@@ -99,40 +124,33 @@ const NAV_SECTIONS = [
       { id: "facilities", label: "Facilities", panel: "facilities", permission: "properties.view", icon: "◇" },
       { id: "restaurants", label: "Restaurants", panel: "restaurants", permission: "restaurant.view", icon: "○" },
       { id: "service-catalog", label: "Service Catalog", panel: "service-catalog", permission: "requests.view", icon: "＋" },
-      { id: "recommendations", label: "Recommendations", panel: "recommendations", permission: "properties.view", icon: "⌖" },
       { id: "zones-maps", label: "Zones & Maps", panel: "zones", permission: "properties.view", icon: "⌗" },
       { id: "appearance", label: "Design", panel: "appearance", permission: "concierge.view", icon: "◐" },
       { id: "branding-intro", label: "Branding / Intro", panel: "intro", permission: "concierge.view", icon: "A" },
     ],
   },
   {
-    title: "AI",
-    open: true,
+    title: "Intelligence",
     items: [
+      { id: "analytics", label: "Analytics", panel: "analytics", permission: "analytics.view", icon: "▥" },
+      { id: "reports", label: "Reports", panel: "reports", permission: "reports.export", icon: "▧" },
       { id: "ai-assistant", label: "AI Assistant", panel: "ai-assistant", permission: "assistant.use", icon: "✦" },
-      { id: "models-providers", label: "Models & Providers", panel: "ai", permission: "ai.view", icon: "◈" },
       { id: "knowledge", label: "Knowledge", panel: "knowledge", permission: "knowledge.view", icon: "▣" },
-      { id: "knowledge-overview", label: "Overview", panel: "knowledge", permission: "knowledge.view", icon: "▣" },
       { id: "documents", label: "Documents", panel: "documents", permission: "knowledge.view", icon: "▧" },
       { id: "faqs", label: "FAQs", panel: "faqs", permission: "knowledge.view", icon: "?" },
       { id: "personality", label: "Personality", panel: "ai-personality", permission: "ai.view", icon: "A" },
       { id: "guardrails", label: "Guardrails", panel: "guardrails", permission: "security.view", icon: "⊡" },
       { id: "ai-usage", label: "Usage", panel: "ai-usage", permission: "analytics.view", icon: "◫" },
+      { id: "questions", label: "Guest Questions", panel: "questions", permission: "analytics.view", icon: "?" },
+      { id: "request-analytics", label: "Request Analytics", panel: "request-analytics", permission: "analytics.view", icon: "▥" },
     ],
   },
   {
-    title: "Analytics",
+    title: "Platform",
     items: [
-      { id: "analytics", label: "Analytics", panel: "analytics", permission: "analytics.view", icon: "▥" },
-      { id: "reports", label: "Reports", panel: "reports", permission: "reports.export", icon: "▧" },
-      { id: "exports", label: "Exports", panel: "exports", permission: "reports.export", icon: "↧" },
-      { id: "location", label: "Location", panel: "location", permission: "analytics.view", icon: "⌖" },
-    ],
-  },
-  {
-    title: "System",
-    items: [
-      { id: "integrations", label: "Integrations", panel: "wifi", permission: "integrations.view", icon: "⌁" },
+      { id: "system-health", label: "System Health", panel: "system-health", permission: "infrastructure.view", icon: "◉" },
+      { id: "models-providers", label: "Models & Providers", panel: "ai", permission: "ai.view", icon: "◈" },
+      { id: "integrations", label: "Integrations", panel: "third-party", permission: "integrations.view", icon: "⌁" },
       { id: "antlabs-wifi", label: "ANTlabs / Wi-Fi", panel: "wifi", permission: "integrations.view", icon: "⌁" },
       { id: "auth-types", label: "Authentication Types", panel: "auth-types", permission: "integrations.view", icon: "✓" },
       { id: "webhooks", label: "Webhooks", panel: "webhooks", permission: "integrations.view", icon: "↗" },
@@ -145,6 +163,7 @@ const NAV_SECTIONS = [
       { id: "permissions", label: "Permissions", panel: "permissions", permission: "roles.view", icon: "✓" },
       { id: "security", label: "Security", panel: "security", permission: "security.view", icon: "⊡" },
       { id: "settings", label: "Settings", panel: "system-settings", permission: "system.configure", icon: "⌘", superAdminOnly: true },
+      { id: "api", label: "API", panel: "api", permission: "integrations.view", icon: "⌁" },
     ],
   },
 ];
@@ -204,6 +223,22 @@ function applyPermissionVisibility() {
   for (const element of document.querySelectorAll("[data-permission]")) {
     element.hidden = !can(element.dataset.permission);
   }
+  applyAssistantPermissionVisibility();
+}
+
+function applyAssistantPermissionVisibility() {
+  const reportAllowed = ["reports.export", "analytics.view", "restaurant.analytics.view"].some(can);
+  const attachButton = $("assistant-attach");
+  if (attachButton) attachButton.hidden = !can("knowledge.edit") || !can("knowledge.view");
+  for (const element of document.querySelectorAll("[data-assistant-mode='knowledge'], [data-assistant-suggestion][data-assistant-mode='knowledge']")) {
+    element.hidden = !can("knowledge.view");
+  }
+  for (const element of document.querySelectorAll("[data-assistant-mode='health'], [data-assistant-suggestion][data-assistant-mode='health']")) {
+    element.hidden = !can("diagnostics.view");
+  }
+  for (const element of document.querySelectorAll("[data-assistant-mode='report'], [data-assistant-suggestion][data-assistant-mode='report']")) {
+    element.hidden = !reportAllowed;
+  }
 }
 
 function renderNavigation() {
@@ -226,6 +261,12 @@ function renderNavigation() {
     const summary = document.createElement("summary");
     summary.innerHTML = `<span class="nav-label">${escapeHTML(section.title)}</span>`;
     group.appendChild(summary);
+    if (section.description) {
+      const description = document.createElement("p");
+      description.className = "nav-group-description";
+      description.textContent = section.description;
+      group.appendChild(description);
+    }
     for (const item of visibleItems) group.appendChild(createNavButton(item));
     nav.appendChild(group);
   }
@@ -281,6 +322,368 @@ function ensurePanel(panelId) {
   return createPlaceholderPanel(item);
 }
 
+const PAGE_COMMENTS = {
+  "property-onboarding": [
+    "Set up the first property workspace so its guest experience, services, dining, rooms, and knowledge can be configured.",
+    ["Enter the official property name and a unique Property ID.", "Choose the property's time zone and enter its address.", "Create the property, then add verified information in the Property pages before guests use the concierge."],
+    "The Property ID is used in URLs and records; choose it carefully. A property stays empty until its operational details are added."
+  ],
+  overview: [
+    "Give managers and administrators a quick view of property activity, service demand, and system signals for the selected period.",
+    ["Choose a timeframe at the top of the page.", "Review the health banner, metric cards, alert list, and department demand.", "Open System Health, Alerts, or Analytics from the related action when a card needs investigation."],
+    "Counts and charts reflect recorded activity in the selected property and period; an empty chart means there is not enough recorded history."
+  ],
+  "system-health": [
+    "Review application, database, provider, and host checks to see what is available and what needs attention.",
+    ["Select a timeframe.", "Open each component to inspect its state, last check, and supporting evidence.", "Use the suggested next step or open Alerts to follow up on a warning."],
+    "Unavailable means a check could not confirm healthy operation. It does not by itself identify a root cause."
+  ],
+  alerts: [
+    "Collect threshold-based operational warnings that may need a manager or administrator to investigate.",
+    ["Review each alert's component, severity, time, and supporting observation.", "Open the related health or operations page for more detail.", "Assign follow-up through the appropriate staff workflow if action is needed."],
+    "An alert is a signal to review recorded evidence; it does not automatically confirm a service outage."
+  ],
+  "ai-assistant": [
+    "Ask operational questions and request reports or system checks using data your account is permitted to view.",
+    ["Ask one clear question and include the property and timeframe when relevant.", "Check the response's evidence, reported time window, and any unavailable data.", "Start a new conversation to change topics, or use Hotel Knowledge AI for source-library work."],
+    "Assistant answers summarize available records. Verify important decisions against the linked operational pages."
+  ],
+  analytics: [
+    "Explore guest engagement, service delivery, department performance, and AI outcomes over time.",
+    ["Choose a preset period or Custom, enter both dates, then select Apply.", "Compare the metric cards and charts, then inspect top services and questions.", "Use the findings to decide which services or knowledge entries need attention."],
+    "Very recent or sparse activity can make trends incomplete; always check the selected dates before sharing a result."
+  ],
+  reports: [
+    "Create a management summary or a detailed workbook for the selected property and reporting period.",
+    ["Confirm the active property and choose the report period above the download cards.", "Choose the XLSX workbook for detailed sheets or the PDF for a concise summary.", "Review the downloaded file's property, date range, and included data before forwarding it."],
+    "Reports contain operational data. Share them only with people who are authorized to see that property."
+  ],
+  appearance: [
+    "Customize the guest concierge's brand, greeting, colors, and chat preview for the active property.",
+    ["Set the hotel and concierge names, logo, and the way the header is displayed.", "Write the greeting, welcome headline, and composer hint; these are the guest's first chat cues.", "Adjust background, surface, text, accent, and button colors, then inspect the preview for contrast.", "Save a draft and use Publish in the top bar when the design is ready."],
+    "This page controls presentation. Keep factual guest guidance in Hotel Information, FAQs, or approved Knowledge."
+  ],
+  zones: [
+    "Build the property's indoor map by connecting a building and floor-plan image to named places, amenity pins, and navigation features.",
+    ["Choose the building and floor from the map toolbar, then upload the matching plan image.", "Choose a drawing tool such as Rectangle or Polygon and draw an area, or select a map object from the hierarchy.", "Set the object type and name in Selected Object; choose Guest visible for places guests should see, and Operations only for staff or infrastructure items.", "Save the object and use the layer controls to check that zones, facilities, access points, paths, and the floor plan are easy to distinguish."],
+    "Keep the map aligned with the actual property. Network access-point identifiers belong in the location workflow, not guest-facing labels."
+  ],
+  location: [
+    "Manage guest-visible property locations and review aggregate activity derived from configured WLAN observations.",
+    ["Create or update a location with a clear guest-facing name and map placement.", "Choose the reporting period and review the available activity summaries.", "Confirm that network observations are configured before interpreting location counts."],
+    "Location activity is an aggregate signal; it should not be treated as precise individual tracking."
+  ],
+  intro: [
+    "Configure the branded welcome or introductory experience guests see before starting a concierge conversation.",
+    ["Choose whether chat opens directly, uses the property logo, or plays a custom brand video.", "Set the welcome message, motion preset, duration, colors, and guest skip behavior.", "Preview the phone and desktop layouts. For custom video, upload a silent MP4 or WebM file up to 12 MB.", "Save and activate the intro; it is applied to the guest app as soon as it is saved."],
+    "Use readable contrast and keep a reduced-motion-friendly experience for guests who prefer less animation."
+  ],
+  ai: [
+    "Configure AI providers and routing used by the property, and review whether the selected provider is reachable.",
+    ["Choose the intended provider and model or routing policy.", "Open that provider's configuration, add its credential in the protected secret field, and run the connection check.", "Review provider status and recent usage before relying on a route."],
+    "Provider credentials are stored through the protected credential workflow and are not shown again after saving. Never paste them into notes or guest content."
+  ],
+  "improvement-loop": [
+    "Run a bounded, reviewable improvement cycle for AI behavior using an explicit goal and measurable evaluation criteria.",
+    ["Write the desired outcome, constraints, and evidence used to evaluate it.", "Choose the configured provider and a limited iteration budget, then start the run.", "Review every proposed change and its evaluation before approving, revising, pausing, or stopping."],
+    "A generated proposal does not become live until an authorized person reviews and applies it."
+  ],
+  knowledge: [
+    "Review extracted and authored property facts before allowing them to support guest answers.",
+    ["Search or filter the queue by source and review status.", "Open an item, correct its wording and source details, then approve only verified information.", "Keep published entries enabled and revisit them when hotel policies or services change."],
+    "Uploaded or extracted content is not automatically trustworthy or guest-visible; verify it before approval."
+  ],
+  wifi: [
+    "Check the configured ANTlabs/WLAN gateway connection used for guest session and network context.",
+    ["Confirm the intended gateway and runtime mode with the platform administrator.", "Select Test Connection and read the result and timestamp.", "Resolve missing credentials or network reachability in protected deployment configuration."],
+    "Gateway secrets are environment-controlled and are not entered or displayed in this browser page."
+  ],
+  "auth-types": [
+    "Choose which supported guest sign-in methods appear in the guest experience.",
+    ["Review which login methods are available and configured for this deployment.", "Enable only methods the property can actually support.", "Save changes and verify the guest sign-in screen."],
+    "An enabled method that lacks a working identity provider can prevent guests from signing in."
+  ],
+  guest: [
+    "Create and order guest-facing shortcut buttons that send a prepared request to the concierge chat.",
+    ["Give each module a short action name guests will understand.", "Write a complete prompt that asks for help without storing hotel facts or private staff instructions.", "Set its order and visibility, save the module, then check it in the guest app."],
+    "A conversation module starts a chat request; it does not execute a service workflow. Use Guest Requests for tracked work and the Property pages for verified information."
+  ],
+  conversations: [
+    "Review restaurant staff requests guests chose to send, assign them to an eligible team member, and reply while that person handles the request.",
+    ["Use the status cards or search to find a staff request.", "Open the request to review the restaurant and the reason the guest submitted.", "Assign or accept the request, send a reply, then resolve it or return it to the concierge when appropriate."],
+    "Only the guest's submitted staff request and staff replies appear here. Ordinary concierge chat stays private."
+  ],
+  "service-catalog": [
+    "Connect guest request options to the hotel teams that fulfill them. Departments provide ownership and escalation; services describe what a guest can request and how quickly staff should respond.",
+    ["Create a department for each team that owns work, such as Housekeeping, Front Desk, or Engineering. Set a realistic default SLA and escalation contact.", "Add a separate service for each guest request type, such as Extra towels or Air-conditioning help.", "Assign each service to a department, add common guest keywords and a clear description, then set its SLA and whether the guest must confirm before submission.", "Enable the service and check that it appears correctly in the Guest Requests workflow. Disable it when the team cannot fulfill it."],
+    "A catalog entry routes and tracks a request; it does not perform the work or notify staff outside configured workflows. Keep response targets aligned with actual staffing."
+  ],
+  users: [
+    "Create and maintain administrator or staff accounts and control which properties they can access.",
+    ["Search the user list or create a new account.", "Assign the smallest role and property scope needed for the person's job.", "Review status and sessions, then deactivate access promptly when it is no longer needed."],
+    "Share temporary credentials securely and ask new users to change them at first sign-in."
+  ],
+  roles: [
+    "Define reusable role profiles that group the administrative capabilities a user may access.",
+    ["Review built-in roles before creating a custom one.", "Name the custom role and grant only the permissions required for its duties.", "Save it, then assign it to a test account and confirm the allowed pages."],
+    "Permission checks are enforced by the API as well as the interface. Avoid broad access without a clear need."
+  ],
+  permissions: [
+    "Read the permission catalog to understand which actions can be granted through roles.",
+    ["Find the capability by its name or description.", "Use the catalog while designing roles and access scopes.", "Manage grants from Roles or Users rather than changing this reference list."],
+    "This catalog is descriptive; it does not grant access by itself."
+  ],
+  audit: [
+    "Review a traceable record of administrator changes, security events, and configuration activity.",
+    ["Choose relevant filters such as user, action, or date range.", "Apply the filters or refresh the records.", "Open event details to understand what changed and who performed it."],
+    "Audit history is read-only. Use it for review and follow-up, not as a place to edit records."
+  ],
+  profile: [
+    "Review your administrator identity, role, and property access scope.",
+    ["Confirm that the displayed name, username, and email are correct.", "Check the assigned role and property scope with an administrator if they are wrong.", "Use Security to change your password or review session protections."],
+    "Your role and property scope determine which information and actions appear elsewhere in the platform."
+  ],
+  security: [
+    "Protect your administrator account by changing credentials and reviewing session safeguards.",
+    ["Enter your current password and a new password that meets the displayed policy.", "Confirm the new password and save the change.", "Sign out sessions you no longer recognize, if the controls are available."],
+    "Do not reuse guest-facing or shared staff credentials for an administrator account."
+  ],
+  "hotel-information": [
+    "This is the property's main guest-facing fact sheet. Concierge answers and other guest pages can refer to its name, location, contact details, arrival guidance, and policies.",
+    ["Enter the official hotel name, a clear short description, address, phone, email, and website.", "Choose check-in and checkout times using the time controls, then explain breakfast, Wi-Fi access, and important policies.", "Save and publish the facts, then check the guest app and correct anything guests could misunderstand.", "Use Rooms, Facilities, Restaurants, and Service Catalog to add the detailed directories that do not fit in this summary."],
+    "Write verified guest-ready facts and include local time context where needed. Put staff-only procedures in internal notes, not here."
+  ],
+  rooms: [
+    "Describe the room categories or room types guests may ask about. These records provide room information to the concierge and are separate from live room assignment or reservation systems.",
+    ["Add one recognizable entry for each type, such as Deluxe King or Family Suite.", "Describe guest-relevant features and set the maximum number of guests.", "Optionally add the reference number of rooms and guest-facing floor range.", "Set the catalog status and save. Search or filter the list to edit an entry when details change."],
+    "Room counts and catalog status are reference information, not live inventory. This page does not synchronize occupied rooms, prices, or reservations with a PMS. Never enter a guest's assigned room number."
+  ],
+  restaurants: [
+    "Maintain the dining directory guests can browse and ask Concierge AI about. Each restaurant can include venue details, weekly hours, meal periods, menus, promotions, and reservation information.",
+    ["Choose Add Restaurant and enter the venue name, cuisine, location, and the linked facility or map zone when available.", "Set the hours for each day, meal periods, current operating status, and reservation options. Add guest-facing descriptions and contact details.", "Save the venue, then open Menus, promotions, and reports to add menu items and submit time-limited offers for approval.", "Search the restaurant list and update hours, availability, or guest information whenever operations change."],
+    "Keep internal notes separate from guest notes. Check prices, allergens, reservation links, promotions, and temporary closures before publishing changes."
+  ],
+  recommendations: [
+    "Curate nearby attractions, shops, transport points, and other places that Concierge AI can recommend to guests as local cards.",
+    ["Add the place name and a useful category, then enter its full address.", "Write a short description that explains why a guest might visit, and add a working map link.", "Record the recommendation source, choose guest visibility, and save.", "Check the guest preview to confirm the card and directions are useful."],
+    "Only publish places the property is comfortable recommending. Verify safety, distance, hours, and links periodically."
+  ],
+  documents: [
+    "Upload property source files and turn their contents into reviewable knowledge items.",
+    ["Choose one or more supported files and upload them.", "Wait for processing, then review extracted items in Knowledge.", "Correct and approve only verified entries before making them guest-visible."],
+    "An upload is a source for review, not an automatic update to guest answers. Image extraction requires OCR support."
+  ],
+  faqs: [
+    "Maintain approved question-and-answer pairs for common guest questions.",
+    ["Enter the guest's likely question and a complete, verified answer.", "Enable it for Concierge AI and save.", "Review managed FAQs and update or disable entries when the policy changes."],
+    "Use precise answers and avoid including private staff procedures or information that should not be shared with guests."
+  ],
+  "ai-personality": [
+    "Set the concierge's voice, formality, response length, and greeting behavior for this property.",
+    ["Choose an identity and tone that fit the property.", "Set response length and greeting behavior, then write concise property-specific instructions.", "Save and try representative questions in the guest preview."],
+    "Personality shapes wording; approved facts and system safety rules determine what the concierge may say or do."
+  ],
+  "system-prompt": [
+    "Explain the protected prompt policy that guides Concierge AI and the approved hotel context it can use.",
+    ["Use AI Personality for response style and Guardrails for allowed actions and safety settings.", "Use Knowledge and Hotel Information to manage verified property facts.", "Ask a platform administrator to change server-managed prompt policy."],
+    "This page is intentionally read-only so protected instructions cannot be exposed or edited in the browser."
+  ],
+  guardrails: [
+    "Set backend-enforced safety, privacy, network, escalation, and action limits for guest workflows.",
+    ["Review network ranges and trusted proxy addresses with your infrastructure administrator.", "Enable only the internet tools, actions, and data handling that are configured and approved.", "Save changes and review diagnostics to confirm the intended policy is active."],
+    "Incorrect CIDR ranges or proxy trust settings can block legitimate guests or trust the wrong network. Validate them before saving."
+  ],
+  api: [
+    "Show the status and administration boundary for secure API access and integration policies.",
+    ["Review the availability message on this page.", "Manage credentials through the approved server-side secret workflow.", "Contact the platform administrator for API access and integration documentation."],
+    "API credentials are restricted to protected deployment configuration and are not created in this browser page."
+  ],
+  webhooks: [
+    "Send signed, property-scoped event notifications to an approved external system.",
+    ["Create an endpoint with an HTTPS URL and select only the events the receiver needs.", "Set a signing secret and enable the endpoint, then save it.", "Review recent delivery records and repair receiver errors before relying on delivery."],
+    "Treat signing secrets as passwords. The receiver should verify signatures and safely handle duplicate event delivery."
+  ],
+  "third-party": [
+    "Use the integration directory to find the correct setup area for guest Wi-Fi, guest sign-in, outbound events, and external service connections.",
+    ["Open ANTlabs / Wi-Fi to inspect gateway status and run a connection check.", "Open Authentication methods to choose which configured sign-in options guests can use.", "Open Webhooks to configure signed event delivery and review recent delivery attempts.", "Treat the external-service empty state as authoritative: no PMS or other third-party data sync is active until a supported connector is configured."],
+    "API credentials remain deployment-managed and cannot be viewed or created in this browser."
+  ],
+  questions: [
+    "Show aggregated patterns in guest questions and highlight gaps in property knowledge.",
+    ["Review the page's collection status and wait for enough guest activity to accumulate.", "Use Knowledge or FAQs to address verified information gaps.", "Revisit trends after the knowledge update to see whether unanswered topics decrease."],
+    "This page may not have historical results yet. Guest question analytics are aggregated and should not expose credentials."
+  ],
+  "request-analytics": [
+    "Provide historical views of request volume, SLA performance, completion, and department trends when available.",
+    ["Use Guest Requests for the live queue and immediate staff follow-up.", "Review the historical analytics once enough request data has been collected.", "Compare results by period and department before adjusting staffing or service levels."],
+    "This page currently directs live work to Guest Requests; historical reporting may be unavailable until data accumulates."
+  ],
+  "ai-usage": [
+    "Review recorded provider and model request volume, errors, and latency over time.",
+    ["Choose a reporting period.", "Compare the usage metrics and provider/model activity list.", "Open Models & Providers or System Health to investigate elevated errors or latency."],
+    "Costs are not shown unless verified billing data is connected; request counts alone do not establish spend."
+  ],
+  "system-settings": [
+    "Set application defaults and protected outbound email used for password-reset messages.",
+    ["Set the default language, time zone, and any maintenance banner, then save.", "Configure SMTP host, port, security, sender, and credentials if email is required.", "Test the SMTP connection before saving the email configuration."],
+    "A blank password keeps the saved credential. Use a verified sender address and protect the SMTP password."
+  ],
+  domain: [
+    "Set the intended public guest hostname and verify that it resolves to the deployment.",
+    ["Enter the guest domain and public HTTPS URL.", "Save the deployment settings.", "Select Verify Domain & SSL and review the result after DNS changes have propagated."],
+    "The domain must point to the actual deployment; saving a hostname does not change DNS records."
+  ],
+  ssl: [
+    "Review the read-only TLS certificate validation for the guest deployment domain.",
+    ["Configure or renew the certificate in the deployment environment.", "Open Domain and run Verify Domain & SSL.", "Return here to review certificate status, issuer, and expiration."],
+    "Private keys are never entered or stored on this page. Certificate installation is performed outside the admin app."
+  ],
+  network: [
+    "Record the HTTPS and reverse-proxy expectations the application uses for deployment checks.",
+    ["Confirm whether the app runs behind a reverse proxy.", "Require HTTPS for guest deployment and enter the trusted proxy address only when applicable.", "Save, then ask the infrastructure owner to verify firewall, proxy, and WLAN routing separately."],
+    "This page records app-level expectations; it does not configure firewalls, VLANs, or ANTlabs network rules."
+  ]
+};
+
+function createRelatedPageNav(pageId) {
+  const nav = document.createElement("nav");
+  nav.className = "page-comment-related";
+  nav.setAttribute("aria-label", "Related admin pages");
+  nav.dataset.relatedPage = pageId;
+  nav.innerHTML = `<h2>Related pages</h2><div class="page-comment-related-links"></div>`;
+  return nav;
+}
+
+function addPageComment(panel) {
+  if (!panel) return;
+  const existingGuide = panel.querySelector(":scope > .contextual-help-disclosure > .module-guide, :scope > .contextual-help-disclosure > .personalization-guide, :scope > .contextual-help-disclosure > .session-guide, :scope > .contextual-help-disclosure > .request-guide, :scope > .contextual-help-disclosure > .facility-guide, :scope > .contextual-help-disclosure > .room-guide-card, :scope > .contextual-help-disclosure > .intro-guide, :scope > .module-guide, :scope > .personalization-guide, :scope > .session-guide, :scope > .request-guide, :scope > .facility-guide, :scope > .room-guide-card, :scope > .intro-guide");
+  if (existingGuide) {
+    if (!existingGuide.parentElement.matches(".contextual-help-disclosure")) {
+      const disclosure = document.createElement("details");
+      disclosure.className = "contextual-help-disclosure";
+      disclosure.innerHTML = `<summary><span aria-hidden="true">?</span><strong>How this page works</strong><span class="contextual-help-toggle" aria-hidden="true"></span></summary>`;
+      existingGuide.before(disclosure);
+      disclosure.appendChild(existingGuide);
+    }
+    if (PAGE_LINKS[panel.id] && !existingGuide.querySelector(":scope > .page-comment-related")) {
+      existingGuide.appendChild(createRelatedPageNav(panel.id));
+    }
+    if (state.auth) populatePageCommentLinks();
+    return;
+  }
+  if (panel.querySelector(":scope > .page-comment")) return;
+
+  const [purpose, steps, note] = PAGE_COMMENTS[panel.id] || [
+    "Review the page description and availability status to understand this capability.",
+    ["Check the displayed data or availability message.", "Use the linked operational page or contact a platform administrator when this workflow is unavailable."],
+    "Only rely on controls and data that are shown as available for your account and this property."
+  ];
+  const title = panel.id === "overview"
+    ? "Operations overview"
+    : panel.querySelector(":scope > .page-title h1, .onboarding-card h1")?.textContent?.trim() || panel.id;
+  const guide = document.createElement("details");
+  guide.className = "page-comment";
+  guide.dataset.page = panel.id;
+  guide.innerHTML = `<summary><span class="page-comment-help-icon" aria-hidden="true">?</span><span class="page-comment-summary-title"></span><span class="page-comment-toggle" aria-hidden="true"></span></summary><div class="page-comment-content"><section><h2>What this page is for</h2><p class="page-comment-purpose"></p></section><section><h2>How to use it</h2><ol class="page-comment-steps"></ol></section><p class="page-comment-note"></p><nav class="page-comment-related" aria-label="Related admin pages" hidden><h2>Related pages</h2><div class="page-comment-related-links"></div></nav></div>`;
+  guide.querySelector(".page-comment-summary-title").textContent = title;
+  guide.querySelector("summary").setAttribute("aria-label", `Help for ${title}`);
+  guide.querySelector(".page-comment-purpose").textContent = purpose;
+  guide.querySelector(".page-comment-note").textContent = note;
+  guide.querySelector(".page-comment-related").dataset.relatedPage = panel.id;
+  const list = guide.querySelector(".page-comment-steps");
+  for (const step of steps) {
+    const item = document.createElement("li");
+    item.textContent = step;
+    list.appendChild(item);
+  }
+
+  const titleBlock = panel.querySelector(":scope > .page-title");
+  if (titleBlock) titleBlock.after(guide);
+  else if (panel.id === "property-onboarding") panel.querySelector(".onboarding-card > button")?.before(guide);
+  else panel.prepend(guide);
+  if (state.auth) populatePageCommentLinks();
+}
+
+const PAGE_LINKS = {
+  overview: ["system-health", "alerts", "analytics"],
+  "system-health": ["alerts", "ai", "ai-usage"],
+  alerts: ["system-health", "requests"],
+  "ai-assistant": ["requests", "reports"],
+  conversations: ["restaurants", "requests"],
+  analytics: ["reports", "ai-usage"],
+  reports: ["analytics", "ai-usage"],
+  appearance: ["intro", "guest"],
+  guest: ["appearance", "intro", "hotel-information"],
+  "personalization-settings": ["sessions", "guardrails", "knowledge"],
+  zones: ["facilities", "location", "appearance"],
+  sessions: ["location", "personalization-settings"],
+  location: ["zones", "analytics", "sessions"],
+  intro: ["appearance", "guest", "hotel-information"],
+  ai: ["ai-usage", "system-health", "guardrails"],
+  "improvement-loop": ["ai", "knowledge", "ai-assistant"],
+  knowledge: ["documents", "faqs", "hotel-information"],
+  documents: ["knowledge", "faqs"],
+  faqs: ["knowledge", "guest"],
+  wifi: ["auth-types", "sessions", "network"],
+  "auth-types": ["wifi", "guardrails"],
+  requests: ["service-catalog", "reports"],
+  "service-catalog": ["requests", "recommendations"],
+  users: ["roles", "audit", "security"],
+  roles: ["permissions", "users"],
+  permissions: ["roles", "users"],
+  audit: ["users", "security", "system-settings"],
+  profile: ["security", "users"],
+  security: ["users", "audit"],
+  "hotel-information": ["rooms", "facilities", "restaurants"],
+  rooms: ["facilities", "restaurants"],
+  facilities: ["restaurants", "zones", "recommendations"],
+  restaurants: ["service-catalog", "recommendations"],
+  recommendations: ["zones", "restaurants"],
+  "ai-personality": ["guest", "guardrails", "appearance"],
+  "system-prompt": ["ai-personality", "guardrails", "knowledge"],
+  guardrails: ["network", "wifi", "security"],
+  api: ["webhooks", "ai", "system-settings"],
+  webhooks: ["api", "service-catalog", "requests"],
+  "third-party": ["wifi", "webhooks", "ai"],
+  questions: ["knowledge", "faqs", "analytics"],
+  "request-analytics": ["requests", "service-catalog", "reports"],
+  "ai-usage": ["ai", "system-health", "reports"],
+  "system-settings": ["security", "webhooks", "system-health"],
+  domain: ["ssl", "network"],
+  ssl: ["domain", "network"],
+  network: ["wifi", "guardrails", "domain"]
+};
+
+function populatePageCommentLinks() {
+  for (const related of document.querySelectorAll(".page-comment-related[data-related-page]")) {
+    const links = related.querySelector(".page-comment-related-links");
+    if (!links) continue;
+    links.replaceChildren();
+    const targets = PAGE_LINKS[related.dataset.relatedPage] || [];
+    for (const target of targets) {
+      const item = allNavItems().find((candidate) => {
+        return candidate.panel === target && can(candidate.permission) && (!candidate.superAdminOnly || isSuperAdmin());
+      });
+      if (!item) continue;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "secondary page-comment-related-link";
+      button.dataset.panel = item.panel;
+      button.textContent = `Open ${item.label}`;
+      button.addEventListener("click", () => {
+        activatePanel(item.panel, item.id);
+        document.querySelector(".platform-main")?.scrollTo({ top: 0, behavior: "smooth" });
+      });
+      links.appendChild(button);
+    }
+    related.hidden = links.childElementCount === 0;
+  }
+}
+
+function annotateAdminPages() {
+  for (const panel of document.querySelectorAll(".panel")) addPageComment(panel);
+}
+
 async function loadCurrentAdmin() {
   const payload = await jsonFetch("/api/admin/auth/me");
   state.auth = payload.user;
@@ -298,6 +701,7 @@ async function loadCurrentAdmin() {
   $("profile-detail-email").textContent = state.auth.email || "Not configured";
   $("session-expiry").textContent = formatDate(state.auth.session_expires_at);
   renderNavigation();
+  populatePageCommentLinks();
   applyPermissionVisibility();
   activatePanel(state.activeNavId ? allNavItems().find((item) => item.id === state.activeNavId)?.panel || "overview" : "overview", state.activeNavId || "dashboard");
   if (state.auth.force_password_change) {
@@ -307,7 +711,16 @@ async function loadCurrentAdmin() {
 }
 
 function activatePanel(panelId, navId = null) {
-  ensurePanel(panelId);
+  const requestedItem = navId
+    ? allNavItems().find((item) => item.id === navId)
+    : allNavItems().find((item) => item.panel === panelId);
+  if (requestedItem && state.auth && !["profile", "security"].includes(panelId) && (!can(requestedItem.permission) || (requestedItem.superAdminOnly && !isSuperAdmin()))) {
+    showToast("This area is not available for your account.", "error");
+    return;
+  }
+  const panel = ensurePanel(panelId);
+  document.querySelector(".platform-shell")?.classList.toggle("is-design-panel", panelId === "appearance");
+  if (panel) addPageComment(panel);
   for (const panel of document.querySelectorAll(".panel")) {
     panel.classList.toggle("active", panel.id === panelId);
   }
@@ -316,8 +729,16 @@ function activatePanel(panelId, navId = null) {
   for (const item of document.querySelectorAll(".nav-item")) {
     item.classList.toggle("active", item.dataset.navId === state.activeNavId);
   }
+  const activeNavItem = [...document.querySelectorAll(".nav-item")].find((item) => item.dataset.navId === state.activeNavId);
+  const activeNavGroup = activeNavItem?.closest(".nav-group");
+  if (activeNavGroup) activeNavGroup.open = true;
+  if (panelId === "appearance") requestAnimationFrame(fitPreview);
+  if (panelId === "ai-assistant" && currentPropertyId()) {
+    $("assistant-chat-scope").textContent = propertyName(currentPropertyId()) + " · Personal history";
+    loadAssistantConversations().catch((error) => showToast(error.message, "error"));
+  }
   if (panelId === "overview" && currentPropertyId()) loadDashboard().catch((error) => showToast(error.message, "error"));
-  if (["system-health", "alerts", "analytics", "reports", "exports"].includes(panelId) && currentPropertyId()) {
+  if (["system-health", "alerts", "analytics", "reports"].includes(panelId) && currentPropertyId()) {
     loadDashboard().catch((error) => showToast(error.message, "error"));
   }
   if (panelId === "ai" && currentPropertyId()) {
@@ -328,11 +749,11 @@ function activatePanel(panelId, navId = null) {
   }
   if (panelId === "zones" && currentPropertyId()) loadZones().catch((error) => showToast(error.message, "error"));
   if (panelId === "sessions" && currentPropertyId()) loadSessions().catch((error) => showToast(error.message, "error"));
+  if (panelId === "conversations" && currentPropertyId()) loadConversations().catch((error) => showToast(error.message, "error"));
   if (panelId === "personalization-settings" && currentPropertyId()) loadPersonalizationPolicy().catch((error) => showToast(error.message, "error"));
   if (panelId === "location" && currentPropertyId()) loadLocationLive().catch((error) => showToast(error.message, "error"));
   if (panelId === "intro" && currentPropertyId()) loadIntro().catch((error) => showToast(error.message, "error"));
   if (panelId === "requests" && currentPropertyId()) loadServiceRequests().catch((error) => showToast(error.message, "error"));
-  if (panelId === "conversations" && currentPropertyId()) loadConversations().catch((error) => showToast(error.message, "error"));
   if (panelId === "service-catalog" && currentPropertyId()) loadServiceCatalog().catch((error) => showToast(error.message, "error"));
   if (panelId === "recommendations" && currentPropertyId()) loadRecommendations().catch((error) => showToast(error.message, "error"));
   if (panelId === "hotel-information" && currentPropertyId()) loadHotelInformation();
@@ -341,6 +762,7 @@ function activatePanel(panelId, navId = null) {
   if (["facilities", "restaurants"].includes(panelId) && currentPropertyId()) loadHospitalityManagement().catch((error) => showToast(error.message, "error"));
   if (panelId === "ai-usage" && currentPropertyId()) loadAIUsage().catch((error) => showToast(error.message, "error"));
   if (panelId === "wifi" && currentPropertyId()) loadAntlabsStatus().catch((error) => showToast(error.message, "error"));
+  if (panelId === "auth-types" && currentPropertyId()) loadAntlabsStatus().catch((error) => showToast(error.message, "error"));
   if (["knowledge", "documents", "faqs"].includes(panelId) && currentPropertyId()) loadKnowledge().catch((error) => showToast(error.message, "error"));
   if (["ai-personality", "guardrails"].includes(panelId) && currentPropertyId()) loadAIPolicy();
   if (panelId === "guardrails" && currentPropertyId()) loadGuardrailDiagnostics().catch((error) => showToast(error.message, "error"));
@@ -424,9 +846,15 @@ function lineChart(title, series, formatter = (value) => value) {
   const minimum = Math.min(...values);
   const maximum = Math.max(...values);
   const span = Math.max(1, maximum - minimum);
-  const points = available.map((item, index) => `${12 + index * (276 / Math.max(1, available.length - 1))},${100 - ((Number(item.value) - minimum) / span) * 74}`).join(" ");
+  const plotted = available.map((item, index) => ({
+    item,
+    x: 12 + index * (276 / Math.max(1, available.length - 1)),
+    y: 100 - ((Number(item.value) - minimum) / span) * 74,
+  }));
+  const points = plotted.map(({ x, y }) => `${x},${y}`).join(" ");
+  const hoverPoints = plotted.map(({ item, x, y }) => `<circle class="chart-point" cx="${x}" cy="${y}" r="3"><title>${escapeHTML(formatDate(item.timestamp))}: ${escapeHTML(formatter(item.value))}</title></circle>`).join("");
   const latest = formatter(values.at(-1));
-  return `<article class="chart-card"><header><div><span>Historical telemetry</span><h2>${escapeHTML(title)}</h2></div><strong>${escapeHTML(latest)}</strong></header><svg viewBox="0 0 300 112" role="img" aria-label="${escapeHTML(title)} trend"><path d="M12 100H288" class="chart-axis"/><polyline points="${points}" class="chart-line"/></svg><footer><span>${escapeHTML(formatDate(available[0].timestamp))}</span><span>${escapeHTML(formatDate(available.at(-1).timestamp))}</span></footer></article>`;
+  return `<article class="chart-card"><header><div><span>Recorded history</span><h2>${escapeHTML(title)}</h2></div><strong>${escapeHTML(latest)}</strong></header><svg viewBox="0 0 300 112" role="img" aria-label="${escapeHTML(title)} trend"><path d="M12 100H288" class="chart-axis"/><polyline points="${points}" class="chart-line"/>${hoverPoints}</svg><footer><span>${escapeHTML(formatDate(available[0].timestamp))}</span><span>${escapeHTML(formatDate(available.at(-1).timestamp))}</span></footer></article>`;
 }
 
 function listRows(items, emptyText) {
@@ -451,21 +879,52 @@ function renderOperationsDashboard() {
   $("operations-role-copy").textContent = profileCopy[data.profile] || profileCopy.read_only;
   const banner = $("operations-health-banner");
   const attention = data.health.components.filter((item) => !["healthy", "simulation"].includes(item.state)).length;
-  banner.className = `health-banner ${data.health.state}`;
-  banner.querySelector(".health-dot").className = `health-dot ${data.health.state}`;
-  banner.querySelector("strong").textContent = data.health.state === "healthy" ? "All monitored components healthy" : `${attention} component${attention === 1 ? "" : "s"} need review`;
-  banner.querySelector("p").textContent = `Updated ${new Date(data.generated_at * 1000).toLocaleTimeString()} · ${data.period} view · no synthetic telemetry`;
+  const infrastructureView = can("infrastructure.view");
+  const requestAttention = Number(summary.overdue_requests || 0);
+  const unresolved = Number(summary.open_requests || 0);
+  const bannerState = infrastructureView ? data.health.state : requestAttention ? "warning" : "healthy";
+  banner.className = `health-banner ${bannerState}`;
+  banner.querySelector(".health-dot").className = `health-dot ${bannerState}`;
+  if (infrastructureView) {
+    banner.querySelector("strong").textContent = data.health.state === "healthy" ? "All monitored components healthy" : `${attention} component${attention === 1 ? "" : "s"} need review`;
+    banner.querySelector("p").textContent = `Updated ${new Date(data.generated_at * 1000).toLocaleTimeString()} · ${data.period} view · no synthetic telemetry`;
+  } else {
+    banner.querySelector("strong").textContent = requestAttention ? `${requestAttention} request${requestAttention === 1 ? "" : "s"} need attention` : unresolved ? "Guest request queue is on track" : "No open guest requests";
+    banner.querySelector("p").textContent = requestAttention ? "Review overdue service requests and confirm their next action." : `Updated ${new Date(data.generated_at * 1000).toLocaleTimeString()} · ${data.period} view · no synthetic telemetry`;
+  }
+  const healthLink = banner.querySelector("[data-dashboard-panel='system-health']");
+  if (healthLink) healthLink.hidden = !infrastructureView;
+  const insight = data.insight;
+  $("overview-intelligence-message").textContent = insight?.message || "Not enough operational data to generate an insight.";
+  $("overview-intelligence-source").textContent = insight?.source || "A recorded-data insight will appear when there is enough activity.";
 
+  const slaMetric = summary.service_requests > 0 && summary.sla_performance_percent !== null ? `${summary.sla_performance_percent}%` : null;
+  const aiResolution = summary.ai_conversations > 0 && summary.ai_resolution_rate_percent !== null ? `${summary.ai_resolution_rate_percent}%` : null;
   const cards = data.profile === "platform" ? [
     ["CPU utilization", data.system.cpu_utilization?.value === null ? null : `${data.system.cpu_utilization?.value}%`, "Current host sample"],
     ["Memory utilization", data.system.memory_utilization?.value === null ? null : `${data.system.memory_utilization?.value}%`, "Current host sample"],
     ["Database latency", data.database.latency_ms === null ? null : `${data.database.latency_ms} ms`, data.database.evidence],
-    ["Request queue", summary.open_requests, `${summary.overdue_requests} overdue`],
+    ["Open requests", summary.open_requests, `${summary.overdue_requests} overdue`, summary.overdue_requests ? "warning" : ""],
+  ] : data.profile === "department" ? [
+    ["Open requests", summary.open_requests, "In your department", summary.open_requests ? "attention" : ""],
+    ["Overdue", summary.overdue_requests, "Past the service target", summary.overdue_requests ? "warning" : ""],
+    ["SLA performance", slaMetric, slaMetric === null ? "No requests in this period" : "Within service targets", summary.overdue_requests ? "warning" : "success"],
+    ["Average resolution", summary.average_resolution_seconds === null ? null : `${Math.round(summary.average_resolution_seconds / 60)} min`, summary.average_resolution_seconds === null ? "No completed requests" : "Completed requests"],
+  ] : data.profile === "service_operations" ? [
+    ["Open requests", summary.open_requests, "Awaiting completion", summary.open_requests ? "attention" : ""],
+    ["Overdue", summary.overdue_requests, "Past the service target", summary.overdue_requests ? "warning" : ""],
+    ["SLA performance", slaMetric, slaMetric === null ? "No requests in this period" : "Within service targets", summary.overdue_requests ? "warning" : "success"],
+    ["Active guest sessions", can("guest_sessions.view") ? summary.active_sessions : null, can("guest_sessions.view") ? "Currently connected" : "Restricted for your role"],
+  ] : data.profile === "content_operations" ? [
+    ["Guest requests", summary.service_requests, `${summary.open_requests} still open`],
+    ["Guest sessions", summary.guests_assisted, `During ${data.period}`],
+    ["AI conversations", summary.ai_conversations, "During selected period"],
+    ["AI resolution", aiResolution, aiResolution === null ? "Not enough conversation data" : `${summary.fallback_rate_percent ?? "Unavailable"}% used verified fallback`],
   ] : [
-    ["Guests assisted", summary.guests_assisted, `${summary.ai_conversations} AI conversations`],
-    ["Service requests", summary.service_requests, summary.request_change_percent === null ? "No prior-period baseline" : `${summary.request_change_percent}% vs prior period`],
-    ["SLA performance", `${summary.sla_performance_percent}%`, `${summary.overdue_requests} overdue`],
-    ["AI resolution", `${summary.ai_resolution_rate_percent}%`, `${summary.fallback_rate_percent}% fallback`],
+    ["Active guest sessions", can("guest_sessions.view") ? summary.active_sessions : null, can("guest_sessions.view") ? "Currently connected" : "Restricted for your role"],
+    ["Open requests", summary.open_requests, `${summary.overdue_requests} overdue`, summary.overdue_requests ? "warning" : ""],
+    ["SLA performance", slaMetric, slaMetric === null ? "No requests in this period" : "Within service targets", summary.overdue_requests ? "warning" : "success"],
+    ["Guests assisted", can("guest_sessions.view") ? summary.guests_assisted : null, can("guest_sessions.view") ? `During ${data.period}` : "Restricted for your role"],
   ];
   $("operations-metrics").innerHTML = cards.map((item) => metricCard(...item)).join("");
   $("overview-charts").innerHTML = [
@@ -476,7 +935,7 @@ function renderOperationsDashboard() {
     lineChart("HTTP / application errors", data.histories.http_errors),
     lineChart("Guest auth success", data.histories.guest_auth_success_rate, (value) => `${value}%`),
   ].join("");
-  $("overview-alerts").innerHTML = data.alerts.length ? data.alerts.map((alert) => `<div class="alert-row ${escapeHTML(alert.severity)}"><div><span>${escapeHTML(alert.component.replaceAll("_", " "))}</span><strong>${escapeHTML(alert.title)}</strong><p>${escapeHTML(alert.evidence)}</p></div><button class="secondary investigate-alert" type="button" data-question="Investigate ${escapeHTML(alert.title)}">Investigate</button></div>`).join("") : `<div class="empty-inline">No active threshold-based alerts.</div>`;
+  $("overview-alerts").innerHTML = data.alerts.length ? data.alerts.map((alert) => `<div class="alert-row ${escapeHTML(alert.severity)}"><div><span>${escapeHTML(alert.component.replaceAll("_", " "))}</span><strong>${escapeHTML(alert.title)}</strong><p>${escapeHTML(alert.evidence)}</p></div>${can("assistant.use") ? `<button class="secondary investigate-alert" type="button" data-question="Investigate ${escapeHTML(alert.title)}">Investigate</button>` : ""}</div>`).join("") : `<div class="empty-inline">No active threshold-based alerts.</div>`;
   $("overview-departments").innerHTML = listRows(data.analytics.requests_by_department, "No department request activity in this period.");
   renderHealthPanel();
   renderAlertsPanel();
@@ -487,7 +946,21 @@ function renderOperationsDashboard() {
 function renderHealthPanel() {
   const data = state.operations;
   if (!data || !$("health-components")) return;
-  $("health-components").innerHTML = data.health.components.map((item) => `<article class="component-card"><div><span class="health-dot ${escapeHTML(item.state)}"></span><strong>${escapeHTML(item.name)}</strong></div><span class="state-label ${escapeHTML(item.state)}">${escapeHTML(item.state.replaceAll("_", " "))}</span><p>${escapeHTML(item.evidence)}</p>${!["healthy", "simulation"].includes(item.state) ? `<footer><button class="secondary" type="button" data-dashboard-panel="system-health">Metrics</button>${can("audit.view") ? `<button class="secondary" type="button" data-dashboard-panel="audit">Logs</button>` : ""}<button class="secondary investigate-alert" type="button" data-question="Investigate ${escapeHTML(item.name)}">Ask AI</button></footer>` : ""}</article>`).join("");
+  const summary = $("system-health-summary");
+  if (summary) {
+    const states = data.health.components.map((item) => item.state);
+    const needsReview = states.filter((value) => ["warning", "critical"].includes(value)).length;
+    const unavailable = states.filter((value) => value === "unavailable").length;
+    const restricted = states.filter((value) => value === "restricted").length;
+    const normal = states.filter((value) => ["healthy", "simulation"].includes(value)).length;
+    const heading = needsReview ? `${needsReview} check${needsReview === 1 ? "" : "s"} need review` : unavailable ? `${unavailable} check${unavailable === 1 ? " is" : "s are"} unavailable` : "No active health warnings";
+    const counts = [`${normal} healthy or simulated`, ...(needsReview ? [`${needsReview} need review`] : []), ...(unavailable ? [`${unavailable} unavailable`] : []), ...(restricted ? [`${restricted} restricted`] : [])];
+    summary.className = `health-banner ${data.health.state}`;
+    summary.querySelector(".health-dot").className = `health-dot ${data.health.state}`;
+    summary.querySelector("strong").textContent = heading;
+    summary.querySelector("p").textContent = `Updated ${new Date(data.generated_at * 1000).toLocaleTimeString()} · ${data.period} timeframe · ${counts.join(" · ")}.`;
+  }
+  $("health-components").innerHTML = data.health.components.map((item) => `<article class="component-card"><div><span class="health-dot ${escapeHTML(item.state)}"></span><strong>${escapeHTML(item.name)}</strong></div><span class="state-label ${escapeHTML(item.state)}">${escapeHTML(item.state.replaceAll("_", " "))}</span><p>${escapeHTML(item.evidence)}</p>${!["healthy", "simulation"].includes(item.state) ? `<footer><button class="secondary" type="button" data-dashboard-panel="alerts">View alerts</button>${can("audit.view") ? `<button class="secondary" type="button" data-dashboard-panel="audit">Logs</button>` : ""}${can("assistant.use") ? `<button class="secondary investigate-alert" type="button" data-question="Investigate ${escapeHTML(item.name)}">Ask AI</button>` : ""}</footer>` : ""}</article>`).join("");
   $("system-charts").innerHTML = [
     lineChart("CPU utilization", data.histories.cpu_utilization, (value) => `${value}%`),
     lineChart("Memory utilization", data.histories.memory_utilization, (value) => `${value}%`),
@@ -503,7 +976,23 @@ function renderHealthPanel() {
 
 function renderAlertsPanel() {
   if (!state.operations || !$("alerts-list")) return;
-  $("alerts-list").innerHTML = state.operations.alerts.length ? state.operations.alerts.map((alert) => `<article class="alert-card ${escapeHTML(alert.severity)}"><div><span>${escapeHTML(alert.severity)} · ${escapeHTML(alert.component.replaceAll("_", " "))}</span><h2>${escapeHTML(alert.title)}</h2><p>${escapeHTML(alert.evidence)}</p><small>Last observed ${escapeHTML(formatDate(alert.last_seen_at))}</small></div><div><button class="secondary" type="button" data-dashboard-panel="system-health">View metrics</button><button type="button" class="investigate-alert" data-question="Investigate ${escapeHTML(alert.title)}">Investigate with AI</button></div></article>`).join("") : `<div class="empty-state"><strong>No active alerts</strong><p>No configured threshold is currently breached for this property.</p></div>`;
+  const summary = $("alerts-summary");
+  if (summary) {
+    const alerts = state.operations.alerts;
+    const critical = alerts.filter((alert) => alert.severity === "critical").length;
+    const warnings = alerts.filter((alert) => alert.severity === "warning").length;
+    const stateName = critical ? "critical" : warnings ? "warning" : "healthy";
+    summary.className = `health-banner ${stateName}`;
+    summary.querySelector(".health-dot").className = `health-dot ${stateName}`;
+    summary.querySelector("strong").textContent = alerts.length ? `${alerts.length} active alert${alerts.length === 1 ? "" : "s"}` : "No active alerts";
+    const counts = [critical ? `${critical} critical` : "", warnings ? `${warnings} warning${warnings === 1 ? "" : "s"}` : ""].filter(Boolean);
+    summary.querySelector("p").textContent = `Evaluated ${new Date(state.operations.generated_at * 1000).toLocaleTimeString()} · ${state.operations.period} timeframe${counts.length ? ` · ${counts.join(" · ")}` : " · no threshold breaches detected"}.`;
+  }
+  $("alerts-list").innerHTML = state.operations.alerts.length ? state.operations.alerts.map((alert) => {
+    const target = alert.component === "request_queue" ? "requests" : alert.component === "ai_providers" ? "ai" : "system-health";
+    const targetItem = allNavItems().find((item) => item.panel === target && can(item.permission));
+    return `<article class="alert-card ${escapeHTML(alert.severity)}"><div><span>${escapeHTML(alert.severity)} · ${escapeHTML(alert.component.replaceAll("_", " "))}</span><h2>${escapeHTML(alert.title)}</h2><p>${escapeHTML(alert.evidence)}</p><small>Last observed ${escapeHTML(formatDate(alert.last_seen_at))}</small></div><div>${targetItem ? `<button class="secondary" type="button" data-dashboard-panel="${escapeHTML(target)}">${target === "requests" ? "Open queue" : target === "ai" ? "View providers" : "View metrics"}</button>` : ""}${can("assistant.use") ? `<button type="button" class="investigate-alert" data-question="Investigate ${escapeHTML(alert.title)}">Investigate with AI</button>` : ""}</div></article>`;
+  }).join("") : `<div class="empty-state"><strong>No active alerts</strong><p>No configured threshold is currently breached for this property.</p></div>`;
   bindInvestigateButtons();
 }
 
@@ -512,10 +1001,9 @@ function renderAnalyticsPanel() {
   const data = state.operations.analytics;
   const summary = data.summary;
   $("analytics-metrics").innerHTML = [
-    metricCard("Guests assisted", summary.guests_assisted, `${summary.ai_conversations} AI conversations`),
+    metricCard("Guests assisted", summary.guests_assisted, summary.ai_conversations === null ? "Guest conversation analytics are restricted" : `${summary.ai_conversations} AI conversations`),
     metricCard("Avg. resolution", summary.average_resolution_seconds === null ? null : `${Math.round(summary.average_resolution_seconds / 60)} min`, "Completed requests"),
-    metricCard("Fallback rate", `${summary.fallback_rate_percent}%`, "Verified fallback responses"),
-    metricCard("Human escalation", `${summary.human_escalation_rate_percent}%`, "Assistant responses escalated"),
+    metricCard("Fallback rate", summary.fallback_rate_percent === null ? null : `${summary.fallback_rate_percent}%`, summary.fallback_rate_percent === null ? "Not enough conversation data" : "Verified fallback responses"),
   ].join("");
   $("analytics-charts").innerHTML = [lineChart("Request volume", data.request_volume), lineChart("AI errors", state.operations.histories.ai_errors)].join("");
   $("analytics-services").innerHTML = listRows(data.top_services, "No service requests in this period.");
@@ -595,34 +1083,107 @@ async function saveHotelInformation() {
 function renderRooms() {
   const list = $("room-list");
   list.innerHTML = "";
-  for (const room of state.property.rooms || []) {
-    const row = document.createElement("div"); row.className = "compact-row";
-    row.innerHTML = `<strong>${escapeHTML(room.name)}</strong><span>${escapeHTML(room.status)} · capacity ${Number(room.capacity || 1)}</span><span>${escapeHTML(room.description || "")}</span>`;
+  const rooms = [...(state.property.rooms || [])].sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+  const query = ($("room-search")?.value || "").trim().toLocaleLowerCase();
+  const statusFilter = $("room-status-filter")?.value || "all";
+  const availableCount = rooms.filter((room) => (room.status || "available") === "available").length;
+  $("room-count").textContent = `${rooms.length} ${rooms.length === 1 ? "room type" : "room types"} · ${availableCount} marked available`;
+  const filtered = rooms.filter((room) => {
+    const matchesQuery = !query || `${room.name || ""} ${room.description || ""} ${room.floors || ""} ${room.count ?? ""}`.toLocaleLowerCase().includes(query);
+    return matchesQuery && (statusFilter === "all" || (room.status || "available") === statusFilter);
+  });
+  for (const room of filtered) {
+    const row = document.createElement("article"); row.className = "compact-row room-entry";
+    const status = ["available", "unavailable", "maintenance"].includes(room.status) ? room.status : "available";
+    const statusLabel = { available: "Available to describe", unavailable: "Not currently offered", maintenance: "Under maintenance" }[status];
+    const details = [`<span><b>Max guests</b>${Number(room.capacity || 1)}</span>`];
+    if (room.count !== undefined && room.count !== null && String(room.count).trim() !== "") details.push(`<span><b>Rooms of type</b>${escapeHTML(room.count)}</span>`);
+    if (room.floors) details.push(`<span><b>Floor or range</b>${escapeHTML(room.floors)}</span>`);
+    row.innerHTML = `<div class="room-entry-heading"><strong>${escapeHTML(room.name)}</strong><span class="room-status-pill is-${status}">${statusLabel}</span></div><div class="room-entry-details">${details.join("")}</div><p class="room-entry-description">${escapeHTML(room.description || "Add a guest-facing description so staff and the concierge can explain this room clearly.")}</p>`;
     const edit = makeActionButton("Edit", () => {
-      $("room-id").value = room.id; $("room-name").value = room.name; $("room-description").value = room.description || ""; $("room-capacity").value = room.capacity || 1; $("room-status").value = room.status || "available";
+      $("room-id").value = room.id;
+      $("room-name").value = room.name;
+      $("room-description").value = room.description || "";
+      $("room-capacity").value = room.capacity || 1;
+      $("room-count").value = room.count ?? "";
+      $("room-floors").value = room.floors || "";
+      $("room-status").value = room.status || "available";
+      $("room-form-title").textContent = "Edit room type";
+      $("room-form-help").textContent = `Update the guest-facing details for ${room.name}.`;
+      $("cancel-room-edit").hidden = false;
+      $("room-name").focus({ preventScroll: true });
+      $("room-editor-card").scrollIntoView({ behavior: "smooth", block: "start" });
     });
-    const remove = makeActionButton("Delete", () => deleteRoom(room.id), true);
-    row.append(edit, remove); list.appendChild(row);
+    const remove = makeActionButton("Delete", () => deleteRoom(room.id));
+    edit.className = "btn btn-ghost btn-sm";
+    const actions = document.createElement("div"); actions.className = "room-entry-actions"; actions.append(edit, remove);
+    row.append(actions); list.appendChild(row);
   }
-  if (!list.children.length) list.textContent = "No room types configured.";
+  if (!filtered.length) {
+    const empty = document.createElement("div"); empty.className = "room-empty-state";
+    if (!rooms.length) {
+      empty.innerHTML = "<span aria-hidden='true'>⌂</span><strong>Your room catalog is ready to build</strong><p>Add one entry per room type, such as a Deluxe King or Family Suite. Include only details you have verified.</p>";
+      const add = document.createElement("button"); add.type = "button"; add.className = "btn btn-primary btn-sm"; add.id = "room-empty-add"; add.textContent = "Add first room type";
+      add.addEventListener("click", () => clearRoomForm({ focus: true, scroll: true }));
+      empty.append(add);
+    } else {
+      empty.innerHTML = "<strong>No room types match these filters</strong><p>Try another search or status, or clear the filters to see the full catalog.</p>";
+      const clear = document.createElement("button"); clear.type = "button"; clear.className = "btn btn-secondary btn-sm"; clear.textContent = "Clear filters";
+      clear.addEventListener("click", clearRoomFilters);
+      empty.append(clear);
+    }
+    list.append(empty);
+  }
+}
+
+function clearRoomFilters() {
+  $("room-search").value = "";
+  $("room-status-filter").value = "all";
+  renderRooms();
+}
+
+function clearRoomForm({ focus = false, scroll = false } = {}) {
+  $("room-id").value = "";
+  $("room-name").value = "";
+  $("room-description").value = "";
+  $("room-capacity").value = "1";
+  $("room-count").value = "";
+  $("room-floors").value = "";
+  $("room-status").value = "available";
+  $("room-form-title").textContent = "Create a room type";
+  $("room-form-help").textContent = "Add the details guests and the concierge should use when describing this room.";
+  $("cancel-room-edit").hidden = true;
+  if (focus) {
+    if (scroll) $("room-editor-card").scrollIntoView({ behavior: "smooth", block: "start" });
+    $("room-name").focus({ preventScroll: true });
+  }
 }
 
 async function saveRoom() {
   const name = $("room-name").value.trim();
   if (!name) throw new Error("Room name or type is required.");
+  const capacity = Number($("room-capacity").value);
+  if (!Number.isInteger(capacity) || capacity < 1 || capacity > 30) throw new Error("Maximum guests must be a whole number from 1 to 30.");
+  const countValue = $("room-count").value.trim();
+  const count = countValue ? Number(countValue) : null;
+  if (countValue && (!Number.isInteger(count) || count < 1 || count > 9999)) throw new Error("Rooms of this type must be a whole number from 1 to 9,999.");
   const id = $("room-id").value || `room_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
   const rooms = [...(state.property.rooms || [])];
-  const record = { id, name, description: $("room-description").value.trim(), capacity: Number($("room-capacity").value || 1), status: $("room-status").value };
+  const floorRange = $("room-floors").value.trim();
+  const record = { id, name, description: $("room-description").value.trim(), capacity, ...(count === null ? {} : { count }), ...(floorRange ? { floors: floorRange } : {}), status: $("room-status").value };
   const index = rooms.findIndex((item) => item.id === id);
   if (index >= 0) rooms[index] = record; else rooms.push(record);
   state.property.rooms = rooms;
   await savePropertyBasics();
-  $("room-id").value = ""; $("room-name").value = ""; $("room-description").value = "";
-  renderRooms(); showToast("Room saved.");
+  clearRoomForm();
+  renderRooms(); showToast("Room type saved.");
 }
 
 async function deleteRoom(id) {
+  const room = (state.property.rooms || []).find((item) => item.id === id);
+  if (!room || !window.confirm(`Delete “${room.name}”? This removes the room type from the guest property information.`)) return;
   state.property.rooms = (state.property.rooms || []).filter((item) => item.id !== id);
+  if ($("room-id").value === id) clearRoomForm();
   await savePropertyBasics(); renderRooms(); showToast("Room deleted.");
 }
 
@@ -1140,7 +1701,7 @@ function addHotelAIFiles(files) {
 }
 
 function renderHotelAIFiles() {
-  const target = $("hotel-ai-attachments"); target.replaceChildren();
+  const target = $("assistant-attachments"); target.replaceChildren();
   for (const [index, file] of state.hotelAIFiles.entries()) {
     const chip = document.createElement("span"); chip.className = "knowledge-file-chip";
     chip.textContent = `${file.name} (${Math.ceil(file.size / 1024)} KB)`;
@@ -1160,12 +1721,9 @@ function loadAIPolicy() {
   $("personality-greeting").value = personality.greeting_behavior || "first_message";
   $("personality-instructions").value = personality.property_instructions || "";
   const guardrails = state.property.guardrails || {};
-  $("guardrail-unknown").value = guardrails.unknown_answer || "state_unavailable";
-  $("guardrail-escalation").value = guardrails.escalation_behavior || "offer_human";
   $("guardrail-allowed").value = (guardrails.allowed_topics || []).join("\n");
   $("guardrail-restricted").value = (guardrails.restricted_topics || []).join("\n");
   $("guardrail-sensitive").value = guardrails.sensitive_information || "Never expose credentials, payment data, private guest records, or infrastructure identifiers.";
-  $("guardrail-human").value = guardrails.human_escalation || "Offer hotel staff assistance when a request cannot be completed safely or from verified data.";
   $("guardrail-network-only").checked = guardrails.guest_network_only !== false;
   $("guardrail-cidrs").value = (guardrails.allowed_cidrs || ["127.0.0.0/8", "::1/128"]).join("\n");
   $("guardrail-proxies").value = (guardrails.trusted_proxy_ranges || []).join("\n");
@@ -1184,7 +1742,6 @@ function loadAIPolicy() {
   $("guardrail-reservations").checked = Boolean(guardrails.reservations_enabled);
   $("guardrail-financial").checked = Boolean(guardrails.financial_actions_enabled);
   $("guardrail-location").checked = Boolean(guardrails.location_access_enabled);
-  $("guardrail-human-enabled").checked = guardrails.human_escalation_enabled !== false;
   $("guardrail-audit").checked = guardrails.audit_logging_enabled !== false;
 }
 
@@ -1197,7 +1754,7 @@ async function savePersonality() {
 }
 
 async function saveGuardrails() {
-  const config = { ...state.property.guardrails, allowed_topics: readLines("guardrail-allowed"), restricted_topics: readLines("guardrail-restricted"), unknown_answer: $("guardrail-unknown").value, escalation_behavior: $("guardrail-escalation").value, sensitive_information: $("guardrail-sensitive").value.trim(), human_escalation: $("guardrail-human").value.trim(), guest_network_only: $("guardrail-network-only").checked, allowed_cidrs: readLines("guardrail-cidrs"), trusted_proxy_ranges: readLines("guardrail-proxies"), session_network_revalidation: $("guardrail-revalidation").value, guest_session_timeout: Number($("guardrail-timeout").value || 30), antlabs_gateway_enabled: $("guardrail-antlabs").checked, antlabs_gateway_ranges: readLines("guardrail-antlabs-ranges"), internet_search_enabled: $("guardrail-internet").checked, directions_enabled: $("guardrail-directions").checked, restaurant_search_enabled: $("guardrail-restaurants").checked, attractions_enabled: $("guardrail-attractions").checked, weather_enabled: $("guardrail-weather").checked, service_requests_enabled: $("guardrail-services").checked, reservations_enabled: $("guardrail-reservations").checked, financial_actions_enabled: $("guardrail-financial").checked, location_access_enabled: $("guardrail-location").checked, human_escalation_enabled: $("guardrail-human-enabled").checked, audit_logging_enabled: $("guardrail-audit").checked };
+  const config = { ...state.property.guardrails, allowed_topics: readLines("guardrail-allowed"), restricted_topics: readLines("guardrail-restricted"), sensitive_information: $("guardrail-sensitive").value.trim(), guest_network_only: $("guardrail-network-only").checked, allowed_cidrs: readLines("guardrail-cidrs"), trusted_proxy_ranges: readLines("guardrail-proxies"), session_network_revalidation: $("guardrail-revalidation").value, guest_session_timeout: Number($("guardrail-timeout").value || 30), antlabs_gateway_enabled: $("guardrail-antlabs").checked, antlabs_gateway_ranges: readLines("guardrail-antlabs-ranges"), internet_search_enabled: $("guardrail-internet").checked, directions_enabled: $("guardrail-directions").checked, restaurant_search_enabled: $("guardrail-restaurants").checked, attractions_enabled: $("guardrail-attractions").checked, weather_enabled: $("guardrail-weather").checked, service_requests_enabled: $("guardrail-services").checked, reservations_enabled: $("guardrail-reservations").checked, financial_actions_enabled: $("guardrail-financial").checked, location_access_enabled: $("guardrail-location").checked, audit_logging_enabled: $("guardrail-audit").checked };
   const signingSecret = $("guardrail-antlabs-secret").value;
   if (signingSecret) config.antlabs_signature_secret = signingSecret;
   delete config.antlabs_signature_configured;
@@ -1267,9 +1824,9 @@ function renderWebhooks() {
   const list = $("webhook-list"); list.innerHTML = "";
   for (const item of state.webhooks.webhooks || []) {
     const row = document.createElement("div"); row.className = "compact-row";
-    row.innerHTML = `<strong>${escapeHTML(item.name)}</strong><span>${item.enabled ? "Enabled" : "Disabled"} · ${escapeHTML(item.last_status.replaceAll("_", " "))}</span><span>${escapeHTML(item.endpoint_url)}${item.last_error ? ` · ${escapeHTML(item.last_error)}` : ""}</span>`;
+    row.innerHTML = `<strong>${escapeHTML(item.name)}</strong><span>${item.enabled ? "Enabled" : "Disabled"} · ${escapeHTML((item.last_status || "not tested").replaceAll("_", " "))}</span><span>${escapeHTML(item.endpoint_url)}${item.last_error ? ` · ${escapeHTML(item.last_error)}` : ""}</span>`;
     row.append(
-      makeActionButton("Edit", () => { $("webhook-id").value = item.webhook_id; $("webhook-name").value = item.name; $("webhook-url").value = item.endpoint_url; $("webhook-enabled").checked = item.enabled; for (const option of $("webhook-events").options) option.selected = item.events.includes(option.value); $("webhook-secret").placeholder = item.secret_configured ? "Saved securely; leave blank to keep" : "Optional signing secret"; }),
+      makeActionButton("Edit", () => editWebhook(item)),
       makeActionButton("Test", () => testWebhook(item.webhook_id)),
       makeActionButton("Delete", () => deleteWebhook(item.webhook_id), true),
     ); list.appendChild(row);
@@ -1280,11 +1837,49 @@ function renderWebhooks() {
 
 async function saveWebhook() {
   const events = [...$("webhook-events").selectedOptions].map((option) => option.value);
-  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/webhooks`, { method: "PUT", body: JSON.stringify({ webhook_id: $("webhook-id").value || null, name: $("webhook-name").value.trim(), endpoint_url: $("webhook-url").value.trim(), events, enabled: $("webhook-enabled").checked, secret: $("webhook-secret").value }) });
-  $("webhook-id").value = ""; $("webhook-name").value = ""; $("webhook-url").value = ""; $("webhook-secret").value = ""; await loadWebhooks(); showToast("Webhook saved.");
+  const name = $("webhook-name").value.trim();
+  const endpointUrl = $("webhook-url").value.trim();
+  if (!name) throw new Error("Enter a name for this webhook.");
+  if (!events.length) throw new Error("Select at least one event to send.");
+  try {
+    const parsed = new URL(endpointUrl);
+    if (!["http:", "https:"].includes(parsed.protocol)) throw new Error();
+  } catch {
+    throw new Error("Enter a valid HTTP or HTTPS endpoint URL.");
+  }
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/webhooks`, { method: "PUT", body: JSON.stringify({ webhook_id: $("webhook-id").value || null, name, endpoint_url: endpointUrl, events, enabled: $("webhook-enabled").checked, secret: $("webhook-secret").value }) });
+  resetWebhookForm(); await loadWebhooks(); showToast("Webhook saved.");
 }
 async function testWebhook(id) { const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/webhooks/${encodeURIComponent(id)}/test`, { method: "POST" }); await loadWebhooks(); showToast(result.status === "delivered" ? "Webhook delivered." : result.error, result.status === "delivered" ? "default" : "error"); }
-async function deleteWebhook(id) { await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/webhooks/${encodeURIComponent(id)}`, { method: "DELETE" }); await loadWebhooks(); showToast("Webhook deleted."); }
+function editWebhook(item) {
+  $("webhook-id").value = item.webhook_id;
+  $("webhook-name").value = item.name;
+  $("webhook-url").value = item.endpoint_url;
+  $("webhook-enabled").checked = item.enabled;
+  for (const option of $("webhook-events").options) option.selected = item.events.includes(option.value);
+  $("webhook-secret").value = "";
+  $("webhook-secret").placeholder = item.secret_configured ? "Saved securely; leave blank to keep" : "Optional signing secret";
+  $("save-webhook").textContent = "Update Webhook";
+  $("reset-webhook-form").hidden = false;
+}
+function resetWebhookForm() {
+  $("webhook-id").value = "";
+  $("webhook-name").value = "";
+  $("webhook-url").value = "";
+  $("webhook-secret").value = "";
+  $("webhook-secret").placeholder = "Optional; leave blank to keep a saved secret";
+  $("webhook-enabled").checked = true;
+  for (const option of $("webhook-events").options) option.selected = false;
+  $("save-webhook").textContent = "Save Webhook";
+  $("reset-webhook-form").hidden = true;
+}
+async function deleteWebhook(id) {
+  const item = (state.webhooks.webhooks || []).find((webhook) => webhook.webhook_id === id);
+  if (!window.confirm(`Delete the webhook${item ? ` “${item.name}”` : ""}? This stops future event delivery.`)) return;
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/webhooks/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if ($("webhook-id").value === id) resetWebhookForm();
+  await loadWebhooks(); showToast("Webhook deleted.");
+}
 
 function renderManagedLocations() {
   const list = $("managed-location-list"); list.innerHTML = "";
@@ -1316,10 +1911,14 @@ async function verifyDeployment() { const result = await jsonFetch(`/api/admin/p
 
 async function loadSystemSettings() {
   const application = state.property.app_settings?.application || {};
-  $("setting-language").value = application.default_language || state.property.languages?.[0] || "en"; $("setting-timezone").value = application.timezone || state.property.timezone || "UTC"; $("setting-maintenance").checked = Boolean(application.maintenance_enabled); $("setting-maintenance-message").value = application.maintenance_message || "";
+  const timezone = application.timezone || state.property.timezone || "UTC";
+  const language = application.default_language || state.property.languages?.[0] || "en";
+  if (![...$("setting-timezone").options].some((option) => option.value === timezone)) $("setting-timezone").add(new Option(`${timezone} (saved value)`, timezone));
+  if (![...$("setting-language").options].some((option) => option.value === language)) $("setting-language").add(new Option(`${language} (saved value)`, language));
+  $("setting-language").value = language; $("setting-timezone").value = timezone; $("setting-maintenance").checked = Boolean(application.maintenance_enabled); $("setting-maintenance-message").value = application.maintenance_message || "";
   const smtp = await jsonFetch("/api/admin/system/email"); $("smtp-enabled").checked = smtp.enabled; $("smtp-host").value = smtp.host; $("smtp-port").value = smtp.port; $("smtp-security").value = smtp.security; $("smtp-username").value = smtp.username; $("smtp-from").value = smtp.from_address; $("smtp-password").value = ""; $("smtp-password").placeholder = smtp.password_configured ? `Saved securely (${smtp.password_masked})` : "Not configured"; $("smtp-status").textContent = smtp.enabled ? "SMTP enabled. Use Test Connection to verify reachability." : "SMTP is disabled; password-reset requests remain generic and do not send email.";
 }
-async function saveApplicationSettings() { const application = { default_language: $("setting-language").value.trim() || "en", timezone: $("setting-timezone").value.trim() || "UTC", maintenance_enabled: $("setting-maintenance").checked, maintenance_message: $("setting-maintenance-message").value.trim() }; state.property.languages = [application.default_language]; state.property.timezone = application.timezone; state.property.app_settings = { ...(state.property.app_settings || {}), application }; await savePropertyBasics(); showToast("Application settings saved."); }
+async function saveApplicationSettings() { const application = { default_language: $("setting-language").value.trim() || "en", timezone: $("setting-timezone").value.trim() || "UTC", maintenance_enabled: $("setting-maintenance").checked, maintenance_message: $("setting-maintenance-message").value.trim() }; state.property.languages = [...new Set([...(state.property.languages || []), application.default_language])]; state.property.timezone = application.timezone; state.property.app_settings = { ...(state.property.app_settings || {}), application }; await savePropertyBasics(); showToast("Application settings saved."); }
 async function saveSMTPSettings() { await jsonFetch("/api/admin/system/email", { method: "PUT", body: JSON.stringify({ enabled: $("smtp-enabled").checked, host: $("smtp-host").value.trim(), port: Number($("smtp-port").value || 587), security: $("smtp-security").value, username: $("smtp-username").value.trim(), password: $("smtp-password").value, from_address: $("smtp-from").value.trim() }) }); await loadSystemSettings(); showToast("Email settings saved securely."); }
 async function testSMTP() { const result = await jsonFetch("/api/admin/system/email/test", { method: "POST" }); $("smtp-status").textContent = result.detail; showToast(result.detail, result.status === "connected" ? "default" : "error"); }
 
@@ -1337,6 +1936,18 @@ async function loadAntlabsStatus() {
 function renderAntlabsStatus(data) {
   $("antlabs-configured").textContent = data.configured ? "Configured" : "Not configured"; $("antlabs-mode").textContent = data.mode; $("antlabs-status").textContent = data.status.replaceAll("_", " "); $("antlabs-endpoint").textContent = data.endpoint || "Not configured";
   if (data.detail) $("antlabs-detail").textContent = data.detail;
+  const authNote = $("auth-runtime-note");
+  if (authNote) {
+    if (data.mode === "mock") {
+      authNote.textContent = "Mock mode only simulates successful submissions; it does not contact ANTlabs. Live SG5 handoff supports Complimentary, Local, PMS / Room Login, Credit Card, and Access Code.";
+    } else if (!data.configured) {
+      authNote.textContent = "Live authentication is not ready: configure the SG5 built-in processor URL. No login method will be presented to guests until a supported live flow is configured.";
+    } else {
+      const labels = new Map(authTypeDefinitions.map((item) => [item.id, item.label]));
+      const methods = (data.supported_authentication_types || []).map((id) => labels.get(id) || id).join(", ");
+      authNote.textContent = `Live SG5 built-in processor methods: ${methods}. A connection check confirms endpoint reachability only; verify a guest login and Internet access on the target gateway.`;
+    }
+  }
 }
 
 async function testAntlabs() {
@@ -1349,20 +1960,109 @@ function setPublishState(text) {
 
 function hydrateProperty(property) {
   state.property = property;
+  renderAdminBrandLogo(property);
   $("property-id").value = property.property_id;
   $("hotel-name-input").value = property.hotel_name;
   $("overview-title").textContent = property.hotel_name || "Property not configured";
   $("concierge-name-input").value = property.concierge_name;
   $("domain-input").value = property.domain || "";
   $("deployment-mode").value = property.deployment_mode || "on-prem";
-  renderAuthTypes(property.antlabs_config?.authentication_types || {});
+  renderAuthTypes(property.antlabs_config || {});
   loadAIPolicy();
   renderManagedLocations();
+}
+
+function renderAdminBrandLogo(property) {
+  const image = $("brand-logo-image");
+  const fallback = $("brand-mark-fallback");
+  const rawLogoUrl = String(property?.logo_url || "").trim();
+  let logoUrl = "";
+  if (/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(rawLogoUrl)) {
+    logoUrl = rawLogoUrl;
+  } else if (rawLogoUrl) {
+    try {
+      const candidate = new URL(rawLogoUrl, window.location.href);
+      if (["http:", "https:"].includes(candidate.protocol)) logoUrl = candidate.href;
+    } catch { /* Ignore malformed saved image URLs and keep the mark fallback. */ }
+  }
+  image.onerror = () => {
+    image.hidden = true;
+    fallback.hidden = false;
+  };
+  image.hidden = !logoUrl;
+  fallback.hidden = Boolean(logoUrl);
+  if (logoUrl && image.src !== logoUrl) image.src = logoUrl;
+  if (!logoUrl) image.removeAttribute("src");
+  $("brand-logo-remove").hidden = !rawLogoUrl || !can("properties.edit");
+}
+
+async function saveAdminPropertyLogo(logoUrl) {
+  const propertyId = currentPropertyId();
+  if (!propertyId) throw new Error("Select a property before adding its logo.");
+  const trigger = $("brand-logo-trigger");
+  const remove = $("brand-logo-remove");
+  trigger.disabled = true;
+  remove.disabled = true;
+  try {
+    const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}/logo`, {
+      method: "PUT",
+      body: JSON.stringify({ logo_url: logoUrl }),
+    });
+    if (state.property?.property_id === propertyId) {
+      state.property = { ...state.property, logo_url: result.logo_url };
+      renderAdminBrandLogo(state.property);
+    }
+    state.properties = state.properties.map((property) => property.property_id === propertyId
+      ? { ...property, logo_url: result.logo_url }
+      : property);
+    showToast(logoUrl ? "Property logo updated." : "Property logo removed.");
+  } finally {
+    trigger.disabled = false;
+    remove.disabled = false;
+  }
+}
+
+async function uploadAdminPropertyLogo(input) {
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file) return;
+  const acceptedTypes = ["image/png", "image/jpeg", "image/webp"];
+  if (!acceptedTypes.includes(file.type)) {
+    showToast("Choose a PNG, JPEG, or WebP logo.", "error");
+    return;
+  }
+  if (!file.size || file.size > 500 * 1024) {
+    showToast("Logo images must be smaller than 500 KB.", "error");
+    return;
+  }
+  try {
+    const logoUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.addEventListener("load", () => resolve(String(reader.result || "")), { once: true });
+      reader.addEventListener("error", () => reject(new Error("The logo file could not be read.")), { once: true });
+      reader.readAsDataURL(file);
+    });
+    await saveAdminPropertyLogo(logoUrl);
+  } catch (error) {
+    showToast(error.message || "The property logo could not be saved.", "error");
+  }
 }
 
 function renderAuthTypes(config = {}) {
   const list = $("auth-type-list");
   if (!list) return;
+  const authenticationTypes = config.authentication_types || {};
+  const masterSwitch = $("authentication-enabled");
+  masterSwitch.checked = Object.hasOwn(config, "authentication_enabled")
+    ? config.authentication_enabled === true
+    : Object.values(authenticationTypes).some((item) => item?.enabled === true);
+  masterSwitch.onchange = () => {
+    const status = $("auth-runtime-note");
+    if (status) status.textContent = masterSwitch.checked
+      ? "Guest sign-in will be offered after you save. ANTlabs gateway policy is not changed by this setting."
+      : "Guest sign-in will be hidden after you save. ANTlabs gateway policy is not changed by this setting.";
+    updateAuthSaveState();
+  };
   list.innerHTML = "";
   for (const type of authTypeDefinitions) {
     const row = document.createElement("article");
@@ -1373,22 +2073,14 @@ function renderAuthTypes(config = {}) {
         <p>${type.description}</p>
       </div>
       <label class="toggle-switch">
-        <input type="checkbox" data-auth-type="${type.id}" ${config[type.id]?.enabled ? "checked" : ""}>
-        <span></span>
+        <input type="checkbox" role="switch" aria-label="Enable ${escapeHTML(type.label)} authentication" data-auth-type="${type.id}" ${authenticationTypes[type.id]?.enabled ? "checked" : ""}>
       </label>
     `;
-    row.querySelector("input").addEventListener("change", () => {
-      const enabled = readAuthTypes().filter((item) => item.enabled).length;
-      showToast(`${enabled} authentication type${enabled === 1 ? "" : "s"} enabled.`);
-    });
-    row.querySelector(".toggle-switch").addEventListener("click", (event) => {
-      event.preventDefault();
-      const input = row.querySelector("input");
-      input.checked = !input.checked;
-      input.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+    row.querySelector("input").addEventListener("change", updateAuthSaveState);
     list.appendChild(row);
   }
+  state.authSavedSnapshot = authSettingsSnapshot();
+  updateAuthSaveState();
 }
 
 function readAuthTypes() {
@@ -1397,6 +2089,26 @@ function readAuthTypes() {
     label: type.label,
     enabled: Boolean(document.querySelector(`[data-auth-type="${type.id}"]`)?.checked),
   }));
+}
+
+function authSettingsSnapshot() {
+  return JSON.stringify({
+    enabled: Boolean($("authentication-enabled")?.checked),
+    methods: readAuthTypes().map(({ id, enabled }) => ({ id, enabled })),
+  });
+}
+
+function updateAuthSaveState() {
+  const button = $("save-auth-types");
+  const status = $("auth-save-state");
+  const statusText = $("auth-save-state-text");
+  if (!button || !status || !statusText) return;
+  const dirty = state.authSavedSnapshot !== authSettingsSnapshot();
+  const phase = state.authSaving ? "saving" : dirty ? "unsaved" : "saved";
+  status.dataset.state = phase;
+  statusText.textContent = phase === "saving" ? "Saving changes…" : phase === "unsaved" ? "Unsaved changes" : "All changes saved";
+  button.disabled = state.authSaving || !dirty;
+  button.setAttribute("aria-busy", String(state.authSaving));
 }
 
 function providerLabel(provider) {
@@ -1430,8 +2142,22 @@ function modelOptions(provider) {
 }
 
 async function saveAuthenticationTypes() {
-  await savePropertyBasics();
-  showToast("Authentication methods saved. Guest login now reflects the enabled methods.");
+  const authenticationEnabled = $("authentication-enabled").checked;
+  state.authSaving = true;
+  updateAuthSaveState();
+  try {
+    await savePropertyBasics();
+    const status = $("auth-runtime-note");
+    if (status) status.textContent = authenticationEnabled
+      ? "Guest Wi-Fi sign-in is on for this property. Only enabled methods supported by the configured ANTlabs mode are offered."
+      : "Guest Wi-Fi sign-in is off for this property. Saved method choices are preserved; ANTlabs gateway policy is unchanged.";
+    showToast(authenticationEnabled
+      ? "Authentication methods saved. Guest Wi-Fi sign-in is on; the guest app reflects the enabled methods."
+      : "Authentication methods saved. Guest Wi-Fi sign-in is off; ANTlabs gateway policy is unchanged.");
+  } finally {
+    state.authSaving = false;
+    updateAuthSaveState();
+  }
 }
 
 function namedModelOptions(provider) {
@@ -1886,10 +2612,16 @@ function hydrateDesign(design) {
 }
 
 function fillDesignForm(config) {
+  state.designAccentText = config.theme?.accentText || "#ffffff";
   $("design-hotel-name").value = config.branding?.hotelName || "";
   $("design-concierge-name").value = config.branding?.conciergeName || "";
   $("logo-display-input").value = config.branding?.logoDisplay || "mark_name";
   $("logo-url-input").value = config.branding?.logoUrl || "";
+  const logoStatus = $("logo-upload-status");
+  if (logoStatus) {
+    logoStatus.textContent = config.branding?.logoUrl ? "Logo saved in this draft." : "No logo selected.";
+    logoStatus.dataset.state = config.branding?.logoUrl ? "ready" : "neutral";
+  }
   $("greeting-input").value = config.welcome?.greeting || "";
   $("welcome-input").value = config.welcome?.headline || "";
   $("composer-placeholder-input").value = config.composer?.placeholder || "";
@@ -1938,7 +2670,7 @@ function designPayload() {
     textPrimary: $("text-color-input").value,
     textSecondary: $("secondary-text-color-input").value,
     accent: $("accent-input").value,
-    accentText: base.theme?.accentText || "#ffffff",
+    accentText: state.designAccentText || base.theme?.accentText || "#ffffff",
     border: base.theme?.border || "#e4e4e7",
     userMessageBackground: $("user-message-input").value,
     userMessageText: base.theme?.userMessageText || "#18181b",
@@ -1994,6 +2726,7 @@ function propertyPayload() {
   const property = state.property || {};
   const antlabsConfig = {
     ...(property.antlabs_config || {}),
+    authentication_enabled: $("authentication-enabled")?.checked ?? Boolean(property.antlabs_config?.authentication_enabled),
     authentication_types: Object.fromEntries(
       readAuthTypes().map((type) => [type.id, { label: type.label, enabled: type.enabled }])
     ),
@@ -2141,31 +2874,145 @@ function renderVersions() {
 function updatePreview() {
   const config = designPayload();
   const accent = config.theme.accent;
+  const preview = $("chat-preview");
   const logo = $("preview-logo");
   $("preview-hotel").textContent = config.branding.hotelName || "Property not configured";
   $("preview-concierge").textContent = config.branding.conciergeName;
   logo.textContent = config.branding.hotelName.slice(0, 1).toUpperCase();
   logo.style.backgroundImage = config.branding.logoUrl ? `url("${config.branding.logoUrl}")` : "";
   logo.classList.toggle("has-image", Boolean(config.branding.logoUrl));
-  $("chat-preview").dataset.logoDisplay = config.branding.logoDisplay || "mark_name";
+  preview.dataset.logoDisplay = config.branding.logoDisplay || "mark_name";
+  preview.dataset.headerVisible = String(config.header.enabled !== false);
+  preview.dataset.logoVisible = String(config.header.showLogo !== false);
+  preview.dataset.nameVisible = String(config.header.showHotelName !== false);
+  preview.dataset.conciergeVisible = String(config.header.showConciergeName !== false);
+  preview.dataset.userStyle = config.messages.userStyle || "bubble";
+  preview.dataset.assistantStyle = config.messages.assistantStyle || "minimal";
+  preview.dataset.promptLayout = config.layout.suggestionLayout || "stack";
   $("preview-greeting").textContent = config.welcome.greeting;
   $("preview-welcome").textContent = config.welcome.headline;
   $("preview-placeholder").textContent = config.composer.placeholder;
-  $("chat-preview").style.setProperty("--preview-bg", config.theme.background);
-  $("chat-preview").style.setProperty("--preview-surface", config.theme.surface);
-  $("chat-preview").style.setProperty("--preview-text", config.theme.textPrimary);
-  $("chat-preview").style.setProperty("--preview-subtle", config.theme.textSecondary);
-  $("chat-preview").style.setProperty("--preview-bg-image", config.theme.backgroundImageUrl ? `url("${config.theme.backgroundImageUrl}")` : "none");
-  $("chat-preview").style.setProperty("--preview-overlay", (config.theme.backgroundOverlay || 0) / 100);
-  $("chat-preview").style.setProperty("--preview-font", previewFontStack(config.typography.fontFamily || config.theme.font || "Geist"));
-  $("chat-preview").style.setProperty("--preview-button", config.theme.buttonColor || accent);
-  $("chat-preview").style.setProperty("--preview-composer", config.composer.background || config.theme.composerBackground || config.theme.surface);
-  $("chat-preview").style.setProperty("--preview-radius", `${config.theme.radius ?? 14}px`);
-  $("chat-preview").style.setProperty("--preview-font-size", `${config.typography.baseFontSize || 15}px`);
-  $("chat-preview").style.setProperty("--preview-message-spacing", `${config.layout.messageSpacing || 24}px`);
-  $("chat-preview").style.setProperty("--preview-content-width", `${config.layout.contentWidth || 840}px`);
-  document.documentElement.style.setProperty("--accent", accent);
+  preview.style.setProperty("--preview-bg", config.theme.background);
+  preview.style.setProperty("--preview-surface", config.theme.surface);
+  preview.style.setProperty("--preview-text", config.theme.textPrimary);
+  preview.style.setProperty("--preview-subtle", config.theme.textSecondary);
+  preview.style.setProperty("--preview-border", config.theme.border || "#e4e4e7");
+  preview.style.setProperty("--preview-user-bubble", config.theme.userMessageBackground || "#eeeeee");
+  preview.style.setProperty("--preview-bg-image", config.theme.backgroundImageUrl ? `url("${config.theme.backgroundImageUrl}")` : "none");
+  preview.style.setProperty("--preview-overlay", (config.theme.backgroundOverlay || 0) / 100);
+  preview.style.setProperty("--preview-font", previewFontStack(config.typography.fontFamily || config.theme.font || "Geist"));
+  preview.style.setProperty("--preview-accent", accent);
+  preview.style.setProperty("--preview-button", config.theme.buttonColor || accent);
+  preview.style.setProperty("--preview-button-text", config.theme.accentText || "#ffffff");
+  preview.style.setProperty("--preview-composer", config.composer.background || config.theme.composerBackground || config.theme.surface);
+  preview.style.setProperty("--preview-radius", `${config.theme.radius ?? 14}px`);
+  preview.style.setProperty("--preview-font-size", `${config.typography.baseFontSize || 15}px`);
+  preview.style.setProperty("--preview-message-spacing", `${config.layout.messageSpacing || 24}px`);
+  preview.style.setProperty("--preview-content-width", `${config.layout.contentWidth || 840}px`);
+  preview.style.setProperty("--preview-message-width", `${config.layout.messageWidth || 680}px`);
+  preview.style.setProperty("--preview-composer-width", `${config.layout.composerWidth || 840}px`);
+  preview.style.setProperty("--preview-density", config.theme.density === "compact" ? "0.78" : "1");
+  $("background-overlay-value").textContent = `${config.theme.backgroundOverlay || 0}%`;
   renderPreviewPrompts();
+}
+
+const designPresets = {
+  elegant: { background: "#f5f5f5", surface: "#ffffff", text: "#202020", subtle: "#666666", accent: "#444444", user: "#ededed", button: "#202020", buttonText: "#ffffff", composer: "#ffffff", font: "Playfair Display", density: "comfortable", baseSize: 15, contentWidth: 840, messageWidth: 660, composerWidth: 820, spacing: 27, radius: 8 },
+  minimal: { background: "#f7f7f7", surface: "#ffffff", text: "#171717", subtle: "#686868", accent: "#111111", user: "#eeeeee", button: "#111111", buttonText: "#ffffff", composer: "#ffffff", font: "Inter", density: "comfortable", baseSize: 15, contentWidth: 840, messageWidth: 680, composerWidth: 840, spacing: 24, radius: 8 },
+  "soft-gray": { background: "#f1f1f1", surface: "#ffffff", text: "#222222", subtle: "#6b6b6b", accent: "#444444", user: "#e8e8e8", button: "#222222", buttonText: "#ffffff", composer: "#ffffff", font: "Geist", density: "comfortable", baseSize: 15, contentWidth: 840, messageWidth: 680, composerWidth: 840, spacing: 26, radius: 12 },
+  "high-contrast": { background: "#ececec", surface: "#ffffff", text: "#111111", subtle: "#4d4d4d", accent: "#111111", user: "#e1e1e1", button: "#111111", buttonText: "#ffffff", composer: "#ffffff", font: "Inter", density: "compact", baseSize: 15, contentWidth: 840, messageWidth: 620, composerWidth: 800, spacing: 20, radius: 5 },
+  graphite: { background: "#202020", surface: "#292929", text: "#f4f4f4", subtle: "#b5b5b5", accent: "#f1f1f1", user: "#3b3b3b", button: "#f1f1f1", buttonText: "#171717", composer: "#303030", font: "Inter", density: "comfortable", baseSize: 15, contentWidth: 840, messageWidth: 680, composerWidth: 840, spacing: 24, radius: 8 },
+  ocean: { background: "#edf5f6", surface: "#ffffff", text: "#183039", subtle: "#566b70", accent: "#287987", user: "#dcecef", button: "#236a78", buttonText: "#ffffff", composer: "#ffffff", font: "Geist", density: "comfortable", baseSize: 15, contentWidth: 840, messageWidth: 680, composerWidth: 840, spacing: 24, radius: 8 },
+  botanical: { background: "#f1f5f1", surface: "#ffffff", text: "#20302a", subtle: "#5e6f64", accent: "#4b7659", user: "#e0eae2", button: "#3a6248", buttonText: "#ffffff", composer: "#ffffff", font: "Geist", density: "comfortable", baseSize: 15, contentWidth: 840, messageWidth: 680, composerWidth: 840, spacing: 24, radius: 8 },
+  rose: { background: "#f7f1f4", surface: "#ffffff", text: "#322730", subtle: "#74636d", accent: "#98677f", user: "#efe1e9", button: "#83556c", buttonText: "#ffffff", composer: "#ffffff", font: "Inter", density: "comfortable", baseSize: 15, contentWidth: 840, messageWidth: 680, composerWidth: 840, spacing: 24, radius: 8 },
+  coral: { background: "#f8f1ef", surface: "#ffffff", text: "#332723", subtle: "#76625c", accent: "#ad5d4d", user: "#f2dfda", button: "#994d3e", buttonText: "#ffffff", composer: "#ffffff", font: "Inter", density: "comfortable", baseSize: 15, contentWidth: 840, messageWidth: 680, composerWidth: 840, spacing: 24, radius: 8 },
+  "modern-elegance": { background: "#f5f4f0", surface: "#ffffff", text: "#262a27", subtle: "#686c68", accent: "#78633c", user: "#ece9e1", button: "#304239", buttonText: "#ffffff", composer: "#ffffff", font: "Playfair Display", density: "comfortable", baseSize: 15, contentWidth: 840, messageWidth: 660, composerWidth: 820, spacing: 28, radius: 8 },
+};
+
+function applyDesignPreset(presetName) {
+  const preset = designPresets[presetName];
+  if (!preset) return;
+  const values = {
+    "background-input": preset.background,
+    "surface-input": preset.surface,
+    "text-color-input": preset.text,
+    "secondary-text-color-input": preset.subtle,
+    "accent-input": preset.accent,
+    "user-message-input": preset.user,
+    "button-color-input": preset.button,
+    "composer-background-input": preset.composer,
+    "font-input": preset.font,
+    "density-input": preset.density,
+    "base-font-size-input": preset.baseSize,
+    "content-width-input": preset.contentWidth,
+    "message-width-input": preset.messageWidth,
+    "composer-width-input": preset.composerWidth,
+    "message-spacing-input": preset.spacing,
+    "radius-input": preset.radius,
+  };
+  for (const [id, value] of Object.entries(values)) $(id).value = String(value);
+  state.designAccentText = preset.buttonText;
+  document.querySelectorAll("[data-design-preset]").forEach((button) => {
+    const selected = button.dataset.designPreset === presetName;
+    button.classList.toggle("selected", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+  updatePreview();
+  showToast(`${document.querySelector(`[data-design-preset="${presetName}"] .template-copy strong`).textContent} applied to the preview. Save draft to keep it.`);
+}
+
+function setDesignInspector(panelName) {
+  const labels = { templates: "Templates", brand: "Brand identity", content: "Welcome content", theme: "Colors & background", layout: "Typography & layout", prompts: "Suggested prompts", versions: "Published versions" };
+  state.designInspector = panelName;
+  document.querySelectorAll(".design-tool").forEach((button) => {
+    const selected = button.dataset.designInspector === panelName;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+  for (const detail of document.querySelectorAll("[data-inspector-panel]")) {
+    detail.open = detail.dataset.inspectorPanel === panelName;
+  }
+  $("inspector-active-tool").textContent = labels[panelName] || "Design";
+  if (panelName !== "templates") {
+    document.querySelector(`[data-inspector-panel="${panelName}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+}
+
+function setPreviewDevice(device) {
+  const widths = { mobile: "390 px", tablet: "768 px", desktop: "Fluid" };
+  state.designDevice = device;
+  $("chat-preview").className = `phone-preview ${device}`;
+  $("preview-viewport-label").textContent = `${device[0].toUpperCase()}${device.slice(1)} · ${widths[device]}`;
+  document.querySelectorAll(".preview-size").forEach((button) => {
+    const selected = button.dataset.size === device;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+  if ($("preview-zoom-level")) {
+    updatePreviewZoom(state.designZoom);
+    requestAnimationFrame(fitPreview);
+  }
+}
+
+function updatePreviewZoom(zoom) {
+  state.designZoom = Math.min(1.25, Math.max(0.55, zoom));
+  const stageWidth = Math.max(280, $("preview-stage").clientWidth - 40);
+  const naturalWidth = state.designDevice === "mobile" ? 390 : state.designDevice === "tablet" ? 768 : Math.min(stageWidth, 1080);
+  $("preview-device-wrap").style.setProperty("--preview-zoom", state.designZoom);
+  $("preview-device-wrap").style.setProperty("--preview-natural-width", `${naturalWidth}px`);
+  $("preview-device-wrap").style.setProperty("--preview-natural-height", "680px");
+  $("preview-device-wrap").style.width = `${naturalWidth * state.designZoom}px`;
+  $("preview-device-wrap").style.height = `${680 * state.designZoom}px`;
+  $("preview-zoom-level").textContent = `${Math.round(state.designZoom * 100)}%`;
+}
+
+function fitPreview() {
+  const stage = $("preview-stage");
+  const maxWidth = Math.max(260, stage.clientWidth - 72);
+  const maxHeight = Math.max(400, stage.clientHeight - 156);
+  const previewWidth = state.designDevice === "mobile" ? 390 : state.designDevice === "tablet" ? 768 : Math.min(maxWidth, 1080);
+  const previewHeight = 680;
+  updatePreviewZoom(Math.min(1, maxWidth / previewWidth, maxHeight / previewHeight));
 }
 
 function previewFontStack(font) {
@@ -2184,19 +3031,27 @@ function previewFontStack(font) {
   return stacks[font] || stacks.Geist;
 }
 
-function handleImageUpload(input, targetId, { maxBytes, recommended }) {
+function handleImageUpload(input, targetId, { maxBytes, recommended, onStatus }) {
   const file = input.files?.[0];
   if (!file) return;
   if (file.size > maxBytes) {
     showToast(`${recommended} Try a smaller file.`, "error");
+    onStatus?.("This file exceeds the upload size limit.", "error");
     input.value = "";
     return;
   }
+  onStatus?.(`Reading ${file.name}...`, "loading");
   const reader = new FileReader();
   reader.addEventListener("load", () => {
     $(targetId).value = reader.result;
+    onStatus?.(`${file.name} is ready in this draft.`, "ready");
     updatePreview();
   });
+  reader.addEventListener("error", () => {
+    onStatus?.("The file could not be read. Choose another.", "error");
+    input.value = "";
+    showToast("The selected image could not be read.", "error");
+  }, { once: true });
   reader.readAsDataURL(file);
 }
 
@@ -2301,6 +3156,10 @@ async function loadProperty() {
   if (can("concierge.view")) await loadDesign();
   if (can("ai.view")) await loadAI();
   if (can("dashboard.view")) await loadDashboard();
+  if (document.querySelector(".platform-main > .panel.active")?.id === "ai-assistant" && can("assistant.use")) {
+    state.assistantConversationId = null;
+    await loadAssistantConversations();
+  }
 }
 
 function propertyIdFromName(name) {
@@ -2333,12 +3192,14 @@ function populatePropertyTimezones() {
     grouped.get(region).push(timezone);
   }
 
-  const select = $("property-create-timezone");
-  for (const region of [...grouped.keys()].sort((a, b) => a.localeCompare(b))) {
-    const group = document.createElement("optgroup");
-    group.label = region;
-    for (const timezone of grouped.get(region)) group.appendChild(new Option(timezone, timezone));
-    select.appendChild(group);
+  for (const selectId of ["property-create-timezone", "setting-timezone"]) {
+    const select = $(selectId);
+    for (const region of [...grouped.keys()].sort((a, b) => a.localeCompare(b))) {
+      const group = document.createElement("optgroup");
+      group.label = region;
+      for (const timezone of grouped.get(region)) group.appendChild(new Option(timezone, timezone));
+      select.appendChild(group);
+    }
   }
 }
 
@@ -2377,6 +3238,12 @@ async function switchProperty(propertyId) {
   const activePanel = document.querySelector(".platform-main > .panel.active")?.id || "overview";
   shell.classList.add("switching-property");
   hydrateProperty(property);
+  if (activePanel === "ai-assistant") {
+    state.assistantConversationId = null;
+    state.assistantConversations = [];
+    $("assistant-chat-scope").textContent = `${property.hotel_name} · Personal history`;
+    resetAssistantConversationView();
+  }
   state.ai = null;
   state.improvementLoop = null;
   state.personalizationPolicy = null;
@@ -2398,13 +3265,14 @@ async function switchProperty(propertyId) {
   if (can("dashboard.view")) tasks.push(loadDashboard());
   if (currentPropertyId()) {
     const activeRefresh = {
+      "ai-assistant": () => loadAssistantConversations(),
       zones: () => loadZones(),
       sessions: () => loadSessions(),
+      conversations: () => loadConversations(),
       "personalization-settings": () => loadPersonalizationPolicy(),
       location: () => loadLocationLive(),
       intro: () => loadIntro(),
       requests: () => loadServiceRequests(),
-      conversations: () => loadConversations(),
       "service-catalog": () => loadServiceCatalog(),
       recommendations: () => loadRecommendations(),
       "hotel-information": () => loadHotelInformation(),
@@ -2442,232 +3310,613 @@ function hydratePropertyOptions() {
 }
 
 async function loadZones() {
-  state.zones = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/zones`);
+  const propertyId = currentPropertyId();
+  if (state.mapPropertyId && state.mapPropertyId !== propertyId) {
+    state.mapObjects = []; state.selectedMapObject = null; state.mapHistory = []; state.mapRedo = []; state.mapPolygonPoints = []; state.mapConnectFrom = null; state.mapDirty = false;
+  }
+  state.mapPropertyId = propertyId;
+  state.zones = await jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}/zones`);
   hydrateZoneSelectors();
+  state.mapSelectedFloorId = currentMapFloorId();
+  state.mapSelectedBuildingId = currentMapBuildingId();
   renderZoneTree();
   renderMapCanvas();
+  renderMapInspector();
 }
+
+function currentMapFloorId() { return $("zone-floor-select")?.value || ""; }
+function currentMapBuildingId() { return $("zone-building-select")?.value || ""; }
+function mapFloor(floorId = currentMapFloorId()) { return state.zones?.floors.find((floor) => floor.floor_id === floorId) || null; }
+function mapBuilding(buildingId = currentMapBuildingId()) { return state.zones?.buildings.find((building) => building.building_id === buildingId) || null; }
+function mapFloorZones(floorId = currentMapFloorId()) { return (state.zones?.zones || []).filter((zone) => zone.floor_id === floorId); }
+function mapFloorNodes(floorId = currentMapFloorId()) { return (state.zones?.navigation_nodes || []).filter((node) => node.floor_id === floorId); }
 
 function hydrateZoneSelectors() {
   const buildingSelect = $("zone-building-select");
   const floorSelect = $("zone-floor-select");
-  buildingSelect.innerHTML = "";
-  floorSelect.innerHTML = "";
-  for (const building of state.zones.buildings) {
-    buildingSelect.appendChild(new Option(building.name, building.building_id));
-  }
-  if (!state.zones.buildings.length) {
-    buildingSelect.appendChild(new Option("No building yet", ""));
-  }
+  if (!buildingSelect || !floorSelect || !state.zones) return;
+  const previousBuilding = currentMapBuildingId();
+  const previousFloor = currentMapFloorId();
+  buildingSelect.replaceChildren();
+  for (const building of state.zones.buildings) buildingSelect.appendChild(new Option(building.name, building.building_id));
+  if (!state.zones.buildings.length) buildingSelect.appendChild(new Option("No building yet", ""));
+  if (state.zones.buildings.some((item) => item.building_id === previousBuilding)) buildingSelect.value = previousBuilding;
   const floors = state.zones.floors.filter((floor) => !buildingSelect.value || floor.building_id === buildingSelect.value);
-  for (const floor of floors) floorSelect.appendChild(new Option(floor.name, floor.floor_id));
-  if (!floors.length) floorSelect.appendChild(new Option("No floor yet", ""));
+  floorSelect.replaceChildren();
+  for (const floor of floors) floorSelect.appendChild(new Option(`${floor.name} · Level ${floor.level}`, floor.floor_id));
+  if (!floors.length) floorSelect.appendChild(new Option(buildingSelect.value ? "No floors yet" : "Add a building first", ""));
+  if (floors.some((item) => item.floor_id === previousFloor)) floorSelect.value = previousFloor;
+  buildingSelect.disabled = !state.zones.buildings.length;
+  floorSelect.disabled = !floors.length;
+  $("add-map-floor").disabled = !buildingSelect.value;
+  $("upload-floor-plan-trigger").disabled = !floorSelect.value;
+  $("map-empty-upload").disabled = !floorSelect.value;
+  renderMapContext();
+}
+
+function renderMapContext() {
+  const floorId = currentMapFloorId();
+  const floor = mapFloor(floorId);
+  const floorMap = state.zones?.maps?.find((item) => item.floor_id === floorId);
+  const name = $("map-plan-name");
+  const detail = $("map-plan-detail");
+  if (!floor) {
+    name.textContent = "Choose or create a floor";
+    detail.textContent = "A floor plan keeps zones, routes, and access points organized by level.";
+  } else if (!floorMap) {
+    name.textContent = "Blank floor map";
+    detail.textContent = `No plan uploaded for ${floor.name}. You can draw directly on the canvas or add a background plan.`;
+  } else {
+    name.textContent = floorMap.original_filename || "Floor plan uploaded";
+    detail.textContent = `${floor.name} · ${floorMap.content_type === "application/pdf" ? "PDF reference file" : "Floor plan background"} · Replace by uploading a newer plan`;
+  }
+  $("map-canvas-dimensions").textContent = floor ? `Map coordinates · ${floor.name} · 1200 × 720` : "Create a floor to start mapping";
+  const hasMapObjects = mapFloorZones(floorId).length > 0 || mapFloorNodes(floorId).length > 0 || state.mapObjects.length > 0;
+  const needsStructure = !floor;
+  const isBlankFloor = Boolean(floor && !floorMap && !hasMapObjects && state.mapTool === "select");
+  $("map-canvas-empty").hidden = !needsStructure && !isBlankFloor;
+  $("map-empty-add-building").hidden = !needsStructure;
+  $("map-empty-start-drawing").hidden = !isBlankFloor;
+  $("map-empty-upload").hidden = !floor;
+  $("map-empty-upload").disabled = !floor;
+  if (isBlankFloor) {
+    $("map-empty-title").textContent = "Your map is ready to build";
+    $("map-empty-copy").textContent = "Draw a guest area to get started, or upload a floor plan to use as your background.";
+  } else {
+    $("map-empty-title").textContent = state.zones?.buildings.length ? "Add a floor to this property" : "Start with a building";
+    $("map-empty-copy").textContent = state.zones?.buildings.length
+      ? "Each floor has its own plan, guest areas, facilities, and navigation routes."
+      : "Buildings group your property's floors. Add one, then create the floors guests and staff need.";
+  }
+  $("map-empty-add-building").textContent = state.zones?.buildings.length ? "Add floor" : "Add building";
 }
 
 function renderZoneTree() {
   const list = $("zone-tree");
-  list.innerHTML = "";
-  if (!state.zones.buildings.length) {
-    const row = document.createElement("div");
-    row.className = "compact-row";
-    row.innerHTML = "<strong>No floor plans or zones added yet</strong><span>Upload a floor plan or save a zone to begin mapping this property.</span>";
-    list.appendChild(row);
+  if (!list) return;
+  list.replaceChildren();
+  const floorId = currentMapFloorId();
+  const objects = [
+    ...mapFloorZones(floorId).map((item) => ({ kind: "zone", id: item.zone_id, label: item.name, detail: item.category || "Guest area", item })),
+    ...(state.zones?.facilities || []).filter((item) => mapFloorZones(floorId).some((zone) => zone.zone_id === item.zone_id)).map((item) => ({ kind: "facility", id: item.facility_id, label: item.name, detail: item.facility_type || "Facility", item })),
+    ...(state.zones?.access_points || []).filter((item) => mapFloorZones(floorId).some((zone) => zone.zone_id === item.zone_id)).map((item) => ({ kind: "access_point", id: item.access_point_id, label: item.name, detail: "Wi-Fi access point", item })),
+    ...mapFloorNodes(floorId).map((item) => ({ kind: "navigation_node", id: item.node_id, label: item.label, detail: item.node_type || "Waypoint", item })),
+    ...(state.zones?.navigation_edges || []).filter((edge) => mapFloorNodes(floorId).some((node) => node.node_id === edge.from_node_id) && mapFloorNodes(floorId).some((node) => node.node_id === edge.to_node_id)).map((item) => {
+      const nodes = new Map(mapFloorNodes(floorId).map((node) => [node.node_id, node]));
+      return { kind: "navigation_edge", id: item.edge_id, label: `${nodes.get(item.from_node_id)?.label || "Start"} → ${nodes.get(item.to_node_id)?.label || "End"}`, detail: `${item.distance} map units`, item };
+    }),
+  ];
+  $("map-object-count").textContent = String(objects.length);
+  if (!floorId) {
+    const empty = document.createElement("div");
+    empty.className = "map-list-empty";
+    empty.textContent = "Select a floor to see its map objects.";
+    list.appendChild(empty);
     return;
   }
-  for (const zone of state.zones.zones) {
-    const row = document.createElement("div");
-    row.className = "compact-row";
-    row.innerHTML = `<strong>${escapeHTML(zone.name)}</strong><span>${escapeHTML(zone.category || "common")} · ${zone.guest_visible ? "guest visible" : "operations only"}</span>`;
-    row.addEventListener("click", () => {
-      state.selectedMapObject = { ...zone, objectType: "zone" };
-      $("map-object-name").value = zone.name;
-      $("map-object-type").value = "zone";
-      $("map-object-visible").value = String(zone.guest_visible);
-      renderMapCanvas();
-    });
-    list.appendChild(row);
+  if (!objects.length) {
+    const empty = document.createElement("div");
+    empty.className = "map-list-empty";
+    empty.innerHTML = "<strong>This floor is clear</strong><span>Draw a guest area, add a waypoint, or place a Wi-Fi access point to get started.</span>";
+    list.appendChild(empty);
+    return;
   }
+  const query = $("map-object-search").value.trim().toLowerCase();
+  const visibleObjects = query ? objects.filter((entry) => `${entry.label} ${entry.detail}`.toLowerCase().includes(query)) : objects;
+  if (!visibleObjects.length) {
+    const empty = document.createElement("div"); empty.className = "map-list-empty"; empty.textContent = "No map objects match this search."; list.appendChild(empty); return;
+  }
+  for (const entry of visibleObjects) {
+    const selected = state.selectedMapObject?.zone_id === entry.id || state.selectedMapObject?.facility_id === entry.id || state.selectedMapObject?.access_point_id === entry.id || state.selectedMapObject?.node_id === entry.id || state.selectedMapObject?.edge_id === entry.id;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `map-object-row${selected ? " selected" : ""}`;
+    const icon = entry.kind === "zone" ? "▱" : entry.kind === "facility" ? "◇" : entry.kind === "access_point" ? "⌁" : entry.kind === "navigation_edge" ? "↔" : "●";
+    button.innerHTML = `<span class="map-object-row-icon" aria-hidden="true">${icon}</span><span><strong>${escapeHTML(entry.label)}</strong><small>${escapeHTML(entry.detail)}</small></span>`;
+    button.addEventListener("click", () => selectMapObject(entry.item, entry.kind));
+    list.appendChild(button);
+  }
+}
+
+function selectMapObject(item, kind) {
+  if (kind === "zone") state.selectedMapObject = { ...item, objectType: "zone", isDraft: false };
+  else if (kind === "facility") state.selectedMapObject = { ...item, objectType: "facility", isDraft: false };
+  else if (kind === "access_point") state.selectedMapObject = { ...item, objectType: "access_point", isDraft: false };
+  else if (kind === "navigation_node") state.selectedMapObject = { ...item, objectType: "navigation_node", isDraft: false };
+  else if (kind === "navigation_edge") state.selectedMapObject = { ...item, objectType: "navigation_edge", isDraft: false };
+  state.mapDirty = false;
+  renderZoneTree(); renderMapCanvas(); renderMapInspector();
+}
+
+function mapLayers() { return Object.fromEntries([...document.querySelectorAll(".layer-toggle")].map((input) => [input.dataset.layer, input.checked])); }
+function selectedGeometryFor(zone) { return state.selectedMapObject?.zone_id === zone.zone_id ? state.selectedMapObject.geometry : zone.geometry; }
+function pointForGeometry(geometry = {}) {
+  if (geometry.type === "ellipse") return [geometry.cx, geometry.cy];
+  if (geometry.type === "polygon" && geometry.points?.length) return [geometry.points.reduce((sum, p) => sum + p[0], 0) / geometry.points.length, geometry.points.reduce((sum, p) => sum + p[1], 0) / geometry.points.length];
+  if (geometry.type === "point") return [geometry.x, geometry.y];
+  return [Number(geometry.x || 0) + Number(geometry.width || 0) / 2, Number(geometry.y || 0) + Number(geometry.height || 0) / 2];
 }
 
 function renderMapCanvas() {
   const canvas = $("floor-map-canvas");
-  if (!canvas) return;
+  if (!canvas || !state.zones) return;
   const ctx = canvas.getContext("2d");
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "#fbfbfa";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  const layers = Object.fromEntries([...document.querySelectorAll(".layer-toggle")].map((input) => [input.dataset.layer, input.checked]));
-  const floorId = $("zone-floor-select")?.value;
-  const floorMap = state.zones?.maps?.find((item) => item.floor_id === floorId);
-  if (layers.floor_plan && floorMap) {
-    if (floorMap.content_type === "application/pdf") {
-      ctx.fillStyle = "#f4f4f5"; ctx.fillRect(0, 0, canvas.width, canvas.height); ctx.fillStyle = "#52525b"; ctx.font = "16px system-ui"; ctx.fillText("PDF floor plan uploaded. Use PNG, JPEG, or SVG for an editable canvas background.", 28, 42);
-    } else {
-      let image = state.mapBackgrounds.get(floorMap.map_id);
-      if (!image) {
-        image = new Image();
-        image.addEventListener("load", renderMapCanvas, { once: true });
-        image.src = floorMap.url;
-        state.mapBackgrounds.set(floorMap.map_id, image);
-      }
-      if (image.complete && image.naturalWidth) ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+  const width = canvas.width, height = canvas.height;
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, width, height);
+  const layers = mapLayers();
+  const floorId = currentMapFloorId();
+  const floorMap = state.zones.maps.find((item) => item.floor_id === floorId);
+  if (layers.floor_plan && floorMap && floorMap.content_type !== "application/pdf") {
+    let image = state.mapBackgrounds.get(floorMap.map_id);
+    if (!image) {
+      image = new Image(); image.addEventListener("load", renderMapCanvas, { once: true }); image.src = floorMap.url; state.mapBackgrounds.set(floorMap.map_id, image);
+    }
+    if (image.complete && image.naturalWidth) {
+      const scale = Math.min(width / image.naturalWidth, height / image.naturalHeight);
+      const drawWidth = image.naturalWidth * scale, drawHeight = image.naturalHeight * scale;
+      ctx.drawImage(image, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight);
+    }
+  } else if (layers.floor_plan && floorMap?.content_type === "application/pdf") {
+    ctx.fillStyle = "#f3f4f6"; ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = "#475569"; ctx.textAlign = "center"; ctx.font = "600 20px system-ui"; ctx.fillText("PDF saved as a reference", width / 2, height / 2 - 8);
+    ctx.font = "14px system-ui"; ctx.fillText("Upload an image plan to use it as a map background.", width / 2, height / 2 + 20); ctx.textAlign = "start";
+  }
+  if (layers.grid) {
+    ctx.save(); ctx.strokeStyle = floorMap ? "rgba(148,163,184,.2)" : "#e9edf2"; ctx.lineWidth = 1;
+    for (let x = 0; x <= width; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke(); }
+    for (let y = 0; y <= height; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke(); }
+    ctx.restore();
+  }
+  const zones = mapFloorZones(floorId);
+  const nodes = mapFloorNodes(floorId);
+  const displayNodes = nodes.map((node) => state.selectedMapObject?.node_id === node.node_id ? state.selectedMapObject : node);
+  const nodeById = new Map(displayNodes.map((node) => [node.node_id, node]));
+  if (layers.navigation) {
+    for (const edge of state.zones.navigation_edges || []) {
+      const from = nodeById.get(edge.from_node_id), to = nodeById.get(edge.to_node_id);
+      if (!from || !to) continue;
+      const selected = state.selectedMapObject?.edge_id === edge.edge_id;
+      ctx.save(); ctx.strokeStyle = selected ? "#155e75" : "#0f766e"; ctx.lineWidth = selected ? 6 : 4; ctx.setLineDash([10, 8]);
+      ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y); ctx.stroke(); ctx.restore();
     }
   }
-  ctx.strokeStyle = "#d4d4d8";
-  ctx.lineWidth = 1;
-  for (let x = 0; x < canvas.width; x += 40) {
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+  if (layers.zones) for (const zone of zones) drawGeometry(ctx, selectedGeometryFor(zone), state.selectedMapObject?.zone_id === zone.zone_id ? "#0f766e" : "#2563eb", state.selectedMapObject?.zone_id === zone.zone_id ? state.selectedMapObject.name : zone.name, state.selectedMapObject?.zone_id === zone.zone_id);
+  if (layers.facilities) for (const facility of state.zones.facilities || []) {
+    const zone = zones.find((item) => item.zone_id === facility.zone_id); if (!zone) continue;
+    const shownFacility = state.selectedMapObject?.facility_id === facility.facility_id ? state.selectedMapObject : facility;
+    const [x, y] = pointForGeometry(selectedGeometryFor(zone)); drawMarker(ctx, x, y, "◇", "#b45309", shownFacility.name, state.selectedMapObject?.facility_id === facility.facility_id);
   }
-  for (let y = 0; y < canvas.height; y += 40) {
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+  if (layers.access_points) for (const savedAp of state.zones.access_points || []) {
+    const ap = state.selectedMapObject?.access_point_id === savedAp.access_point_id ? state.selectedMapObject : savedAp;
+    if (!zones.some((item) => item.zone_id === ap.zone_id)) continue;
+    drawMarker(ctx, Number(ap.x || 0), Number(ap.y || 0), "⌁", "#dc2626", ap.name, state.selectedMapObject?.access_point_id === ap.access_point_id);
   }
-  if (layers.zones) {
-    for (const zone of state.zones?.zones || []) drawGeometry(ctx, zone.geometry, zone === state.selectedMapObject ? "#0f766e" : "#2563eb", zone.name);
+  if (layers.navigation) for (const node of displayNodes) {
+    drawMarker(ctx, Number(node.x), Number(node.y), "●", "#0f766e", node.label, state.selectedMapObject?.node_id === node.node_id);
   }
-  if (layers.facilities) {
-    for (const facility of state.zones?.facilities || []) {
-      const zone = state.zones.zones.find((item) => item.zone_id === facility.zone_id);
-      if (zone) drawLabel(ctx, zone.geometry, facility.name, "#7c2d12");
+  for (const draft of state.mapObjects) {
+    if (draft.objectType === "zone") drawGeometry(ctx, draft.geometry, "#059669", draft.name || "New area", true);
+    if (draft.objectType === "navigation_node") drawMarker(ctx, draft.x, draft.y, "●", "#0f766e", draft.label || "New waypoint", true);
+    if (draft.objectType === "access_point") drawMarker(ctx, draft.x, draft.y, "⌁", "#dc2626", draft.name || "New access point", true);
+    if (draft.objectType === "navigation_edge") {
+      const from = nodeById.get(draft.from_node_id), to = nodeById.get(draft.to_node_id);
+      if (from && to) { ctx.save(); ctx.strokeStyle = "#0f766e"; ctx.lineWidth = 5; ctx.setLineDash([8, 6]); ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y); ctx.stroke(); ctx.restore(); }
     }
   }
-  if (layers.access_points) {
-    for (const ap of state.zones?.access_points || []) {
-      ctx.fillStyle = "#dc2626";
-      ctx.beginPath(); ctx.arc(ap.x || 40, ap.y || 40, 6, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = "#18181b"; ctx.fillText(ap.name, (ap.x || 40) + 9, (ap.y || 40) + 4);
-    }
+  if (state.mapPolygonPoints.length) {
+    ctx.save(); ctx.strokeStyle = "#059669"; ctx.fillStyle = "rgba(5,150,105,.14)"; ctx.lineWidth = 3; ctx.setLineDash([8, 5]);
+    ctx.beginPath(); ctx.moveTo(...state.mapPolygonPoints[0]); for (const point of state.mapPolygonPoints.slice(1)) ctx.lineTo(...point); ctx.stroke();
+    for (const point of state.mapPolygonPoints) { ctx.fillStyle = "#059669"; ctx.beginPath(); ctx.arc(point[0], point[1], 6, 0, Math.PI * 2); ctx.fill(); }
+    ctx.restore();
   }
-  for (const object of state.mapObjects) drawGeometry(ctx, object.geometry, "#16a34a", object.name || "Draft");
+  renderMapContext();
 }
 
-function drawGeometry(ctx, geometry, color, label) {
-  ctx.save();
-  ctx.strokeStyle = color;
-  ctx.fillStyle = color + "22";
-  ctx.lineWidth = 2;
-  if (geometry.type === "rectangle") {
-    ctx.fillRect(geometry.x, geometry.y, geometry.width, geometry.height);
-    ctx.strokeRect(geometry.x, geometry.y, geometry.width, geometry.height);
-  } else if (geometry.type === "ellipse") {
-    ctx.beginPath(); ctx.ellipse(geometry.cx, geometry.cy, geometry.rx, geometry.ry, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-  } else if (geometry.type === "polygon" && geometry.points?.length) {
-    ctx.beginPath();
-    ctx.moveTo(geometry.points[0][0], geometry.points[0][1]);
-    for (const point of geometry.points.slice(1)) ctx.lineTo(point[0], point[1]);
-    ctx.closePath(); ctx.fill(); ctx.stroke();
+function drawGeometry(ctx, geometry, color, label, selected = false) {
+  if (!geometry) return;
+  ctx.save(); ctx.strokeStyle = color; ctx.fillStyle = color + "22"; ctx.lineWidth = selected ? 4 : 2;
+  if (geometry.type === "rectangle") { ctx.fillRect(geometry.x, geometry.y, geometry.width, geometry.height); ctx.strokeRect(geometry.x, geometry.y, geometry.width, geometry.height); }
+  else if (geometry.type === "ellipse") { ctx.beginPath(); ctx.ellipse(geometry.cx, geometry.cy, Math.max(1, geometry.rx), Math.max(1, geometry.ry), 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
+  else if (geometry.type === "polygon" && geometry.points?.length) {
+    ctx.beginPath(); ctx.moveTo(...geometry.points[0]); for (const point of geometry.points.slice(1)) ctx.lineTo(...point); ctx.closePath(); ctx.fill(); ctx.stroke();
   }
-  drawLabel(ctx, geometry, label, color);
+  const [x, y] = pointForGeometry(geometry); ctx.font = "600 15px system-ui"; ctx.fillStyle = "#17212b";
+  if (label) { ctx.lineWidth = 4; ctx.strokeStyle = "rgba(255,255,255,.92)"; ctx.strokeText(label, x + 10, y + 5); ctx.fillStyle = color; ctx.fillText(label, x + 10, y + 5); }
   ctx.restore();
 }
 
-function drawLabel(ctx, geometry, label, color) {
-  const point = geometry.points?.[0] || [geometry.x || geometry.cx || 30, geometry.y || geometry.cy || 30];
-  ctx.fillStyle = color;
-  ctx.font = "13px system-ui";
-  ctx.fillText(label || "", point[0] + 8, point[1] + 18);
+function drawMarker(ctx, x, y, glyph, color, label, selected = false) {
+  ctx.save(); ctx.beginPath(); ctx.arc(x, y, selected ? 14 : 12, 0, Math.PI * 2); ctx.fillStyle = "#fff"; ctx.fill(); ctx.lineWidth = selected ? 4 : 2; ctx.strokeStyle = color; ctx.stroke();
+  ctx.fillStyle = color; ctx.font = "700 15px system-ui"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(glyph, x, y);
+  if (label) { ctx.textAlign = "left"; ctx.textBaseline = "alphabetic"; ctx.font = "600 14px system-ui"; ctx.lineWidth = 4; ctx.strokeStyle = "#fff"; ctx.strokeText(label, x + 18, y + 5); ctx.fillStyle = "#17212b"; ctx.fillText(label, x + 18, y + 5); }
+  ctx.restore();
 }
 
-async function ensureDefaultBuildingAndFloor() {
-  if (!state.zones?.buildings.length) {
-    await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/buildings`, {
-      method: "POST",
-      body: JSON.stringify({ data: { name: "Main Building" } }),
-    });
-    await loadZones();
+function hitTestMap(point) {
+  const [x, y] = point;
+  const layers = mapLayers();
+  for (const item of [...state.mapObjects].reverse()) {
+    if (layers.zones && item.objectType === "zone" && geometryContains(item.geometry, x, y)) return { item, kind: "draft" };
+    if (layers.navigation && item.objectType === "navigation_node" && Math.hypot(x - item.x, y - item.y) < 20) return { item, kind: "draft" };
+    if (layers.access_points && item.objectType === "access_point" && Math.hypot(x - item.x, y - item.y) < 20) return { item, kind: "draft" };
   }
-  if (!state.zones?.floors.length) {
-    await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/floors`, {
-      method: "POST",
-      body: JSON.stringify({ data: { building_id: state.zones.buildings[0].building_id, name: "Ground Floor", level: 0 } }),
-    });
-    await loadZones();
+  if (layers.access_points) for (const ap of [...(state.zones?.access_points || [])].reverse()) if (mapFloorZones().some((zone) => zone.zone_id === ap.zone_id) && Math.hypot(x - Number(ap.x || 0), y - Number(ap.y || 0)) < 18) return { item: ap, kind: "access_point" };
+  if (layers.navigation) for (const node of [...mapFloorNodes()].reverse()) if (Math.hypot(x - Number(node.x), y - Number(node.y)) < 18) return { item: node, kind: "navigation_node" };
+  if (layers.navigation) for (const edge of [...(state.zones?.navigation_edges || [])].reverse()) {
+    const nodes = new Map(mapFloorNodes().map((node) => [node.node_id, node]));
+    const from = nodes.get(edge.from_node_id), to = nodes.get(edge.to_node_id);
+    if (from && to && distanceToSegment(x, y, from.x, from.y, to.x, to.y) < 10) return { item: edge, kind: "navigation_edge" };
   }
+  if (layers.facilities) for (const facility of [...(state.zones?.facilities || [])].reverse()) {
+    const zone = mapFloorZones().find((item) => item.zone_id === facility.zone_id); if (!zone) continue;
+    const [fx, fy] = pointForGeometry(selectedGeometryFor(zone)); if (Math.hypot(x - fx, y - fy) < 18) return { item: facility, kind: "facility" };
+  }
+  if (layers.zones) for (const zone of [...mapFloorZones()].reverse()) if (geometryContains(selectedGeometryFor(zone), x, y)) return { item: zone, kind: "zone" };
+  return null;
 }
 
-async function saveMapObject() {
-  await ensureDefaultBuildingAndFloor();
-  const floorId = $("zone-floor-select").value || state.zones.floors[0].floor_id;
+function distanceToSegment(x, y, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay, length = dx * dx + dy * dy;
+  const t = length ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / length)) : 0;
+  return Math.hypot(x - (ax + t * dx), y - (ay + t * dy));
+}
+
+function geometryContains(g, x, y) {
+  if (!g) return false;
+  if (g.type === "rectangle") return x >= g.x && x <= g.x + g.width && y >= g.y && y <= g.y + g.height;
+  if (g.type === "ellipse") return ((x - g.cx) ** 2 / Math.max(1, g.rx ** 2)) + ((y - g.cy) ** 2 / Math.max(1, g.ry ** 2)) <= 1;
+  if (g.type === "polygon" && g.points?.length >= 3) {
+    let inside = false;
+    for (let i = 0, j = g.points.length - 1; i < g.points.length; j = i++) { const a = g.points[i], b = g.points[j]; if (((a[1] > y) !== (b[1] > y)) && x < ((b[0] - a[0]) * (y - a[1])) / ((b[1] - a[1]) || 1) + a[0]) inside = !inside; }
+    return inside;
+  }
+  return false;
+}
+
+function renderMapInspector() {
+  const item = state.selectedMapObject;
+  const form = $("map-object-form"), empty = $("map-inspector-empty");
+  if (!item) {
+    form.hidden = true; empty.hidden = false; $("map-inspector-title").textContent = "Object details"; $("map-selection-badge").textContent = "Nothing selected"; $("map-inspector-meta").hidden = true;
+    renderZoneTree(); return;
+  }
+  const type = item.objectType || "zone";
+  const isEdge = type === "navigation_edge", isNode = type === "navigation_node", isFacility = type === "facility", isAp = type === "access_point";
+  const readonly = false;
+  form.hidden = false; empty.hidden = true;
+  $("map-inspector-title").textContent = item.isDraft ? "New map object" : (item.name || item.label || "Object details");
+  $("map-selection-badge").textContent = item.isDraft ? "Unsaved changes" : (type === "zone" ? "Guest area" : isNode ? "Waypoint" : isAp ? "Wi-Fi point" : isFacility ? "Facility" : "Route");
+  $("map-object-kind-wrap").hidden = isEdge || isNode || isAp || isFacility;
+  $("map-object-type").value = item.createAs || (isNode ? (item.node_type || "waypoint") : isEdge ? "waypoint" : isAp ? "access_point" : isFacility ? "facility" : (item.category || "zone"));
+  $("map-object-type").disabled = readonly || isNode || isEdge || isAp || isFacility;
+  $("map-object-name-wrap").hidden = isEdge;
+  $("map-object-name").value = item.name || item.label || (isEdge ? "" : "");
+  $("map-object-name").disabled = readonly;
+  $("map-object-name").required = !isEdge;
+  $("map-linked-zone-wrap").hidden = !(isFacility || isAp || isNode || item.createAs === "facility" || item.createAs === "access_point");
+  $("map-linked-zone").required = isFacility || isAp || item.createAs === "facility" || item.createAs === "access_point";
+  $("map-facility-fields").hidden = !(isFacility || item.createAs === "facility");
+  const facilityType = item.facility_type || "amenity";
+  if (![...$("map-facility-type").options].some((option) => option.value === facilityType)) $("map-facility-type").add(new Option(facilityType, facilityType));
+  $("map-facility-type").value = facilityType;
+  $("map-facility-description").value = item.description || "";
+  $("map-ap-fields").hidden = !(isAp || item.createAs === "access_point");
+  $("map-ap-identifier").required = isAp || item.createAs === "access_point";
+  $("map-node-fields").hidden = !isNode;
+  $("map-edge-fields").hidden = !isEdge;
+  $("map-edge-distance").required = isEdge;
+  $("map-object-visible-wrap").hidden = isAp;
+  $("map-object-visible").checked = item.guest_visible !== false && item.guest_visible !== 0;
+  $("map-object-visible").disabled = readonly;
+  $("map-ap-identifier").value = item.identifier || "";
+  $("map-ap-identifier").disabled = readonly;
+  $("map-node-type").value = item.node_type || "waypoint";
+  $("map-node-type").disabled = readonly;
+  const zoneSelect = $("map-linked-zone");
+  const selectedFloorZones = mapFloorZones();
+  zoneSelect.replaceChildren(new Option("Select a zone", ""));
+  for (const zone of selectedFloorZones) zoneSelect.appendChild(new Option(zone.name, zone.zone_id));
+  zoneSelect.value = item.zone_id || (type === "zone" ? item.zone_id : "");
+  zoneSelect.disabled = readonly;
+  if (isEdge) {
+    const nodes = mapFloorNodes();
+    $("map-edge-from").textContent = nodes.find((node) => node.node_id === item.from_node_id)?.label || "Start waypoint";
+    $("map-edge-to").textContent = nodes.find((node) => node.node_id === item.to_node_id)?.label || "End waypoint";
+    $("map-edge-distance").value = item.distance || ""; $("map-edge-distance").disabled = readonly;
+    $("map-edge-bidirectional").checked = item.bidirectional !== false && item.bidirectional !== 0; $("map-edge-bidirectional").disabled = readonly;
+  }
+  $("save-map-object").hidden = readonly; $("save-map-object").disabled = readonly;
+  $("duplicate-map-object").disabled = !(type === "zone" && !item.createAs && mapFloor());
+  $("delete-map-object").disabled = readonly;
+  $("map-inspector-meta").hidden = !item.isDraft && !item.zone_id && !item.node_id && !item.access_point_id;
+  $("map-object-floor").textContent = mapFloor(item.floor_id)?.name || mapFloor()?.name || "—";
+  const [x, y] = item.geometry ? pointForGeometry(item.geometry) : [item.x, item.y];
+  $("map-object-position").textContent = Number.isFinite(x) && Number.isFinite(y) ? `${Math.round(x)}, ${Math.round(y)}` : "—";
+  renderZoneTree();
+}
+
+function syncMapObjectType() {
+  const item = state.selectedMapObject;
+  if (!item) return;
   const type = $("map-object-type").value;
-  const name = $("map-object-name").value.trim() || type.replaceAll("_", " ");
-  const visible = $("map-object-visible").value === "true";
-  const draft = state.mapObjects.at(-1) || { geometry: { type: "rectangle", x: 120, y: 120, width: 180, height: 100 } };
-  if (type === "facility") {
-    const zone = state.zones.zones[0] || await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/zones`, {
-      method: "PUT",
-      body: JSON.stringify({ data: { floor_id: floorId, name: "Common Area", geometry: draft.geometry, guest_visible: true } }),
-    });
-    await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/facilities`, {
-      method: "POST",
-      body: JSON.stringify({ data: { zone_id: zone.zone_id, name, facility_type: type, guest_visible: visible } }),
-    });
-  } else if (type === "access_point") {
-    const zone = state.zones.zones[0];
-    if (!zone) throw new Error("Create a zone before adding an access point.");
-    await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/access-points`, {
-      method: "POST",
-      body: JSON.stringify({ data: { zone_id: zone.zone_id, name, identifier: $("map-ap-identifier").value.trim(), x: draft.geometry.x || draft.geometry.cx || 80, y: draft.geometry.y || draft.geometry.cy || 80 } }),
-    });
-  } else {
-    await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/zones`, {
-      method: "PUT",
-      body: JSON.stringify({ data: { floor_id: floorId, name, category: type, geometry: draft.geometry, guest_visible: visible } }),
-    });
-  }
-  state.mapObjects = [];
-  await loadZones();
-  showToast("Map object saved.");
+  if (type === "facility" || type === "access_point") item.createAs = type;
+  else { item.createAs = ""; item.objectType = "zone"; item.category = type; }
+  renderMapInspector();
+}
+
+function snapshotMapHistory() { state.mapHistory.push({ objects: structuredClone(state.mapObjects), selected: state.selectedMapObject ? structuredClone(state.selectedMapObject) : null }); if (state.mapHistory.length > 50) state.mapHistory.shift(); state.mapRedo = []; }
+function restoreMapSnapshot(snapshot) {
+  state.mapObjects = snapshot.objects || [];
+  const selected = snapshot.selected;
+  if (selected?.draft_id) state.selectedMapObject = state.mapObjects.find((item) => item.draft_id === selected.draft_id) || selected;
+  else state.selectedMapObject = selected;
+  state.mapDirty = false;
+  renderMapCanvas(); renderMapInspector();
+}
+function mapPoint(event) {
+  const canvas = $("floor-map-canvas"), rect = canvas.getBoundingClientRect();
+  return [Math.max(0, Math.min(canvas.width, Math.round((event.clientX - rect.left) * canvas.width / rect.width))), Math.max(0, Math.min(canvas.height, Math.round((event.clientY - rect.top) * canvas.height / rect.height)))];
+}
+function snapMapPoint([x, y]) { return [Math.round(x / 10) * 10, Math.round(y / 10) * 10]; }
+function makeMapDraft(type, point) {
+  const [x, y] = snapMapPoint(point), draft_id = crypto.randomUUID();
+  if (type === "waypoint") return { draft_id, objectType: "navigation_node", isDraft: true, floor_id: currentMapFloorId(), label: "New waypoint", name: "New waypoint", x, y, node_type: "waypoint", guest_visible: true };
+  if (type === "access_point") return { draft_id, objectType: "access_point", isDraft: true, floor_id: currentMapFloorId(), name: "New access point", x, y, guest_visible: false };
+  return { draft_id, objectType: "zone", isDraft: true, floor_id: currentMapFloorId(), name: "New area", category: "zone", geometry: { type: "rectangle", x, y, width: 1, height: 1 }, guest_visible: true };
 }
 
 function handleCanvasPointer(event) {
-  const canvas = $("floor-map-canvas");
-  const rect = canvas.getBoundingClientRect();
-  const x = Math.round((event.clientX - rect.left) * (canvas.width / rect.width));
-  const y = Math.round((event.clientY - rect.top) * (canvas.height / rect.height));
-  if (!["rectangle", "ellipse", "polygon", "freeform"].includes(state.mapTool)) return;
-  state.mapHistory.push(structuredClone(state.mapObjects));
-  const snap = (value) => Math.round(value / 10) * 10;
-  if (state.mapTool === "freeform") {
-    const object = { name: $("map-object-name").value || "Draft", geometry: { type: "polygon", points: [[x, y]] } };
-    state.mapObjects.push(object); state.freeformDraft = object; canvas.setPointerCapture?.(event.pointerId); state.mapRedo = []; renderMapCanvas(); return;
+  if (!currentMapFloorId()) { showToast("Add a building and floor before editing this map.", "error"); return; }
+  const point = mapPoint(event), [x, y] = snapMapPoint(point), canvas = $("floor-map-canvas");
+  if (state.mapTool === "select") {
+    const hit = hitTestMap(point);
+    if (!hit) { state.selectedMapObject = null; renderMapInspector(); renderMapCanvas(); return; }
+    if (hit.kind === "draft") state.selectedMapObject = hit.item;
+    else selectMapObject(hit.item, hit.kind);
+    if (state.selectedMapObject?.objectType === "zone") {
+      snapshotMapHistory(); state.mapPointer = { mode: "move", start: point, geometry: structuredClone(state.selectedMapObject.geometry), moved: false };
+      canvas.setPointerCapture?.(event.pointerId);
+    } else if (["access_point", "navigation_node"].includes(state.selectedMapObject?.objectType)) {
+      snapshotMapHistory(); state.mapPointer = { mode: "move-marker", start: point, origin: [Number(state.selectedMapObject.x || 0), Number(state.selectedMapObject.y || 0)] };
+      canvas.setPointerCapture?.(event.pointerId);
+    }
+    renderMapInspector(); renderMapCanvas(); return;
   }
-  const geometry = state.mapTool === "ellipse"
-    ? { type: "ellipse", cx: snap(x), cy: snap(y), rx: 80, ry: 50 }
-    : state.mapTool === "polygon"
-      ? { type: "polygon", points: [[snap(x), snap(y)], [snap(x + 140), snap(y + 20)], [snap(x + 80), snap(y + 100)]] }
-      : { type: "rectangle", x: snap(x), y: snap(y), width: 180, height: 110 };
-  state.mapObjects.push({ name: $("map-object-name").value || "Draft", geometry });
-  state.mapRedo = [];
-  renderMapCanvas();
+  if (state.mapTool === "polygon") {
+    state.mapPolygonPoints.push([x, y]);
+    $("finish-map-draw").hidden = state.mapPolygonPoints.length < 3;
+    $("map-canvas-status").textContent = `${state.mapPolygonPoints.length} points · finish polygon when ready`;
+    renderMapCanvas(); return;
+  }
+  if (state.mapTool === "connect") {
+    const hit = hitTestMap(point);
+    const node = hit?.kind === "navigation_node" ? hit.item : null;
+    if (!node || node.isDraft) { showToast("Choose a saved waypoint. Save new waypoints before connecting them.", "error"); return; }
+    if (!state.mapConnectFrom) { state.mapConnectFrom = node; $("map-canvas-status").textContent = `Start: ${node.label}. Choose another waypoint.`; renderMapCanvas(); return; }
+    if (state.mapConnectFrom.node_id === node.node_id) { state.mapConnectFrom = null; $("map-canvas-status").textContent = "Route cancelled"; return; }
+    snapshotMapHistory();
+    const draft = { draft_id: crypto.randomUUID(), objectType: "navigation_edge", isDraft: true, floor_id: currentMapFloorId(), from_node_id: state.mapConnectFrom.node_id, to_node_id: node.node_id, distance: Math.max(1, Math.round(Math.hypot(node.x - state.mapConnectFrom.x, node.y - state.mapConnectFrom.y))), bidirectional: true, guest_visible: true };
+    state.mapObjects.push(draft); state.selectedMapObject = draft; state.mapConnectFrom = null; renderMapInspector(); renderMapCanvas(); return;
+  }
+  if (["waypoint", "access_point"].includes(state.mapTool)) {
+    snapshotMapHistory(); const draft = makeMapDraft(state.mapTool, point); state.mapObjects.push(draft); state.selectedMapObject = draft; renderMapInspector(); renderMapCanvas(); return;
+  }
+  if (["rectangle", "ellipse", "freeform"].includes(state.mapTool)) {
+    snapshotMapHistory(); const draft = makeMapDraft(state.mapTool, point);
+    if (state.mapTool === "ellipse") draft.geometry = { type: "ellipse", cx: x, cy: y, rx: 1, ry: 1 };
+    if (state.mapTool === "freeform") draft.geometry = { type: "polygon", points: [[x, y]] };
+    state.mapObjects.push(draft); state.selectedMapObject = draft;
+    state.mapPointer = { mode: state.mapTool, start: [x, y], draft };
+    canvas.setPointerCapture?.(event.pointerId); renderMapInspector(); renderMapCanvas();
+  }
 }
 
 function handleCanvasPointerMove(event) {
-  if (!state.freeformDraft) return;
-  const canvas = $("floor-map-canvas"); const rect = canvas.getBoundingClientRect();
-  const point = [Math.round((event.clientX - rect.left) * (canvas.width / rect.width)), Math.round((event.clientY - rect.top) * (canvas.height / rect.height))];
-  const points = state.freeformDraft.geometry.points; const last = points.at(-1);
-  if (!last || Math.hypot(point[0] - last[0], point[1] - last[1]) >= 6) { points.push(point); renderMapCanvas(); }
+  if (!state.mapPointer) return;
+  const point = snapMapPoint(mapPoint(event)), start = state.mapPointer.start;
+  if (state.mapPointer.mode === "move") {
+    const dx = point[0] - start[0], dy = point[1] - start[1], original = state.mapPointer.geometry;
+    const geometry = structuredClone(original);
+    if (geometry.type === "rectangle") { geometry.x += dx; geometry.y += dy; }
+    else if (geometry.type === "ellipse") { geometry.cx += dx; geometry.cy += dy; }
+    else if (geometry.type === "polygon") geometry.points = geometry.points.map(([x, y]) => [x + dx, y + dy]);
+    state.selectedMapObject.geometry = geometry; state.mapPointer.moved ||= dx !== 0 || dy !== 0;
+    state.mapDirty ||= state.mapPointer.moved;
+  } else if (state.mapPointer.mode === "move-marker") {
+    const dx = point[0] - start[0], dy = point[1] - start[1];
+    state.selectedMapObject.x = state.mapPointer.origin[0] + dx;
+    state.selectedMapObject.y = state.mapPointer.origin[1] + dy;
+    state.mapDirty ||= dx !== 0 || dy !== 0;
+  } else {
+    const draft = state.mapPointer.draft, [x, y] = point;
+    if (state.mapPointer.mode === "rectangle") draft.geometry = { type: "rectangle", x: Math.min(start[0], x), y: Math.min(start[1], y), width: Math.abs(x - start[0]), height: Math.abs(y - start[1]) };
+    if (state.mapPointer.mode === "ellipse") draft.geometry = { type: "ellipse", cx: (start[0] + x) / 2, cy: (start[1] + y) / 2, rx: Math.abs(x - start[0]) / 2, ry: Math.abs(y - start[1]) / 2 };
+    if (state.mapPointer.mode === "freeform") { const points = draft.geometry.points, last = points.at(-1); if (!last || Math.hypot(x - last[0], y - last[1]) >= 5) points.push([x, y]); }
+  }
+  renderMapCanvas(); renderMapInspector();
 }
 
-function finishFreeform() {
-  if (state.freeformDraft?.geometry.points.length < 3) state.mapObjects = state.mapObjects.filter((item) => item !== state.freeformDraft);
-  state.freeformDraft = null; renderMapCanvas();
+function finishMapPointer() {
+  if (!state.mapPointer) return;
+  const pointer = state.mapPointer; state.mapPointer = null;
+  if (pointer.mode !== "move" && pointer.draft?.geometry) {
+    const g = pointer.draft.geometry;
+    if ((g.type === "rectangle" && (g.width < 12 || g.height < 12)) || (g.type === "ellipse" && (g.rx < 6 || g.ry < 6)) || (g.type === "polygon" && g.points.length < 3)) {
+      state.mapObjects = state.mapObjects.filter((item) => item !== pointer.draft); state.selectedMapObject = null; showToast("Draw a little larger to create a map area.");
+    } else { $("map-canvas-status").textContent = "Unsaved area · add its details, then save"; }
+  }
+  renderMapCanvas(); renderMapInspector();
+}
+
+function finishMapPolygon() {
+  if (state.mapPolygonPoints.length < 3) { showToast("A polygon needs at least three points.", "error"); return; }
+  snapshotMapHistory(); const draft = { draft_id: crypto.randomUUID(), objectType: "zone", isDraft: true, floor_id: currentMapFloorId(), name: "New area", category: "zone", geometry: { type: "polygon", points: state.mapPolygonPoints.map((point) => [...point]) }, guest_visible: true };
+  state.mapObjects.push(draft); state.selectedMapObject = draft; state.mapPolygonPoints = []; $("finish-map-draw").hidden = true; renderMapInspector(); renderMapCanvas();
+}
+
+function updateMapTool(tool, button) {
+  state.mapTool = tool; state.mapConnectFrom = null;
+  for (const candidate of document.querySelectorAll("[data-map-tool]")) { candidate.classList.toggle("active", candidate === button); candidate.setAttribute("aria-pressed", String(candidate === button)); }
+  const labels = { select: "Select", rectangle: "Zone", polygon: "Polygon", ellipse: "Ellipse", freeform: "Freehand", waypoint: "Waypoint", connect: "Connect", access_point: "Access point" };
+  const hints = { select: "Select and drag a guest area to move it. Select a saved object from the list to inspect it.", rectangle: "Drag across the canvas to draw a rectangular guest area.", polygon: "Click to place each corner, then select Finish polygon.", ellipse: "Drag across the canvas to size an elliptical guest area.", freeform: "Draw a freeform guest area by dragging across the canvas.", waypoint: "Click where guests should be able to navigate from or to.", connect: "Select two saved waypoints in order to create a guest route.", access_point: "Click to place a Wi-Fi access point inside its associated guest area." };
+  $("map-active-tool-label").textContent = labels[tool] || "Select"; $("map-tool-hint").textContent = hints[tool] || "";
+  $("map-canvas-status").textContent = tool === "select" ? "Ready" : "Choose a point on the map";
+  $("finish-map-draw").hidden = tool !== "polygon" || state.mapPolygonPoints.length < 3;
+  $("floor-map-canvas").dataset.tool = tool;
+  renderMapContext();
+}
+
+async function createMapStructure(mode) {
+  const isFloor = mode === "floor";
+  if (isFloor && !currentMapBuildingId()) { showToast("Add a building before adding a floor.", "error"); return; }
+  state.mapStructureMode = mode;
+  $("map-structure-title").textContent = isFloor ? "Add floor" : "Add building";
+  $("map-structure-help").textContent = isFloor ? `Add a named floor to ${mapBuilding()?.name || "this building"}.` : "Group floors under a building so staff can organize large properties clearly.";
+  $("map-structure-name-label").firstChild.textContent = isFloor ? "Floor name" : "Building name";
+  $("map-structure-name").placeholder = isFloor ? "For example, Lobby Level" : "For example, Main Building";
+  $("map-floor-level-wrap").hidden = !isFloor; $("map-structure-submit").textContent = isFloor ? "Add floor" : "Add building";
+  $("map-structure-form").reset(); $("map-floor-level").value = "0"; $("map-structure-dialog").showModal();
+  setTimeout(() => $("map-structure-name").focus(), 0);
+}
+
+async function submitMapStructure(event) {
+  event.preventDefault();
+  const name = $("map-structure-name").value.trim(); if (!name) return;
+  if (state.mapStructureMode === "floor" && !currentMapBuildingId()) throw new Error("Add a building before adding a floor.");
+  if (state.mapStructureMode === "floor") {
+    await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/floors`, { method: "POST", body: JSON.stringify({ data: { building_id: currentMapBuildingId(), name, level: Number($("map-floor-level").value || 0) } }) });
+  } else {
+    await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/buildings`, { method: "POST", body: JSON.stringify({ data: { name } }) });
+  }
+  $("map-structure-dialog").close(); await loadZones();
+  if (state.mapStructureMode === "floor") { const created = [...state.zones.floors].reverse().find((floor) => floor.building_id === currentMapBuildingId() && floor.name === name); if (created) { $("zone-floor-select").value = created.floor_id; state.mapSelectedFloorId = created.floor_id; renderMapContext(); renderMapCanvas(); renderZoneTree(); } }
+  showToast(`${state.mapStructureMode === "floor" ? "Floor" : "Building"} added.`);
+}
+
+async function saveMapObject(event) {
+  event?.preventDefault();
+  const item = state.selectedMapObject, floorId = currentMapFloorId();
+  if (!item || !floorId) throw new Error("Choose a floor and a map object to save.");
+  const type = item.createAs || item.objectType || "zone", name = $("map-object-name").value.trim();
+  const visible = $("map-object-visible").checked;
+  const base = `/api/admin/properties/${encodeURIComponent(currentPropertyId())}`;
+  if (type === "zone") {
+    if (!name) throw new Error("Enter a name for this area.");
+    const result = await jsonFetch(`${base}/zones`, { method: "PUT", body: JSON.stringify({ data: { zone_id: item.zone_id, floor_id: floorId, name, category: $("map-object-type").value || item.category || "common", geometry: item.geometry, guest_visible: visible } }) });
+    state.selectedMapObject = { ...result, objectType: "zone", isDraft: false }; state.mapObjects = state.mapObjects.filter((draft) => draft.draft_id !== item.draft_id);
+  } else if (type === "facility") {
+    const zoneId = $("map-linked-zone").value || item.zone_id;
+    if (!zoneId) throw new Error("Choose the guest area that contains this facility.");
+    if (!name) throw new Error("Enter a name for this facility.");
+    const method = item.facility_id ? "PUT" : "POST";
+    const url = item.facility_id ? `${base}/facilities/${encodeURIComponent(item.facility_id)}` : `${base}/facilities`;
+    const result = await jsonFetch(url, { method, body: JSON.stringify({ data: { zone_id: zoneId, name, facility_type: $("map-facility-type").value, description: $("map-facility-description").value.trim(), guest_visible: visible } }) });
+    state.selectedMapObject = { ...result, objectType: "facility", isDraft: false };
+  } else if (type === "access_point") {
+    const zoneId = $("map-linked-zone").value || item.zone_id, identifier = $("map-ap-identifier").value.trim();
+    if (!zoneId) throw new Error("Choose the guest area that contains this access point.");
+    if (!name || !identifier) throw new Error("Enter an access point name and WLAN identifier.");
+    const method = item.access_point_id ? "PUT" : "POST";
+    const url = item.access_point_id ? `${base}/access-points/${encodeURIComponent(item.access_point_id)}` : `${base}/access-points`;
+    const [zoneX, zoneY] = item.geometry ? pointForGeometry(item.geometry) : [item.x, item.y];
+    const result = await jsonFetch(url, { method, body: JSON.stringify({ data: { zone_id: zoneId, name, identifier, x: zoneX, y: zoneY } }) });
+    state.mapObjects = state.mapObjects.filter((draft) => draft.draft_id !== item.draft_id);
+    state.selectedMapObject = { ...result, objectType: "access_point", isDraft: false };
+  } else if (type === "navigation_node") {
+    if (!name) throw new Error("Enter a label for this waypoint.");
+    const method = item.node_id ? "PUT" : "POST";
+    const url = item.node_id ? `${base}/navigation/nodes/${encodeURIComponent(item.node_id)}` : `${base}/navigation/nodes`;
+    const result = await jsonFetch(url, { method, body: JSON.stringify({ data: { floor_id: floorId, zone_id: $("map-linked-zone").value || null, label: name, x: item.x, y: item.y, node_type: $("map-node-type").value, guest_visible: visible } }) });
+    state.selectedMapObject = { ...result, name: result.label, objectType: "navigation_node", isDraft: false }; state.mapObjects = state.mapObjects.filter((draft) => draft.draft_id !== item.draft_id);
+  } else if (type === "navigation_edge") {
+    const distance = Number($("map-edge-distance").value);
+    if (!Number.isFinite(distance) || distance <= 0) throw new Error("Route distance must be greater than zero.");
+    const method = item.edge_id ? "PUT" : "POST";
+    const url = item.edge_id ? `${base}/navigation/edges/${encodeURIComponent(item.edge_id)}` : `${base}/navigation/edges`;
+    const result = await jsonFetch(url, { method, body: JSON.stringify({ data: { from_node_id: item.from_node_id, to_node_id: item.to_node_id, distance, bidirectional: $("map-edge-bidirectional").checked, guest_visible: visible } }) });
+    state.selectedMapObject = { ...result, objectType: "navigation_edge", isDraft: false }; state.mapObjects = state.mapObjects.filter((draft) => draft.draft_id !== item.draft_id);
+  }
+  state.mapHistory = []; state.mapRedo = [];
+  await loadZones(); if (state.selectedMapObject) renderMapInspector(); showToast("Map changes saved.");
+  state.mapDirty = false;
+}
+
+async function deleteMapObject() {
+  const item = state.selectedMapObject; if (!item) return;
+  if (item.isDraft) {
+    snapshotMapHistory(); state.mapObjects = state.mapObjects.filter((draft) => draft.draft_id !== item.draft_id); state.selectedMapObject = null; renderMapInspector(); renderMapCanvas(); return;
+  }
+  const base = `/api/admin/properties/${encodeURIComponent(currentPropertyId())}`;
+  if (item.objectType === "zone" && item.zone_id) {
+    if (!window.confirm(`Delete “${item.name}” and its linked facilities, Wi-Fi points, waypoints, and routes? This cannot be undone.`)) return;
+    await jsonFetch(`${base}/zones/${encodeURIComponent(item.zone_id)}`, { method: "DELETE" });
+    showToast("Guest area and linked map records deleted.");
+  } else {
+    const records = { facility: ["facilities", item.facility_id], access_point: ["access-points", item.access_point_id], navigation_node: ["navigation/nodes", item.node_id], navigation_edge: ["navigation/edges", item.edge_id] };
+    const record = records[item.objectType]; if (!record?.[1]) return;
+    const linked = item.objectType === "navigation_node" ? " Routes connected to it will also be removed." : "";
+    if (!window.confirm(`Delete “${item.name || item.label || "this map object"}”?${linked} This cannot be undone.`)) return;
+    await jsonFetch(`${base}/${record[0]}/${encodeURIComponent(record[1])}`, { method: "DELETE" });
+    showToast("Map object deleted.");
+  }
+  state.selectedMapObject = null; state.mapDirty = false; state.mapHistory = []; state.mapRedo = []; await loadZones();
+}
+
+function duplicateMapObject() {
+  const item = state.selectedMapObject; if (!item?.geometry || item.objectType !== "zone" || item.createAs) return;
+  snapshotMapHistory(); const copy = { ...structuredClone(item), zone_id: undefined, draft_id: crypto.randomUUID(), isDraft: true, name: `${item.name} copy`, geometry: structuredClone(item.geometry) };
+  if (copy.geometry.type === "rectangle") { copy.geometry.x += 24; copy.geometry.y += 24; }
+  else if (copy.geometry.type === "ellipse") { copy.geometry.cx += 24; copy.geometry.cy += 24; }
+  else if (copy.geometry.type === "polygon") copy.geometry.points = copy.geometry.points.map(([x, y]) => [x + 24, y + 24]);
+  state.mapObjects.push(copy); state.selectedMapObject = copy; renderMapInspector(); renderMapCanvas();
+}
+
+function undoMap() { const previous = state.mapHistory.pop(); if (previous) { state.mapRedo.push({ objects: structuredClone(state.mapObjects), selected: state.selectedMapObject ? structuredClone(state.selectedMapObject) : null }); restoreMapSnapshot(previous); } }
+function redoMap() { const next = state.mapRedo.pop(); if (next) { state.mapHistory.push({ objects: structuredClone(state.mapObjects), selected: state.selectedMapObject ? structuredClone(state.selectedMapObject) : null }); restoreMapSnapshot(next); } }
+function setMapZoom(value) {
+  state.mapZoom = Math.max(.5, Math.min(2, value));
+  $("floor-map-canvas").style.width = `${Math.round(state.mapZoom * 100)}%`;
+  $("map-zoom-label").textContent = `${Math.round(state.mapZoom * 100)}%`;
 }
 
 async function uploadFloorMap(file) {
   if (!file) return;
-  const content = await file.arrayBuffer();
-  const bytes = new Uint8Array(content);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  await ensureDefaultBuildingAndFloor();
-  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/floors/${$("zone-floor-select").value}/maps`, {
-    method: "POST",
-    body: JSON.stringify({ filename: file.name, content_type: file.type || "application/octet-stream", content_base64: btoa(binary) }),
-  });
-  await loadZones();
-  showToast("Floor plan uploaded as locked background.");
+  if (!currentMapFloorId()) throw new Error("Choose a floor before uploading its plan.");
+  if (file.size > 8 * 1024 * 1024) throw new Error("Floor plans must be 8 MB or smaller.");
+  const supported = ["image/png", "image/jpeg", "image/svg+xml", "application/pdf"];
+  if (!supported.includes(file.type)) throw new Error("Choose a PNG, JPG, SVG, or PDF floor plan.");
+  let width = null, height = null;
+  if (file.type.startsWith("image/")) {
+    try { const bitmap = await createImageBitmap(file); width = bitmap.width; height = bitmap.height; bitmap.close(); }
+    catch { /* dimensions are optional; the server can still store valid SVGs */ }
+  }
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = ""; const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/floors/${encodeURIComponent(currentMapFloorId())}/maps`, { method: "POST", body: JSON.stringify({ filename: file.name, content_type: file.type, width, height, content_base64: btoa(binary) }) });
+  await loadZones(); showToast("Floor plan uploaded.");
 }
-
 function sessionRecordElement(tag, className, text) {
   const element = document.createElement(tag);
   if (className) element.className = className;
@@ -2859,21 +4108,29 @@ function renderSessionRecords() {
 }
 
 async function loadSessions() {
-  const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/sessions`);
-  state.guestSessions = data.sessions || [];
-  state.guestSessionLinks = data.guest_sessions || [];
-  state.guestStays = data.stays || [];
-  state.guestDevices = data.devices || [];
-  const selector = $("memory-stay-id");
-  const previousSelection = selector.value;
-  selector.replaceChildren(new Option("Select a stay", ""));
-  for (const stay of state.guestStays) {
-    const description = [stay.room ? `Room ${stay.room}` : "No room", stay.status === "active" ? "Active" : "Checked out", stay.stay_id].join(" · ");
-    selector.appendChild(new Option(description, stay.stay_id));
+  const button = $("refresh-sessions");
+  const originalLabel = button?.textContent || "Refresh records";
+  if (button) { button.disabled = true; button.textContent = "Refreshing…"; }
+  try {
+    const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/sessions`);
+    state.guestSessions = data.sessions || [];
+    state.guestSessionLinks = data.guest_sessions || [];
+    state.guestStays = data.stays || [];
+    state.guestDevices = data.devices || [];
+    const selector = $("memory-stay-id");
+    const previousSelection = selector.value;
+    selector.replaceChildren(new Option("Select a stay", ""));
+    for (const stay of state.guestStays) {
+      const description = [stay.room ? `Room ${stay.room}` : "No room", stay.status === "active" ? "Active" : "Checked out", stay.stay_id].join(" · ");
+      selector.appendChild(new Option(description, stay.stay_id));
+    }
+    selector.value = state.guestStays.some((stay) => stay.stay_id === previousSelection) ? previousSelection : "";
+    updateStayMemoryEditor(state.guestStays.find((stay) => stay.stay_id === selector.value) || null);
+    renderSessionRecords();
+    $("session-last-refreshed").textContent = `Updated ${new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(new Date())}`;
+  } finally {
+    if (button) { button.disabled = false; button.textContent = originalLabel; }
   }
-  selector.value = state.guestStays.some((stay) => stay.stay_id === previousSelection) ? previousSelection : "";
-  updateStayMemoryEditor(state.guestStays.find((stay) => stay.stay_id === selector.value) || null);
-  renderSessionRecords();
 }
 
 async function createStaySession() {
@@ -2881,23 +4138,31 @@ async function createStaySession() {
   if (!rawMac) throw new Error("Enter an authorized WLAN MAC address to create or restore a stay.");
   const retentionDays = Number($("session-retention-days").value || 2);
   if (!Number.isInteger(retentionDays) || retentionDays < 1 || retentionDays > 60) throw new Error("Set stay retention between 1 and 60 days.");
-  const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/sessions/reconnect`, {
-    method: "POST",
-    body: JSON.stringify({
-      raw_mac: rawMac,
-      room: $("session-room").value.trim() || null,
-      concierge_session_id: $("session-concierge-id").value.trim() || null,
-      antlabs_session_id: $("session-antlabs-id").value.trim() || null,
-      browser_session_id: $("session-browser-id").value.trim() || null,
-      pms_guest_id: $("session-pms-guest-id").value.trim() || null,
-      retention_days: retentionDays,
-    }),
-  });
-  $("session-raw-mac").value = "";
-  await loadSessions();
-  $("memory-stay-id").value = result.stay.stay_id;
-  updateStayMemoryEditor(result.stay);
-  showToast("Stay restored with pseudonymous device identity.");
+  const button = $("create-stay-session");
+  button.disabled = true;
+  button.textContent = "Connecting…";
+  try {
+    const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/sessions/reconnect`, {
+      method: "POST",
+      body: JSON.stringify({
+        raw_mac: rawMac,
+        room: $("session-room").value.trim() || null,
+        concierge_session_id: $("session-concierge-id").value.trim() || null,
+        antlabs_session_id: $("session-antlabs-id").value.trim() || null,
+        browser_session_id: $("session-browser-id").value.trim() || null,
+        pms_guest_id: $("session-pms-guest-id").value.trim() || null,
+        retention_days: retentionDays,
+      }),
+    });
+    $("session-raw-mac").value = "";
+    await loadSessions();
+    $("memory-stay-id").value = result.stay.stay_id;
+    updateStayMemoryEditor(result.stay);
+    showToast("Guest stay created or restored; WLAN identity is pseudonymous.");
+  } finally {
+    button.disabled = false;
+    button.textContent = "Create / Restore Stay";
+  }
 }
 
 async function saveStayMemory() {
@@ -2961,52 +4226,288 @@ async function loadIntro() {
   state.intro = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/intro`);
   $("intro-mode").value = state.intro.mode;
   $("intro-preset").value = state.intro.preset;
-  $("intro-duration").value = state.intro.duration_ms;
+  $("intro-duration").value = (Number(state.intro.duration_ms || 1400) / 1000).toFixed(1);
+  $("intro-duration-range").value = state.intro.duration_ms || 1400;
   $("intro-message").value = state.intro.welcome_message;
   $("intro-background").value = normalizeColor(state.intro.background);
   $("intro-brand-color").value = normalizeColor(state.intro.brand_color);
   $("intro-first-visit").checked = state.intro.first_visit_only;
   $("intro-skip").checked = state.intro.allow_skip;
+  state.introDirty = false;
   updateIntroPreview();
 }
 
-function updateIntroPreview() {
-  $("intro-preview-card").style.background = $("intro-background").value || "#fbfbfa";
-  $("intro-preview-card").querySelector("strong").style.background = $("intro-brand-color").value || "#18181b";
-  $("intro-preview-message").textContent = $("intro-message").value || "Welcome";
-  $("intro-preview-card").querySelector("button").hidden = !$("intro-skip").checked;
+function introRelativeLuminance(color) {
+  const channels = (color.match(/[a-f\d]{2}/gi) || []).map((channel) => Number.parseInt(channel, 16) / 255);
+  if (channels.length !== 3) return 0;
+  const linear = channels.map((value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+  return (0.2126 * linear[0]) + (0.7152 * linear[1]) + (0.0722 * linear[2]);
 }
 
-async function saveIntro() {
-  const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/intro`, {
-    method: "PUT",
-    body: JSON.stringify({ data: {
-      mode: $("intro-mode").value,
-      preset: $("intro-preset").value,
-      duration_ms: Number($("intro-duration").value || 1400),
-      background: $("intro-background").value,
-      brand_color: $("intro-brand-color").value,
-      welcome_message: $("intro-message").value,
-      first_visit_only: $("intro-first-visit").checked,
-      allow_skip: $("intro-skip").checked,
-    } }),
+function introContrastRatio(foreground, background) {
+  const luminance = [introRelativeLuminance(foreground), introRelativeLuminance(background)].sort((a, b) => b - a);
+  return (luminance[0] + 0.05) / (luminance[1] + 0.05);
+}
+
+function updateIntroPreview() {
+  const mode = $("intro-mode").value;
+  const preset = $("intro-preset").value;
+  const card = $("intro-preview-card");
+  const stage = $("intro-preview-stage");
+  card.hidden = mode === "none";
+  $("intro-preview-empty").hidden = mode !== "none";
+  const backgroundColor = normalizeColor($("intro-background").value);
+  const brandColor = normalizeColor($("intro-brand-color").value);
+  const assetUrl = state.intro?.asset_url || "";
+  const videoAsset = Boolean(assetUrl && ["video/webm", "video/mp4"].includes(state.intro?.asset_type));
+  const logoUrl = state.designDraft?.branding?.logoUrl || state.property?.logo_url || "";
+  const logoImage = $("intro-preview-logo-image");
+  card.dataset.mode = mode;
+  card.dataset.preset = preset;
+  card.style.setProperty("--intro-background", backgroundColor);
+  card.style.setProperty("--intro-brand", brandColor);
+  card.style.setProperty("--intro-duration", `${Math.max(300, Math.min(8000, Number($("intro-duration-range").value || 1400)))}ms`);
+  stage.style.setProperty("--intro-background", backgroundColor);
+  stage.style.setProperty("--intro-brand", brandColor);
+  $("intro-background-value").textContent = backgroundColor;
+  $("intro-brand-color-value").textContent = brandColor;
+  const contrast = introContrastRatio(brandColor, backgroundColor);
+  const contrastStatus = $("intro-accessibility-check");
+  const contrastLevel = contrast >= 7 ? "AAA" : contrast >= 4.5 ? "AA" : "below AA";
+  contrastStatus.classList.toggle("review", contrast < 4.5);
+  contrastStatus.textContent = contrast >= 4.5
+    ? `Text contrast ${contrast.toFixed(1)}:1 · WCAG ${contrastLevel} for normal text.`
+    : `Text contrast ${contrast.toFixed(1)}:1 · review these colors for readability (target 4.5:1 or higher).`;
+  $("intro-preview-message").textContent = $("intro-message").value.trim() || "Welcome";
+  $("intro-preview-property").textContent = state.property?.hotel_name || "Your property";
+  const mark = (state.property?.hotel_name || "C").trim().slice(0, 1).toUpperCase();
+  $("intro-preview-logo").textContent = mark;
+  if (logoUrl) {
+    logoImage.src = logoUrl;
+    logoImage.hidden = false;
+    $("intro-preview-logo").hidden = true;
+  } else {
+    logoImage.removeAttribute("src");
+    logoImage.hidden = true;
+    $("intro-preview-logo").hidden = false;
+  }
+  $("intro-preview-skip").hidden = mode === "none" || !$("intro-skip").checked;
+  $("intro-preview-skip").disabled = !card.classList.contains("playing") || mode === "none" || !$("intro-skip").checked;
+  const video = $("intro-preview-video");
+  if (videoAsset && video.src !== new URL(assetUrl, window.location.origin).href) {
+    video.src = assetUrl;
+    video.load();
+  }
+  video.hidden = !(mode === "custom_upload" && videoAsset);
+  $("intro-upload-section").hidden = mode !== "custom_upload";
+  $("intro-preset-section").hidden = mode === "none";
+  $("intro-content-section").hidden = mode === "none";
+  const modeHelp = {
+    none: "Guests go straight to the concierge chat.",
+    generate_from_logo: logoUrl ? "The current property logo will be animated with your selected motion style." : "No property logo is set yet. A branded initial will be used until you add a logo in Design.",
+    custom_upload: videoAsset ? "Your uploaded video plays with the welcome message and guest controls layered above it." : "Upload a silent MP4 or WebM video to finish setting up this mode.",
+  };
+  $("intro-mode-description").textContent = modeHelp[mode] || modeHelp.none;
+  const presetLabels = { none: "No animation", minimal_fade: "Minimal fade", fade_scale: "Fade + scale", luxury_reveal: "Luxury reveal", particle_assemble: "Particle assemble", line_draw: "Line draw", glass_blur: "Glass / blur", split_reveal: "Split reveal", logo_to_chat_header: "Logo to chat" };
+  $("intro-selected-preset").textContent = presetLabels[preset] || "No animation";
+  $("intro-preset-help").textContent = preset === "none" ? "The brand card appears without an entrance animation." : "Select a style, then press Preview intro to see it in motion.";
+  document.querySelectorAll("[data-intro-preset]").forEach((button) => {
+    const selected = button.dataset.introPreset === preset;
+    button.classList.toggle("selected", selected);
+    button.setAttribute("aria-pressed", String(selected));
   });
-  state.intro = result;
-  showToast("Intro experience saved.");
+  const activeTemplate = Object.entries(INTRO_TEMPLATES).find(([, template]) =>
+    template.mode === mode
+      && template.preset === preset
+      && template.duration_ms === Number($("intro-duration-range").value)
+      && template.background === backgroundColor
+      && template.brand_color === brandColor
+      && template.welcome_message === $("intro-message").value.trim()
+  )?.[0] || "";
+  document.querySelectorAll("[data-intro-template]").forEach((button) => {
+    const selected = button.dataset.introTemplate === activeTemplate;
+    button.classList.toggle("selected", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+  const assetStatus = $("intro-asset-status");
+  const assetTypeLabel = state.intro?.asset_type === "video/webm" ? "WebM video uploaded" : state.intro?.asset_type === "video/mp4" ? "MP4 video uploaded" : "No custom video uploaded.";
+  assetStatus.textContent = assetUrl
+    ? videoAsset
+      ? `${assetTypeLabel} · ready for preview`
+      : "An older animation asset is attached. Replace it with MP4 or WebM, or remove it."
+    : "No custom video uploaded.";
+  assetStatus.classList.toggle("has-asset", Boolean(assetUrl));
+  $("intro-remove-asset").hidden = !assetUrl;
+  $("play-intro-preview").disabled = mode === "none" || (mode === "custom_upload" && !videoAsset);
+  $("play-intro-preview").innerHTML = mode === "none" ? "<span aria-hidden=\"true\">▶</span> Intro is off" : "<span aria-hidden=\"true\">▶</span> Preview intro";
+  $("intro-preview-mode-label").textContent = mode === "none" ? "Chat opens directly" : mode === "custom_upload" ? (videoAsset ? "Custom brand video" : "Video needed") : "Logo-led welcome";
+  const durationSeconds = (Number($("intro-duration-range").value || 1400) / 1000).toFixed(1);
+  $("intro-duration").value = durationSeconds;
+  $("intro-preview-duration-label").textContent = `${durationSeconds} seconds`;
+  if (!state.introDirty) $("intro-save-status").textContent = mode === "none" ? "Intro is off" : "Saved · active for guests";
+}
+
+function markIntroDirty() {
+  if (state.introPreviewTimer) stopIntroPreview("");
+  state.introDirty = true;
+  updateIntroPreview();
+  $("intro-save-status").textContent = "Unsaved changes";
+}
+
+function introPayload() {
+  const duration = Math.round(Number($("intro-duration").value || 1.4) * 1000);
+  return {
+    mode: $("intro-mode").value,
+    preset: $("intro-preset").value,
+    duration_ms: Math.max(300, Math.min(8000, duration)),
+    background: $("intro-background").value,
+    brand_color: $("intro-brand-color").value,
+    welcome_message: $("intro-message").value.trim(),
+    first_visit_only: $("intro-first-visit").checked,
+    allow_skip: $("intro-skip").checked,
+  };
+}
+
+async function saveIntro({ quiet = false } = {}) {
+  const mode = $("intro-mode").value;
+  const isVideoAsset = Boolean(state.intro?.asset_url && ["video/webm", "video/mp4"].includes(state.intro?.asset_type));
+  if (mode === "custom_upload" && !isVideoAsset) {
+    showToast("Upload a WebM or MP4 video before activating custom video mode.", "error");
+    return;
+  }
+  $("save-intro").disabled = true;
+  const oldLabel = $("save-intro").textContent;
+  $("save-intro").textContent = "Saving…";
+  try {
+    const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/intro`, {
+      method: "PUT",
+      body: JSON.stringify({ data: {
+        ...introPayload(),
+        // Old Lottie/JSON uploads are no longer supported; clear them when saving a video-free mode.
+        asset_url: isVideoAsset ? state.intro.asset_url : "",
+        asset_type: isVideoAsset ? state.intro.asset_type : "",
+      } }),
+    });
+    state.intro = result;
+    state.introDirty = false;
+    updateIntroPreview();
+    $("intro-save-status").textContent = result.mode === "none" ? "Saved · intro is off" : "Saved · active for guests";
+    if (!quiet) showToast("Intro experience saved and activated.");
+  } finally {
+    $("save-intro").disabled = false;
+    $("save-intro").textContent = oldLabel;
+  }
 }
 
 async function uploadIntroAsset(file) {
   if (!file) return;
-  const content = await file.arrayBuffer();
-  const bytes = new Uint8Array(content);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/intro/upload`, {
-    method: "POST",
-    body: JSON.stringify({ filename: file.name, content_type: file.type || (file.name.endsWith(".lottie") ? "application/octet-stream" : "application/json"), content_base64: btoa(binary) }),
+  const extension = file.name.split(".").pop()?.toLowerCase();
+  const inferredType = extension === "webm" ? "video/webm" : extension === "mp4" ? "video/mp4" : "";
+  const declaredType = (file.type || "").toLowerCase();
+  const contentType = !declaredType || declaredType === "application/octet-stream" ? inferredType : declaredType;
+  if (file.size > 12 * 1024 * 1024) {
+    showToast("Video must be 12 MB or smaller.", "error");
+    $("intro-upload").value = "";
+    return;
+  }
+  if (![["webm", "video/webm"], ["mp4", "video/mp4"]].some(([ext, type]) => extension === ext && contentType === type)) {
+    showToast("Choose an MP4 or WebM video file.", "error");
+    $("intro-upload").value = "";
+    return;
+  }
+  const uploadStatus = $("intro-asset-status");
+  const uploadButton = $("save-intro");
+  uploadStatus.textContent = "Uploading and checking video…";
+  uploadStatus.classList.remove("has-asset");
+  uploadButton.disabled = true;
+  try {
+    const previousAssetUrl = state.intro?.asset_url || "";
+    const content = await file.arrayBuffer();
+    const bytes = new Uint8Array(content);
+    let binary = "";
+    for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+    const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/intro/upload`, {
+      method: "POST",
+      body: JSON.stringify({ filename: file.name, content_type: contentType, content_base64: btoa(binary) }),
+    });
+    state.intro = result;
+    $("intro-mode").value = "custom_upload";
+    await saveIntro({ quiet: true });
+    if (previousAssetUrl && previousAssetUrl !== state.intro?.asset_url) {
+      const previousFilename = previousAssetUrl.split("?", 1)[0].split("/").pop();
+      await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/intro/assets/${encodeURIComponent(previousFilename)}`, { method: "DELETE" }).catch(() => {});
+    }
+    state.introDirty = false;
+    $("intro-upload").value = "";
+    updateIntroPreview();
+    showToast("Intro video uploaded and saved.");
+  } catch (error) {
+    uploadStatus.textContent = error.message || "Video upload failed.";
+    $("intro-upload").value = "";
+    throw error;
+  } finally {
+    uploadButton.disabled = false;
+  }
+}
+
+async function removeIntroAsset() {
+  const button = $("intro-remove-asset");
+  button.disabled = true;
+  try {
+    state.intro = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/intro/asset`, { method: "DELETE" });
+    await loadIntro();
+    showToast("Uploaded intro video removed.");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function setIntroDevice(device) {
+  $("intro-preview-device").className = `intro-preview-device ${device}`;
+  $("intro-preview-device-label").textContent = device === "mobile" ? "Mobile · 390 px" : "Desktop · 1440 px";
+  document.querySelectorAll("[data-intro-device]").forEach((button) => {
+    const selected = button.dataset.introDevice === device;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-pressed", String(selected));
   });
-  await loadIntro();
-  showToast("Intro animation uploaded.");
+}
+
+function stopIntroPreview(message = "Preview ended.") {
+  if (state.introPreviewTimer) clearTimeout(state.introPreviewTimer);
+  state.introPreviewTimer = null;
+  $("intro-preview-card").classList.remove("playing");
+  $("intro-preview-skip").disabled = true;
+  $("intro-preview-progress-bar").style.transition = "none";
+  $("intro-preview-progress-bar").style.width = "0%";
+  const video = $("intro-preview-video");
+  video.pause();
+  try { video.currentTime = 0; } catch {}
+  $("play-intro-preview").innerHTML = "<span aria-hidden=\"true\">▶</span> Preview intro";
+  if (message) showToast(message);
+}
+
+async function playIntroPreview() {
+  if ($("play-intro-preview").disabled) return;
+  if (state.introPreviewTimer) clearTimeout(state.introPreviewTimer);
+  const card = $("intro-preview-card");
+  const video = $("intro-preview-video");
+  const duration = Math.max(300, Math.min(8000, Number($("intro-duration-range").value || 1400)));
+  card.classList.remove("playing");
+  void card.offsetWidth;
+  card.classList.add("playing");
+  $("intro-preview-skip").disabled = !$("intro-skip").checked;
+  $("intro-preview-progress-bar").style.transition = "none";
+  $("intro-preview-progress-bar").style.width = "0%";
+  requestAnimationFrame(() => {
+    $("intro-preview-progress-bar").style.transition = `width ${duration}ms linear`;
+    $("intro-preview-progress-bar").style.width = "100%";
+  });
+  if (!video.hidden) {
+    video.currentTime = 0;
+    await video.play().catch(() => { video.hidden = true; showToast("Video preview could not play. Check that the file is a valid MP4 or WebM.", "error"); });
+  }
+  $("play-intro-preview").innerHTML = "<span aria-hidden=\"true\">Ⅱ</span> Previewing…";
+  state.introPreviewTimer = window.setTimeout(() => stopIntroPreview("Intro preview finished."), duration);
 }
 
 async function loadConversations() {
@@ -3133,11 +4634,11 @@ function renderConversations() {
     const meta = document.createElement("span");
     meta.className = "conversation-row-meta";
     const latestAt = conversation.last_message_at || conversation.created_at;
-    meta.textContent = `${conversation.session_id.slice(0, 12)} · ${conversation.message_count || 0} messages · ${formatDate(latestAt)}${conversation.assigned_user_name ? ` · ${conversation.assigned_user_name}` : " · Unassigned"}`;
+    meta.textContent = `${conversation.session_id.slice(0, 12)} · ${conversation.message_count || 0} shared updates · ${formatDate(latestAt)}${conversation.assigned_user_name ? ` · ${conversation.assigned_user_name}` : " · Unassigned"}`;
     const preview = document.createElement("span");
     preview.className = "conversation-row-preview";
     const lastMessage = conversation.messages?.at(-1);
-    preview.textContent = conversation.escalation_reason || lastMessage?.content || "No messages yet";
+    preview.textContent = conversation.escalation_reason || lastMessage?.content || "No staff request details yet";
     row.append(top, meta, preview);
     row.addEventListener("click", () => {
       state.selectedConversation = conversation;
@@ -3152,7 +4653,7 @@ function renderConversations() {
     renderConversationEmptyState(
       list,
       hasFilter ? "No conversations match these filters" : "No conversations yet",
-      hasFilter ? "Try a different status or search term." : "Guest messages will appear here when someone starts a conversation in the guest app.",
+      hasFilter ? "Try a different status or search term." : "Guest staff requests will appear here when someone asks a restaurant team for help.",
       hasFilter ? "Clear filters" : can("concierge.view") ? "Open guest preview" : "",
       hasFilter ? () => { $("conversation-search").value = ""; $("conversation-status-filter").value = ""; renderConversations(); }
         : can("concierge.view") ? () => activatePanel("guest") : null,
@@ -3164,6 +4665,20 @@ function renderConversationMessages() {
   const conversation = state.selectedConversation;
   const list = $("conversation-messages");
   list.replaceChildren();
+  if (conversation?.escalation_reason) {
+    const row = document.createElement("article");
+    row.className = "conversation-message guest";
+    const meta = document.createElement("div");
+    meta.className = "conversation-message-meta";
+    const sender = document.createElement("strong");
+    sender.textContent = "Guest request";
+    meta.appendChild(sender);
+    const bubble = document.createElement("div");
+    bubble.className = "conversation-message-bubble";
+    bubble.textContent = conversation.escalation_reason;
+    row.append(meta, bubble);
+    list.appendChild(row);
+  }
   for (const message of conversation?.messages || []) {
     const role = String(message.role || "assistant").toLowerCase();
     const roleClass = role === "staff" ? "staff" : ["user", "guest"].includes(role) ? "guest" : role === "system" ? "system" : "assistant";
@@ -3194,17 +4709,17 @@ function renderConversationMessages() {
   const badge = $("conversation-detail-status");
   if (!conversation) {
     title.textContent = "Select a conversation";
-    detail.textContent = "Choose an item from the inbox to review their messages.";
+    detail.textContent = "Choose a staff request from the inbox to review the guest's shared reason and staff replies.";
     badge.hidden = true;
-    renderConversationEmptyState(list, "Your conversation details will appear here", "Select an item from the inbox to read the full guest and staff history.");
+    renderConversationEmptyState(list, "Your request details will appear here", "Select a staff request from the inbox to review the guest's shared reason and staff replies.");
   } else {
     const currentStatus = conversationStateKey(conversation);
     title.textContent = conversation.restaurant_name || "Hotel guest";
-    detail.textContent = `Session ${conversation.session_id.slice(0, 12)} · ${conversation.message_count || 0} messages · Last activity ${formatDate(conversation.last_message_at || conversation.created_at)}`;
+    detail.textContent = `Session ${conversation.session_id.slice(0, 12)} · ${conversation.message_count || 0} shared updates · Last activity ${formatDate(conversation.last_message_at || conversation.created_at)}`;
     badge.hidden = false;
     badge.className = `conversation-status-badge ${currentStatus}`;
     badge.textContent = conversationStateLabel(currentStatus);
-    if (!conversation.messages?.length) renderConversationEmptyState(list, "No messages in this conversation yet", "New guest messages will appear here.");
+    if (!conversation.messages?.length && !conversation.escalation_reason) renderConversationEmptyState(list, "No staff request was submitted", "Guest concierge messages stay private. Staff replies appear here after a guest requests restaurant support.");
     list.scrollTop = list.scrollHeight;
   }
   const restaurantConversation = Boolean(conversation?.restaurant_id);
@@ -3524,14 +5039,35 @@ function serviceSlaLabel(request) {
   return "On track";
 }
 
+function serviceRequestDateKey(timestamp, timezone = state.property?.timezone || "UTC") {
+  const seconds = Number(timestamp);
+  if (!Number.isFinite(seconds)) return "";
+  const formatter = new Intl.DateTimeFormat("en", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = Object.fromEntries(formatter.formatToParts(new Date(seconds * 1000)).map((part) => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function serviceRequestCompletedToday(request, today = serviceRequestDateKey(Date.now() / 1000)) {
+  return request.status === "completed"
+    && request.completed_at !== null
+    && request.completed_at !== undefined
+    && serviceRequestDateKey(request.completed_at) === today;
+}
+
 function renderServiceRequestSummary() {
   const requests = state.serviceRequests || [];
   const open = requests.filter((request) => request.status !== "completed");
   const counts = {
-    all: requests.length,
     open: open.length,
+    in_progress: open.filter((request) => request.status === "in_progress").length,
+    due_soon: open.filter((request) => request.sla_state === "warning").length,
     overdue: open.filter((request) => request.sla_state === "overdue").length,
-    completed: requests.length - open.length,
+    completed_today: requests.filter((request) => serviceRequestCompletedToday(request)).length,
   };
   for (const [key, count] of Object.entries(counts)) $(`request-count-${key}`).textContent = count;
   const activeFilter = $("service-request-status-filter").value || "all";
@@ -3573,12 +5109,15 @@ function renderServiceRequests() {
   const requests = state.serviceRequests || [];
   const filter = $("service-request-status-filter").value;
   const query = $("service-request-search").value.trim().toLowerCase();
+  const today = serviceRequestDateKey(Date.now() / 1000);
   renderServiceRequestSummary();
   const matching = requests.filter((request) => {
     const matchesFilter = !filter
       || filter === "all"
       || (filter === "open" && request.status !== "completed")
+      || (filter === "due_soon" && request.status !== "completed" && request.sla_state === "warning")
       || (filter === "overdue" && request.status !== "completed" && request.sla_state === "overdue")
+      || (filter === "completed_today" && serviceRequestCompletedToday(request, today))
       || request.status === filter;
     const searchText = [request.request_id, request.request_type, request.room, request.description, request.department, request.assigned_to, ...(request.notes || []).map((note) => note.text)].join(" ").toLowerCase();
     return matchesFilter && (!query || searchText.includes(query));
@@ -3718,10 +5257,18 @@ function renderServiceRequests() {
 }
 
 async function loadServiceRequests() {
-  await loadServiceCatalog();
-  const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/hospitality`);
-  state.serviceRequests = Array.isArray(data.service_requests) ? data.service_requests : [];
-  renderServiceRequests();
+  const button = $("refresh-service-requests");
+  const originalLabel = button?.textContent || "Refresh";
+  if (button) { button.disabled = true; button.textContent = "Refreshing…"; }
+  try {
+    await loadServiceCatalog();
+    const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/hospitality`);
+    state.serviceRequests = Array.isArray(data.service_requests) ? data.service_requests : [];
+    renderServiceRequests();
+    $("request-last-updated").textContent = `Updated ${new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(new Date())}`;
+  } finally {
+    if (button) { button.disabled = false; button.textContent = originalLabel; }
+  }
 }
 
 async function updateServiceRequest(requestId, payload) {
@@ -4139,21 +5686,12 @@ async function logout() {
 
 function openAssistant(question = "") {
   if (!can("assistant.use")) return;
-  const drawer = $("assistant-drawer");
-  drawer.hidden = false;
-  $("assistant-drawer-backdrop").hidden = false;
-  requestAnimationFrame(() => drawer.classList.add("open"));
-  if (question) $("assistant-drawer-input").value = question;
-  $("assistant-drawer-input").focus();
-}
-
-function closeAssistant() {
-  const drawer = $("assistant-drawer");
-  drawer.classList.remove("open");
-  window.setTimeout(() => {
-    drawer.hidden = true;
-    $("assistant-drawer-backdrop").hidden = true;
-  }, 220);
+  activatePanel("ai-assistant");
+  if (question) {
+    $("assistant-page-input").value = question;
+    setAssistantMode(assistantModeForQuestion(question));
+  }
+  requestAnimationFrame(() => $("assistant-page-input").focus());
 }
 
 function bindInvestigateButtons() {
@@ -4300,14 +5838,138 @@ function appendAssistantFormattedCopy(container, value) {
   flushParagraph();
 }
 
-function renderAssistantAnswer(container, payload) {
+function assistantModeForQuestion(question) {
+  const text = String(question || "").toLowerCase();
+  if (/\b(report|summary|summarize|export|metrics|analytics|performance|trend|how many|activity for)\b/.test(text)) return "report";
+  if (/\b(system|health|issue|problem|error|failure|down|slow|latency|database|provider|server|queue|alert|delayed|failing)\b/.test(text)) return "health";
+  return "knowledge";
+}
+
+function setAssistantMode(mode) {
+  state.assistantMode = ["auto", "knowledge", "report", "health"].includes(mode) ? mode : "auto";
+  for (const button of document.querySelectorAll(".assistant-mode")) {
+    const selected = button.dataset.assistantMode === state.assistantMode;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  }
+  const periodField = document.querySelector(".assistant-period-field");
+  if (periodField) periodField.hidden = state.assistantMode !== "report";
+  const input = $("assistant-page-input");
+  if (input) input.placeholder = state.assistantMode === "knowledge"
+    ? "Ask about hotel policies, amenities, services, or guest information"
+    : state.assistantMode === "report"
+      ? "Ask for an operational report or trend"
+      : state.assistantMode === "health"
+        ? "Describe the system issue you want checked"
+        : "Ask about hotel information, operations, or a system issue";
+}
+
+function assistantModeLabel(mode) {
+  return ({ hotel: "Hotel knowledge", knowledge: "Hotel knowledge", report: "Reports", health: "System checks", operations: "Operations" })[mode] || "Operations";
+}
+
+function renderAssistantHistory() {
+  const list = $("assistant-history-list");
+  if (!list) return;
+  const items = state.assistantConversations || [];
+  $("assistant-history-count").textContent = String(items.length);
+  const clearButton = document.querySelector("[data-assistant-clear]");
+  if (clearButton) clearButton.disabled = !state.assistantConversationId;
+  list.replaceChildren();
+  if (!items.length) {
+    const empty = document.createElement("div");
+    empty.className = "assistant-history-empty";
+    empty.textContent = "Your saved conversations will appear here.";
+    list.append(empty);
+    return;
+  }
+  for (const item of items) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `assistant-history-entry${item.conversation_id === state.assistantConversationId ? " active" : ""}`;
+    button.setAttribute("aria-current", item.conversation_id === state.assistantConversationId ? "true" : "false");
+    const title = document.createElement("strong");
+    title.textContent = item.title || "New conversation";
+    const date = document.createElement("small");
+    date.textContent = formatDate(item.updated_at);
+    const tags = document.createElement("span");
+    for (const kind of item.types || []) {
+      const tag = document.createElement("i");
+      tag.textContent = assistantModeLabel(kind);
+      tags.append(tag);
+    }
+    button.append(title, date, tags);
+    button.addEventListener("click", () => loadAssistantConversation(item.conversation_id).catch((error) => showToast(error.message, "error")));
+    list.append(button);
+  }
+}
+
+async function loadAssistantConversations() {
+  if (!currentPropertyId() || !can("assistant.use")) return;
+  const propertyId = currentPropertyId();
+  const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}/assistant/conversations`);
+  if (propertyId !== currentPropertyId()) return;
+  state.assistantConversations = result.conversations || [];
+  renderAssistantHistory();
+}
+
+async function loadAssistantConversation(conversationId) {
+  const propertyId = currentPropertyId();
+  if (!propertyId || !conversationId) return;
+  const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}/assistant/conversations/${encodeURIComponent(conversationId)}`);
+  if (propertyId !== currentPropertyId()) return;
+  state.assistantConversationId = result.conversation_id;
+  const container = $("assistant-page-messages");
+  container.replaceChildren();
+  for (const message of result.messages || []) {
+    const article = document.createElement("article");
+    article.className = `assistant-message ${message.role === "user" ? "user" : "answer"}`;
+    if (message.role === "user") {
+      article.textContent = message.content;
+    } else {
+      const meta = document.createElement("span");
+      meta.textContent = assistantModeLabel(message.assistant_type);
+      const heading = document.createElement("h3");
+      heading.textContent = message.assistant_type === "hotel" ? "Hotel knowledge response"
+        : message.assistant_type === "report" ? "Operations report"
+          : message.assistant_type === "health" ? "System check"
+            : "Operations update";
+      const body = document.createElement("div");
+      body.className = "assistant-answer-copy";
+      appendAssistantFormattedCopy(body, message.content || "");
+      article.append(meta, heading, body);
+    }
+    container.append(article);
+  }
+  $("assistant-current-title").textContent = state.assistantConversations.find((item) => item.conversation_id === conversationId)?.title || "Saved conversation";
+  renderAssistantHistory();
+  container.scrollTop = container.scrollHeight;
+}
+
+function resetAssistantConversationView() {
+  state.assistantConversationId = null;
+  $("assistant-current-title").textContent = "New conversation";
+  $("assistant-page-input").value = "";
+  $("assistant-files").value = "";
+  state.hotelAIFiles = [];
+  renderHotelAIFiles();
+  $("assistant-page-messages").innerHTML = `<div class="assistant-empty assistant-welcome"><span class="assistant-welcome-mark">✦</span><strong>What would you like to know?</strong><p>Ask about verified hotel information, request a period report, or check current system health.</p><div class="assistant-suggestions"><button type="button" data-assistant-suggestion="What are the hotel's check-in and checkout times?" data-assistant-mode="knowledge">Check-in information</button><button type="button" data-assistant-suggestion="Give me an operations report for the last 7 days." data-assistant-mode="report">7-day operations report</button><button type="button" data-assistant-suggestion="Check the system for current issues." data-assistant-mode="health">Check system health</button></div></div>`;
+  applyAssistantPermissionVisibility();
+  setAssistantMode("auto");
+  renderAssistantHistory();
+}
+
+function renderAssistantAnswer(container, payload, existingQuestion = null) {
   container.querySelector(".assistant-empty")?.remove();
-  const question = document.createElement("article");
-  question.className = "assistant-message user";
-  question.textContent = payload.question;
+  const question = existingQuestion || document.createElement("article");
+  if (!existingQuestion) {
+    question.className = "assistant-message user";
+    question.textContent = payload.question;
+  }
   const answer = document.createElement("article");
   answer.className = "assistant-message answer";
   state.assistantConversationId = payload.conversation_id || state.assistantConversationId;
+  if (payload.question) $("assistant-current-title").textContent = payload.question.replaceAll("\n", " ").trim().slice(0, 96);
   const timeframe = payload.timeframe && payload.timeframe !== "current period" ? ` · ${payload.timeframe}` : "";
   const meta = document.createElement("span");
   meta.textContent = `${assistantLabel(payload.component || "operations assistant")}${timeframe}`;
@@ -4365,127 +6027,145 @@ function renderAssistantAnswer(container, payload) {
     links.appendChild(link);
   }
   if (links.childElementCount) answer.appendChild(links);
-  container.append(question, answer);
-  for (const button of answer.querySelectorAll("[data-assistant-panel]")) button.addEventListener("click", () => {
-    closeAssistant();
-    activatePanel(button.dataset.assistantPanel);
-  });
+  if (!existingQuestion) container.appendChild(question);
+  container.appendChild(answer);
+  for (const button of answer.querySelectorAll("[data-assistant-panel]")) button.addEventListener("click", () => activatePanel(button.dataset.assistantPanel));
   container.scrollTop = container.scrollHeight;
 }
 
-async function submitAssistant(event, inputId, messagesId) {
+function renderKnowledgeAssistantAnswer(container, payload, uploadedCount = 0) {
+  state.assistantConversationId = payload.conversation_id || state.assistantConversationId;
+  if (payload.question) $("assistant-current-title").textContent = payload.question.replaceAll("\n", " ").trim().slice(0, 96);
+  const answer = document.createElement("article");
+  answer.className = "assistant-message answer";
+  const meta = document.createElement("span");
+  meta.textContent = "Hotel knowledge";
+  const heading = document.createElement("h3");
+  heading.textContent = "Property knowledge response";
+  const body = document.createElement("div");
+  body.className = "assistant-answer-copy";
+  appendAssistantFormattedCopy(body, payload.answer || "I couldn't find an answer in the available hotel information.");
+  answer.append(meta, heading, body);
+  if ((payload.sources || []).length) {
+    appendAssistantEvidence(answer, payload.sources.map((source) => ({
+      label: source.title || source.source || "Hotel knowledge source",
+      state: source.status,
+      detail: [source.source, ...Object.entries(source.location || {}).map(([key, value]) => `${key} ${value}`)].filter(Boolean).join(" · "),
+    })));
+    for (const source of payload.sources) {
+      if (!source.source_id || !can("knowledge.edit")) continue;
+      const link = document.createElement("a");
+      link.className = "secondary assistant-download";
+      link.href = `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge/sources/${encodeURIComponent(source.source_id)}/download`;
+      link.textContent = `Open source: ${source.title || source.source || "document"}`;
+      answer.append(link);
+    }
+  }
+  if (payload.proposed_draft && can("knowledge.edit")) {
+    answer.append(makeActionButton("Save as draft", async () => {
+      if (!window.confirm(`Save “${payload.proposed_draft.title}” as an Admin Only draft for review?`)) return;
+      await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge/items`, { method: "POST", body: JSON.stringify(payload.proposed_draft) });
+      await loadKnowledge(); activatePanel("knowledge"); showToast("Knowledge draft saved for review.");
+    }));
+  }
+  if (uploadedCount) answer.append(makeActionButton("Review knowledge", () => activatePanel("knowledge"), true));
+  container.append(answer);
+  container.scrollTop = container.scrollHeight;
+}
+
+async function submitUnifiedAssistant(event) {
   event.preventDefault();
   const form = event.currentTarget;
   if (form.dataset.busy === "true") return;
-  const input = $(inputId);
+  const input = $("assistant-page-input");
   const question = input.value.trim();
-  if (!question) return;
+  const files = [...state.hotelAIFiles];
+  if (!question && !files.length) return;
+  if (files.length && !can("knowledge.edit")) { showToast("Permission required: knowledge.edit", "error"); return; }
+  const mode = state.assistantMode === "auto" ? (files.length ? "knowledge" : assistantModeForQuestion(question)) : state.assistantMode;
+  if (files.length && mode !== "knowledge") { showToast("Attached files are handled as hotel knowledge. Choose Hotel knowledge or remove the files.", "error"); return; }
   const button = form.querySelector("button[type='submit']");
-  form.dataset.busy = "true";
-  button.disabled = true;
-  button.textContent = "Investigating…";
-  const container = $(messagesId);
-  container.querySelector(".assistant-empty")?.remove();
+  const container = $("assistant-page-messages");
+  const questionMessage = document.createElement("article");
+  questionMessage.className = "assistant-message user";
+  questionMessage.textContent = [question || "Please add these documents to the hotel knowledge review queue.", ...files.map((file) => `Attached: ${file.name}`)].join("\n");
   const progress = document.createElement("article");
   progress.className = "assistant-message loading";
-  progress.textContent = "Checking property evidence and available diagnostics…";
-  container.appendChild(progress);
+  progress.setAttribute("role", "status");
+  progress.setAttribute("aria-live", "polite");
+  progress.textContent = mode === "knowledge" ? "Checking property knowledge…" : "Checking property evidence and available diagnostics…";
+  container.querySelector(".assistant-empty")?.remove();
+  container.append(questionMessage, progress);
   container.scrollTop = container.scrollHeight;
+  form.dataset.busy = "true";
+  button.disabled = true;
+  button.textContent = files.length ? "Uploading…" : "Thinking…";
+  state.hotelAISubmitting = true;
+  const controller = new AbortController();
+  const progressTimer = window.setTimeout(() => {
+    progress.textContent = "This is taking longer than usual. I’m still checking the available evidence…";
+  }, 8000);
+  const timeout = window.setTimeout(() => controller.abort(), 30000);
   try {
-    const payload = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/assistant/query`, {
-      method: "POST",
-      body: JSON.stringify({ question, period: state.operationsPeriod === "custom" ? "30d" : state.operationsPeriod, current_page: state.activeNavId || "overview", conversation_id: state.assistantConversationId }),
-    });
-    renderAssistantAnswer($(messagesId), payload);
+    let payload;
+    if (mode === "knowledge") {
+      const uploaded = [];
+      for (const file of files) {
+        progress.textContent = `Uploading ${file.name}…`;
+        const source = await uploadKnowledgeDocument(file, (percent) => { progress.textContent = `Uploading ${file.name}… ${percent}%`; });
+        uploaded.push(source);
+        progress.textContent = `Processing ${file.name}…`;
+      }
+      state.hotelAIFiles = [];
+      renderHotelAIFiles();
+      payload = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/assistant/hotel-chat`, {
+        method: "POST",
+        body: JSON.stringify({ question: question || null, conversation_id: state.assistantConversationId, attached_files: uploaded.map((source) => source.filename || source.title || "Uploaded document") }),
+        signal: controller.signal,
+      });
+      progress.remove();
+      renderKnowledgeAssistantAnswer(container, payload, uploaded.length);
+      if (uploaded.length) window.setTimeout(() => loadKnowledge().catch(() => {}), 1500);
+    } else {
+      const period = $("assistant-period").value;
+      state.operationsPeriod = period;
+      payload = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/assistant/query`, {
+        method: "POST",
+        body: JSON.stringify({ question, intent: mode === "knowledge" ? "auto" : mode, period, current_page: state.activeNavId || "overview", conversation_id: state.assistantConversationId }),
+        signal: controller.signal,
+      });
+      progress.remove();
+      renderAssistantAnswer(container, payload, questionMessage);
+    }
     input.value = "";
+    await loadAssistantConversations();
   } catch (error) {
     const answer = document.createElement("article");
     answer.className = "assistant-message answer assistant-message-error";
     const heading = document.createElement("h3");
-    heading.textContent = "I can’t access that check with your current role.";
+    const timedOut = error?.name === "AbortError";
+    const permissionIssue = /permission|role|access/i.test(error?.message || "");
+    heading.textContent = timedOut ? "This check took too long." : permissionIssue ? "This isn't available to your role." : "I couldn't finish this request.";
     const detail = document.createElement("p");
-    detail.textContent = error.message || "Ask an administrator to review your assistant and reporting permissions.";
+    detail.textContent = timedOut
+      ? "Try a narrower question. The request has been stopped."
+      : error.message || "Check your connection and try again.";
     answer.append(heading, detail);
-    container.appendChild(answer);
+    container.append(answer);
     container.scrollTop = container.scrollHeight;
   } finally {
+    window.clearTimeout(progressTimer);
+    window.clearTimeout(timeout);
     progress.remove();
     form.dataset.busy = "false";
     button.disabled = false;
-    button.textContent = "Ask";
-  }
-}
-
-async function submitHotelAI(event) {
-  event.preventDefault();
-  if (state.hotelAISubmitting) return;
-  const input = $("hotel-ai-input");
-  const question = input.value.trim();
-  const files = [...state.hotelAIFiles];
-  if (!question && !files.length) return;
-  state.hotelAISubmitting = true;
-  const button = event.currentTarget.querySelector("button[type='submit']");
-  button.disabled = true;
-  button.textContent = files.length ? "Uploading…" : "Thinking…";
-  const container = $("hotel-ai-messages");
-  container.querySelector(".assistant-empty")?.remove();
-  const user = document.createElement("article");
-  user.className = "assistant-message user";
-  user.textContent = [question, ...files.map((file) => `Attached: ${file.name}`)].filter(Boolean).join("\n");
-  const answer = document.createElement("article");
-  answer.className = "assistant-message answer";
-  answer.textContent = files.length ? "Preparing upload…" : "Thinking…";
-  container.append(user, answer);
-  try {
-    const uploaded = [];
-    for (const file of files) {
-      answer.textContent = `Uploading ${file.name}…`;
-      const source = await uploadKnowledgeDocument(file, (percent) => { answer.textContent = `Uploading ${file.name}… ${percent}%`; });
-      uploaded.push(source);
-      answer.textContent = `Processing ${file.name}…`;
-    }
-    state.hotelAIFiles = []; renderHotelAIFiles();
-    if (question) {
-      const payload = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/assistant/hotel-chat`, { method: "POST", body: JSON.stringify({ question }) });
-      answer.textContent = payload.answer;
-      for (const source of payload.sources || []) {
-        const citation = document.createElement("small");
-        citation.className = "knowledge-citation";
-        citation.textContent = `${source.source} · ${Object.entries(source.location || {}).map(([key, value]) => `${key} ${value}`).join(" · ")} · ${source.status}`;
-        answer.append(citation);
-        if (source.source_id && can("knowledge.edit")) {
-          const link = document.createElement("a"); link.href = `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge/sources/${encodeURIComponent(source.source_id)}/download`; link.textContent = "Open original"; link.className = "knowledge-citation"; answer.append(link);
-        }
-      }
-      if (payload.proposed_draft && can("knowledge.edit")) {
-        answer.append(makeActionButton("Save as draft", async () => {
-          if (!window.confirm(`Save “${payload.proposed_draft.title}” as an Admin Only draft for review?`)) return;
-          await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge/items`, { method: "POST", body: JSON.stringify(payload.proposed_draft) });
-          await loadKnowledge(); activatePanel("knowledge"); showToast("Knowledge draft saved for review.");
-        }));
-      }
-    } else {
-      answer.textContent = `${uploaded.length} document(s) uploaded. Processing will produce reviewable knowledge; nothing has been published to Guest AI.`;
-    }
-    if (uploaded.length) {
-      const review = makeActionButton("Review knowledge", () => activatePanel("knowledge"), true);
-      answer.append(review);
-      window.setTimeout(() => loadKnowledge().catch(() => {}), 1500);
-    }
-    input.value = "";
-  } catch (error) {
-    answer.textContent = error.message;
-    answer.classList.add("error");
-  } finally {
-    state.hotelAISubmitting = false;
-    button.disabled = false;
     button.textContent = "Send";
-    container.scrollTop = container.scrollHeight;
+    state.hotelAISubmitting = false;
   }
 }
 
-function downloadReport(format) {
-  const period = $("export-period")?.value || state.operationsPeriod || "7d";
+function downloadReport(format, selectedPeriod = null) {
+  const period = selectedPeriod || $("reports-period")?.value || state.operationsPeriod || "7d";
   const url = `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/reports/export.${format}?period=${encodeURIComponent(period)}`;
   window.location.assign(url);
 }
@@ -4495,6 +6175,7 @@ function normalizeColor(value) {
 }
 
 function setup() {
+  annotateAdminPages();
   for (const icon of document.querySelectorAll(".nav-icon")) icon.setAttribute("aria-hidden", "true");
   for (const item of document.querySelectorAll(".nav-item")) {
     item.addEventListener("click", () => activatePanel(item.dataset.panel));
@@ -4517,44 +6198,79 @@ function setup() {
     target.addEventListener("click", () => activatePanel(target.dataset.dashboardPanel));
   }
   for (const trigger of document.querySelectorAll(".ask-ai-trigger")) trigger.addEventListener("click", () => openAssistant());
-  $("close-assistant-drawer").addEventListener("click", closeAssistant);
-  $("assistant-drawer-backdrop").addEventListener("click", closeAssistant);
-  $("assistant-drawer-form").addEventListener("submit", (event) => submitAssistant(event, "assistant-drawer-input", "assistant-drawer-messages").catch((error) => showToast(error.message, "error")));
-  $("assistant-page-form").addEventListener("submit", (event) => submitAssistant(event, "assistant-page-input", "assistant-page-messages").catch((error) => showToast(error.message, "error")));
-  for (const button of document.querySelectorAll("[data-assistant-new], [data-assistant-clear]")) button.addEventListener("click", async () => {
-    if (button.hasAttribute("data-assistant-clear") && state.assistantConversationId) {
-      await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/assistant/conversation`, { method: "DELETE", body: JSON.stringify({ conversation_id: state.assistantConversationId }) });
-    }
-    state.assistantConversationId = null;
-    for (const id of ["assistant-page-messages", "assistant-drawer-messages"]) {
-      const target = $(id);
-      if (target) target.innerHTML = `<div class="assistant-empty"><strong>Ask about this property</strong><p>Investigate operations using evidence from permission-checked tools.</p></div>`;
-    }
-  });
-  $("hotel-ai-form")?.addEventListener("submit", submitHotelAI);
-  for (const inputId of ["assistant-page-input", "assistant-drawer-input", "hotel-ai-input"]) {
-    $(inputId)?.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
-        event.preventDefault();
-        event.currentTarget.form.requestSubmit();
-      }
-    });
+  $("assistant-page-form").addEventListener("submit", (event) => submitUnifiedAssistant(event).catch((error) => showToast(error.message, "error")));
+  for (const button of document.querySelectorAll(".assistant-mode")) {
+    button.addEventListener("click", () => setAssistantMode(button.dataset.assistantMode));
   }
-  $("hotel-ai-attach")?.addEventListener("click", () => $("hotel-ai-files").click());
-  $("hotel-ai-files")?.addEventListener("change", (event) => { addHotelAIFiles(event.target.files || []); event.target.value = ""; });
-  const knowledgeComposer = $("hotel-ai-form");
-  knowledgeComposer?.addEventListener("dragover", (event) => { event.preventDefault(); knowledgeComposer.classList.add("dragover"); });
-  knowledgeComposer?.addEventListener("dragleave", () => knowledgeComposer.classList.remove("dragover"));
-  knowledgeComposer?.addEventListener("drop", (event) => { event.preventDefault(); knowledgeComposer.classList.remove("dragover"); addHotelAIFiles(event.dataTransfer?.files || []); });
-  $("hotel-ai-input")?.addEventListener("paste", (event) => {
-    const files = [...(event.clipboardData?.files || [])];
-    if (files.length) { event.preventDefault(); addHotelAIFiles(files); }
+  $("assistant-page-messages").addEventListener("click", (event) => {
+    const suggestion = event.target.closest("[data-assistant-suggestion]");
+    if (!suggestion || suggestion.hidden) return;
+    const question = suggestion.dataset.assistantSuggestion || "";
+    setAssistantMode(suggestion.dataset.assistantMode || "auto");
+    $("assistant-page-input").value = question;
+    $("assistant-page-input").focus();
   });
-  if (!can("knowledge.edit")) $("hotel-ai-attach").hidden = true;
+  document.querySelector("[data-assistant-new]").addEventListener("click", () => {
+    resetAssistantConversationView();
+    $("assistant-page-input").focus();
+  });
+  document.querySelector("[data-assistant-clear]").addEventListener("click", async () => {
+    if (!state.assistantConversationId || !window.confirm("Permanently delete this conversation from your personal history?")) return;
+    try {
+      await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/assistant/conversation`, {
+        method: "DELETE", body: JSON.stringify({ conversation_id: state.assistantConversationId }),
+      });
+      resetAssistantConversationView();
+      await loadAssistantConversations();
+      showToast("Conversation deleted from your history.");
+    } catch (error) { showToast(error.message, "error"); }
+  });
+  $("assistant-attach").addEventListener("click", () => $("assistant-files").click());
+  $("assistant-files").addEventListener("change", (event) => { addHotelAIFiles(event.target.files || []); event.target.value = ""; });
+  $("assistant-page-input").addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      event.currentTarget.form.requestSubmit();
+    }
+  });
+  const assistantComposer = $("assistant-page-form");
+  assistantComposer.addEventListener("dragover", (event) => { event.preventDefault(); assistantComposer.classList.add("dragover"); });
+  assistantComposer.addEventListener("dragleave", (event) => {
+    if (!assistantComposer.contains(event.relatedTarget)) assistantComposer.classList.remove("dragover");
+  });
+  assistantComposer.addEventListener("drop", (event) => {
+    event.preventDefault(); assistantComposer.classList.remove("dragover");
+    if (can("knowledge.edit")) addHotelAIFiles(event.dataTransfer?.files || []);
+    else showToast("Permission required: knowledge.edit", "error");
+  });
+  $("assistant-page-input").addEventListener("paste", (event) => {
+    const files = [...(event.clipboardData?.files || [])];
+    if (files.length) {
+      event.preventDefault();
+      if (can("knowledge.edit")) addHotelAIFiles(files);
+      else showToast("Permission required: knowledge.edit", "error");
+    }
+  });
+  setAssistantMode("auto");
   for (const select of document.querySelectorAll(".operations-period")) select.addEventListener("change", async (event) => {
     state.operationsPeriod = event.target.value;
     for (const candidate of document.querySelectorAll(".operations-period")) candidate.value = state.operationsPeriod;
     try { await loadDashboard(); } catch (error) { showToast(error.message, "error"); }
+  });
+  for (const button of document.querySelectorAll("#refresh-dashboard, #refresh-health, #refresh-alerts")) button.addEventListener("click", async () => {
+    const labels = { "refresh-dashboard": "Refresh data", "refresh-health": "Refresh checks", "refresh-alerts": "Refresh alerts" };
+    const label = labels[button.id];
+    button.disabled = true;
+    button.textContent = "Refreshing…";
+    try {
+      await loadDashboard();
+      showToast(button.id === "refresh-health" ? "System checks refreshed." : button.id === "refresh-alerts" ? "Alerts refreshed." : "Dashboard data refreshed.");
+    } catch (error) {
+      showToast(error.message, "error");
+    } finally {
+      button.disabled = false;
+      button.textContent = label;
+    }
   });
   $("manager-period").addEventListener("change", (event) => {
     const custom = event.target.value === "custom";
@@ -4566,6 +6282,7 @@ function setup() {
       const start = $("manager-start").value;
       const end = $("manager-end").value;
       if (!start || !end) return showToast("Choose a custom start and end date.", "error");
+      if (end < start) return showToast("The end date must be on or after the start date.", "error");
       state.operationsStart = Math.floor(new Date(`${start}T00:00:00`).getTime() / 1000);
       state.operationsEnd = Math.floor(new Date(`${end}T23:59:59`).getTime() / 1000);
     } else {
@@ -4575,8 +6292,18 @@ function setup() {
     state.operationsPeriod = period;
     try { await loadDashboard(); } catch (error) { showToast(error.message, "error"); }
   });
-  for (const button of document.querySelectorAll("[data-export]")) button.addEventListener("click", () => downloadReport(button.dataset.export));
+  for (const button of document.querySelectorAll("[data-export]")) button.addEventListener("click", () => downloadReport(button.dataset.export, button.closest(".panel")?.querySelector("[data-export-period]")?.value));
+  for (const button of document.querySelectorAll("[data-integration-navigation]")) button.addEventListener("click", () => {
+    const item = allNavItems().find((candidate) => candidate.id === button.dataset.integrationNavigation);
+    if (item) activatePanel(item.panel, item.id);
+  });
   $("property-switcher").addEventListener("change", (event) => switchProperty(event.target.value).catch((error) => showToast(error.message, "error")));
+  $("brand-logo-trigger").addEventListener("click", () => $("admin-brand-logo-input").click());
+  $("admin-brand-logo-input").addEventListener("change", (event) => uploadAdminPropertyLogo(event.currentTarget));
+  $("brand-logo-remove").addEventListener("click", async () => {
+    if (!state.property?.logo_url || !window.confirm("Remove this property's logo?")) return;
+    try { await saveAdminPropertyLogo(""); } catch (error) { showToast(error.message, "error"); }
+  });
   $("onboarding-create-property").addEventListener("click", openPropertyCreation);
   $("property-create-form").addEventListener("submit", createProperty);
   $("property-create-name").addEventListener("input", (event) => {
@@ -4668,6 +6395,10 @@ function setup() {
     handleImageUpload(event.target, "logo-url-input", {
       maxBytes: 500 * 1024,
       recommended: "Recommended logo: 512 x 512 px or 800 x 240 px, under 500 KB.",
+      onStatus: (message, status) => {
+        $("logo-upload-status").textContent = message;
+        $("logo-upload-status").dataset.state = status;
+      },
     });
   });
   $("background-image-input").addEventListener("change", (event) => {
@@ -4690,6 +6421,25 @@ function setup() {
     addPromptRow();
     updatePreview();
   });
+  for (const button of document.querySelectorAll("[data-design-inspector]")) {
+    button.setAttribute("aria-pressed", String(button.classList.contains("active")));
+    button.addEventListener("click", () => setDesignInspector(button.dataset.designInspector));
+  }
+  for (const button of document.querySelectorAll("[data-design-preset]")) {
+    button.setAttribute("aria-pressed", "false");
+    button.addEventListener("click", () => applyDesignPreset(button.dataset.designPreset));
+  }
+  $("reset-design-template").addEventListener("click", () => {
+    if (!state.designDraft) return;
+    fillDesignForm(state.designDraft);
+    document.querySelectorAll("[data-design-preset]").forEach((button) => {
+      button.classList.remove("selected");
+      button.setAttribute("aria-pressed", "false");
+    });
+    updatePreview();
+    showToast("Unsaved editor changes reset to the saved draft.");
+  });
+  $("design-save-shortcut").addEventListener("click", () => saveDraft().catch((error) => showToast(error.message, "error")));
   $("save-draft").addEventListener("click", () => saveDraft().catch((error) => showToast(error.message, "error")));
   $("save-auth-types").addEventListener("click", () => saveAuthenticationTypes().catch((error) => showToast(error.message, "error")));
   $("publish-design").addEventListener("click", () => publishDesign().catch((error) => showToast(error.message, "error")));
@@ -4749,46 +6499,63 @@ function setup() {
   $("loop-revise").addEventListener("click", () => decideImprovementLoop("revision_requested").catch((error) => showToast(error.message, "error")));
 
   for (const button of document.querySelectorAll("[data-map-tool]")) {
-    button.addEventListener("click", () => {
-      state.mapTool = button.dataset.mapTool;
-      for (const candidate of document.querySelectorAll("[data-map-tool]")) candidate.classList.toggle("active", candidate === button);
-    });
+    button.addEventListener("click", () => updateMapTool(button.dataset.mapTool, button));
   }
   $("floor-map-canvas").addEventListener("pointerdown", handleCanvasPointer);
   $("floor-map-canvas").addEventListener("pointermove", handleCanvasPointerMove);
-  $("floor-map-canvas").addEventListener("pointerup", finishFreeform);
-  $("floor-map-canvas").addEventListener("pointercancel", finishFreeform);
-  $("save-map-object").addEventListener("click", () => saveMapObject().catch((error) => showToast(error.message, "error")));
-  $("delete-map-object").addEventListener("click", () => {
-    state.mapHistory.push(structuredClone(state.mapObjects));
-    state.mapObjects.pop();
-    renderMapCanvas();
-  });
-  $("duplicate-map-object").addEventListener("click", () => {
-    const last = state.mapObjects.at(-1);
-    if (last) state.mapObjects.push(structuredClone(last));
-    renderMapCanvas();
-  });
-  $("undo-map").addEventListener("click", () => {
-    const previous = state.mapHistory.pop();
-    if (previous) {
-      state.mapRedo.push(structuredClone(state.mapObjects));
-      state.mapObjects = previous;
+  $("floor-map-canvas").addEventListener("pointerup", finishMapPointer);
+  $("floor-map-canvas").addEventListener("pointercancel", finishMapPointer);
+  $("map-object-form").addEventListener("submit", (event) => saveMapObject(event).catch((error) => showToast(error.message, "error")));
+  $("map-object-type").addEventListener("change", syncMapObjectType);
+  $("map-object-name").addEventListener("input", () => {
+    if (state.selectedMapObject) {
+      state.mapDirty = true;
+      state.selectedMapObject.name = $("map-object-name").value;
+      if (state.selectedMapObject.objectType === "navigation_node") state.selectedMapObject.label = state.selectedMapObject.name;
       renderMapCanvas();
     }
   });
-  $("redo-map").addEventListener("click", () => {
-    const next = state.mapRedo.pop();
-    if (next) {
-      state.mapHistory.push(structuredClone(state.mapObjects));
-      state.mapObjects = next;
-      renderMapCanvas();
-    }
+  $("map-node-type").addEventListener("change", () => { if (state.selectedMapObject) { state.mapDirty = true; state.selectedMapObject.node_type = $("map-node-type").value; } });
+  $("map-object-visible").addEventListener("change", () => { if (state.selectedMapObject) { state.mapDirty = true; state.selectedMapObject.guest_visible = $("map-object-visible").checked; } });
+  for (const id of ["map-linked-zone", "map-ap-identifier", "map-facility-type", "map-facility-description", "map-edge-distance", "map-edge-bidirectional"]) $(id).addEventListener("change", () => { if (state.selectedMapObject) state.mapDirty = true; });
+  $("map-object-type").addEventListener("change", () => { if (state.selectedMapObject) state.mapDirty = true; });
+  $("delete-map-object").addEventListener("click", () => deleteMapObject().catch((error) => showToast(error.message, "error")));
+  $("duplicate-map-object").addEventListener("click", duplicateMapObject);
+  $("undo-map").addEventListener("click", undoMap);
+  $("redo-map").addEventListener("click", redoMap);
+  $("finish-map-draw").addEventListener("click", finishMapPolygon);
+  $("add-map-building").addEventListener("click", () => createMapStructure("building"));
+  $("add-map-floor").addEventListener("click", () => createMapStructure("floor"));
+  $("map-empty-add-building").addEventListener("click", () => createMapStructure(state.zones?.buildings.length ? "floor" : "building"));
+  $("map-empty-start-drawing").addEventListener("click", () => {
+    const button = document.querySelector('[data-map-tool="rectangle"]');
+    updateMapTool("rectangle", button);
+    button?.focus();
   });
+  $("upload-floor-plan-trigger").addEventListener("click", () => $("floor-map-upload").click());
+  $("map-empty-upload").addEventListener("click", () => $("floor-map-upload").click());
+  $("map-structure-form").addEventListener("submit", (event) => submitMapStructure(event).catch((error) => showToast(error.message, "error")));
+  $("map-zoom-out").addEventListener("click", () => setMapZoom(state.mapZoom - .1));
+  $("map-zoom-in").addEventListener("click", () => setMapZoom(state.mapZoom + .1));
+  $("map-fit-canvas").addEventListener("click", () => setMapZoom(1));
+  $("map-object-search").addEventListener("input", renderZoneTree);
   for (const input of document.querySelectorAll(".layer-toggle")) input.addEventListener("change", renderMapCanvas);
-  $("zone-building-select").addEventListener("change", hydrateZoneSelectors);
-  $("zone-floor-select").addEventListener("change", renderMapCanvas);
-  $("floor-map-upload").addEventListener("change", (event) => uploadFloorMap(event.target.files?.[0]).catch((error) => showToast(error.message, "error")));
+  $("zone-building-select").addEventListener("change", () => {
+    if ((state.mapDirty || state.mapObjects.length || state.mapPolygonPoints.length || state.selectedMapObject?.isDraft) && !window.confirm("Discard unsaved map changes before changing buildings?")) {
+      $("zone-building-select").value = state.mapSelectedBuildingId; return;
+    }
+    state.selectedMapObject = null; state.mapObjects = []; state.mapPolygonPoints = []; state.mapDirty = false; state.mapHistory = []; state.mapRedo = [];
+    hydrateZoneSelectors(); state.mapSelectedBuildingId = currentMapBuildingId(); state.mapSelectedFloorId = currentMapFloorId();
+    renderZoneTree(); renderMapCanvas(); renderMapInspector();
+  });
+  $("zone-floor-select").addEventListener("change", () => {
+    if ((state.mapDirty || state.mapObjects.length || state.mapPolygonPoints.length || state.selectedMapObject?.isDraft) && !window.confirm("Discard unsaved map changes before changing floors?")) {
+      $("zone-floor-select").value = state.mapSelectedFloorId; return;
+    }
+    state.selectedMapObject = null; state.mapObjects = []; state.mapPolygonPoints = []; state.mapDirty = false; state.mapHistory = []; state.mapRedo = []; state.mapSelectedFloorId = currentMapFloorId();
+    renderMapContext(); renderZoneTree(); renderMapCanvas(); renderMapInspector();
+  });
+  $("floor-map-upload").addEventListener("change", (event) => uploadFloorMap(event.target.files?.[0]).catch((error) => showToast(error.message, "error")).finally(() => { event.target.value = ""; }));
   $("create-stay-session").addEventListener("click", () => createStaySession().catch((error) => showToast(error.message, "error")));
   $("save-stay-memory").addEventListener("click", () => saveStayMemory().catch((error) => showToast(error.message, "error")));
   $("memory-stay-id").addEventListener("change", () => updateStayMemoryEditor(state.guestStays.find((stay) => stay.stay_id === $("memory-stay-id").value) || null));
@@ -4841,12 +6608,52 @@ function setup() {
   $("toggle-takeover").addEventListener("click", () => setConversationState("open", !state.selectedConversation?.human_takeover).catch((error) => showToast(error.message, "error")));
   $("close-conversation").addEventListener("click", () => setConversationState("closed", false).catch((error) => showToast(error.message, "error")));
   $("send-staff-response").addEventListener("click", () => sendStaffResponse().catch((error) => showToast(error.message, "error")));
-  for (const id of ["intro-mode", "intro-preset", "intro-duration", "intro-message", "intro-background", "intro-brand-color", "intro-first-visit", "intro-skip"]) {
-    $(id).addEventListener("input", updateIntroPreview);
-    $(id).addEventListener("change", updateIntroPreview);
+  for (const id of ["intro-mode", "intro-preset", "intro-message", "intro-background", "intro-brand-color", "intro-first-visit", "intro-skip"]) {
+    $(id).addEventListener("input", markIntroDirty);
+    $(id).addEventListener("change", markIntroDirty);
   }
+  $("intro-duration").addEventListener("input", () => {
+    const milliseconds = Math.max(300, Math.min(8000, Math.round(Number($("intro-duration").value || 1.4) * 1000)));
+    $("intro-duration-range").value = milliseconds;
+    markIntroDirty();
+  });
+  $("intro-duration-range").addEventListener("input", () => {
+    $("intro-duration").value = (Number($("intro-duration-range").value) / 1000).toFixed(1);
+    markIntroDirty();
+  });
+  for (const button of document.querySelectorAll("[data-intro-template]")) {
+    button.addEventListener("click", () => {
+      const template = INTRO_TEMPLATES[button.dataset.introTemplate];
+      if (!template) return;
+      $("intro-mode").value = template.mode;
+      $("intro-preset").value = template.preset;
+      $("intro-duration").value = (template.duration_ms / 1000).toFixed(1);
+      $("intro-duration-range").value = template.duration_ms;
+      $("intro-message").value = template.welcome_message;
+      $("intro-background").value = template.background;
+      $("intro-brand-color").value = template.brand_color;
+      markIntroDirty();
+    });
+  }
+  for (const button of document.querySelectorAll("[data-intro-preset]")) {
+    button.addEventListener("click", () => {
+      $("intro-preset").value = button.dataset.introPreset;
+      markIntroDirty();
+    });
+  }
+  for (const button of document.querySelectorAll("[data-intro-device]")) {
+    button.addEventListener("click", () => setIntroDevice(button.dataset.introDevice));
+  }
+  $("play-intro-preview").addEventListener("click", () => playIntroPreview().catch((error) => showToast(error.message, "error")));
+  $("intro-preview-skip").addEventListener("click", () => stopIntroPreview("Preview skipped."));
+  $("reload-intro").addEventListener("click", () => {
+    stopIntroPreview("");
+    loadIntro().then(() => showToast("Unsaved intro edits reset.")).catch((error) => showToast(error.message, "error"));
+  });
   $("save-intro").addEventListener("click", () => saveIntro().catch((error) => showToast(error.message, "error")));
   $("intro-upload").addEventListener("change", (event) => uploadIntroAsset(event.target.files?.[0]).catch((error) => showToast(error.message, "error")));
+  $("intro-remove-asset").addEventListener("click", () => removeIntroAsset().catch((error) => showToast(error.message, "error")));
+  setIntroDevice("mobile");
   $("save-hotel-information").addEventListener("click", () => saveHotelInformation().catch((error) => showToast(error.message, "error")));
   for (const [inputId, noteId] of [["hotel-info-checkin", "hotel-info-checkin-note"], ["hotel-info-checkout", "hotel-info-checkout-note"]]) {
     $(inputId).addEventListener("input", () => {
@@ -4861,6 +6668,10 @@ function setup() {
     for (const id of ["hotel-info-checkin-note", "hotel-info-checkout-note"]) $(id).hidden = true;
   });
   $("save-room").addEventListener("click", () => saveRoom().catch((error) => showToast(error.message, "error")));
+  $("new-room-type").addEventListener("click", () => { clearRoomFilters(); clearRoomForm({ focus: true, scroll: true }); });
+  $("cancel-room-edit").addEventListener("click", () => clearRoomForm({ focus: true, scroll: true }));
+  $("room-search").addEventListener("input", renderRooms);
+  $("room-status-filter").addEventListener("change", renderRooms);
   $("save-guest-module").addEventListener("click", () => saveGuestModule().catch((error) => showToast(error.message, "error")));
   $("clear-guest-module-form").addEventListener("click", clearGuestModuleForm);
   $("add-facility").addEventListener("click", openNewFacility);
@@ -4919,6 +6730,7 @@ function setup() {
     });
   }
   $("save-webhook").addEventListener("click", () => saveWebhook().catch((error) => showToast(error.message, "error")));
+  $("reset-webhook-form").addEventListener("click", resetWebhookForm);
   $("save-location").addEventListener("click", () => saveManagedLocation().catch((error) => showToast(error.message, "error")));
   $("save-deployment").addEventListener("click", () => saveDeploymentSettings().catch((error) => showToast(error.message, "error")));
   $("save-network").addEventListener("click", () => saveDeploymentSettings().catch((error) => showToast(error.message, "error")));
@@ -4928,13 +6740,16 @@ function setup() {
   $("test-smtp").addEventListener("click", () => testSMTP().catch((error) => showToast(error.message, "error")));
 
   for (const button of document.querySelectorAll(".preview-size")) {
+    button.addEventListener("click", () => setPreviewDevice(button.dataset.size));
+  }
+  for (const button of document.querySelectorAll("[data-preview-zoom]")) {
     button.addEventListener("click", () => {
-      for (const candidate of document.querySelectorAll(".preview-size")) {
-        candidate.classList.toggle("active", candidate === button);
-      }
-      $("chat-preview").className = "phone-preview " + button.dataset.size;
+      if (button.dataset.previewZoom === "fit") fitPreview();
+      else updatePreviewZoom(state.designZoom + (button.dataset.previewZoom === "in" ? 0.1 : -0.1));
     });
   }
+  setPreviewDevice("mobile");
+  setDesignInspector("templates");
 }
 
 document.body.dataset.adminReady = "false";
