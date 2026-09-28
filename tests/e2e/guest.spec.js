@@ -5,7 +5,7 @@ const csrfByRequest = new WeakMap();
 async function loginAdmin(request) {
   if (csrfByRequest.has(request)) return csrfByRequest.get(request);
   const response = await request.post("/api/admin/auth/login", {
-    data: { username: "admin", password: "ChangeMe123!", remember_me: false },
+    data: { username: "admin", password: "PlaywrightOnly-Admin-123!", remember_me: false },
   });
   expect(response.ok()).toBeTruthy();
   const csrf = (await response.json()).user.csrf_token;
@@ -101,13 +101,38 @@ async function ensureGuestData(request) {
 
 // --- 1. Guest initial load ---
 
-test("guest: loads with an unconfigured property profile", async ({ page }) => {
+test("guest: opens on the personal stay home, with chat available separately", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.locator("#welcome-headline")).toBeVisible();
-  await expect(page.locator("#suggestion-list button")).toHaveCount(0);
+  await expect(page.locator("#home-view")).toBeVisible();
+  await expect(page.locator("#home-name")).toHaveText("Your stay");
+  await expect(page.locator("#concierge-view")).toBeHidden();
   await expect(page.getByLabel("Ask your concierge")).toBeVisible();
   await expect(page.locator("#send-button")).toBeDisabled();
+});
+
+test("guest: bottom navigation switches between stay, explore, requests, and concierge", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Explore" }).click();
+  await expect(page.locator("#explore-view")).toBeVisible();
+  await page.getByRole("button", { name: "Requests" }).click();
+  await expect(page.locator("#requests-view")).toBeVisible();
+  await page.getByRole("button", { name: "My Stay" }).click();
+  await expect(page.locator("#stay-view")).toBeVisible();
+  await page.getByRole("button", { name: "Concierge" }).click();
+  await expect(page.locator("#concierge-view")).toBeVisible();
+  await page.getByRole("button", { name: "Home" }).click();
+  await expect(page.locator("#home-view")).toBeVisible();
+});
+
+test("guest: Explore and My Stay use configured property content", async ({ page, request }) => {
+  await ensureGuestData(request);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Explore" }).click();
+  await expect(page.locator("#recommendation-list")).toContainText("Fixture Bistro");
+  await page.getByRole("button", { name: "My Stay" }).click();
+  await expect(page.locator("#stay-property-name")).toBeVisible();
+  await expect(page.locator("#stay-summary-card")).toContainText("Active requests");
 });
 
 test("guest: hotel name and concierge name are displayed", async ({ page }) => {
@@ -405,8 +430,21 @@ test("guest: configured service request shows confirmation card", async ({ page,
   await page.getByLabel("Ask your concierge").fill("Send two towels to my room");
   await page.getByRole("button", { name: "Send message" }).click();
 
-  await expect(page.getByText(/Please confirm.*send it/)).toBeVisible();
-  await expect(page.getByRole("button", { name: "Confirm request" })).toBeVisible();
+  await expect(page.locator(".guest-action-card")).toContainText("Towels");
+  await expect(page.getByRole("button", { name: "Send request" })).toBeVisible();
+});
+
+test("guest: a configured service can be requested directly without opening chat", async ({ page, request }) => {
+  await ensureGuestData(request);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Requests" }).click();
+  await expect(page.locator("#request-catalog-list")).toContainText("Towels");
+  await page.locator(".service-action-row").filter({ has: page.getByText("Towels", { exact: true }) }).getByRole("button", { name: "Request" }).click();
+  await expect(page.locator("#request-action-confirmation")).toContainText("Send this request to the hotel team?");
+  await page.locator("#request-action-confirmation").getByRole("button", { name: "Send request" }).click();
+  await expect(page.locator("#request-list")).toContainText("Towels");
+  await expect(page.locator("#concierge-view")).toBeHidden();
+  await expect(page.locator("#message-list")).toBeEmpty();
 });
 
 test("guest: confirm request persists and returns a request id", async ({ page, request }) => {
@@ -415,9 +453,23 @@ test("guest: confirm request persists and returns a request id", async ({ page, 
   await page.getByLabel("Ask your concierge").fill("Send two towels to my room");
   await page.getByRole("button", { name: "Send message" }).click();
 
-  await page.getByRole("button", { name: "Confirm request" }).click();
-  await expect(page.getByText(/Request req_[a-f0-9]+ was created/)).toBeVisible();
-  await expect(page.getByRole("button", { name: "Confirmed" })).toBeDisabled();
+  await page.getByRole("button", { name: "Send request" }).click();
+  await expect(page.locator(".request-created-card")).toContainText("Towels");
+  await expect(page.locator(".guest-action-card").getByRole("button", { name: "Request sent" })).toBeDisabled();
+});
+
+test("guest: confirmed service request appears in My Requests", async ({ page, request }) => {
+  await ensureGuestData(request);
+  await page.goto("/");
+  await page.getByLabel("Ask your concierge").fill("Send two towels to my room");
+  await page.getByRole("button", { name: "Send message" }).click();
+  await expect(page.locator(".guest-action-card")).toContainText("Housekeeping");
+  await page.getByRole("button", { name: "Send request" }).click();
+  await expect(page.locator(".request-created-card")).toContainText("Towels");
+  await page.getByRole("button", { name: "Track request" }).click();
+  await expect(page.locator("#requests-view")).toBeVisible();
+  await expect(page.locator("#request-list")).toContainText("Towels");
+  await expect(page.locator("#request-list")).toContainText("Housekeeping");
 });
 
 // --- 7. Hotel menu ---
@@ -488,7 +540,8 @@ test("guest: mobile layout shows all core elements", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 667 });
   await page.goto("/");
 
-  await expect(page.locator("#welcome-headline")).toBeVisible();
+  await expect(page.locator("#home-view")).toBeVisible();
+  await expect(page.locator("#home-name")).toHaveText("Your stay");
   await expect(page.getByLabel("Ask your concierge")).toBeVisible();
   await expect(page.getByRole("button", { name: "Send message" })).toBeVisible();
 });
@@ -516,7 +569,7 @@ test("guest: dark mode renders without errors", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "dark" });
   await page.goto("/");
 
-  await expect(page.locator("#welcome-headline")).toBeVisible();
+  await expect(page.locator("#home-view")).toBeVisible();
   await expect(page.getByLabel("Ask your concierge")).toBeVisible();
 });
 
@@ -543,7 +596,7 @@ test("admin: no console errors on load", async ({ page }) => {
   page.on("pageerror", (err) => errors.push(err.message));
 
   const login = await page.request.post("/api/admin/auth/login", {
-    data: { username: "admin", password: "ChangeMe123!", remember_me: false },
+    data: { username: "admin", password: "PlaywrightOnly-Admin-123!", remember_me: false },
   });
   expect(login.ok()).toBeTruthy();
   await page.goto("/admin");

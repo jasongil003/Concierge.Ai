@@ -1,12 +1,18 @@
 import base64
+from io import BytesIO
 import json
 import math
 import re
 import sqlite3
 import time
 import uuid
+import warnings
 from pathlib import Path
 from typing import Any
+
+from defusedxml import ElementTree as ET
+from defusedxml.common import DefusedXmlException
+from PIL import Image
 
 from .database import connect_database
 
@@ -23,6 +29,70 @@ ANIMATION_TYPES = {
     "video/webm": ".webm",
     "video/mp4": ".mp4",
 }
+
+MAX_FLOOR_MAP_BYTES = 8 * 1024 * 1024
+MAX_FLOOR_MAP_PIXELS = 30_000_000
+_SVG_ACTIVE_ELEMENTS = {"script", "foreignobject", "iframe", "object", "embed", "audio", "video"}
+_SVG_EXTERNAL_URL = re.compile(r"url\(\s*(['\"]?)(?!#)[^)]+\)", re.IGNORECASE)
+
+
+def _validate_floor_map(content_type: str, raw: bytes) -> None:
+    """Validate the uploaded format and reject active/external SVG behavior."""
+    if content_type == "image/png":
+        expected_format = "PNG"
+    elif content_type == "image/jpeg":
+        expected_format = "JPEG"
+    elif content_type == "application/pdf":
+        if not raw.startswith(b"%PDF-") or b"%%EOF" not in raw[-1024:]:
+            raise ValueError("The uploaded file is not a valid PDF floor plan.")
+        return
+    elif content_type == "image/svg+xml":
+        try:
+            svg_text = raw.decode("utf-8-sig")
+        except UnicodeDecodeError as exc:
+            raise ValueError("SVG floor plans must use UTF-8 encoding.") from exc
+        if re.search(r"<!\s*(?:DOCTYPE|ENTITY)", svg_text, re.IGNORECASE) or "<?xml-stylesheet" in svg_text.casefold():
+            raise ValueError("SVG floor plans cannot contain document declarations or external stylesheets.")
+        try:
+            root = ET.fromstring(svg_text)
+        except (ET.ParseError, DefusedXmlException) as exc:
+            raise ValueError("The uploaded file is not a valid SVG floor plan.") from exc
+        if root.tag != "{http://www.w3.org/2000/svg}svg":
+            raise ValueError("The uploaded file is not a valid SVG floor plan.")
+        for element in root.iter():
+            tag = element.tag.rsplit("}", 1)[-1].casefold() if isinstance(element.tag, str) else ""
+            if tag in _SVG_ACTIVE_ELEMENTS:
+                raise ValueError("SVG floor plans cannot contain active content.")
+            if tag == "style" and "@import" in (element.text or "").casefold():
+                raise ValueError("SVG floor plans cannot load external stylesheets.")
+            for name, value in element.attrib.items():
+                attribute = name.rsplit("}", 1)[-1].casefold()
+                if attribute.startswith("on"):
+                    raise ValueError("SVG floor plans cannot contain event handlers.")
+                if attribute in {"href", "src"} and not value.strip().startswith("#"):
+                    raise ValueError("SVG floor plans cannot reference external resources.")
+                if _SVG_EXTERNAL_URL.search(value):
+                    raise ValueError("SVG floor plans cannot reference external resources.")
+            if element.text and _SVG_EXTERNAL_URL.search(element.text):
+                raise ValueError("SVG floor plans cannot reference external resources.")
+        return
+    else:
+        raise ValueError("Unsupported floor plan file type.")
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            image = Image.open(BytesIO(raw))
+            if image.format != expected_format:
+                raise ValueError("The uploaded file content does not match its declared type.")
+            width, height = image.size
+            if width <= 0 or height <= 0 or width * height > MAX_FLOOR_MAP_PIXELS:
+                raise ValueError("Floor plan images must not exceed 30 million pixels.")
+            image.verify()
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
+        raise ValueError("Floor plan image dimensions are too large.") from exc
+    except (OSError, SyntaxError) as exc:
+        raise ValueError("The uploaded file is not a valid floor plan image.") from exc
 
 
 def _now() -> int:
@@ -192,8 +262,9 @@ class ZoneStore:
         if content_type not in FLOOR_PLAN_TYPES:
             raise ValueError("Unsupported floor plan file type.")
         raw = base64.b64decode(str(payload.get("content_base64") or ""), validate=True)
-        if not raw or len(raw) > 8 * 1024 * 1024:
+        if not raw or len(raw) > MAX_FLOOR_MAP_BYTES:
             raise ValueError("Floor plan must be between 1 byte and 8 MB.")
+        _validate_floor_map(content_type, raw)
         map_id = _record_id("map")
         directory = UPLOAD_ROOT / property_id / "floor_maps"
         directory.mkdir(parents=True, exist_ok=True)

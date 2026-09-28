@@ -154,18 +154,20 @@ class NetworkGuard:
         if not self._contains(peer, trusted_ranges):
             return str(peer), False
         forwarded = str(headers.get("x-forwarded-for", ""))
+        if not forwarded:
+            return "", True
         chain: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
         for item in forwarded.split(","):
             try:
                 chain.append(ipaddress.ip_address(item.strip()))
             except ValueError:
-                return str(peer), True
+                return "", True
         if not chain:
-            return str(peer), True
+            return "", True
         for candidate in reversed(chain):
             if not self._contains(candidate, trusted_ranges):
                 return str(candidate), True
-        return str(chain[0]), True
+        return "", True
 
     def evaluate(
         self,

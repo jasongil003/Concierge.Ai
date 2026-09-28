@@ -5,7 +5,7 @@ const csrfByRequest = new WeakMap();
 
 async function loginAdmin(api) {
   const response = await api.post("/api/admin/auth/login", {
-    data: { username: "admin", password: "ChangeMe123!", remember_me: false },
+    data: { username: "admin", password: "PlaywrightOnly-Admin-123!", remember_me: false },
   });
   expect(response.ok()).toBeTruthy();
   const csrf = (await response.json()).user.csrf_token;

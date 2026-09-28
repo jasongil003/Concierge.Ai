@@ -32,14 +32,16 @@ def test_zones_floor_map_navigation_and_property_isolation(tmp_path: Path):
         "hotel-a",
         floor["floor_id"],
         {
-            "filename": "../lobby.png",
-            "content_type": "image/png",
-            "content_base64": base64.b64encode(b"png").decode(),
+            "filename": "../lobby.svg",
+            "content_type": "image/svg+xml",
+            "content_base64": base64.b64encode(
+                b'<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>'
+            ).decode(),
             "width": 1000,
             "height": 800,
         },
     )
-    assert uploaded["original_filename"] == "lobby.png"
+    assert uploaded["original_filename"] == "lobby.svg"
 
     zone = zones.upsert_zone(
         "hotel-a",
