@@ -1,13 +1,22 @@
 import json
+import logging
 import sqlite3
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .database import connect_database, table_columns
+from .database import connect_database, database_url_configured, table_columns
 
-from .guardrails import public_guardrails
+from .guardrails import (
+    normalize_guest_access_hosts,
+    normalize_guest_hostname,
+    public_guardrails,
+    validate_guest_hostname_ownership,
+)
+
+
+logger = logging.getLogger(__name__)
 
 
 SAFE_FONTS = {
@@ -328,6 +337,9 @@ class PropertyRecord:
     design_versions: list[dict[str, Any]] = field(default_factory=list)
     created_at: int = 0
     updated_at: int = 0
+    # Runtime-only marker set when persisted guest/network data cannot be trusted.
+    # It is intentionally excluded from to_dict() and the database schema.
+    guest_configuration_malformed: bool = field(default=False, repr=False)
 
     def to_dict(self, include_secrets: bool = False) -> dict[str, Any]:
         payload = {
@@ -604,11 +616,60 @@ class PropertyStore:
 
     def upsert(self, record: PropertyRecord) -> PropertyRecord:
         now = int(time.time())
-        existing = self.get(record.property_id)
-        record.created_at = existing.created_at if existing else now
-        record.updated_at = now
-        payload = self._serialize_record(record)
+        if record.domain:
+            try:
+                record.domain = normalize_guest_hostname(record.domain)
+            except (TypeError, ValueError):
+                # Preserve an unchanged malformed legacy value so an unrelated
+                # property edit is possible; new/changed values must be valid.
+                existing_record = self.get(record.property_id)
+                if existing_record is None or existing_record.domain != record.domain:
+                    raise ValueError("Property domain must be a valid hostname or IP address.")
+        if isinstance(record.guardrails, dict) and "guest_access_hosts" in record.guardrails:
+            record.guardrails["guest_access_hosts"] = normalize_guest_access_hosts(
+                record.guardrails["guest_access_hosts"]
+            )
         with self._connect() as db:
+            # Serialize hostname ownership changes. SQLite's immediate write
+            # transaction excludes concurrent writers; PostgreSQL uses a
+            # transaction-scoped advisory lock before checking and writing.
+            db.execute("BEGIN IMMEDIATE")
+            if database_url_configured():
+                db.execute("SELECT pg_advisory_xact_lock(817465002)")
+            rows = db.execute(
+                "SELECT property_id, hotel_name, domain, guardrails, created_at FROM properties"
+            ).fetchall()
+            existing_row = next((row for row in rows if row["property_id"] == record.property_id), None)
+            record.created_at = int(existing_row["created_at"]) if existing_row else now
+            record.updated_at = now
+            existing_records = []
+            for row in rows:
+                if row["property_id"] == record.property_id:
+                    continue
+                raw_guardrails = row["guardrails"]
+                try:
+                    parsed_guardrails = json.loads(raw_guardrails or "{}")
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "Malformed stored property guardrails; ignoring only that property's guest-host entries",
+                        extra={"property_id": row["property_id"], "config_field": "guardrails"},
+                    )
+                    parsed_guardrails = {}
+                if not isinstance(parsed_guardrails, dict):
+                    logger.warning(
+                        "Malformed stored property guardrails; ignoring only that property's guest-host entries",
+                        extra={"property_id": row["property_id"], "config_field": "guardrails"},
+                    )
+                    parsed_guardrails = {}
+                existing_records.append(
+                    {
+                        "property_id": row["property_id"],
+                        "domain": row["domain"],
+                        "guardrails": parsed_guardrails,
+                    }
+                )
+            validate_guest_hostname_ownership(record, existing_records)
+            payload = self._serialize_record(record)
             db.execute(self.UPSERT_SQL, [payload[column] for column in self.COLUMNS])
         return record
 
@@ -665,8 +726,75 @@ class PropertyStore:
 
     def _record_from_row(self, row: sqlite3.Row) -> PropertyRecord:
         data = dict(row)
+        malformed_guest_configuration = False
+        expected_types = {
+            "contact_details": dict,
+            "brand_assets": dict,
+            "languages": list,
+            "facilities": list,
+            "dining": list,
+            "spa": dict,
+            "pool": dict,
+            "gym": dict,
+            "policies": list,
+            "support_contacts": list,
+            "quick_actions": list,
+            "ai_settings": dict,
+            "antlabs_config": dict,
+            "knowledge_sources": list,
+            "rooms": list,
+            "guest_modules": list,
+            "personality": dict,
+            "guardrails": dict,
+            "app_settings": dict,
+            "design_draft": dict,
+            "design_published": dict,
+            "design_versions": list,
+        }
         for column in self.JSON_COLUMNS:
-            data[column] = json.loads(data[column])
+            try:
+                decoded = json.loads(data[column] or ("{}" if expected_types[column] is dict else "[]"))
+            except (TypeError, ValueError):
+                decoded = {} if expected_types[column] is dict else []
+                logger.warning(
+                    "Malformed stored property configuration; using a safe field default",
+                    extra={"property_id": data.get("property_id"), "config_field": column},
+                )
+                if column == "guardrails":
+                    malformed_guest_configuration = True
+            if not isinstance(decoded, expected_types[column]):
+                logger.warning(
+                    "Stored property configuration has an invalid shape; using a safe field default",
+                    extra={"property_id": data.get("property_id"), "config_field": column},
+                )
+                decoded = {} if expected_types[column] is dict else []
+                if column == "guardrails":
+                    malformed_guest_configuration = True
+            data[column] = decoded
+        if not isinstance(data.get("guardrails", {}).get("guest_access_hosts", []), list):
+            malformed_guest_configuration = True
+            logger.warning(
+                "Stored guest host configuration has an invalid shape; property guest access will fail closed",
+                extra={"property_id": data.get("property_id"), "config_field": "guest_access_hosts"},
+            )
+        else:
+            try:
+                normalize_guest_access_hosts(data["guardrails"].get("guest_access_hosts", []))
+            except (TypeError, ValueError):
+                malformed_guest_configuration = True
+                logger.warning(
+                    "Stored guest host configuration is invalid; property guest access will fail closed",
+                    extra={"property_id": data.get("property_id"), "config_field": "guest_access_hosts"},
+                )
+        if data.get("domain"):
+            try:
+                normalize_guest_hostname(data["domain"])
+            except (TypeError, ValueError):
+                malformed_guest_configuration = True
+                logger.warning(
+                    "Stored property domain is invalid; property guest access will fail closed",
+                    extra={"property_id": data.get("property_id"), "config_field": "domain"},
+                )
         if not data.get("design_draft"):
             data["design_draft"] = default_design_config(
                 hotel_name=data.get("hotel_name", ""),
@@ -676,7 +804,9 @@ class PropertyStore:
             )
         if not data.get("design_published"):
             data["design_published"] = data["design_draft"]
-        return PropertyRecord(**data)
+        record = PropertyRecord(**data)
+        record.guest_configuration_malformed = malformed_guest_configuration
+        return record
 
     def _ensure_column(self, db: sqlite3.Connection, name: str, definition: str) -> None:
         allowed_definitions = {

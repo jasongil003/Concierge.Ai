@@ -142,23 +142,26 @@ def test_controlled_load_profile_has_requested_stages_and_metrics():
     profile = json.loads((ROOT / "loadtest" / "profiles.json").read_text(encoding="utf-8"))
     assert [stage["users"] for stage in profile["controlled_stages"]] == [10, 50, 100, 250, 500, 1000]
     assert {
-        "success_rate_percent", "request_throughput_per_second", "http_latency_p50_ms",
+        "success_rate_percent", "request_throughput_per_second", "http_latency_average_ms", "http_latency_p50_ms",
         "http_latency_p95_ms", "http_latency_p99_ms", "http_errors", "database_errors",
         "cpu_percent_mean_max", "memory_percent_mean_max", "ai_provider_queue_wait_p50_p95_ms",
         "api_process_rss_mb_mean_max", "locust_failures", "rate_limit_events",
+        "database_pool_checked_out_peak", "database_pool_capacity", "database_pool_overflow_peak",
+        "redis_readiness", "worker_failures", "timeout_failures",
     } == set(profile["collected_metrics"])
+    assert profile["performance_thresholds"]["max_rss_growth_mb"] > 0
 
 
 def test_high_scale_spike_and_soak_profiles_are_defined_without_capacity_claims():
     profile = json.loads((ROOT / "loadtest" / "profiles.json").read_text(encoding="utf-8"))
-    assert [stage["users"] for stage in profile["high_scale_profiles"]] == [5000, 10000, 30000]
+    assert [stage["users"] for stage in profile["high_scale_profiles"]] == [2500, 5000, 10000]
     assert [stage["name"] for stage in _selected_profiles(profile, "high-scale")] == [
-        "high-scale-5000", "high-scale-10000", "high-scale-30000"
+        "high-scale-2500", "high-scale-5000", "high-scale-10000"
     ]
     assert profile["spike_profile"]["warmup_users"] == 100
     assert profile["spike_profile"]["users"] == 5000
-    assert profile["soak_profile"]["users"] == 5000
-    assert profile["soak_profile"]["duration"] == "4h"
+    assert profile["soak_profile"]["users"] == 500
+    assert profile["soak_profile"]["duration"] == "30m"
     assert any("not capacity claims" in item for item in profile["notes"])
 
     result = subprocess.run(
@@ -216,6 +219,11 @@ concierge_app_process_memory_bytes 2097152
         "cpu_percent": 27.5,
         "memory_percent": 1.25,
         "rss_mb": 2.0,
+        "database_pool_checked_out": None,
+        "database_pool_capacity": None,
+        "database_pool_overflow": None,
+        "active_requests": None,
+        "request_queue_depth": None,
     }
 
 
@@ -224,13 +232,14 @@ def test_loadtest_summary_reads_locust_aggregate_csv(tmp_path):
     with path.open("w", encoding="utf-8", newline="") as stream:
         writer = csv.DictWriter(
             stream,
-            fieldnames=["Name", "Request Count", "Failure Count", "Requests/s", "50%", "95%", "99%"],
+            fieldnames=["Name", "Request Count", "Failure Count", "Requests/s", "Average Response Time", "50%", "95%", "99%"],
         )
         writer.writeheader()
-        writer.writerow({"Name": "Aggregated", "Request Count": 100, "Failure Count": 2, "Requests/s": 10, "50%": 20, "95%": 80, "99%": 120})
+        writer.writerow({"Name": "Aggregated", "Request Count": 100, "Failure Count": 2, "Requests/s": 10, "Average Response Time": 37, "50%": 20, "95%": 80, "99%": 120})
     summary = _locust_summary(path)
     assert summary["success_rate_percent"] == 98
     assert summary["request_throughput_per_second"] == 10
+    assert summary["http_latency_average_ms"] == 37
     assert summary["http_latency_p50_ms"] == 20
     assert summary["http_latency_p95_ms"] == 80
     assert summary["http_latency_p99_ms"] == 120

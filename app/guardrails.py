@@ -77,6 +77,62 @@ def normalize_guest_hostname(value: Any) -> str:
     return ascii_hostname
 
 
+def property_guest_hostnames(record: Any) -> set[str]:
+    """Return valid, normalized host mappings for one property record."""
+    if isinstance(record, dict):
+        domain = record.get("domain", "")
+        raw_guardrails = record.get("guardrails")
+    else:
+        domain = getattr(record, "domain", "")
+        raw_guardrails = getattr(record, "guardrails", None)
+
+    hostnames: set[str] = set()
+    if domain:
+        try:
+            hostnames.add(normalize_guest_hostname(str(domain).strip()))
+        except (TypeError, ValueError):
+            # Invalid legacy domain values do not establish a host mapping.
+            pass
+
+    raw_hosts = raw_guardrails.get("guest_access_hosts", []) if isinstance(raw_guardrails, dict) else []
+    if isinstance(raw_hosts, list) and len(raw_hosts) <= 64:
+        for configured_host in raw_hosts:
+            try:
+                hostnames.add(normalize_guest_hostname(configured_host))
+            except (TypeError, ValueError):
+                # Keep valid mappings from this property usable when one legacy entry is corrupt.
+                continue
+    return hostnames
+
+
+class GuestHostnameConflict(RuntimeError):
+    """A guest hostname is already owned by a different property."""
+
+
+def validate_guest_hostname_ownership(candidate: Any, existing_records: Iterable[Any]) -> None:
+    """Enforce one property owner for each normalized guest hostname/IP.
+
+    This validator deliberately accepts only records for other properties;
+    duplicate aliases on the candidate itself collapse into one normalized set.
+    """
+    candidate_id = (
+        candidate.get("property_id") if isinstance(candidate, dict)
+        else getattr(candidate, "property_id", None)
+    )
+    candidate_hosts = property_guest_hostnames(candidate)
+    if not candidate_hosts:
+        return
+    for existing in existing_records:
+        existing_id = (
+            existing.get("property_id") if isinstance(existing, dict)
+            else getattr(existing, "property_id", None)
+        )
+        if existing_id == candidate_id:
+            continue
+        if candidate_hosts.intersection(property_guest_hostnames(existing)):
+            raise GuestHostnameConflict("This guest hostname is already assigned to another property.")
+
+
 def normalize_guest_access_hosts(values: Any) -> list[str]:
     if values in (None, ""):
         return []
@@ -272,19 +328,7 @@ class PropertyGuard:
             raise PermissionError("Guest hostname is invalid.") from exc
         matches = []
         for item in records:
-            domain = str(getattr(item, "domain", "") or "")
-            try:
-                configured_hosts = normalize_guardrails(getattr(item, "guardrails", None))["guest_access_hosts"]
-            except (TypeError, ValueError) as exc:
-                raise PermissionError("Guest host configuration is invalid.") from exc
-            hostnames = set(configured_hosts)
-            if domain:
-                try:
-                    hostnames.add(normalize_guest_hostname(domain.strip()))
-                except ValueError:
-                    # Invalid legacy domain values do not establish a host mapping.
-                    pass
-            if hostname in hostnames:
+            if hostname in property_guest_hostnames(item):
                 matches.append(item)
         if len(matches) > 1:
             raise PermissionError("Guest hostname is mapped to multiple properties.")

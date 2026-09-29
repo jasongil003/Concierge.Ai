@@ -150,6 +150,37 @@ def test_guest_network_change_requires_strong_confirmation_and_keeps_csrf(admin_
     assert replay.status_code == 409
 
 
+def test_admin_ai_guest_domain_action_uses_central_hostname_ownership_check(admin_client, monkeypatch):
+    property_id = admin_client.get("/api/admin/properties").json()["properties"][0]["property_id"]
+    property_store = main_module.properties
+    before = property_store.get(property_id)
+    property_store.upsert(
+        PropertyRecord(property_id="hostname-owner", hotel_name="Hostname Owner", domain="claimed.example.com")
+    )
+
+    async def fake_chat(**kwargs):
+        return _plan("network.update_guest_access", {"guest_domain": "claimed.example.com"})
+
+    monkeypatch.setattr(main_module.ai_models, "concierge_chat", fake_chat)
+    proposed = admin_client.post(
+        f"/api/admin/properties/{property_id}/assistant/query",
+        json={"question": "Set this property's guest domain to claimed.example.com."},
+    )
+    assert proposed.status_code == 200, proposed.text
+    proposal = proposed.json()["configuration_proposal"]
+
+    applied = admin_client.post(
+        f"/api/admin/properties/{property_id}/assistant/actions/{proposal['proposal_id']}/confirm",
+        json={"confirmation_phrase": proposal["confirmation_phrase"]},
+    )
+
+    assert applied.status_code == 409, applied.text
+    assert applied.json()["detail"]["code"] == "guest_host_conflict"
+    assert "hostname-owner" not in applied.text
+    assert property_store.get(property_id).domain == before.domain
+    property_store.delete("hostname-owner")
+
+
 def test_super_admin_management_network_change_is_proposed_and_applied_through_existing_handler(admin_client, monkeypatch, tmp_path):
     operations = OperationsStore(tmp_path / "assistant-management-network.db")
     monkeypatch.setattr(main_module, "operations", operations)

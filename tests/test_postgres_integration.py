@@ -24,6 +24,7 @@ from app.database import (
     table_exists,
     verify_schema_current,
 )
+from app.guardrails import GuestHostnameConflict
 
 
 POSTGRES_URL = os.getenv("DATABASE_URL", "").strip()
@@ -126,6 +127,38 @@ def test_postgres_schema_inspection_bootstrap_and_assignment_validation(tmp_path
             db.execute("DELETE FROM restaurants WHERE property_id=?", (property_id,))
             db.execute("DELETE FROM departments WHERE property_id=?", (property_id,))
             db.execute("DELETE FROM properties WHERE property_id=?", (property_id,))
+
+
+def test_postgres_guest_hostname_claims_are_serialized_across_writers(tmp_path):
+    from app.properties import PropertyRecord, PropertyStore
+
+    store = PropertyStore(tmp_path / "postgres-host-claim.db")
+    property_ids = [f"pg-host-claim-{uuid.uuid4().hex[:12]}" for _ in range(2)]
+    barrier = threading.Barrier(2)
+
+    def claim(property_id: str) -> str:
+        candidate = PropertyRecord(
+            property_id=property_id,
+            hotel_name="Postgres Host Claim",
+            domain="Shared.Example.Test.",
+        )
+        barrier.wait(timeout=10)
+        try:
+            store.upsert(candidate)
+            return "saved"
+        except GuestHostnameConflict:
+            return "conflict"
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            outcomes = list(executor.map(claim, property_ids))
+        assert sorted(outcomes) == ["conflict", "saved"]
+        saved = [property_id for property_id in property_ids if store.get(property_id) is not None]
+        assert len(saved) == 1
+        assert store.get(saved[0]).domain == "shared.example.test"
+    finally:
+        with connect_database(tmp_path / "postgres-host-claim.db") as db:
+            db.execute("DELETE FROM properties WHERE property_id IN (?, ?)", property_ids)
 
 
 def test_postgres_password_reset_token_is_claimed_once_under_concurrency(tmp_path):

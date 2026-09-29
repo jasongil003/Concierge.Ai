@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import uuid
 import json
 from pathlib import Path
@@ -31,6 +32,16 @@ if SHAPE_NAME:
         _profile = _profiles["soak_profile"]
     if _profile is None:
         raise RuntimeError(f"Unknown load-test shape: {SHAPE_NAME}")
+    if SHAPE_NAME == _profiles["soak_profile"]["name"]:
+        soak_users = int(os.getenv("LOADTEST_SOAK_USERS", _profile["users"]))
+        soak_duration = os.getenv("LOADTEST_SOAK_DURATION", _profile["duration"])
+        duration_match = re.fullmatch(r"(\d+)([smh])", soak_duration.strip().casefold())
+        if not 500 <= soak_users <= 1000 or not duration_match:
+            raise RuntimeError("Soak profile requires 500–1,000 users and a duration such as 30m.")
+        seconds = int(duration_match.group(1)) * {"s": 1, "m": 60, "h": 3600}[duration_match.group(2)]
+        if seconds < 30 * 60:
+            raise RuntimeError("Soak duration must be at least 30 minutes.")
+        _profile = {**_profile, "users": soak_users, "duration": soak_duration}
 
     class SelectedCapacityShape(LoadTestShape):
         """Apply a named high-scale, spike, or soak profile from profiles.json."""
@@ -96,16 +107,15 @@ class GuestUser(HttpUser):
         enabled = [item for item in services if item.get("enabled") and not item.get("archived")]
         if enabled:
             self.service_id = enabled[0].get("service_id", "")
-        if STAFF_CONVERSATION_FLOW_ENABLED:
-            facilities = self.client.get(
-                "/api/guest/facilities",
-                params={"property_id": PROPERTY_ID},
-                name="GET /api/guest/facilities [staff-flow setup]",
-            )
-            restaurants = facilities.json().get("restaurants", []) if facilities.ok else []
-            available = [item for item in restaurants if item.get("restaurant_id")]
-            if available:
-                self.restaurant_id = available[0]["restaurant_id"]
+        facilities = self.client.get(
+            "/api/guest/facilities",
+            params={"property_id": PROPERTY_ID},
+            name="GET /api/guest/facilities [restaurant setup]",
+        )
+        restaurants = facilities.json().get("restaurants", []) if facilities.ok else []
+        available = [item for item in restaurants if item.get("restaurant_id")]
+        if available:
+            self.restaurant_id = available[0]["restaurant_id"]
 
     def _read_staff_messages(self, expected_status: int, *, name: str) -> None:
         with self.client.get(
@@ -169,6 +179,10 @@ class GuestUser(HttpUser):
                 name="GET /api/guest/conversations/{session_id}/staff-messages [active staff conversation]",
             )
 
+    @task(2)
+    def guest_landing(self) -> None:
+        self.client.get("/", name="GET / [guest landing]")
+
     @task(10)
     def hotel_information(self) -> None:
         self.client.get("/api/hotel", name="GET /api/hotel")
@@ -182,6 +196,20 @@ class GuestUser(HttpUser):
     def menu_catalog_and_recommendations(self) -> None:
         self.client.get("/api/guest/service-catalog", params={"property_id": PROPERTY_ID}, name="GET /api/guest/service-catalog")
         self.client.get("/api/guest/recommendations", params={"property_id": PROPERTY_ID}, name="GET /api/guest/recommendations")
+
+    @task(2)
+    def restaurant_listing_and_menu(self) -> None:
+        self.client.get(
+            "/api/guest/facilities",
+            params={"property_id": PROPERTY_ID},
+            name="GET /api/guest/facilities [restaurant listing]",
+        )
+        if self.restaurant_id:
+            self.client.get(
+                f"/api/guest/restaurants/{self.restaurant_id}/menus",
+                params={"property_id": PROPERTY_ID},
+                name="GET /api/guest/restaurants/{restaurant_id}/menus",
+            )
 
     @task(2)
     def resume_and_conversation_state(self) -> None:
