@@ -107,6 +107,31 @@ def test_dns_resolution_is_pinned_to_the_validated_connection_ip():
     assert connected_ips == ["93.184.216.34"]
 
 
+def test_public_ipv6_outbound_request_uses_bracketed_host_header():
+    address = "2606:4700:4700::1111"
+    connector_calls: list[dict] = []
+    writers: list[FakeWriter] = []
+
+    async def resolver(host: str, port: int) -> list[str]:
+        assert host == address
+        assert port == 443
+        return [address]
+
+    async def connector(**kwargs):
+        connector_calls.append(kwargs)
+        writer = FakeWriter()
+        writers.append(writer)
+        return response_stream(), writer
+
+    response = asyncio.run(
+        OutboundRequestBroker(resolver=resolver, connector=connector).post(f"https://[{address}]/hook")
+    )
+    assert response.status_code == 200
+    assert connector_calls[0]["host"] == address
+    assert connector_calls[0]["server_hostname"] == address
+    assert f"Host: [{address}]\r\n".encode() in writers[0].data
+
+
 @pytest.mark.parametrize("address", ["100.64.0.1", "198.18.0.1", "fd00::1"])
 def test_non_global_special_use_addresses_are_blocked(address: str):
     async def resolver(host: str, port: int) -> list[str]:

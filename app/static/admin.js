@@ -1949,6 +1949,7 @@ async function loadNetworkAccess() {
   $("guest-access-enabled").checked = guest.enabled !== false;
   $("deployment-domain").value = guest.domain || "";
   $("deployment-public-url").value = guest.url || "";
+  $("guest-access-hosts").value = (guest.guest_access_hosts || []).join("\n");
   $("network-reverse-proxy").checked = Boolean(guest.reverse_proxy);
   $("network-https-required").checked = guest.https_required !== false;
   $("guardrail-network-only").checked = guest.guest_network_only !== false;
@@ -2029,6 +2030,7 @@ async function saveGuestAccess() {
     guest_access_enabled: $("guest-access-enabled").checked,
     guest_domain: $("deployment-domain").value.trim().toLowerCase(),
     guest_url: $("deployment-public-url").value.trim(),
+    guest_access_hosts: readLines("guest-access-hosts"),
     guest_https_required: $("network-https-required").checked,
     reverse_proxy: $("network-reverse-proxy").checked,
     guest_network_only: $("guardrail-network-only").checked,
@@ -2054,6 +2056,7 @@ async function saveGuestAccess() {
   state.property.guardrails = {
     ...(state.property.guardrails || {}),
     guest_network_only: guest.guest_network_only,
+    guest_access_hosts: guest.guest_access_hosts,
     allowed_cidrs: guest.allowed_cidrs,
     trusted_proxy_ranges: guest.trusted_proxy_ranges,
     session_network_revalidation: guest.session_network_revalidation,

@@ -85,6 +85,9 @@ from .guardrails import (
     RedisRateLimiter,
     SQLiteRateLimiter,
     SecurityAuditLogger,
+    normalize_guest_access_hosts,
+    normalize_guest_hostname,
+    normalize_host_header,
     normalize_guardrails,
     public_guardrails,
 )
@@ -702,6 +705,7 @@ class GuestNetworkAccessPayload(BaseModel):
     guest_access_enabled: bool = True
     guest_domain: str = Field(default="", max_length=253)
     guest_url: str = Field(default="", max_length=1000)
+    guest_access_hosts: list[Any] = Field(default_factory=list, max_length=64)
     guest_https_required: bool = True
     reverse_proxy: bool = False
     guest_network_only: bool = True
@@ -3223,7 +3227,7 @@ async def enforce_guest_origin(request: Request, call_next):
             request.state.request_id = uuid.uuid4().hex
         host_header = request.headers.get("host", "")
         try:
-            normalized_host = (urlparse(f"//{host_header}").hostname or "").casefold().rstrip(".")
+            normalized_host = normalize_host_header(host_header)
         except ValueError:
             normalized_host = ""
         loopback_health_probe = False
@@ -3232,7 +3236,17 @@ async def enforce_guest_origin(request: Request, call_next):
                 loopback_health_probe = bool(request.client and ipaddress.ip_address(request.client.host).is_loopback)
             except ValueError:
                 pass
-        if not loopback_health_probe and normalized_host not in settings.canonical_hosts:
+        recognized_hosts = {_normalize_hostname(host) for host in settings.canonical_hosts}
+        try:
+            for record in properties.list():
+                if record.domain:
+                    recognized_hosts.add(normalize_guest_hostname(record.domain.strip()))
+                recognized_hosts.update(normalize_guardrails(record.guardrails)["guest_access_hosts"])
+        except (TypeError, ValueError):
+            # Invalid persisted host configuration must not expand the secure-host allowlist.
+            recognized_hosts = {_normalize_hostname(host) for host in settings.canonical_hosts}
+        recognized_hosts.discard("")
+        if not loopback_health_probe and normalized_host not in recognized_hosts:
             response = JSONResponse({"detail": "Unrecognized host."}, status_code=400)
             return _apply_security_headers(request, response)
         if request.url.scheme != "https" and path not in {"/health", "/health/live", "/health/ready"}:
@@ -3294,16 +3308,10 @@ async def enforce_guest_origin(request: Request, call_next):
 
 
 def _normalize_hostname(hostname: str | None) -> str:
-    value = str(hostname or "").strip().casefold().rstrip(".")
-    if not value or any(character in value for character in "/\\%@"):
-        return ""
     try:
-        return ipaddress.ip_address(value).compressed
+        return normalize_guest_hostname(hostname)
     except ValueError:
-        try:
-            return value.encode("idna").decode("ascii")
-        except UnicodeError:
-            return ""
+        return ""
 
 
 def _origin_tuple(value: str, *, allow_path: bool) -> tuple[str, str, int] | None:
@@ -3359,11 +3367,11 @@ def _guest_mutation_origin_allowed(request: Request) -> bool:
     configured_hosts = {_normalize_hostname(host) for host in settings.canonical_hosts}
     configured_hosts.discard("")
     try:
-        configured_hosts.update(
-            normalized
-            for record in properties.list()
-            if (normalized := _normalize_hostname(getattr(record, "domain", "")))
-        )
+        for record in properties.list():
+            domain = _normalize_hostname(getattr(record, "domain", ""))
+            if domain:
+                configured_hosts.add(domain)
+            configured_hosts.update(normalize_guardrails(record.guardrails)["guest_access_hosts"])
     except Exception:
         return False
     if settings.app_environment not in SECURE_ENVIRONMENTS:
@@ -3497,24 +3505,12 @@ def _trusted_forwarded_scheme(request: Request, path: str) -> str:
 
 
 def _guest_deployment_settings(request: Request) -> dict[str, Any]:
-    hostname = request.headers.get("host", "").split(":", 1)[0].casefold().rstrip(".")
-    records = properties.list()
-    record = next((item for item in records if str(item.domain or "").casefold().rstrip(".") == hostname), None)
-    if record is None and settings.property_id:
-        record = next((item for item in records if item.property_id == settings.property_id), None)
-    if record is None and len(records) == 1:
-        record = records[0]
+    record = _guest_record_for_request(request)
     return dict(((record.app_settings or {}).get("deployment") or {}) if record else {})
 
 
 def _guest_trusted_proxy_ranges(request: Request) -> list[str]:
-    hostname = request.headers.get("host", "").split(":", 1)[0].casefold().rstrip(".")
-    records = properties.list()
-    record = next((item for item in records if str(item.domain or "").casefold().rstrip(".") == hostname), None)
-    if record is None and settings.property_id:
-        record = next((item for item in records if item.property_id == settings.property_id), None)
-    if record is None and len(records) == 1:
-        record = records[0]
+    record = _guest_record_for_request(request)
     if record is None:
         return []
     guardrails = normalize_guardrails(record.guardrails)
@@ -3527,6 +3523,21 @@ def _guest_trusted_proxy_ranges(request: Request) -> list[str]:
         except ValueError:
             return ranges
     return ranges
+
+
+def _guest_record_for_request(request: Request) -> PropertyRecord | None:
+    records = properties.list()
+    try:
+        record = PropertyGuard.host_record(records, request.headers.get("host", ""))
+    except (PermissionError, ValueError):
+        return None
+    if record is not None:
+        return record
+    if settings.property_id:
+        record = next((item for item in records if item.property_id == settings.property_id), None)
+    if record is None and len(records) == 1:
+        record = records[0]
+    return record
 
 
 def _guest_access_is_disabled(request: Request) -> bool:
@@ -3595,6 +3606,10 @@ async def upsert_property(property_id: str, payload: PropertyPayload, request: R
     existing = properties.get(property_id)
     principal = _admin_principal(request)
     if existing and not principal.can("network.manage"):
+        if "guest_access_hosts" not in record.guardrails:
+            record.guardrails["guest_access_hosts"] = normalize_guardrails(existing.guardrails)["guest_access_hosts"]
+        elif normalize_guardrails(record.guardrails)["guest_access_hosts"] != normalize_guardrails(existing.guardrails)["guest_access_hosts"]:
+            raise HTTPException(status_code=403, detail="Permission required: network.manage")
         if _guest_network_settings(existing) != _guest_network_settings(record):
             raise HTTPException(status_code=403, detail="Permission required: network.manage")
         if _deployment_network_settings(existing) != _deployment_network_settings(record) or existing.domain != record.domain:
@@ -3620,7 +3635,7 @@ async def upsert_property(property_id: str, payload: PropertyPayload, request: R
     saved = properties.upsert(record)
     if existing is None:
         hospitality.seed_starter_service_catalog(property_id)
-    return saved.to_dict()
+    return _property_admin_payload(saved, principal)
 
 
 @app.put("/api/admin/properties/{property_id}/logo")
@@ -3650,29 +3665,45 @@ async def update_property_logo(property_id: str, payload: PropertyLogoPayload) -
 
 
 @app.get("/api/admin/properties/{property_id}/guardrails")
-async def get_property_guardrails(property_id: str) -> dict[str, Any]:
+async def get_property_guardrails(property_id: str, request: Request) -> dict[str, Any]:
     record = _require_property_record(property_id)
-    return {"config": public_guardrails(record.guardrails)}
+    config = public_guardrails(record.guardrails)
+    if not _admin_principal(request).can("network.manage"):
+        config.pop("guest_access_hosts", None)
+    return {"config": config}
 
 
 @app.put("/api/admin/properties/{property_id}/guardrails")
 async def update_property_guardrails(property_id: str, payload: GuardrailConfigPayload, request: Request) -> dict[str, Any]:
     record = _require_property_record(property_id)
+    principal = _admin_principal(request)
     secret = str((record.guardrails or {}).get("antlabs_signature_secret") or "")
     incoming = dict(payload.config)
+    if not principal.can("network.manage"):
+        existing_hosts = normalize_guardrails(record.guardrails)["guest_access_hosts"]
+        if "guest_access_hosts" in incoming:
+            try:
+                requested_hosts = normalize_guest_access_hosts(incoming["guest_access_hosts"])
+            except ValueError as exc:
+                raise HTTPException(status_code=403, detail="Permission required: network.manage") from exc
+            if requested_hosts != existing_hosts:
+                raise HTTPException(status_code=403, detail="Permission required: network.manage")
+        incoming["guest_access_hosts"] = existing_hosts
     if not incoming.get("antlabs_signature_secret"):
         incoming["antlabs_signature_secret"] = secret
     try:
         normalized = normalize_guardrails(incoming)
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    principal = _admin_principal(request)
     if _guest_network_settings(record.guardrails) != _guest_network_settings(normalized) and not principal.can("network.manage"):
         raise HTTPException(status_code=403, detail="Permission required: network.manage")
     record.guardrails = normalized
     properties.upsert(record)
     security_audit.record(_request_id(request), property_id, "network_policy_changed", "success", request.client.host if request.client else "", actor=principal.username)
-    return {"config": public_guardrails(record.guardrails)}
+    config = public_guardrails(record.guardrails)
+    if not principal.can("network.manage"):
+        config.pop("guest_access_hosts", None)
+    return {"config": config}
 
 
 @app.get("/api/admin/properties/{property_id}/guardrails/diagnostics")
@@ -4128,6 +4159,11 @@ async def save_guest_network_access(
     old_deployment = dict((record.app_settings or {}).get("deployment") or {})
     try:
         domain = _validated_guest_domain(payload.guest_domain)
+        guest_hosts = (
+            normalize_guest_access_hosts(payload.guest_access_hosts)
+            if "guest_access_hosts" in payload.model_fields_set
+            else old_guardrails["guest_access_hosts"]
+        )
         cidrs = normalize_cidrs(payload.allowed_cidrs, "allowed_cidrs")
         proxies = normalize_cidrs(payload.trusted_proxy_ranges, "trusted_proxy_ranges")
         antlabs_ranges = normalize_cidrs(payload.antlabs_gateway_ranges, "antlabs_gateway_ranges")
@@ -4153,6 +4189,7 @@ async def save_guest_network_access(
     next_guardrails.update(
         {
             "guest_network_only": payload.guest_network_only,
+            "guest_access_hosts": guest_hosts,
             "allowed_cidrs": cidrs,
             "trusted_proxy_ranges": proxies,
             "session_network_revalidation": payload.session_network_revalidation,
@@ -6164,6 +6201,8 @@ def _require_property(property_id: str) -> None:
 
 def _property_admin_payload(record: PropertyRecord, principal: AdminPrincipal) -> dict[str, Any]:
     payload = record.to_dict()
+    if not principal.can("network.manage") and isinstance(payload.get("guardrails"), dict):
+        payload["guardrails"].pop("guest_access_hosts", None)
     if principal.can("properties.all") or principal.can("properties.edit"):
         return payload
     for key in ("ai_settings", "antlabs_config", "knowledge_sources", "personality", "guardrails", "app_settings", "design_draft", "design_versions"):
@@ -6180,6 +6219,7 @@ def _require_property_record(property_id: str) -> PropertyRecord:
 
 GUEST_NETWORK_GUARDRAIL_FIELDS = (
     "guest_network_only",
+    "guest_access_hosts",
     "allowed_cidrs",
     "trusted_proxy_ranges",
     "session_network_revalidation",
@@ -6314,6 +6354,7 @@ def _network_access_status(record: PropertyRecord, principal: AdminPrincipal) ->
             "last_checked_at": verification.get("checked_at"),
             "reverse_proxy": bool(deployment.get("reverse_proxy", False)),
             "guest_network_only": guest_config["guest_network_only"],
+            **({"guest_access_hosts": guest_config["guest_access_hosts"]} if principal.can("network.manage") else {}),
             "allowed_cidrs": guest_config["allowed_cidrs"],
             "trusted_proxy_ranges": guest_config["trusted_proxy_ranges"],
             "session_network_revalidation": guest_config["session_network_revalidation"],
@@ -6382,6 +6423,8 @@ def _audit_guest_network_changes(
         _audit_network_setting(principal, property_id, request, action, "guest_access_enabled", old_enabled, new_enabled)
     if old_domain != new_domain:
         _audit_network_setting(principal, property_id, request, "guest_domain_changed", "guest_domain", old_domain, new_domain)
+    if old_guardrails["guest_access_hosts"] != new_guardrails["guest_access_hosts"]:
+        _audit_network_setting(principal, property_id, request, "guest_access_hosts_changed", "guest_access_hosts", old_guardrails["guest_access_hosts"], new_guardrails["guest_access_hosts"])
     if old_deployment.get("https_required", True) != new_deployment.get("https_required", True):
         _audit_network_setting(principal, property_id, request, "guest_https_requirement_changed", "guest_https_required", old_deployment.get("https_required", True), new_deployment.get("https_required", True))
     old_networks, new_networks = set(old_guardrails["allowed_cidrs"]), set(new_guardrails["allowed_cidrs"])
