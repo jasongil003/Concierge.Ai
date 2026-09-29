@@ -21,7 +21,7 @@ from typing import Any
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from email.message import EmailMessage
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urlparse, urlsplit
 
 import httpx
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
@@ -3279,17 +3279,96 @@ async def enforce_guest_origin(request: Request, call_next):
     guest_mutation = request.method not in {"GET", "HEAD", "OPTIONS"} and (
         path.startswith("/api/guest/") or path in {"/api/session/start", "/api/session/resume", "/api/authenticate", "/api/chat"}
     )
-    origin = request.headers.get("origin")
-    if guest_mutation and origin:
-        parsed = urlparse(origin)
-        origin_host = (parsed.hostname or "").casefold().rstrip(".")
-        request_host = request.headers.get("host", "").split(":", 1)[0].casefold().rstrip(".")
-        if parsed.scheme not in {"http", "https"} or not origin_host or origin_host != request_host:
-            security_audit.record(_request_id(request), None, "guest_origin_blocked", "denied", request.client.host if request.client else "", metadata={"path": path})
-            response = JSONResponse({"detail": "Cross-origin guest mutation denied."}, status_code=403)
-            return _apply_security_headers(request, response)
+    # Browser guest mutations must come from a configured property/canonical
+    # origin. A matching Origin and Host alone is not enough: both can be
+    # attacker-controlled when an installation accepts an unmapped Host.
+    # Requests with no Origin/Referer remain supported for native and
+    # server-to-server clients; browser Fetch Metadata still rejects cross-site
+    # requests. Gateway-backed session starts independently validate their HMAC.
+    if guest_mutation and not _guest_mutation_origin_allowed(request):
+        security_audit.record(_request_id(request), None, "guest_origin_blocked", "denied", request.client.host if request.client else "", metadata={"path": path})
+        response = JSONResponse({"detail": "Cross-origin guest mutation denied."}, status_code=403)
+        return _apply_security_headers(request, response)
     response = await call_next(request)
     return _refresh_guest_cookie_response(request, response)
+
+
+def _normalize_hostname(hostname: str | None) -> str:
+    value = str(hostname or "").strip().casefold().rstrip(".")
+    if not value or any(character in value for character in "/\\%@"):
+        return ""
+    try:
+        return ipaddress.ip_address(value).compressed
+    except ValueError:
+        try:
+            return value.encode("idna").decode("ascii")
+        except UnicodeError:
+            return ""
+
+
+def _origin_tuple(value: str, *, allow_path: bool) -> tuple[str, str, int] | None:
+    if not value or len(value) > 2048 or any(character in value for character in "\\\r\n"):
+        return None
+    try:
+        parsed = urlsplit(value)
+        if parsed.scheme.casefold() not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+            return None
+        if not allow_path and (parsed.path not in {"", "/"} or parsed.query or parsed.fragment):
+            return None
+        port = parsed.port if parsed.port is not None else (443 if parsed.scheme.casefold() == "https" else 80)
+    except ValueError:
+        return None
+    hostname = _normalize_hostname(parsed.hostname)
+    if not hostname or not 1 <= port <= 65535:
+        return None
+    return parsed.scheme.casefold(), hostname, port
+
+
+def _guest_mutation_origin_allowed(request: Request) -> bool:
+    fetch_site = request.headers.get("sec-fetch-site", "").strip().casefold()
+    if fetch_site == "cross-site":
+        return False
+
+    origin_header = request.headers.get("origin")
+    referer_header = request.headers.get("referer")
+    source_header = origin_header or referer_header
+    if not source_header:
+        # Browsers that send Fetch Metadata must not omit the origin while
+        # making a cross-origin or sibling-origin request. Older native clients
+        # and signed gateway integrations may not send either header.
+        return fetch_site not in {"cross-site", "same-site"}
+
+    source = _origin_tuple(source_header, allow_path=not bool(origin_header))
+    host_header = request.headers.get("host", "")
+    try:
+        parsed_host = urlsplit(f"//{host_header}")
+        if parsed_host.path or parsed_host.query or parsed_host.fragment or parsed_host.username or parsed_host.password:
+            return False
+        request_host = _normalize_hostname(parsed_host.hostname)
+        request_port = (
+            parsed_host.port
+            if parsed_host.port is not None
+            else (443 if request.url.scheme.casefold() == "https" else 80)
+        )
+    except ValueError:
+        return False
+    request_origin = (request.url.scheme.casefold(), request_host, request_port)
+    if source is None or source != request_origin:
+        return False
+
+    configured_hosts = {_normalize_hostname(host) for host in settings.canonical_hosts}
+    configured_hosts.discard("")
+    try:
+        configured_hosts.update(
+            normalized
+            for record in properties.list()
+            if (normalized := _normalize_hostname(getattr(record, "domain", "")))
+        )
+    except Exception:
+        return False
+    if settings.app_environment not in SECURE_ENVIRONMENTS:
+        configured_hosts.update({"localhost", "127.0.0.1", "::1"})
+    return source[1] in configured_hosts
 
 
 def _source_ip_allowed(source_ip: str, allowed_cidrs: tuple[str, ...] | list[str]) -> bool:
@@ -6371,15 +6450,7 @@ async def _verify_deployment(record: PropertyRecord) -> dict[str, Any]:
     except ValueError:
         result.update({"domain_status": "blocked", "ssl_status": "not_checked", "detail": "Domain resolved to an invalid address."})
         return result
-    if any(
-        address.is_loopback
-        or address.is_link_local
-        or address.is_unspecified
-        or address.is_multicast
-        or address.is_reserved
-        or (not address.is_global and not address.is_private)
-        for address in resolved_addresses
-    ):
+    if any(not address.is_global for address in resolved_addresses):
         result.update({"domain_status": "blocked", "ssl_status": "not_checked", "detail": "Domain resolves to a non-public network address."})
         return result
     selected_address = str(resolved_addresses[0])

@@ -348,7 +348,7 @@ class InternetGuard:
             raise ValueError("Destination host could not be resolved.") from exc
         for value in addresses:
             address = ipaddress.ip_address(value)
-            blocked = address.is_private or address.is_loopback or address.is_link_local or address.is_multicast or address.is_reserved or address.is_unspecified
+            blocked = not address.is_global
             if blocked and not allow_private:
                 raise ValueError("Private, local, metadata, and management destinations are blocked.")
         clean_netloc = hostname if parsed.port is None else f"{hostname}:{parsed.port}"

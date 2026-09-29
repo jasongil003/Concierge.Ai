@@ -1,4 +1,5 @@
 import sqlite3
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
@@ -164,6 +165,42 @@ def test_password_reset_email_places_token_in_url_fragment(monkeypatch: pytest.M
     assert len(sent_urls) == 1
     assert "?reset_token=" not in sent_urls[0]
     assert sent_urls[0].endswith("#reset_token=one-time-secret-reset-token")
+
+
+def test_parallel_password_reset_confirmation_consumes_token_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    store = AdminAuthStore(tmp_path / "parallel-reset-consumption.db")
+    store.ensure_bootstrap_admin("admin", ADMIN_PASSWORD, "Administrator")
+    _, actor = store.login("admin", ADMIN_PASSWORD, "127.0.0.1", "pytest")
+    user = store.list_users(actor)[0]
+    store.update_user(user["id"], {"email": "admin@example.com"}, actor)
+    reset = store.create_password_reset("admin")
+    assert reset is not None
+
+    barrier = threading.Barrier(2)
+    original_token_hash = store._token_hash
+
+    def synchronized_token_hash(token: str) -> str:
+        if token == reset["token"]:
+            # Both requests reach the claim operation before either can try to
+            # consume the one-time token.
+            barrier.wait(timeout=5)
+        return original_token_hash(token)
+
+    monkeypatch.setattr(store, "_token_hash", synchronized_token_hash)
+
+    def consume(password: str) -> str:
+        try:
+            store.consume_password_reset(reset["token"], password)
+            return "accepted"
+        except AuthenticationError:
+            return "rejected"
+        except sqlite3.Error as exc:
+            return f"database-error:{type(exc).__name__}"
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(consume, ("ParallelResetOne123!", "ParallelResetTwo123!")))
+
+    assert sorted(results) == ["accepted", "rejected"]
 
 
 def test_login_logout_and_csrf(auth_client: TestClient):

@@ -380,12 +380,13 @@ def test_network_access_status_uses_unavailable_when_host_address_cannot_be_dete
     assert response.json()["management"]["admin_url"] == ""
 
 
-def test_internal_private_guest_domain_can_be_dns_and_ssl_verified(monkeypatch: pytest.MonkeyPatch):
+def test_public_guest_domain_uses_the_resolved_address_for_tls_verification(monkeypatch: pytest.MonkeyPatch):
+    resolved_address = "93.184.216.34"
     record = PropertyRecord(property_id="hotel-a", hotel_name="Hotel A", domain="concierge.hotelabc.com")
     monkeypatch.setattr(
         main_module.socket,
         "getaddrinfo",
-        lambda *args, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.20.30.50", 443))],
+        lambda *args, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (resolved_address, 443))],
     )
 
     class FakeTlsSocket:
@@ -411,10 +412,14 @@ def test_internal_private_guest_domain_can_be_dns_and_ssl_verified(monkeypatch: 
         def __exit__(self, *args):
             return None
 
-    monkeypatch.setattr(main_module.socket, "create_connection", lambda address, timeout: FakeRawSocket())
+    def create_connection(address, timeout):
+        assert address == (resolved_address, 443)
+        return FakeRawSocket()
+
+    monkeypatch.setattr(main_module.socket, "create_connection", create_connection)
     result = asyncio.run(main_module._verify_deployment(record))
     assert result["domain_status"] == "verified"
-    assert result["resolved_addresses"] == ["10.20.30.50"]
+    assert result["resolved_addresses"] == [resolved_address]
     assert result["ssl_status"] == "valid"
 
 
