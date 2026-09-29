@@ -298,7 +298,11 @@ function createNavButton(item) {
   `;
   button.addEventListener("click", () => {
     activatePanel(item.panel, item.id);
-    document.querySelector(".platform-shell")?.classList.remove("mobile-nav-open");
+    const shell = document.querySelector(".platform-shell");
+    if (shell?.classList.contains("mobile-nav-open")) {
+      shell.classList.remove("mobile-nav-open");
+      $("sidebar-toggle")?.setAttribute("aria-label", "Open navigation");
+    }
   });
   return button;
 }

@@ -268,7 +268,7 @@ class KnowledgeStore:
             CREATE TABLE IF NOT EXISTS km_conflicts (
               conflict_id TEXT PRIMARY KEY, property_id TEXT NOT NULL, item_a TEXT NOT NULL,
               item_b TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open', note TEXT NOT NULL DEFAULT '',
-              resolved_by TEXT, resolved_at INTEGER, created_at INTEGER NOT NULL DEFAULT 0,
+              resolved_by TEXT, resolved_at INTEGER, created_at BIGINT NOT NULL DEFAULT 0,
               created_at_us BIGINT NOT NULL DEFAULT 0);
             """)
             columns = table_columns(db, "km_items")
@@ -286,7 +286,7 @@ class KnowledgeStore:
                     db.execute(f"ALTER TABLE km_sources ADD COLUMN {column} {definition}")
             conflict_columns = table_columns(db, "km_conflicts")
             for column, definition in (
-                ("created_at", "INTEGER NOT NULL DEFAULT 0"),
+                ("created_at", "BIGINT NOT NULL DEFAULT 0"),
                 ("created_at_us", "BIGINT NOT NULL DEFAULT 0"),
             ):
                 if column not in conflict_columns:

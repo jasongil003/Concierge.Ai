@@ -697,6 +697,28 @@ test("preview controls are interactive and intro settings save", async ({ page }
   await expect(page.locator("#intro-mode")).toHaveValue("generate_from_logo");
 });
 
+async function waitForMobileSidebarTransition(page, open) {
+  await page.waitForFunction((shouldBeOpen) => {
+    const shell = document.querySelector(".platform-shell");
+    const sidebar = document.querySelector(".platform-sidebar");
+    if (!shell || !sidebar || shell.classList.contains("mobile-nav-open") !== shouldBeOpen) return false;
+    const transform = new DOMMatrixReadOnly(getComputedStyle(sidebar).transform);
+    const expectedX = shouldBeOpen ? 0 : -sidebar.getBoundingClientRect().width * 1.02;
+    return Math.abs(transform.m41 - expectedX) <= 0.1;
+  }, open, { timeout: 5_000 });
+}
+
+async function openMobileSidebar(page) {
+  const shell = page.locator(".platform-shell");
+  const toggle = page.locator("#sidebar-toggle");
+  if (!(await shell.evaluate((element) => element.classList.contains("mobile-nav-open")))) {
+    await toggle.click();
+  }
+  await expect(shell).toHaveClass(/mobile-nav-open/);
+  await expect(toggle).toHaveAttribute("aria-label", "Close navigation");
+  await waitForMobileSidebarTransition(page, true);
+}
+
 async function verifyAdminNavigation(page, isMobile) {
   const pageErrors = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
@@ -709,40 +731,65 @@ async function verifyAdminNavigation(page, isMobile) {
       return [{ navId: item.dataset.navId, panel }];
     });
   });
+  const sidebar = page.locator(".platform-sidebar");
+  const toggle = page.locator("#sidebar-toggle");
+  const shell = page.locator(".platform-shell");
+
+  if (isMobile) {
+    await openMobileSidebar(page);
+    const sidebarBox = await sidebar.boundingBox();
+    const topbarBox = await page.locator(".platform-topbar").boundingBox();
+    expect(sidebarBox).not.toBeNull();
+    expect(topbarBox).not.toBeNull();
+    expect(Math.abs(sidebarBox.x)).toBeLessThanOrEqual(0.5);
+    expect(sidebarBox.x + sidebarBox.width).toBeLessThanOrEqual(375.5);
+    expect(Math.abs(sidebarBox.y - (topbarBox.y + topbarBox.height))).toBeLessThanOrEqual(0.5);
+    expect(sidebarBox.y + sidebarBox.height).toBeLessThanOrEqual(812.5);
+
+    const groups = sidebar.locator(":scope > .sidebar-nav > .nav-group");
+    for (let index = 0; index < await groups.count(); index += 1) {
+      const group = groups.nth(index);
+      if (!(await group.evaluate((element) => element.open))) {
+        await group.locator(":scope > summary").click();
+      }
+      await expect(group).toHaveAttribute("open", "");
+    }
+    const scrollMetrics = await sidebar.locator(".sidebar-nav").evaluate((element) => ({
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+      overflowY: getComputedStyle(element).overflowY,
+    }));
+    expect(scrollMetrics.scrollHeight).toBeGreaterThan(scrollMetrics.clientHeight);
+    expect(["auto", "scroll"]).toContain(scrollMetrics.overflowY);
+  }
 
   for (const { navId, panel } of destinations) {
     await test.step(`Navigate via ${navId} to ${panel}`, async () => {
-      const sidebar = page.locator(".platform-sidebar");
       await expect(sidebar).toBeVisible();
       if (isMobile) {
-        const shell = page.locator(".platform-shell");
-        if (!(await shell.evaluate((element) => element.classList.contains("mobile-nav-open")))) {
-          await page.locator("#sidebar-toggle").click();
-        }
-        await expect(shell).toHaveClass(/mobile-nav-open/);
-        await expect(page.locator("#sidebar-toggle")).toHaveAttribute("aria-label", "Close navigation");
-        await expect(sidebar).toBeVisible();
-        await expect.poll(() => sidebar.evaluate((element) => Math.round(element.getBoundingClientRect().left)))
-          .toBeGreaterThanOrEqual(0);
-        const sidebarBox = await sidebar.boundingBox();
-        expect(sidebarBox.x).toBeGreaterThanOrEqual(0);
-        expect(sidebarBox.x + sidebarBox.width).toBeLessThanOrEqual(375);
+        await openMobileSidebar(page);
       }
       const item = page.locator(`.nav-item[data-nav-id="${navId}"]`);
-      await item.evaluate((element) => {
-        const group = element.closest("details");
-        if (group) group.open = true;
-      });
+      const navGroup = item.locator("xpath=ancestor::details[1]");
+      if (!(await navGroup.evaluate((element) => element.open))) {
+        await navGroup.locator(":scope > summary").click();
+      }
+      await expect(navGroup).toHaveAttribute("open", "");
       await item.scrollIntoViewIfNeeded();
       const navBox = await item.boundingBox();
       expect(navBox).not.toBeNull();
-      await expect.poll(() => item.evaluate((element) => {
+      const receivesClick = await item.evaluate((element) => {
         const rect = element.getBoundingClientRect();
         const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
         return Boolean(hit && (hit === element || element.contains(hit)));
-      })).toBe(true);
+      });
+      expect(receivesClick, `Navigation item ${navId} is obscured or not hit-testable`).toBe(true);
       if (isMobile) {
         await expect(item).toBeInViewport({ ratio: 0.95 });
+        expect(navBox.x).toBeGreaterThanOrEqual(-0.5);
+        expect(navBox.x + navBox.width).toBeLessThanOrEqual(375.5);
+        expect(navBox.y).toBeGreaterThanOrEqual(103.5);
+        expect(navBox.y + navBox.height).toBeLessThanOrEqual(812.5);
       }
       if (isMobile) {
         // Click the location we just hit-tested. Locator.click() performs a
@@ -755,6 +802,11 @@ async function verifyAdminNavigation(page, isMobile) {
       }
       const active = page.locator(".panel.active");
       await expect(active).toHaveAttribute("id", panel);
+      if (isMobile) {
+        await expect(shell).not.toHaveClass(/mobile-nav-open/);
+        await expect(toggle).toHaveAttribute("aria-label", "Open navigation");
+        await waitForMobileSidebarTransition(page, false);
+      }
       await expect(active.locator(":scope > .page-title h1, :scope > .onboarding-card h1").first()).toBeVisible();
       const pageGuide = active.locator(":scope > .page-comment, :scope > .contextual-help-disclosure").first();
       await expect(pageGuide).toBeVisible();
@@ -802,7 +854,9 @@ async function verifyAdminNavigation(page, isMobile) {
 test.describe("admin navigation at a 375px viewport", () => {
   test.use({ viewport: { width: 375, height: 812 } });
 
-  test("every visible admin tab opens with page-specific guidance", async ({ page }) => {
+  test("every visible admin tab opens with page-specific guidance", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "mobile-chrome", "The 375px navigation sweep runs in the mobile browser project.");
+    test.setTimeout(90_000);
     await verifyAdminNavigation(page, true);
   });
 });
@@ -810,7 +864,9 @@ test.describe("admin navigation at a 375px viewport", () => {
 test.describe("admin navigation at a 1440px desktop viewport", () => {
   test.use({ viewport: { width: 1440, height: 900 }, isMobile: false, hasTouch: false });
 
-  test("every visible admin tab opens with page-specific guidance", async ({ page }) => {
+  test("every visible admin tab opens with page-specific guidance", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "chromium", "The desktop navigation sweep runs in the standard Chromium project.");
+    test.setTimeout(90_000);
     await verifyAdminNavigation(page, false);
   });
 });

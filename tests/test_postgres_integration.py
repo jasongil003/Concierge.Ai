@@ -54,6 +54,14 @@ def test_current_alembic_revision_and_bounded_connection_pool():
     with engine.connect() as connection:
         assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == CURRENT_SCHEMA_REVISION
         assert connection.execute(text("SELECT 1")).scalar_one() == 1
+        conflict_types = connection.execute(
+            text(
+                "SELECT column_name,data_type FROM information_schema.columns "
+                "WHERE table_schema=current_schema() AND table_name='km_conflicts' "
+                "AND column_name IN ('created_at','created_at_us')"
+            )
+        ).all()
+        assert dict(conflict_types) == {"created_at": "bigint", "created_at_us": "bigint"}
 
 
 def test_postgres_schema_inspection_bootstrap_and_assignment_validation(tmp_path):
@@ -218,8 +226,8 @@ def test_ordering_migration_upgrades_existing_postgres_rows():
                 )
             )
 
-        command.upgrade(config, "20260929_0005")
-        command.upgrade(config, "20260929_0005")
+        command.upgrade(config, "20260929_0006")
+        command.upgrade(config, "20260929_0006")
         conflict = connection.execute(
             text("SELECT created_at,created_at_us FROM km_conflicts WHERE conflict_id='legacy-conflict'")
         ).one()
@@ -228,8 +236,57 @@ def test_ordering_migration_upgrades_existing_postgres_rows():
         ).scalar_one()
         assert tuple(conflict) == (300, 300_000_000)
         assert floor_map == 400_000_000
+        assert connection.execute(
+            text(
+                "SELECT data_type FROM information_schema.columns "
+                "WHERE table_schema=:schema AND table_name='km_conflicts' AND column_name='created_at'"
+            ),
+            {"schema": schema},
+        ).scalar_one() == "bigint"
         assert connection.execute(text("SELECT COUNT(*) FROM km_conflicts")).scalar_one() == 1
         assert connection.execute(text("SELECT COUNT(*) FROM floor_maps")).scalar_one() == 1
+    finally:
+        connection.execute(text("SET search_path TO public"))
+        connection.commit()
+        connection.close()
+        with engine.begin() as cleanup:
+            cleanup.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+
+
+def test_ordering_migration_widens_existing_postgres_integer_timestamp():
+    _configure()
+    engine = _postgres_engine()
+    schema = f"ordering_type_{uuid.uuid4().hex[:12]}"
+    with engine.begin() as connection:
+        connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+    connection = engine.connect()
+    try:
+        connection.execute(text(f'SET search_path TO "{schema}"'))
+        connection.commit()
+        config = Config(os.path.join(os.path.dirname(os.path.dirname(__file__)), "alembic.ini"))
+        config.attributes["connection"] = connection
+        command.upgrade(config, "20260929_0005")
+
+        with connection.begin():
+            connection.execute(text("ALTER TABLE km_conflicts ALTER COLUMN created_at TYPE INTEGER"))
+            connection.execute(
+                text(
+                    "INSERT INTO km_conflicts(conflict_id,property_id,item_a,item_b,created_at,created_at_us) "
+                    "VALUES ('legacy-integer','legacy-property','old-item','new-item',1790000000,1790000000000000)"
+                )
+            )
+
+        command.upgrade(config, "20260929_0006")
+        assert connection.execute(
+            text("SELECT created_at,created_at_us FROM km_conflicts WHERE conflict_id='legacy-integer'")
+        ).one() == (1790000000, 1790000000000000)
+        assert connection.execute(
+            text(
+                "SELECT data_type FROM information_schema.columns "
+                "WHERE table_schema=:schema AND table_name='km_conflicts' AND column_name='created_at'"
+            ),
+            {"schema": schema},
+        ).scalar_one() == "bigint"
     finally:
         connection.execute(text("SET search_path TO public"))
         connection.commit()

@@ -10,11 +10,15 @@ from sqlalchemy import create_engine, text
 MIGRATION = importlib.import_module(
     "migrations.versions.20260929_0005_timestamped_knowledge_conflicts_and_floor_maps"
 )
+TYPE_MIGRATION = importlib.import_module(
+    "migrations.versions.20260929_0006_promote_conflict_timestamp_to_bigint"
+)
 
 
 def _upgrade(connection) -> None:
     with Operations.context(MigrationContext.configure(connection)):
         MIGRATION.upgrade()
+        TYPE_MIGRATION.upgrade()
 
 
 def test_ordering_migration_backfills_existing_sqlite_rows_and_repeats_safely(tmp_path):
@@ -70,12 +74,64 @@ def test_ordering_migration_backfills_existing_sqlite_rows_and_repeats_safely(tm
         ).all()
         assert [tuple(row) for row in maps] == [("map-a", 300_000_000), ("map-z", 300_000_000)]
         conflict_columns = {row["name"] for row in connection.exec_driver_sql("PRAGMA table_info(km_conflicts)").mappings()}
+        conflict_column_types = {
+            row["name"]: row["type"]
+            for row in connection.exec_driver_sql("PRAGMA table_info(km_conflicts)").mappings()
+        }
         map_columns = {row["name"] for row in connection.exec_driver_sql("PRAGMA table_info(floor_maps)").mappings()}
         assert {"created_at", "created_at_us"} <= conflict_columns
+        assert conflict_column_types["created_at"] == "BIGINT"
+        assert conflict_column_types["created_at_us"] == "BIGINT"
         assert "created_at_us" in map_columns
         assert connection.execute(text("SELECT COUNT(*) FROM km_conflicts")).scalar_one() == 1
         assert connection.execute(text("SELECT COUNT(*) FROM floor_maps")).scalar_one() == 2
     engine.dispose()
+
+
+def test_sqlite_startup_preserves_legacy_integer_conflict_timestamp(tmp_path):
+    import sqlite3
+
+    from app.knowledge_management import KnowledgeStore
+
+    database = tmp_path / "legacy-integer-conflict-time.db"
+    KnowledgeStore(database, tmp_path / "uploads")
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """CREATE TABLE legacy_km_conflicts (
+                conflict_id TEXT PRIMARY KEY, property_id TEXT NOT NULL,
+                item_a TEXT NOT NULL, item_b TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'open', note TEXT NOT NULL DEFAULT '',
+                resolved_by TEXT, resolved_at INTEGER,
+                created_at INTEGER NOT NULL DEFAULT 0)"""
+        )
+        connection.execute(
+            "INSERT INTO legacy_km_conflicts(conflict_id,property_id,item_a,item_b,created_at) "
+            "VALUES ('legacy','hotel-a','item-a','item-b',1790000000)"
+        )
+        connection.execute("DROP TABLE km_conflicts")
+        connection.execute("ALTER TABLE legacy_km_conflicts RENAME TO km_conflicts")
+
+    engine = create_engine(f"sqlite:///{database}")
+    with engine.begin() as connection:
+        _upgrade(connection)
+        _upgrade(connection)
+        assert connection.exec_driver_sql(
+            "SELECT created_at,created_at_us FROM km_conflicts WHERE conflict_id='legacy'"
+        ).one() == (1790000000, 1790000000000000)
+    engine.dispose()
+
+    KnowledgeStore(database, tmp_path / "uploads")
+
+    with sqlite3.connect(database) as connection:
+        column_types = {
+            row[1]: row[2]
+            for row in connection.execute("PRAGMA table_info(km_conflicts)")
+        }
+        assert column_types["created_at"] == "INTEGER"
+        assert column_types["created_at_us"] == "BIGINT"
+        assert connection.execute(
+            "SELECT created_at,created_at_us FROM km_conflicts WHERE conflict_id='legacy'"
+        ).fetchone() == (1790000000, 1790000000000000)
 
 
 def test_ordering_migration_accepts_a_fresh_sqlite_store_schema(tmp_path):
@@ -90,8 +146,14 @@ def test_ordering_migration_accepts_a_fresh_sqlite_store_schema(tmp_path):
         _upgrade(connection)
         _upgrade(connection)
         conflict_columns = {row["name"] for row in connection.exec_driver_sql("PRAGMA table_info(km_conflicts)").mappings()}
+        conflict_column_types = {
+            row["name"]: row["type"]
+            for row in connection.exec_driver_sql("PRAGMA table_info(km_conflicts)").mappings()
+        }
         map_columns = {row["name"] for row in connection.exec_driver_sql("PRAGMA table_info(floor_maps)").mappings()}
         assert {"created_at", "created_at_us"} <= conflict_columns
+        assert conflict_column_types["created_at"] == "BIGINT"
+        assert conflict_column_types["created_at_us"] == "BIGINT"
         assert "created_at_us" in map_columns
         assert connection.execute(text("SELECT COUNT(*) FROM km_conflicts")).scalar_one() == 0
         assert connection.execute(text("SELECT COUNT(*) FROM floor_maps")).scalar_one() == 0
