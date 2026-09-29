@@ -185,6 +185,59 @@ def test_guest_credential_migration_upgrades_schema_at_0003_with_duplicate_rows(
             cleanup.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
 
 
+def test_ordering_migration_upgrades_existing_postgres_rows():
+    _configure()
+    engine = _postgres_engine()
+    schema = f"ordering_migration_{uuid.uuid4().hex[:12]}"
+    with engine.begin() as connection:
+        connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+    connection = engine.connect()
+    try:
+        connection.execute(text(f'SET search_path TO "{schema}"'))
+        connection.commit()
+        config = Config(os.path.join(os.path.dirname(os.path.dirname(__file__)), "alembic.ini"))
+        config.attributes["connection"] = connection
+        command.upgrade(config, "20260928_0004")
+
+        # The baseline uses current store schemas on fresh databases. Remove
+        # these fields to model an installation that stopped at revision 0004.
+        with connection.begin():
+            connection.execute(text("ALTER TABLE km_conflicts DROP COLUMN created_at_us"))
+            connection.execute(text("ALTER TABLE km_conflicts DROP COLUMN created_at"))
+            connection.execute(text("ALTER TABLE floor_maps DROP COLUMN created_at_us"))
+            connection.execute(
+                text(
+                    "INSERT INTO km_conflicts(conflict_id,property_id,item_a,item_b,status,resolved_at) "
+                    "VALUES ('legacy-conflict','legacy-property','old-item','new-item','resolved',300)"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO floor_maps(map_id,property_id,floor_id,original_filename,content_type,storage_path,created_at) "
+                    "VALUES ('legacy-map','legacy-property','floor-a','old.png','image/png','/old.png',400)"
+                )
+            )
+
+        command.upgrade(config, "20260929_0005")
+        command.upgrade(config, "20260929_0005")
+        conflict = connection.execute(
+            text("SELECT created_at,created_at_us FROM km_conflicts WHERE conflict_id='legacy-conflict'")
+        ).one()
+        floor_map = connection.execute(
+            text("SELECT created_at_us FROM floor_maps WHERE map_id='legacy-map'")
+        ).scalar_one()
+        assert tuple(conflict) == (300, 300_000_000)
+        assert floor_map == 400_000_000
+        assert connection.execute(text("SELECT COUNT(*) FROM km_conflicts")).scalar_one() == 1
+        assert connection.execute(text("SELECT COUNT(*) FROM floor_maps")).scalar_one() == 1
+    finally:
+        connection.execute(text("SET search_path TO public"))
+        connection.commit()
+        connection.close()
+        with engine.begin() as cleanup:
+            cleanup.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+
+
 def test_legacy_store_adapter_upsert_and_row_mapping(tmp_path):
     _configure()
     from app.properties import PropertyRecord, PropertyStore
@@ -291,6 +344,31 @@ def test_postgres_guest_zones_knowledge_conflicts_and_service_request_replay(tmp
     try:
         assert zones.overview(property_id, guest=True)["maps"] == []
         assert knowledge.conflicts(property_id) == []
+        with connect_database(db_path) as db:
+            for conflict_id, status, created_at_us in (
+                ("conflict-id-z", "open", 500_000_100),
+                ("conflict-id-a", "open", 500_000_200),
+                ("conflict-resolved", "resolved", 900_000_000),
+            ):
+                db.execute(
+                    "INSERT INTO km_conflicts "
+                    "(conflict_id,property_id,item_a,item_b,status,created_at,created_at_us) "
+                    "VALUES (?,?,?,?,?,?,?)",
+                    (conflict_id, property_id, "old-item", "new-item", status, created_at_us // 1_000_000, created_at_us),
+                )
+            for map_id, created_at_us in (("map-id-z", 700_000_100), ("map-id-a", 700_000_200)):
+                db.execute(
+                    "INSERT INTO floor_maps "
+                    "(map_id,property_id,floor_id,original_filename,content_type,storage_path,created_at,created_at_us) "
+                    "VALUES (?,?,?,?,?,?,?,?)",
+                    (map_id, property_id, "floor-a", "map.png", "image/png", "/map.png", 700, created_at_us),
+                )
+        assert [item["conflict_id"] for item in knowledge.conflicts(property_id)] == [
+            "conflict-id-a",
+            "conflict-id-z",
+            "conflict-resolved",
+        ]
+        assert [item["map_id"] for item in zones.overview(property_id)["maps"]] == ["map-id-a", "map-id-z"]
         created = hospitality.create_service_request(property_id, payload)
         replayed = hospitality.create_service_request(property_id, payload)
         assert replayed["request_id"] == created["request_id"]
@@ -298,4 +376,6 @@ def test_postgres_guest_zones_knowledge_conflicts_and_service_request_replay(tmp
     finally:
         with connect_database(db_path) as db:
             db.execute("DELETE FROM service_requests WHERE property_id=?", (property_id,))
+            db.execute("DELETE FROM km_conflicts WHERE property_id=?", (property_id,))
+            db.execute("DELETE FROM floor_maps WHERE property_id=?", (property_id,))
             db.execute("DELETE FROM properties WHERE property_id=?", (property_id,))

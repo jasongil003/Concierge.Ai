@@ -74,6 +74,31 @@ def test_floor_map_upload_rejects_oversized_pixel_dimensions(tmp_path, monkeypat
         _upload(zones, floor_id, "huge.png", "image/png", huge_png)
 
 
+def test_floor_maps_order_by_upload_time_with_same_second_and_deterministic_ties(tmp_path, monkeypatch):
+    zones, floor_id = _zone_store(tmp_path, monkeypatch)
+    buffer = BytesIO()
+    Image.new("RGB", (1, 1), "white").save(buffer, format="PNG")
+    raw = buffer.getvalue()
+
+    second = 1_700_000_000
+    upload_times = iter((second * 1_000_000 + 100, second * 1_000_000 + 200, second * 1_000_000 + 200))
+    map_ids = iter(("map_zzzz", "map_bbbb", "map_aaaa"))
+    monkeypatch.setattr(zones_module, "_now", lambda: second)
+    monkeypatch.setattr(zones_module.time, "time_ns", lambda: next(upload_times) * 1_000)
+    monkeypatch.setattr(zones_module, "_record_id", lambda _prefix: next(map_ids))
+
+    first = _upload(zones, floor_id, "first.png", "image/png", raw)
+    second_upload = _upload(zones, floor_id, "second.png", "image/png", raw)
+    same_instant_upload = _upload(zones, floor_id, "third.png", "image/png", raw)
+
+    assert {first["created_at"], second_upload["created_at"], same_instant_upload["created_at"]} == {second}
+    assert [item["map_id"] for item in zones.overview("hotel-a")["maps"]] == [
+        "map_aaaa",
+        "map_bbbb",
+        "map_zzzz",
+    ]
+
+
 def test_floor_map_responses_use_sandbox_and_pdf_download(tmp_path):
     svg_response = main_module._floor_map_file_response(tmp_path / "map.svg")
     pdf_response = main_module._floor_map_file_response(tmp_path / "map.pdf")

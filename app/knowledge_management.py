@@ -268,7 +268,8 @@ class KnowledgeStore:
             CREATE TABLE IF NOT EXISTS km_conflicts (
               conflict_id TEXT PRIMARY KEY, property_id TEXT NOT NULL, item_a TEXT NOT NULL,
               item_b TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open', note TEXT NOT NULL DEFAULT '',
-              resolved_by TEXT, resolved_at INTEGER);
+              resolved_by TEXT, resolved_at INTEGER, created_at INTEGER NOT NULL DEFAULT 0,
+              created_at_us BIGINT NOT NULL DEFAULT 0);
             """)
             columns = table_columns(db, "km_items")
             if "structured_json" not in columns:
@@ -283,6 +284,29 @@ class KnowledgeStore:
             ):
                 if column not in source_columns:
                     db.execute(f"ALTER TABLE km_sources ADD COLUMN {column} {definition}")
+            conflict_columns = table_columns(db, "km_conflicts")
+            for column, definition in (
+                ("created_at", "INTEGER NOT NULL DEFAULT 0"),
+                ("created_at_us", "BIGINT NOT NULL DEFAULT 0"),
+            ):
+                if column not in conflict_columns:
+                    db.execute(f"ALTER TABLE km_conflicts ADD COLUMN {column} {definition}")
+            # Pre-timestamp conflicts can be dated from their linked knowledge
+            # items. Existing item timestamps have second precision, so retain
+            # that value in created_at and use it as the lower bound for the
+            # high-resolution ordering value.
+            db.execute(
+                """UPDATE km_conflicts SET created_at=COALESCE(
+                     (SELECT MAX(i.created_at) FROM km_items i
+                      WHERE i.property_id=km_conflicts.property_id
+                        AND i.item_id IN (km_conflicts.item_a,km_conflicts.item_b)),
+                     resolved_at,0)
+                   WHERE created_at=0"""
+            )
+            db.execute(
+                "UPDATE km_conflicts SET created_at_us=CAST(created_at AS BIGINT)*1000000 "
+                "WHERE created_at_us=0 AND created_at>0"
+            )
             db.execute("CREATE INDEX IF NOT EXISTS idx_km_sources_retry ON km_sources(status,next_retry_at,updated_at)")
 
     def _db(self):
@@ -523,7 +547,14 @@ class KnowledgeStore:
                     if old_sep and key.strip().casefold() == old_key.strip().casefold() and value.strip().casefold() != old_value.strip().casefold():
                         exists = db.execute("SELECT 1 FROM km_conflicts WHERE property_id=? AND item_a=? AND item_b=?", (property_id, old["item_id"], new["item_id"])).fetchone()
                         if not exists:
-                            db.execute("INSERT INTO km_conflicts (conflict_id,property_id,item_a,item_b) VALUES (?,?,?,?)", (uuid.uuid4().hex, property_id, old["item_id"], new["item_id"]))
+                            created_at_us = time.time_ns() // 1_000
+                            created_at = created_at_us // 1_000_000
+                            db.execute(
+                                "INSERT INTO km_conflicts "
+                                "(conflict_id,property_id,item_a,item_b,created_at,created_at_us) "
+                                "VALUES (?,?,?,?,?,?)",
+                                (uuid.uuid4().hex, property_id, old["item_id"], new["item_id"], created_at, created_at_us),
+                            )
                         db.execute("UPDATE km_items SET conflict=1 WHERE property_id=? AND item_id IN (?,?)", (property_id, old["item_id"], new["item_id"]))
             if db.execute("SELECT 1 FROM km_items WHERE property_id=? AND source_id=? AND conflict=1", (property_id, source_id)).fetchone():
                 db.execute("UPDATE km_sources SET status='conflict_detected' WHERE property_id=? AND source_id=?", (property_id, source_id))
@@ -531,7 +562,11 @@ class KnowledgeStore:
 
     def conflicts(self, property_id: str) -> list[dict[str, Any]]:
         with self._db() as db:
-            rows = db.execute("SELECT * FROM km_conflicts WHERE property_id=? ORDER BY status, conflict_id DESC", (property_id,)).fetchall()
+            rows = db.execute(
+                "SELECT * FROM km_conflicts WHERE property_id=? "
+                "ORDER BY status, created_at_us DESC, conflict_id ASC",
+                (property_id,),
+            ).fetchall()
         return [dict(row) for row in rows]
 
     def resolve_conflict(self, property_id: str, conflict_id: str, winner_id: str, note: str, actor: str) -> dict[str, Any]:

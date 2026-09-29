@@ -34,6 +34,12 @@ database/Redis namespace. The workload creates one idempotent service request
 per virtual guest and may perform an optional admin retention write. It must
 not target a production installation.
 
+Set `LOADTEST_STAFF_CONVERSATION_FLOW=true` for a small integration smoke with
+at least one open restaurant. Each virtual guest checks the valid no-conversation
+404, escalates once, and reads the active conversation successfully. Keep this
+flow for integration smoke runs so property and IP escalation rate limits remain
+representative.
+
 ```bash
 python -m pip install -r loadtest/requirements.txt
 export LOADTEST_BASE_URL=http://127.0.0.1:8092
@@ -57,8 +63,9 @@ AI endpoint/model, injector location, and configuration used. Preserve raw CSV
 and JSON artifacts with any published capacity result.
 
 The PostgreSQL/Redis CI job runs a separate short 10-user smoke test against a
-deterministic local AI service. It checks that requests succeed; it is not a
-scale test and should not be reported as capacity evidence. Do not publish a
+deterministic local AI service, including both staff-message conversation states.
+It checks that requests succeed; it is not a scale test and should not be
+reported as capacity evidence. Do not publish a
 capacity claim until the corresponding profile has completed against
 representative application, database, Redis, AI, and network infrastructure,
 and its raw CSV and JSON artifacts are reviewed.

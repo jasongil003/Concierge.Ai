@@ -14,6 +14,7 @@ PROPERTY_ID = os.getenv("PROPERTY_ID", "load-test-property")
 ADMIN_USERNAME = os.getenv("LOADTEST_ADMIN_USERNAME", "")
 ADMIN_PASSWORD = os.getenv("LOADTEST_ADMIN_PASSWORD", "")
 ADMIN_ENABLED = bool(ADMIN_USERNAME and ADMIN_PASSWORD)
+STAFF_CONVERSATION_FLOW_ENABLED = os.getenv("LOADTEST_STAFF_CONVERSATION_FLOW", "").strip().lower() in {"1", "true", "yes"}
 
 
 SHAPE_NAME = os.getenv("LOADTEST_SHAPE", "").strip()
@@ -65,7 +66,11 @@ class GuestUser(HttpUser):
         self.session_headers = {}
         self.service_id = ""
         self.service_submitted = False
+        self.restaurant_id = ""
+        self.staff_conversation_active = False
         self._start_session()
+        if STAFF_CONVERSATION_FLOW_ENABLED and self.session_id:
+            self._start_staff_conversation_flow()
 
     def _start_session(self) -> None:
         with self.client.post(
@@ -91,6 +96,78 @@ class GuestUser(HttpUser):
         enabled = [item for item in services if item.get("enabled") and not item.get("archived")]
         if enabled:
             self.service_id = enabled[0].get("service_id", "")
+        if STAFF_CONVERSATION_FLOW_ENABLED:
+            facilities = self.client.get(
+                "/api/guest/facilities",
+                params={"property_id": PROPERTY_ID},
+                name="GET /api/guest/facilities [staff-flow setup]",
+            )
+            restaurants = facilities.json().get("restaurants", []) if facilities.ok else []
+            available = [item for item in restaurants if item.get("restaurant_id")]
+            if available:
+                self.restaurant_id = available[0]["restaurant_id"]
+
+    def _read_staff_messages(self, expected_status: int, *, name: str) -> None:
+        with self.client.get(
+            f"/api/guest/conversations/{self.session_id}/staff-messages",
+            headers=self.session_headers,
+            name=name,
+            catch_response=True,
+        ) as response:
+            if expected_status == 404 and response.status_code == 404:
+                try:
+                    body = response.json()
+                    detail = body.get("detail") if isinstance(body, dict) else None
+                except ValueError:
+                    detail = None
+                if detail == "Staff conversation not found.":
+                    response.success()
+                else:
+                    response.failure("unexpected staff conversation 404")
+            elif expected_status == 200 and response.status_code == 200:
+                try:
+                    body = response.json()
+                    messages = body.get("messages") if isinstance(body, dict) else None
+                except ValueError:
+                    messages = None
+                if isinstance(messages, list):
+                    response.success()
+                else:
+                    response.failure("active staff conversation returned an invalid message list")
+            else:
+                response.failure(f"staff messages returned {response.status_code}, expected {expected_status}")
+
+    def _start_staff_conversation_flow(self) -> None:
+        # Record the valid no-conversation case before this virtual guest
+        # creates its active restaurant conversation.
+        self._read_staff_messages(
+            404,
+            name="GET /api/guest/conversations/{session_id}/staff-messages [no staff conversation]",
+        )
+        if not self.restaurant_id:
+            return
+        with self.client.post(
+            f"/api/guest/conversations/{self.session_id}/escalate",
+            json={"restaurant_id": self.restaurant_id, "reason": "Load-test guest requests restaurant staff."},
+            headers=self.session_headers,
+            name="POST /api/guest/conversations/{session_id}/escalate [guest escalation]",
+            catch_response=True,
+        ) as response:
+            try:
+                body = response.json()
+                state = body.get("status") if isinstance(body, dict) else None
+            except ValueError:
+                state = None
+            if response.status_code == 200 and state in {"waiting_for_staff", "assigned"}:
+                response.success()
+                self.staff_conversation_active = True
+            else:
+                response.failure(f"guest escalation returned {response.status_code}")
+        if self.staff_conversation_active:
+            self._read_staff_messages(
+                200,
+                name="GET /api/guest/conversations/{session_id}/staff-messages [active staff conversation]",
+            )
 
     @task(10)
     def hotel_information(self) -> None:
@@ -117,26 +194,14 @@ class GuestUser(HttpUser):
             headers=self.session_headers,
             name="POST /api/session/resume",
         )
-        # This smoke user does not create a restaurant escalation. An empty
-        # conversation is a valid 404; accept it explicitly while still
-        # recording unexpected errors from the staff-messages API.
-        with self.client.get(
-            f"/api/guest/conversations/{self.session_id}/staff-messages",
-            headers=self.session_headers,
-            name="GET /api/guest/conversations/{session_id}/staff-messages",
-            catch_response=True,
-        ) as response:
-            if response.status_code == 404:
-                try:
-                    detail = response.json().get("detail")
-                except ValueError:
-                    detail = None
-                if detail == "Staff conversation not found.":
-                    response.success()
-                else:
-                    response.failure("unexpected staff conversation 404")
-            elif response.status_code >= 400:
-                response.failure(f"staff messages returned {response.status_code}")
+
+    @task(1)
+    def poll_active_staff_conversation(self) -> None:
+        if STAFF_CONVERSATION_FLOW_ENABLED and self.staff_conversation_active:
+            self._read_staff_messages(
+                200,
+                name="GET /api/guest/conversations/{session_id}/staff-messages [active staff conversation]",
+            )
 
     @task(2)
     def deterministic_ai_chat_and_knowledge_retrieval(self) -> None:

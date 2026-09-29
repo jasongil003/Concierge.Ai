@@ -14,7 +14,7 @@ from defusedxml import ElementTree as ET
 from defusedxml.common import DefusedXmlException
 from PIL import Image
 
-from .database import connect_database
+from .database import connect_database, table_columns
 
 from .config import settings
 
@@ -155,7 +155,8 @@ class ZoneStore:
                     storage_path TEXT NOT NULL,
                     width REAL,
                     height REAL,
-                    created_at INTEGER NOT NULL
+                    created_at INTEGER NOT NULL,
+                    created_at_us BIGINT NOT NULL DEFAULT 0
                 );
                 CREATE TABLE IF NOT EXISTS zones (
                     zone_id TEXT PRIMARY KEY,
@@ -216,6 +217,16 @@ class ZoneStore:
                 );
                 """
             )
+            map_columns = table_columns(db, "floor_maps")
+            if "created_at_us" not in map_columns:
+                db.execute("ALTER TABLE floor_maps ADD COLUMN created_at_us BIGINT NOT NULL DEFAULT 0")
+            # Legacy maps only have second-resolution created_at. Preserve that
+            # time at microsecond scale; new uploads carry their actual upload
+            # time so maps uploaded in the same second sort correctly.
+            db.execute(
+                "UPDATE floor_maps SET created_at_us=CAST(created_at AS BIGINT)*1000000 "
+                "WHERE created_at_us=0 AND created_at>0"
+            )
 
     def create_building(self, property_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         now = _now()
@@ -266,6 +277,7 @@ class ZoneStore:
             raise ValueError("Floor plan must be between 1 byte and 8 MB.")
         _validate_floor_map(content_type, raw)
         map_id = _record_id("map")
+        created_at_us = time.time_ns() // 1_000
         directory = UPLOAD_ROOT / property_id / "floor_maps"
         directory.mkdir(parents=True, exist_ok=True)
         storage_path = directory / f"{map_id}{FLOOR_PLAN_TYPES[content_type]}"
@@ -279,11 +291,14 @@ class ZoneStore:
             "storage_path": str(storage_path),
             "width": payload.get("width"),
             "height": payload.get("height"),
-            "created_at": _now(),
+            "created_at": created_at_us // 1_000_000,
+            "created_at_us": created_at_us,
         }
         with self._connect() as db:
             db.execute(
-                "INSERT INTO floor_maps VALUES (:map_id,:property_id,:floor_id,:original_filename,:content_type,:storage_path,:width,:height,:created_at)",
+                """INSERT INTO floor_maps
+                (map_id,property_id,floor_id,original_filename,content_type,storage_path,width,height,created_at,created_at_us)
+                VALUES (:map_id,:property_id,:floor_id,:original_filename,:content_type,:storage_path,:width,:height,:created_at,:created_at_us)""",
                 record,
             )
         return {**record, "url": f"/api/admin/properties/{property_id}/floor-maps/{map_id}/asset"}
@@ -565,7 +580,7 @@ class ZoneStore:
             suffix = " AND guest_visible=1" if guest else ""
             buildings = [dict(row) for row in db.execute("SELECT * FROM buildings WHERE property_id=? ORDER BY name", (property_id,))]
             floors = [dict(row) for row in db.execute("SELECT * FROM floors WHERE property_id=? ORDER BY building_id, level", (property_id,))]
-            maps = [self._map_row(row) for row in db.execute("SELECT * FROM floor_maps WHERE property_id=? ORDER BY created_at DESC,map_id DESC", (property_id,))]
+            maps = [self._map_row(row) for row in db.execute("SELECT * FROM floor_maps WHERE property_id=? ORDER BY created_at_us DESC,map_id ASC", (property_id,))]
             # B608 rationale: suffix is a fixed visibility predicate selected only by the guest flag.
             zones = [self._public(row) for row in db.execute(f"SELECT * FROM zones WHERE property_id=?{suffix} ORDER BY name", (property_id,))]  # nosec B608
             # B608 rationale: suffix is a fixed visibility predicate selected only by the guest flag.

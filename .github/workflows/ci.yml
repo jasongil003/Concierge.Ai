@@ -203,7 +203,8 @@ jobs:
           export METRICS_TOKEN="$(openssl rand -hex 24)"
           export REDIS_URL=redis://127.0.0.1:6379/0
           export LOCAL_AI_ALLOWED_ENDPOINTS=http://127.0.0.1:8081
-          python -c 'from app.config import settings; from app.properties import PropertyRecord, PropertyStore; PropertyStore(settings.db_path).upsert(PropertyRecord(property_id="ci-property", hotel_name="CI Load Smoke"))'
+          export LOADTEST_STAFF_CONVERSATION_FLOW=true
+          python -c 'from app.config import settings; from app.properties import PropertyRecord, PropertyStore; from app.hospitality import HospitalityStore; PropertyStore(settings.db_path).upsert(PropertyRecord(property_id="ci-property", hotel_name="CI Load Smoke")); h=HospitalityStore(settings.db_path); h.create_restaurant("ci-property", {"name":"CI Load Smoke Dining"}) if not h.guest_facilities("ci-property")["restaurants"] else None'
           python loadtest/mock_ai.py > /tmp/concierge-mock-ai.log 2>&1 &
           mock_pid=$!
           python -m uvicorn app.main:app --host 127.0.0.1 --port 8092 > /tmp/concierge-api.log 2>&1 &
@@ -216,7 +217,7 @@ jobs:
           curl --fail http://127.0.0.1:8092/health/ready
           LOADTEST_CONFIRMATION=YES MOCK_AI_URL=http://127.0.0.1:8081 python scripts/configure_loadtest_ai.py
           locust --headless -f loadtest/locustfile.py -u 10 -r 2 -t 25s --host http://127.0.0.1:8092 --csv /tmp/concierge-load-smoke --only-summary
-          python loadtest/assert_smoke.py /tmp/concierge-load-smoke_stats.csv
+          python loadtest/assert_smoke.py /tmp/concierge-load-smoke_stats.csv --require-staff-conversation
       - name: Report service and load failures
         if: failure()
         run: |
