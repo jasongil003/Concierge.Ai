@@ -298,6 +298,9 @@ def test_guest_management_overlap_requires_confirmation(admin_client: TestClient
 def test_network_access_view_permission_does_not_grant_manage_permission(admin_client: TestClient, network_stores, tmp_path: Path):
     operations, _ = network_stores
     _save_access(operations, ["10.10.0.0/16"])
+    property_record = main_module.properties.get("test-property")
+    property_record.guardrails["guest_access_hosts"] = ["192.168.50.20"]
+    main_module.properties.upsert(property_record)
     auth: AdminAuthStore = main_module.admin_auth
     user = auth.create_user(
         {
@@ -313,12 +316,41 @@ def test_network_access_view_permission_does_not_grant_manage_permission(admin_c
         login = manager.post("/api/admin/auth/login", json={"username": user["username"], "password": "HotelManagerPass123!"})
         assert login.status_code == 200, login.text
         manager.headers.update({"X-CSRF-Token": login.json()["user"]["csrf_token"]})
-        assert manager.get("/api/admin/properties/test-property/network-access/status").status_code == 200
+        status = manager.get("/api/admin/properties/test-property/network-access/status")
+        assert status.status_code == 200
+        assert "guest_access_hosts" not in status.json()["guest"]
+        property_view = manager.get("/api/admin/properties/test-property")
+        assert property_view.status_code == 200
+        assert "192.168.50.20" not in property_view.text
         update = manager.put(
             "/api/admin/properties/test-property/network-access/guest",
-            json={"guest_domain": "concierge.hotelabc.com", "allowed_cidrs": ["10.50.0.0/16"]},
+            json={"guest_domain": "concierge.hotelabc.com", "guest_access_hosts": ["192.168.60.20"], "allowed_cidrs": ["10.50.0.0/16"]},
         )
         assert update.status_code == 403
+
+
+def test_guest_access_hosts_save_exact_hosts_and_reject_invalid_entries(admin_client: TestClient, network_stores):
+    _, properties = network_stores
+    response = admin_client.put(
+        "/api/admin/properties/test-property/network-access/guest",
+        json={"guest_domain": "", "guest_access_hosts": ["192.168.50.20", "guest.hotel.local", "2001:db8::1234"]},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["guest"]["guest_access_hosts"] == ["192.168.50.20", "guest.hotel.local", "2001:db8::1234"]
+    assert properties.get("test-property").guardrails["guest_access_hosts"] == ["192.168.50.20", "guest.hotel.local", "2001:db8::1234"]
+
+    legacy_client_update = admin_client.put(
+        "/api/admin/properties/test-property/network-access/guest",
+        json={"guest_domain": ""},
+    )
+    assert legacy_client_update.status_code == 200
+    assert legacy_client_update.json()["guest"]["guest_access_hosts"] == ["192.168.50.20", "guest.hotel.local", "2001:db8::1234"]
+
+    invalid = admin_client.put(
+        "/api/admin/properties/test-property/network-access/guest",
+        json={"guest_access_hosts": ["192.168.50.20:8080"]},
+    )
+    assert invalid.status_code == 422
 
 
 def test_property_admin_cannot_change_another_property_network_access(admin_client: TestClient, network_stores):

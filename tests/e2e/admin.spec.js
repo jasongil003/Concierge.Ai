@@ -580,6 +580,28 @@ test("guardrails panel exposes security controls and network diagnostics", async
   await expect(page.getByLabel("Security audit logging enabled")).toBeVisible();
 });
 
+test("Network Access saves exact guest hosts", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "The network configuration workflow needs one browser profile.");
+  page.on("dialog", (dialog) => dialog.accept());
+  await page.goto("/admin");
+  await openPanel(page, "Network Access");
+  const hosts = page.locator("#guest-access-hosts");
+  await expect(hosts).toBeVisible();
+  await expect(hosts).toBeEnabled();
+  const original = await hosts.inputValue();
+  const configured = [...new Set([...original.split(/\r?\n/).filter(Boolean), "192.168.50.20", "concierge.hotel.local"])].join("\n");
+  try {
+    await hosts.fill(configured);
+    await page.getByRole("button", { name: "Save Guest Access" }).click();
+    await expect(page.locator("#toast")).toContainText("Guest Access saved");
+    await expect(hosts).toHaveValue(configured);
+  } finally {
+    await hosts.fill(original);
+    await page.getByRole("button", { name: "Save Guest Access" }).click();
+    await expect(page.locator("#toast")).toContainText("Guest Access saved");
+  }
+});
+
 test("overview panel: operational health is visible and configuration moved out", async ({ page }) => {
   let dashboardLoads = 0;
   page.on("request", (request) => {

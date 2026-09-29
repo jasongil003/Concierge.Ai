@@ -25,6 +25,7 @@ from . import metrics
 
 DEFAULT_GUARDRAILS: dict[str, Any] = {
     "guest_network_only": True,
+    "guest_access_hosts": [],
     "allowed_cidrs": ["127.0.0.0/8", "::1/128"],
     "trusted_proxy_ranges": [],
     "session_network_revalidation": "suspend",
@@ -51,6 +52,74 @@ SECRET_KEYS = {
 }
 
 
+def normalize_guest_hostname(value: Any) -> str:
+    """Normalize one exact DNS hostname or IP literal (never a URL or network)."""
+    hostname = str(value or "")
+    if hostname != hostname.strip():
+        raise ValueError("Guest access hosts must not contain surrounding whitespace.")
+    hostname = hostname.casefold().rstrip(".")
+    if not hostname or len(hostname) > 253 or any(character in hostname for character in "/\\%@?#*"):
+        raise ValueError(f"Invalid guest access host: {value}")
+    try:
+        return ipaddress.ip_address(hostname).compressed
+    except ValueError:
+        pass
+    try:
+        ascii_hostname = hostname.encode("idna").decode("ascii")
+    except UnicodeError as exc:
+        raise ValueError(f"Invalid guest access host: {value}") from exc
+    if len(ascii_hostname) > 253 or not all(
+        1 <= len(label) <= 63
+        and re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", label)
+        for label in ascii_hostname.split(".")
+    ):
+        raise ValueError(f"Invalid guest access host: {value}")
+    return ascii_hostname
+
+
+def normalize_guest_access_hosts(values: Any) -> list[str]:
+    if values in (None, ""):
+        return []
+    if not isinstance(values, list):
+        raise ValueError("guest_access_hosts must be a list of exact hostnames or IP addresses.")
+    if len(values) > 64:
+        raise ValueError("guest_access_hosts supports at most 64 hosts.")
+    result: list[str] = []
+    for value in values:
+        if not isinstance(value, str):
+            raise ValueError("guest_access_hosts entries must be hostnames or IP addresses.")
+        candidate = value.strip()
+        if not candidate:
+            continue
+        try:
+            hostname = normalize_guest_hostname(candidate)
+        except ValueError as exc:
+            raise ValueError(f"Invalid host in guest_access_hosts: {value}") from exc
+        if hostname not in result:
+            result.append(hostname)
+    return result
+
+
+def normalize_host_header(value: str) -> str:
+    """Return a normalized hostname from a syntactically valid HTTP Host value."""
+    raw = str(value or "")
+    if not raw or raw != raw.strip() or any(ord(character) < 33 or ord(character) == 127 for character in raw):
+        raise ValueError("Invalid Host header.")
+    try:
+        parsed = urlsplit(f"//{raw}")
+        if parsed.path or parsed.query or parsed.fragment or parsed.username or parsed.password or not parsed.hostname:
+            raise ValueError("Invalid Host header.")
+        # IPv6 literals in HTTP authority syntax must be bracketed.
+        if parsed.hostname and ":" in parsed.hostname and not parsed.netloc.startswith("["):
+            raise ValueError("Invalid Host header.")
+        port = parsed.port
+        if port is not None and not 1 <= port <= 65535:
+            raise ValueError("Invalid Host header.")
+        return normalize_guest_hostname(parsed.hostname)
+    except ValueError as exc:
+        raise ValueError("Invalid Host header.") from exc
+
+
 def _cidr_list(values: Any, field: str) -> list[str]:
     if values in (None, ""):
         return []
@@ -74,6 +143,7 @@ def normalize_guardrails(config: dict[str, Any] | None) -> dict[str, Any]:
     raw = dict(config or {})
     raw.pop("antlabs_signature_configured", None)
     normalized = {**DEFAULT_GUARDRAILS, **raw}
+    normalized["guest_access_hosts"] = normalize_guest_access_hosts(normalized.get("guest_access_hosts"))
     normalized["allowed_cidrs"] = _cidr_list(normalized.get("allowed_cidrs"), "allowed_cidrs")
     normalized["trusted_proxy_ranges"] = _cidr_list(normalized.get("trusted_proxy_ranges"), "trusted_proxy_ranges")
     normalized["antlabs_gateway_ranges"] = _cidr_list(normalized.get("antlabs_gateway_ranges"), "antlabs_gateway_ranges")
@@ -194,6 +264,33 @@ class NetworkGuard:
 
 class PropertyGuard:
     @staticmethod
+    def host_record(records: Iterable[Any], host: str) -> Any | None:
+        """Resolve an exact property domain or property-scoped guest host."""
+        try:
+            hostname = normalize_host_header(host)
+        except ValueError as exc:
+            raise PermissionError("Guest hostname is invalid.") from exc
+        matches = []
+        for item in records:
+            domain = str(getattr(item, "domain", "") or "")
+            try:
+                configured_hosts = normalize_guardrails(getattr(item, "guardrails", None))["guest_access_hosts"]
+            except (TypeError, ValueError) as exc:
+                raise PermissionError("Guest host configuration is invalid.") from exc
+            hostnames = set(configured_hosts)
+            if domain:
+                try:
+                    hostnames.add(normalize_guest_hostname(domain.strip()))
+                except ValueError:
+                    # Invalid legacy domain values do not establish a host mapping.
+                    pass
+            if hostname in hostnames:
+                matches.append(item)
+        if len(matches) > 1:
+            raise PermissionError("Guest hostname is mapped to multiple properties.")
+        return matches[0] if matches else None
+
+    @staticmethod
     def resolve(
         records: Iterable[Any],
         default_property_id: str,
@@ -202,9 +299,12 @@ class PropertyGuard:
         *,
         allow_body_selection: bool = False,
     ) -> Any:
-        hostname = host.split(":", 1)[0].lower().rstrip(".")
         record_list = list(records)
-        host_record = next((item for item in record_list if str(getattr(item, "domain", "")).lower().rstrip(".") == hostname and hostname), None)
+        try:
+            hostname = normalize_host_header(host) if host else ""
+        except ValueError as exc:
+            raise PermissionError("Guest hostname is invalid.") from exc
+        host_record = PropertyGuard.host_record(record_list, host) if hostname else None
         if host_record is not None:
             if supplied_property_id and supplied_property_id != host_record.property_id:
                 raise PermissionError("Property does not match the guest hostname.")
@@ -351,7 +451,12 @@ class InternetGuard:
             blocked = not address.is_global
             if blocked and not allow_private:
                 raise ValueError("Private, local, metadata, and management destinations are blocked.")
-        clean_netloc = hostname if parsed.port is None else f"{hostname}:{parsed.port}"
+        try:
+            ip_address = ipaddress.ip_address(hostname)
+        except ValueError:
+            ip_address = None
+        rendered_hostname = f"[{hostname}]" if isinstance(ip_address, ipaddress.IPv6Address) else hostname
+        clean_netloc = rendered_hostname if parsed.port is None else f"{rendered_hostname}:{parsed.port}"
         return urlunsplit((parsed.scheme, clean_netloc, parsed.path or "/", parsed.query, ""))
 
 

@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,7 @@ from app.guardrails import (
     GatewayGuard,
     InternetGuard,
     NetworkGuard,
+    PropertyGuard,
     PrivacyGuard,
     SecurityAuditLogger,
     normalize_guardrails,
@@ -70,6 +72,223 @@ def test_invalid_cidr_is_rejected_before_configuration_is_saved():
         normalize_guardrails({"allowed_cidrs": ["10.20.0.0/99"]})
 
 
+@pytest.mark.parametrize(
+    ("value", "normalized"),
+    [
+        ("192.168.50.20", "192.168.50.20"),
+        ("10.10.1.5", "10.10.1.5"),
+        ("guest.hotel.local", "guest.hotel.local"),
+        ("concierge.hotel.com", "concierge.hotel.com"),
+        ("2001:db8::1234", "2001:db8::1234"),
+        ("GUEST.HOTEL.LOCAL.", "guest.hotel.local"),
+    ],
+)
+def test_guest_access_hosts_normalize_exact_hostnames_and_ip_literals(value: str, normalized: str):
+    assert normalize_guardrails({"guest_access_hosts": [value]})["guest_access_hosts"] == [normalized]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "http://192.168.50.20",
+        "192.168.50.20:8080",
+        "*.hotel.com",
+        "hotel.com/path",
+        "hotel.com?x=1",
+        "user@hotel.com",
+        "192.168.0.0/16",
+        "bad host.example",
+        "bad..example",
+    ],
+)
+def test_guest_access_hosts_reject_urls_ports_wildcards_and_cidrs(value: str):
+    with pytest.raises(ValueError, match="guest_access_hosts"):
+        normalize_guardrails({"guest_access_hosts": [value]})
+
+
+def test_property_guard_maps_exact_guest_hosts_and_blocks_cross_property_selection():
+    records = [
+        PropertyRecord(property_id="hotel-a", hotel_name="Hotel A", guardrails={"guest_access_hosts": ["192.168.50.20"]}),
+        PropertyRecord(property_id="hotel-b", hotel_name="Hotel B", guardrails={"guest_access_hosts": ["192.168.60.20"]}),
+    ]
+    assert PropertyGuard.resolve(records, "hotel-a", "192.168.50.20:8080").property_id == "hotel-a"
+    with pytest.raises(PermissionError, match="does not match"):
+        PropertyGuard.resolve(records, "hotel-a", "192.168.50.20", "hotel-b")
+
+
+def test_property_guard_fails_closed_on_invalid_persisted_guest_host_config():
+    records = [PropertyRecord(property_id="hotel-a", hotel_name="Hotel A", guardrails={"guest_access_hosts": ["*.hotel.com"]})]
+    with pytest.raises(PermissionError, match="configuration is invalid"):
+        PropertyGuard.host_record(records, "concierge.hotel.com")
+
+
+def test_lan_guest_host_cannot_select_another_property_in_session_start(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    property_store = PropertyStore(tmp_path / "guest-host-isolation.db")
+    property_store.upsert(PropertyRecord(
+        property_id="hotel-a",
+        hotel_name="Hotel A",
+        guardrails={"guest_access_hosts": ["192.168.50.20"], "allowed_cidrs": ["127.0.0.0/8"]},
+    ))
+    property_store.upsert(PropertyRecord(
+        property_id="hotel-b",
+        hotel_name="Hotel B",
+        guardrails={"guest_access_hosts": ["192.168.60.20"], "allowed_cidrs": ["127.0.0.0/8"]},
+    ))
+    monkeypatch.setattr(main_module, "properties", property_store)
+    monkeypatch.setattr(main_module, "store", SessionStore(tmp_path / "guest-host-isolation-sessions.db"))
+    monkeypatch.setattr(
+        main_module,
+        "settings",
+        replace(main_module.settings, app_environment="development", property_id="hotel-a", canonical_hosts=(), allow_body_property_selection=False),
+    )
+    with TestClient(app, base_url="http://192.168.50.20") as client:
+        response = client.post(
+            "/api/session/start",
+            headers={"Origin": "http://192.168.50.20"},
+            json={"client_id": "cross-property", "property_id": "hotel-b"},
+        )
+    assert response.status_code == 403
+    assert response.json()["policy"] == "property_isolation"
+
+
+def test_lan_guest_host_cannot_select_other_property_by_query_or_replay_its_cookies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    property_store = PropertyStore(tmp_path / "guest-host-cookie-isolation.db")
+    property_store.upsert(PropertyRecord(
+        property_id="hotel-a",
+        hotel_name="Hotel A",
+        guardrails={"guest_access_hosts": ["192.168.50.20"], "allowed_cidrs": ["127.0.0.0/8"]},
+    ))
+    property_store.upsert(PropertyRecord(
+        property_id="hotel-b",
+        hotel_name="Hotel B",
+        guardrails={"guest_access_hosts": ["192.168.60.20"], "allowed_cidrs": ["127.0.0.0/8"]},
+    ))
+    session_store = SessionStore(tmp_path / "guest-host-cookie-isolation-sessions.db")
+    session = session_store.create("hotel-b", "hotel-b-guest")
+    token, context = session_store.issue_guest_credentials(session.session_id, ttl_seconds=300)
+    token_name, context_name = main_module._guest_cookie_names(session.session_id)
+    monkeypatch.setattr(main_module, "properties", property_store)
+    monkeypatch.setattr(main_module, "store", session_store)
+    monkeypatch.setattr(
+        main_module,
+        "settings",
+        replace(main_module.settings, app_environment="development", property_id="hotel-a", canonical_hosts=(), allow_body_property_selection=False),
+    )
+    with TestClient(app, base_url="http://192.168.50.20") as client:
+        selected_by_query = client.get("/api/guest/zones?property_id=hotel-b")
+        replayed = client.get(
+            f"/api/guest/personalization?session_id={session.session_id}",
+            headers={"Cookie": f"{token_name}={token}; {context_name}={context}"},
+        )
+    assert selected_by_query.status_code == 403
+    assert selected_by_query.json()["policy"] == "property_isolation"
+    assert replayed.status_code == 403
+    assert replayed.json()["policy"] == "property_isolation"
+
+
+def _guest_host_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, hosts: list[str], domain: str = "", environment: str = "development", canonical_hosts: tuple[str, ...] = ()):
+    property_store = PropertyStore(tmp_path / "guest-host-properties.db")
+    property_store.upsert(PropertyRecord(
+        property_id="hotel-a",
+        hotel_name="Hotel A",
+        domain=domain,
+        guardrails={"guest_access_hosts": hosts, "guest_network_only": True, "allowed_cidrs": ["127.0.0.0/8", "::1/128"]},
+    ))
+    monkeypatch.setattr(main_module, "properties", property_store)
+    monkeypatch.setattr(main_module, "store", SessionStore(tmp_path / "guest-host-sessions.db"))
+    monkeypatch.setattr(
+        main_module,
+        "settings",
+        replace(main_module.settings, app_environment=environment, property_id="hotel-a", canonical_hosts=canonical_hosts, allow_body_property_selection=False),
+    )
+    return property_store
+
+
+def test_configured_lan_guest_host_accepts_matching_origin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _guest_host_client(tmp_path, monkeypatch, hosts=["192.168.50.20"])
+    with TestClient(app, base_url="http://192.168.50.20") as client:
+        response = client.post(
+            "/api/session/start",
+            headers={"Origin": "http://192.168.50.20"},
+            json={"client_id": "lan-guest"},
+        )
+    assert response.status_code == 200, response.text
+    assert main_module.store.peek(response.json()["session_id"]).property_id == "hotel-a"
+
+
+@pytest.mark.parametrize(
+    ("host", "origin"),
+    [
+        ("192.168.50.99", "http://192.168.50.99"),
+        ("192.168.50.20", "http://192.168.50.99"),
+        ("attacker.example", "http://attacker.example"),
+    ],
+)
+def test_unconfigured_or_mismatched_guest_host_origins_are_denied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, host: str, origin: str
+):
+    _guest_host_client(tmp_path, monkeypatch, hosts=["192.168.50.20"])
+    with TestClient(app, base_url=f"http://{host}") as client:
+        response = client.post("/api/session/start", headers={"Origin": origin}, json={"client_id": "denied-guest"})
+    assert response.status_code == 403
+
+
+def test_configured_dns_guest_host_accepts_matching_origin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _guest_host_client(tmp_path, monkeypatch, hosts=["guest.hotel.local"])
+    with TestClient(app, base_url="http://guest.hotel.local") as client:
+        response = client.post(
+            "/api/session/start",
+            headers={"Origin": "http://guest.hotel.local"},
+            json={"client_id": "local-dns-guest"},
+        )
+    assert response.status_code == 200, response.text
+
+
+@pytest.mark.parametrize(
+    ("host", "domain", "hosts", "canonical"),
+    [
+        ("concierge.hotel.com", "concierge.hotel.com", [], ("concierge.hotel.com",)),
+        ("192.168.50.20", "", ["192.168.50.20"], ()),
+    ],
+)
+def test_configured_guest_hosts_work_over_https_in_secure_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    host: str,
+    domain: str,
+    hosts: list[str],
+    canonical: tuple[str, ...],
+):
+    _guest_host_client(
+        tmp_path,
+        monkeypatch,
+        hosts=hosts,
+        domain=domain,
+        environment="production",
+        canonical_hosts=canonical,
+    )
+    with TestClient(app, base_url=f"https://{host}") as client:
+        response = client.post(
+            "/api/session/start",
+            headers={"Origin": f"https://{host}"},
+            json={"client_id": "secure-guest"},
+        )
+    assert response.status_code == 200, response.text
+
+
+def test_configured_lan_guest_host_does_not_bypass_production_https(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _guest_host_client(tmp_path, monkeypatch, hosts=["192.168.50.20"], environment="production")
+    with TestClient(app, base_url="http://192.168.50.20") as client:
+        response = client.post(
+            "/api/session/start",
+            headers={"Origin": "http://192.168.50.20"},
+            json={"client_id": "insecure-lan-guest"},
+        )
+    assert response.status_code == 426
+
+
 @pytest.mark.parametrize("url", [
     "http://127.0.0.1/admin",
     "http://localhost:8080/",
@@ -93,6 +312,42 @@ def test_ssrf_url_validation_blocks_carrier_nat_and_benchmark_ranges(monkeypatch
     )
     with pytest.raises(ValueError, match="blocked"):
         InternetGuard.validate_url("https://untrusted.example/webhook")
+
+
+def test_public_ipv6_webhook_url_keeps_brackets_during_normalization(monkeypatch: pytest.MonkeyPatch):
+    import socket
+
+    address = "2606:4700:4700::1111"
+    monkeypatch.setattr(
+        "app.guardrails.socket.getaddrinfo",
+        lambda host, port, type: [(socket.AF_INET6, socket.SOCK_STREAM, 6, "", (address, port, 0, 0))],
+    )
+    assert InternetGuard.validate_url(f"https://[{address}]/hook") == f"https://[{address}]/hook"
+    assert InternetGuard.validate_url(f"https://[{address}]:443/hook") == f"https://[{address}]:443/hook"
+
+
+@pytest.mark.parametrize("address", ["::1", "fd00::1", "fe80::1"])
+def test_non_global_ipv6_webhook_destinations_remain_blocked(monkeypatch: pytest.MonkeyPatch, address: str):
+    import socket
+
+    monkeypatch.setattr(
+        "app.guardrails.socket.getaddrinfo",
+        lambda host, port, type: [(socket.AF_INET6, socket.SOCK_STREAM, 6, "", (address, port, 0, 0))],
+    )
+    with pytest.raises(ValueError, match="blocked"):
+        InternetGuard.validate_url(f"https://[{address}]/hook")
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://[2001:db8::zzzz]/hook",
+        "https://user:password@[2606:4700:4700::1111]/hook",
+    ],
+)
+def test_malformed_or_credential_bearing_ipv6_webhook_urls_are_rejected(url: str):
+    with pytest.raises(ValueError):
+        InternetGuard.validate_url(url)
 
 
 def test_action_guard_requires_backend_confirmation():

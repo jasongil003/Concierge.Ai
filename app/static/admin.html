@@ -1136,6 +1136,8 @@
               <label class="check-row"><input id="guest-access-enabled" type="checkbox"> Guest Access enabled</label>
               <label>Guest Domain<input id="deployment-domain" placeholder="concierge.hotelabc.com" autocomplete="off"></label>
               <label>Guest URL<input id="deployment-public-url" type="url" placeholder="https://concierge.hotelabc.com" autocomplete="off"></label>
+              <label>Guest Access Hosts<textarea id="guest-access-hosts" rows="3" placeholder="192.168.50.20&#10;concierge.hotel.local"></textarea></label>
+              <p class="field-note">Exact hostnames or IP addresses guests may use to access this property before or alongside the production guest domain.</p>
               <div class="inline-fields"><label class="check-row"><input id="network-reverse-proxy" type="checkbox"> Deployed behind a reverse proxy</label><label class="check-row"><input id="network-https-required" type="checkbox" checked> Require HTTPS</label></div>
               <label class="check-row"><input id="guardrail-network-only" type="checkbox"> Guest Network Only</label>
               <label>Approved Guest Networks (CIDR)<textarea id="guardrail-cidrs" rows="4" placeholder="10.50.0.0/16&#10;192.168.20.0/24"></textarea></label>
