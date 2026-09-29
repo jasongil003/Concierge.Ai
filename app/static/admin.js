@@ -189,7 +189,10 @@ async function jsonFetch(url, options = {}) {
   if (response.status === 428) activatePanel("security");
   if (!response.ok) {
     const detail = data.detail;
-    const error = new Error(typeof detail === "string" ? detail : (detail?.warnings || ["Request failed"]).join(" "));
+    const message = typeof detail === "string"
+      ? detail
+      : (detail?.warnings || []).join(" ") || detail?.message || "Request failed";
+    const error = new Error(message);
     if (detail && typeof detail === "object") {
       error.code = detail.code;
       error.confirmations = detail.confirmations || [];

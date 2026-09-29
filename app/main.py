@@ -76,6 +76,7 @@ from .guardrails import (
     ActionGuard,
     GuardrailDecision,
     GuardrailDenied,
+    GuestHostnameConflict,
     GatewayGuard,
     InternetGuard,
     NetworkGuard,
@@ -89,6 +90,7 @@ from .guardrails import (
     normalize_guest_hostname,
     normalize_host_header,
     normalize_guardrails,
+    property_guest_hostnames,
     public_guardrails,
 )
 from .hospitality import HospitalityStore
@@ -262,6 +264,20 @@ async def guardrail_denied_handler(request: Request, exc: GuardrailDenied) -> JS
 async def rate_limit_unavailable_handler(request: Request, exc: RateLimitUnavailable) -> JSONResponse:
     del request
     return JSONResponse({"detail": str(exc)}, status_code=503)
+
+
+@app.exception_handler(GuestHostnameConflict)
+async def guest_hostname_conflict_handler(request: Request, exc: GuestHostnameConflict) -> JSONResponse:
+    del request
+    return JSONResponse(
+        {
+            "detail": {
+                "code": "guest_host_conflict",
+                "message": str(exc),
+            }
+        },
+        status_code=409,
+    )
 
 
 def _path_property_id(path: str) -> str | None:
@@ -455,6 +471,26 @@ def _guest_property(request: Request, supplied_property_id: str | None = None) -
 
 def _enforce_guest_network(request: Request, property_record: PropertyRecord, action_level: int = 1) -> GuardrailDecision:
     direct_ip = request.client.host if request.client else ""
+    if property_record.guest_configuration_malformed:
+        security_audit.record(
+            _request_id(request),
+            property_record.property_id,
+            "guest_configuration_invalid",
+            "denied",
+            direct_ip,
+            metadata={"path": request.url.path},
+        )
+        decision = GuardrailDecision(
+            False,
+            "Guest access is unavailable while this property's network configuration is invalid.",
+            "configuration_validation",
+            property_record.property_id,
+            action_level,
+            False,
+            False,
+            _request_id(request),
+        )
+        raise GuardrailDenied(decision)
     decision = network_guard.evaluate(property_record.property_id, property_record.guardrails, direct_ip, request.headers, _request_id(request), action_level)
     request.state.guardrail_decision = decision
     if not decision.allowed:
@@ -1052,7 +1088,12 @@ async def health_live() -> dict[str, str]:
 
 @app.get("/health/ready")
 async def health_ready() -> dict[str, Any]:
-    checks: dict[str, str] = {"database": "healthy", "redis": "not_configured", "storage": "healthy"}
+    checks: dict[str, str] = {
+        "configuration": "healthy",
+        "database": "healthy",
+        "redis": "not_configured",
+        "storage": "healthy",
+    }
     try:
         if settings.database_url:
             await asyncio.to_thread(database_ready)
@@ -1062,6 +1103,10 @@ async def health_ready() -> dict[str, Any]:
     except Exception as exc:
         metrics.DATABASE_ERRORS.labels("readiness").inc()
         checks["database"] = "unavailable"
+        logger.warning(
+            "Database readiness probe failed",
+            extra={"error_type": exc.__class__.__name__},
+        )
         raise HTTPException(status_code=503, detail="Database is not ready.") from exc
     if isinstance(rate_limiter, RedisRateLimiter):
         try:
@@ -3036,7 +3081,7 @@ async def confirm_assistant_configuration_action(
             risk_level=action.risk_level, confirmed_at=confirmation_time,
             error_type=exc.__class__.__name__,
         )
-        if isinstance(exc, HTTPException):
+        if isinstance(exc, (HTTPException, GuestHostnameConflict)):
             raise
         logger.exception("Admin AI configuration action failed", extra={"request_id": context.request_id, "property_id": property_id, "action": action.name})
         raise HTTPException(status_code=422, detail="The configuration service rejected this change. The proposal cannot be reused.") from exc
@@ -3237,14 +3282,8 @@ async def enforce_guest_origin(request: Request, call_next):
             except ValueError:
                 pass
         recognized_hosts = {_normalize_hostname(host) for host in settings.canonical_hosts}
-        try:
-            for record in properties.list():
-                if record.domain:
-                    recognized_hosts.add(normalize_guest_hostname(record.domain.strip()))
-                recognized_hosts.update(normalize_guardrails(record.guardrails)["guest_access_hosts"])
-        except (TypeError, ValueError):
-            # Invalid persisted host configuration must not expand the secure-host allowlist.
-            recognized_hosts = {_normalize_hostname(host) for host in settings.canonical_hosts}
+        for record in properties.list():
+            recognized_hosts.update(property_guest_hostnames(record))
         recognized_hosts.discard("")
         if not loopback_health_probe and normalized_host not in recognized_hosts:
             response = JSONResponse({"detail": "Unrecognized host."}, status_code=400)
@@ -3366,14 +3405,8 @@ def _guest_mutation_origin_allowed(request: Request) -> bool:
 
     configured_hosts = {_normalize_hostname(host) for host in settings.canonical_hosts}
     configured_hosts.discard("")
-    try:
-        for record in properties.list():
-            domain = _normalize_hostname(getattr(record, "domain", ""))
-            if domain:
-                configured_hosts.add(domain)
-            configured_hosts.update(normalize_guardrails(record.guardrails)["guest_access_hosts"])
-    except Exception:
-        return False
+    for record in properties.list():
+        configured_hosts.update(property_guest_hostnames(record))
     if settings.app_environment not in SECURE_ENVIRONMENTS:
         configured_hosts.update({"localhost", "127.0.0.1", "::1"})
     return source[1] in configured_hosts
@@ -3603,6 +3636,10 @@ async def upsert_property(property_id: str, payload: PropertyPayload, request: R
     record = payload.to_record()
     record.hotel_name = payload.hotel_name.strip()
     record.timezone = payload.timezone.strip()
+    try:
+        record.domain = _validated_guest_domain(record.domain)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     existing = properties.get(property_id)
     principal = _admin_principal(request)
     if existing and not principal.can("network.manage"):
@@ -4202,7 +4239,6 @@ async def save_guest_network_access(
         next_guardrails = normalize_guardrails(next_guardrails)
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-
     app_settings = dict(record.app_settings or {})
     deployment = dict(old_deployment)
     previous_domain = str(record.domain or "")

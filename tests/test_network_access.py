@@ -353,6 +353,181 @@ def test_guest_access_hosts_save_exact_hosts_and_reject_invalid_entries(admin_cl
     assert invalid.status_code == 422
 
 
+@pytest.mark.parametrize(
+    "invalid_host",
+    [
+        "https://concierge.hotel.local",
+        "concierge.hotel.local:8443",
+        "*.hotel.local",
+        "192.168.50.0/24",
+        "bad..hotel.local",
+    ],
+    ids=["url", "port", "wildcard", "cidr", "invalid-hostname"],
+)
+def test_guest_access_hosts_api_rejects_invalid_host_forms(
+    admin_client: TestClient,
+    network_stores,
+    invalid_host: str,
+):
+    _, properties = network_stores
+    existing = properties.get("test-property")
+    existing.guardrails["guest_access_hosts"] = ["safe.hotel.local"]
+    properties.upsert(existing)
+
+    response = admin_client.put(
+        "/api/admin/properties/test-property/network-access/guest",
+        json={"guest_access_hosts": [invalid_host]},
+    )
+
+    assert response.status_code == 422
+    assert properties.get("test-property").guardrails["guest_access_hosts"] == ["safe.hotel.local"]
+
+
+def test_guest_access_hosts_normalize_duplicate_entries_in_one_property(admin_client: TestClient, network_stores):
+    _, properties = network_stores
+    response = admin_client.put(
+        "/api/admin/properties/test-property/network-access/guest",
+        json={"guest_access_hosts": ["Concierge.Hotel.Local", "concierge.hotel.local."]},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["guest"]["guest_access_hosts"] == ["concierge.hotel.local"]
+    assert properties.get("test-property").guardrails["guest_access_hosts"] == ["concierge.hotel.local"]
+
+
+@pytest.mark.parametrize(
+    ("existing_domain", "existing_hosts", "candidate_domain", "candidate_hosts"),
+    [
+        ("", ["192.168.50.20"], "", ["192.168.50.20"]),
+        ("concierge.hotel.local", [], "", ["concierge.hotel.local"]),
+        ("", ["shared.example.com"], "shared.example.com", []),
+        ("shared.example.com", [], "shared.example.com", []),
+    ],
+    ids=["host-to-host", "domain-to-host", "host-to-domain", "domain-to-domain"],
+)
+def test_guest_hosts_must_be_unique_across_properties(
+    admin_client: TestClient,
+    network_stores,
+    existing_domain: str,
+    existing_hosts: list[str],
+    candidate_domain: str,
+    candidate_hosts: list[str],
+):
+    _, properties = network_stores
+    properties.upsert(
+        PropertyRecord(
+            property_id="other-property",
+            hotel_name="Other Property",
+            domain=existing_domain,
+            guardrails={"guest_access_hosts": existing_hosts},
+        )
+    )
+
+    response = admin_client.put(
+        "/api/admin/properties/test-property/network-access/guest",
+        json={
+            "guest_domain": candidate_domain,
+            "guest_access_hosts": candidate_hosts,
+        },
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "guest_host_conflict"
+
+
+def test_property_domain_cannot_collide_with_another_property_guest_host(admin_client: TestClient, network_stores):
+    _, properties = network_stores
+    properties.upsert(
+        PropertyRecord(
+            property_id="other-property",
+            hotel_name="Other Property",
+            guardrails={"guest_access_hosts": ["shared.example.com"]},
+        )
+    )
+
+    response = admin_client.put(
+        "/api/admin/properties/test-property",
+        json={
+            "property_id": "test-property",
+            "hotel_name": "Test Property",
+            "timezone": "UTC",
+            "domain": "shared.example.com",
+        },
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "guest_host_conflict"
+
+
+def test_property_creation_cannot_claim_an_existing_guest_domain(admin_client: TestClient, network_stores):
+    _, properties = network_stores
+    properties.upsert(PropertyRecord(property_id="owner-property", hotel_name="Owner", domain="owner.example.com"))
+
+    response = admin_client.put(
+        "/api/admin/properties/new-property",
+        json={
+            "property_id": "new-property",
+            "hotel_name": "New Property",
+            "domain": "OWNER.EXAMPLE.COM.",
+        },
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "guest_host_conflict"
+    assert "owner-property" not in response.text
+    assert properties.get("new-property") is None
+
+
+def test_direct_guardrail_update_cannot_bypass_guest_host_ownership(admin_client: TestClient, network_stores):
+    _, properties = network_stores
+    properties.upsert(PropertyRecord(property_id="owner-property", hotel_name="Owner", domain="claimed.example.com"))
+    original = properties.get("test-property")
+    original.guardrails["guest_access_hosts"] = ["prior.example.com"]
+    properties.upsert(original)
+
+    response = admin_client.put(
+        "/api/admin/properties/test-property/guardrails",
+        json={"config": {"guest_access_hosts": ["claimed.example.com"]}},
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "guest_host_conflict"
+    assert "owner-property" not in response.text
+    assert properties.get("test-property").guardrails["guest_access_hosts"] == ["prior.example.com"]
+
+
+def test_property_admin_cannot_create_cross_property_guest_host_collision(admin_client: TestClient, network_stores):
+    _, properties = network_stores
+    properties.upsert(PropertyRecord(property_id="other-property", hotel_name="Other Property", domain="shared.example.com"))
+    auth: AdminAuthStore = main_module.admin_auth
+    root = auth.authenticate(admin_client.cookies.get("concierge_admin_session"))
+    user = auth.create_user(
+        {
+            "username": "network.property.admin",
+            "display_name": "Network Property Admin",
+            "password": "NetworkPropertyAdmin123!",
+            "role_id": "role-property-administrator",
+            "property_id": "test-property",
+        },
+        root,
+    )
+    with TestClient(app, client=("10.10.10.25", 50000)) as manager:
+        login = manager.post("/api/admin/auth/login", json={"username": user["username"], "password": "NetworkPropertyAdmin123!"})
+        assert login.status_code == 200, login.text
+        manager.headers.update({"X-CSRF-Token": login.json()["user"]["csrf_token"]})
+
+        response = manager.put(
+            "/api/admin/properties/test-property/network-access/guest",
+            json={"guest_access_hosts": ["shared.example.com"]},
+        )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "guest_host_conflict"
+    assert "another property" in response.json()["detail"]["message"]
+    assert properties.get("test-property").domain == ""
+    assert properties.get("test-property").guardrails.get("guest_access_hosts", []) == []
+
+
 def test_property_admin_cannot_change_another_property_network_access(admin_client: TestClient, network_stores):
     operations, properties = network_stores
     _save_access(operations, ["10.10.0.0/16"])

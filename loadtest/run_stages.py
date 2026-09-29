@@ -24,6 +24,7 @@ METRICS_COUNTERS = {
     "http_errors": "concierge_http_errors_total",
     "database_errors": "concierge_database_errors_total",
     "rate_limit_events": "concierge_rate_limit_events_total",
+    "worker_failures": "concierge_worker_failures_total",
 }
 AI_WAIT_BUCKET = "concierge_ai_provider_queue_wait_seconds_bucket"
 PROM_SAMPLE = re.compile(r"^(?P<name>[a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{(?P<labels>.*)\})?\s+(?P<value>[-+0-9.eE]+)$")
@@ -50,10 +51,20 @@ def _api_resource_sample(payload: str) -> dict[str, float | None]:
     cpu = _samples(payload, "concierge_app_process_cpu_percent")
     memory_percent = _samples(payload, "concierge_app_process_memory_percent")
     memory_bytes = _samples(payload, "concierge_app_process_memory_bytes")
+    pool_checked_out = _samples(payload, "concierge_database_pool_checked_out_connections")
+    pool_capacity = _samples(payload, "concierge_database_pool_capacity_connections")
+    pool_overflow = _samples(payload, "concierge_database_pool_overflow_connections")
+    active_requests = _samples(payload, "concierge_active_requests")
+    request_queue = _samples(payload, "concierge_request_queue_depth")
     return {
         "cpu_percent": cpu[-1][1] if cpu else None,
         "memory_percent": memory_percent[-1][1] if memory_percent else None,
         "rss_mb": memory_bytes[-1][1] / (1024 * 1024) if memory_bytes else None,
+        "database_pool_checked_out": pool_checked_out[-1][1] if pool_checked_out else None,
+        "database_pool_capacity": pool_capacity[-1][1] if pool_capacity else None,
+        "database_pool_overflow": pool_overflow[-1][1] if pool_overflow else None,
+        "active_requests": active_requests[-1][1] if active_requests else None,
+        "request_queue_depth": request_queue[-1][1] if request_queue else None,
     }
 
 
@@ -116,10 +127,35 @@ def _locust_summary(path: Path) -> dict[str, float | int | None]:
         "failures": failures,
         "success_rate_percent": round((requests - failures) * 100 / requests, 4) if requests else None,
         "request_throughput_per_second": _number(row, "Requests/s", "Total RPS"),
+        "http_latency_average_ms": _number(row, "Average Response Time", "Average Response Time (ms)"),
         "http_latency_p50_ms": _number(row, "50%", "Median Response Time"),
         "http_latency_p95_ms": _number(row, "95%"),
         "http_latency_p99_ms": _number(row, "99%"),
     }
+
+
+def _timeout_failures(path: Path) -> int:
+    if not path.exists():
+        return 0
+    with path.open(encoding="utf-8", newline="") as stream:
+        rows = list(csv.DictReader(stream))
+    return sum(
+        int(_number(row, "Occurrences") or 0)
+        for row in rows
+        if re.search(r"time.?out|deadline exceeded", row.get("Error", ""), re.I)
+    )
+
+
+def _duration_seconds(value: str) -> int:
+    match = re.fullmatch(r"(\d+)([smh])", str(value).strip().casefold())
+    if not match:
+        raise ValueError("Duration must use seconds, minutes, or hours, such as 30m.")
+    return int(match.group(1)) * {"s": 1, "m": 60, "h": 3600}[match.group(2)]
+
+
+def _readiness(base_url: str) -> dict[str, object]:
+    with urlopen(base_url.rstrip("/") + "/health/ready", timeout=10) as response:
+        return json.loads(response.read().decode("utf-8"))
 
 
 def _selected_profiles(profiles: dict[str, object], selection: str) -> list[dict[str, object]]:
@@ -145,16 +181,24 @@ def _sample_api_resources(
             payload = _scrape_metrics(base_url, token)
             output.append(_api_resource_sample(payload))
         except Exception:
-            output.append({"cpu_percent": None, "memory_percent": None, "rss_mb": None})
+            output.append({key: None for key in (
+                "cpu_percent", "memory_percent", "rss_mb", "database_pool_checked_out",
+                "database_pool_capacity", "database_pool_overflow", "active_requests", "request_queue_depth",
+            )})
         stop.wait(1)
 
 
 def _system_summary(samples: list[dict[str, float | None]]) -> dict[str, float | int | str | None]:
     result: dict[str, float | int | str | None] = {"scope": "api_process", "samples": len(samples)}
-    for metric in ("cpu_percent", "memory_percent", "rss_mb"):
+    for metric in (
+        "cpu_percent", "memory_percent", "rss_mb", "database_pool_checked_out",
+        "database_pool_capacity", "database_pool_overflow", "active_requests", "request_queue_depth",
+    ):
         values = [float(item[metric]) for item in samples if item.get(metric) is not None]
         result[f"{metric}_mean"] = round(sum(values) / len(values), 3) if values else None
         result[f"{metric}_max"] = round(max(values), 3) if values else None
+    rss_values = [float(item["rss_mb"]) for item in samples if item.get("rss_mb") is not None]
+    result["rss_mb_delta"] = round(rss_values[-1] - rss_values[0], 3) if len(rss_values) >= 2 else None
     return result
 
 
@@ -169,19 +213,37 @@ def main() -> None:
     arguments = parser.parse_args()
     if os.getenv("LOADTEST_CONFIRMATION") != "YES":
         raise SystemExit("Set LOADTEST_CONFIRMATION=YES after confirming the target is a disposable test property.")
+    if arguments.profile != "controlled" and os.getenv("LOADTEST_DEDICATED_INFRASTRUCTURE") != "YES":
+        raise SystemExit(
+            "High-scale, spike, and soak profiles require LOADTEST_DEDICATED_INFRASTRUCTURE=YES; "
+            "do not run them automatically on a developer laptop."
+        )
     base_url = os.getenv("LOADTEST_BASE_URL", "").rstrip("/")
     token = os.getenv("LOADTEST_METRICS_TOKEN", "")
     property_id = os.getenv("PROPERTY_ID", "")
     if not base_url or not token or not property_id:
         raise SystemExit("Set LOADTEST_BASE_URL, LOADTEST_METRICS_TOKEN, and PROPERTY_ID for the test property.")
     try:
-        with urlopen(base_url + "/health/ready", timeout=5) as response:
-            if response.status != 200:
-                raise RuntimeError(f"Readiness endpoint returned HTTP {response.status}.")
+        initial_readiness = _readiness(base_url)
+        if initial_readiness.get("status") != "ok":
+            raise RuntimeError("Readiness endpoint did not report ready.")
     except Exception as exc:
         raise SystemExit(f"The target readiness check failed: {exc}") from exc
 
     profiles = json.loads(PROFILE.read_text(encoding="utf-8"))
+    thresholds = dict(profiles["performance_thresholds"])
+    thresholds["max_error_rate_percent"] = float(os.getenv(
+        "LOADTEST_MAX_ERROR_RATE_PERCENT", thresholds["max_error_rate_percent"]
+    ))
+    thresholds["max_p95_latency_ms"] = float(os.getenv(
+        "LOADTEST_MAX_P95_LATENCY_MS", thresholds["max_p95_latency_ms"]
+    ))
+    thresholds["max_timeout_rate_percent"] = float(os.getenv(
+        "LOADTEST_MAX_TIMEOUT_RATE_PERCENT", thresholds["max_timeout_rate_percent"]
+    ))
+    thresholds["max_rss_growth_mb"] = float(os.getenv(
+        "LOADTEST_MAX_RSS_GROWTH_MB", thresholds["max_rss_growth_mb"]
+    ))
     output_root = Path(os.getenv("LOADTEST_OUTPUT_DIR", f"/tmp/concierge-load-stages-{int(time.time())}"))
     output_root.mkdir(parents=True, exist_ok=True)
     locust = shutil.which("locust")
@@ -190,6 +252,16 @@ def main() -> None:
     results: list[dict[str, object]] = []
 
     for stage in _selected_profiles(profiles, arguments.profile):
+        if arguments.profile == "soak":
+            stage = {
+                **stage,
+                "users": int(os.getenv("LOADTEST_SOAK_USERS", stage["users"])),
+                "duration": os.getenv("LOADTEST_SOAK_DURATION", str(stage["duration"])),
+            }
+            if not 500 <= int(stage["users"]) <= 1000:
+                raise SystemExit("Soak runs support 500–1,000 users.")
+            if _duration_seconds(str(stage["duration"])) < 30 * 60:
+                raise SystemExit("Soak duration must be at least 30 minutes.")
         users = int(stage["users"])
         profile_name = str(stage["name"])
         prefix = output_root / profile_name
@@ -212,14 +284,44 @@ def main() -> None:
         environment.pop("LOADTEST_SHAPE", None)
         if arguments.profile in {"high-scale", "spike", "soak"}:
             environment["LOADTEST_SHAPE"] = profile_name
+        if arguments.profile == "soak":
+            environment["LOADTEST_SOAK_USERS"] = str(stage["users"])
+            environment["LOADTEST_SOAK_DURATION"] = str(stage["duration"])
         completed = subprocess.run(command, cwd=ROOT, env=environment, check=False)
         stop.set()
         sampler.join(timeout=3)
         after = _scrape_metrics(base_url, token)
         summary = _locust_summary(Path(f"{prefix}_stats.csv"))
+        timeout_failures = _timeout_failures(Path(f"{prefix}_failures.csv"))
+        summary["timeout_failures"] = timeout_failures
+        summary["timeout_rate_percent"] = round(timeout_failures * 100 / summary["requests"], 4) if summary["requests"] else None
         summary.update({name: _counter_delta(before, after, metric) for name, metric in METRICS_COUNTERS.items()})
         summary["ai_provider_queue_wait"] = _ai_wait_percentiles(before, after)
         summary["system"] = _system_summary(system_samples)
+        readiness = _readiness(base_url)
+        checks = readiness.get("checks", {}) if isinstance(readiness, dict) else {}
+        error_rate = (summary["failures"] * 100 / summary["requests"]) if summary["requests"] else 100.0
+        p95 = summary.get("http_latency_p95_ms")
+        system = summary["system"]
+        pool_capacity = system.get("database_pool_capacity_max")
+        pool_peak = system.get("database_pool_checked_out_max")
+        pool_not_exhausted = bool(pool_capacity and pool_peak is not None and pool_peak < pool_capacity)
+        rss_growth = system.get("rss_mb_delta")
+        worker_failures = int(summary.get("worker_failures") or 0)
+        redis_state = checks.get("redis", "not_configured") if isinstance(checks, dict) else "unknown"
+        acceptance = {
+            "error_rate_below_threshold": error_rate < thresholds["max_error_rate_percent"],
+            "p95_latency_below_threshold": p95 is not None and p95 <= thresholds["max_p95_latency_ms"],
+            "timeout_rate_below_threshold": (summary["timeout_rate_percent"] or 0) <= thresholds["max_timeout_rate_percent"],
+            "database_pool_not_exhausted": pool_not_exhausted,
+            "rss_growth_below_threshold": rss_growth is not None and rss_growth <= thresholds["max_rss_growth_mb"],
+            "redis_healthy_or_not_configured": redis_state in {"healthy", "not_configured"},
+            "no_worker_failures": worker_failures == 0,
+        }
+        summary["readiness_after_stage"] = readiness
+        summary["acceptance_thresholds"] = thresholds
+        summary["acceptance"] = acceptance
+        summary["accepted"] = all(acceptance.values())
         item = {
             "stage": stage,
             "metrics": summary,
@@ -230,10 +332,18 @@ def main() -> None:
         (output_root / f"{profile_name}.json").write_text(json.dumps(item, indent=2), encoding="utf-8")
         print(json.dumps(item, indent=2))
 
-    report = {"profile": arguments.profile, "base_url": base_url, "property_id": property_id, "results": results}
+    report = {
+        "profile": arguments.profile,
+        "base_url": base_url,
+        "property_id": property_id,
+        "capacity_claim": "none; only the recorded profile and target environment are covered",
+        "results": results,
+    }
     report_path = output_root / "summary.json"
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"Saved staged load results to {report_path}")
+    if any(item["locust_exit_code"] != 0 or not item["metrics"].get("accepted") for item in results):
+        raise SystemExit("One or more load stages failed a configured acceptance threshold.")
 
 
 if __name__ == "__main__":
