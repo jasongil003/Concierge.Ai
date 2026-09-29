@@ -590,15 +590,69 @@ test("Network Access saves exact guest hosts", async ({ page }, testInfo) => {
   await expect(hosts).toBeEnabled();
   const original = await hosts.inputValue();
   const configured = [...new Set([...original.split(/\r?\n/).filter(Boolean), "192.168.50.20", "concierge.hotel.local"])].join("\n");
+  let collisionPropertyId = "";
   try {
     await hosts.fill(configured);
     await page.getByRole("button", { name: "Save Guest Access" }).click();
     await expect(page.locator("#toast")).toContainText("Guest Access saved");
     await expect(hosts).toHaveValue(configured);
-  } finally {
-    await hosts.fill(original);
+
+    await page.reload();
+    await openPanel(page, "Network Access");
+    await expect(page.locator("#guest-access-hosts")).toHaveValue(configured);
+
+    const edited = [...new Set([...configured.split(/\r?\n/).filter(Boolean), "edited.concierge.hotel.local"])].join("\n");
+    await page.locator("#guest-access-hosts").fill(edited);
     await page.getByRole("button", { name: "Save Guest Access" }).click();
     await expect(page.locator("#toast")).toContainText("Guest Access saved");
+    await page.reload();
+    await openPanel(page, "Network Access");
+    await expect(page.locator("#guest-access-hosts")).toHaveValue(edited);
+
+    const auth = await page.request.get("/api/admin/auth/me");
+    const csrf = (await auth.json()).user.csrf_token;
+    collisionPropertyId = `qa-host-collision-${Date.now().toString(36)}`;
+    const collisionProperty = await page.request.put(`/api/admin/properties/${collisionPropertyId}`, {
+      headers: { "X-CSRF-Token": csrf },
+      data: {
+        property_id: collisionPropertyId,
+        hotel_name: "Guest Host Collision Test",
+        timezone: "Asia/Manila",
+        guardrails: { guest_access_hosts: ["collision.hotel.local"] },
+      },
+    });
+    expect(collisionProperty.ok(), await collisionProperty.text()).toBeTruthy();
+
+    await page.locator("#guest-access-hosts").fill(`${edited}\ncollision.hotel.local`);
+    await page.getByRole("button", { name: "Save Guest Access" }).click();
+    await expect(page.locator("#toast")).toContainText("another property");
+    await page.reload();
+    await openPanel(page, "Network Access");
+    await expect(page.locator("#guest-access-hosts")).toHaveValue(edited);
+
+    await page.locator("#guest-access-hosts").fill("https://invalid.hotel.local");
+    await page.getByRole("button", { name: "Save Guest Access" }).click();
+    await expect(page.locator("#toast")).toContainText("Invalid host");
+    await page.reload();
+    await openPanel(page, "Network Access");
+    await expect(page.locator("#guest-access-hosts")).toHaveValue(edited);
+  } finally {
+    await page.reload();
+    await openPanel(page, "Network Access");
+    await page.locator("#guest-access-hosts").fill(original);
+    await page.getByRole("button", { name: "Save Guest Access" }).click();
+    await expect(page.locator("#toast")).toContainText("Guest Access saved");
+    await page.reload();
+    await openPanel(page, "Network Access");
+    await expect(page.locator("#guest-access-hosts")).toHaveValue(original);
+    if (collisionPropertyId) {
+      const auth = await page.request.get("/api/admin/auth/me");
+      const csrf = (await auth.json()).user.csrf_token;
+      const removed = await page.request.delete(`/api/admin/properties/${collisionPropertyId}`, {
+        headers: { "X-CSRF-Token": csrf },
+      });
+      expect(removed.ok(), await removed.text()).toBeTruthy();
+    }
   }
 });
 

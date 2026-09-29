@@ -116,10 +116,48 @@ def test_property_guard_maps_exact_guest_hosts_and_blocks_cross_property_selecti
         PropertyGuard.resolve(records, "hotel-a", "192.168.50.20", "hotel-b")
 
 
-def test_property_guard_fails_closed_on_invalid_persisted_guest_host_config():
-    records = [PropertyRecord(property_id="hotel-a", hotel_name="Hotel A", guardrails={"guest_access_hosts": ["*.hotel.com"]})]
-    with pytest.raises(PermissionError, match="configuration is invalid"):
-        PropertyGuard.host_record(records, "concierge.hotel.com")
+def test_invalid_legacy_guest_host_does_not_block_valid_property_mapping():
+    records = [
+        PropertyRecord(property_id="hotel-a", hotel_name="Hotel A", guardrails={"guest_access_hosts": ["*.hotel.com"]}),
+        PropertyRecord(property_id="hotel-b", hotel_name="Hotel B", guardrails={"guest_access_hosts": ["concierge.hotel.com"]}),
+    ]
+    assert PropertyGuard.host_record(records, "concierge.hotel.com").property_id == "hotel-b"
+    assert PropertyGuard.host_record(records[:1], "concierge.hotel.com") is None
+
+
+def test_malformed_property_guest_configuration_fails_closed_without_breaking_neighbors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+):
+    database = tmp_path / "property-failure-isolation.db"
+    property_store = PropertyStore(database)
+    for property_id, domain in (
+        ("hotel-a", "a.example.test"),
+        ("hotel-b", "b.example.test"),
+        ("hotel-c", "c.example.test"),
+    ):
+        property_store.upsert(PropertyRecord(property_id=property_id, hotel_name=property_id, domain=domain))
+    with property_store._connect() as db:
+        db.execute("UPDATE properties SET guardrails=? WHERE property_id=?", ("{malformed", "hotel-b"))
+    audit = SecurityAuditLogger(database)
+    monkeypatch.setattr(main_module, "properties", property_store)
+    monkeypatch.setattr(main_module, "security_audit", audit)
+
+    records = property_store.list()
+    assert {record.property_id for record in records} == {"hotel-a", "hotel-b", "hotel-c"}
+    assert property_store.get("hotel-b").guest_configuration_malformed is True
+    assert any("Malformed stored property configuration" in item.message for item in caplog.records)
+
+    with TestClient(app, base_url="https://a.example.test") as hotel_a:
+        assert hotel_a.get("/api/hotel").status_code == 200
+    with TestClient(app, base_url="https://b.example.test") as hotel_b:
+        denied = hotel_b.get("/api/hotel")
+        assert denied.status_code == 403
+    with TestClient(app, base_url="https://c.example.test") as hotel_c:
+        assert hotel_c.get("/api/hotel").status_code == 200
+
+    assert any(event["action"] == "guest_configuration_invalid" for event in audit.list("hotel-b"))
 
 
 def test_lan_guest_host_cannot_select_another_property_in_session_start(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
