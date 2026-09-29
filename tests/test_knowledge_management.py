@@ -159,9 +159,35 @@ def test_retry_is_idempotent_and_conflicts_are_explicit(tmp_path: Path):
     assert store.process("hotel-a", second["source_id"])["status"] == "conflict_detected"
     assert len(store.list_items("hotel-a", source_id=second["source_id"])) == 1
     conflict = store.conflicts("hotel-a")[0]
+    assert conflict["created_at"] > 0
+    assert conflict["created_at_us"] // 1_000_000 == conflict["created_at"]
     result = store.resolve_conflict("hotel-a", conflict["conflict_id"], conflict["item_b"], "New policy is authoritative", "admin")
     assert store.get_item("hotel-a", result["archived_id"])["status"] == "archived"
     assert store.conflicts("hotel-a")[0]["status"] == "resolved"
+
+
+def test_conflicts_sort_by_status_then_timestamp_then_stable_id(tmp_path: Path):
+    store = _store(tmp_path)
+    with store._db() as db:
+        for conflict_id, status, created_at_us in (
+            ("uuid-z-old", "open", 1_000_000_100),
+            ("uuid-a-new", "open", 1_000_000_200),
+            ("uuid-b-same-time", "open", 1_000_000_200),
+            ("uuid-resolved-newest", "resolved", 9_000_000_000),
+        ):
+            db.execute(
+                "INSERT INTO km_conflicts "
+                "(conflict_id,property_id,item_a,item_b,status,created_at,created_at_us) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (conflict_id, "hotel-a", "item-a", "item-b", status, created_at_us // 1_000_000, created_at_us),
+            )
+
+    assert [item["conflict_id"] for item in store.conflicts("hotel-a")] == [
+        "uuid-a-new",
+        "uuid-b-same-time",
+        "uuid-z-old",
+        "uuid-resolved-newest",
+    ]
 
 
 def test_replacement_links_versions_and_supersedes_old(tmp_path: Path):

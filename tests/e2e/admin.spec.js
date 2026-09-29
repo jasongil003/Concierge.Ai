@@ -697,10 +697,7 @@ test("preview controls are interactive and intro settings save", async ({ page }
   await expect(page.locator("#intro-mode")).toHaveValue("generate_from_logo");
 });
 
-test.describe("admin navigation at a 375px viewport", () => {
-test.use({ viewport: { width: 375, height: 812 } });
-
-test("every visible admin tab opens with page-specific guidance", async ({ page }) => {
+async function verifyAdminNavigation(page, isMobile) {
   const pageErrors = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.goto("/admin");
@@ -715,14 +712,15 @@ test("every visible admin tab opens with page-specific guidance", async ({ page 
 
   for (const { navId, panel } of destinations) {
     await test.step(`Navigate via ${navId} to ${panel}`, async () => {
-      if ((page.viewportSize()?.width || 1440) <= 620) {
+      const sidebar = page.locator(".platform-sidebar");
+      await expect(sidebar).toBeVisible();
+      if (isMobile) {
         const shell = page.locator(".platform-shell");
         if (!(await shell.evaluate((element) => element.classList.contains("mobile-nav-open")))) {
           await page.locator("#sidebar-toggle").click();
         }
         await expect(shell).toHaveClass(/mobile-nav-open/);
         await expect(page.locator("#sidebar-toggle")).toHaveAttribute("aria-label", "Close navigation");
-        const sidebar = page.locator(".platform-sidebar");
         await expect(sidebar).toBeVisible();
         await expect.poll(() => sidebar.evaluate((element) => Math.round(element.getBoundingClientRect().left)))
           .toBeGreaterThanOrEqual(0);
@@ -735,16 +733,18 @@ test("every visible admin tab opens with page-specific guidance", async ({ page 
         const group = element.closest("details");
         if (group) group.open = true;
       });
-      if ((page.viewportSize()?.width || 1440) <= 620) {
-        await item.scrollIntoViewIfNeeded();
+      await item.scrollIntoViewIfNeeded();
+      const navBox = await item.boundingBox();
+      expect(navBox).not.toBeNull();
+      await expect.poll(() => item.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+        return Boolean(hit && (hit === element || element.contains(hit)));
+      })).toBe(true);
+      if (isMobile) {
         await expect(item).toBeInViewport({ ratio: 0.95 });
-        await expect.poll(() => item.evaluate((element) => {
-          const rect = element.getBoundingClientRect();
-          const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
-          return Boolean(hit && (hit === element || element.contains(hit)));
-        })).toBe(true);
       }
-      if ((page.viewportSize()?.width || 1440) <= 620) {
+      if (isMobile) {
         // Click the location we just hit-tested. Locator.click() performs a
         // second scroll of the nested sidebar; at the end of its long list,
         // that extra scroll can move the row behind adjacent links/topbar.
@@ -758,15 +758,26 @@ test("every visible admin tab opens with page-specific guidance", async ({ page 
       await expect(active.locator(":scope > .page-title h1, :scope > .onboarding-card h1").first()).toBeVisible();
       const pageGuide = active.locator(":scope > .page-comment, :scope > .contextual-help-disclosure").first();
       await expect(pageGuide).toBeVisible();
-      if (panel === "appearance" && (page.viewportSize()?.width || 0) <= 620) {
-        await expect(page.locator("#discard-design")).toBeHidden();
-        await expect(page.locator("#save-draft")).toBeHidden();
-        await expect(page.locator("#publish-design")).toBeHidden();
-        await expect(page.locator("#design-discard-shortcut")).toBeVisible();
-        await expect(page.locator("#design-save-shortcut")).toBeVisible();
-        await expect(page.locator("#design-publish-shortcut")).toBeVisible();
+      if (panel === "appearance") {
+        if (isMobile) {
+          await expect(page.locator("#discard-design")).toBeHidden();
+          await expect(page.locator("#save-draft")).toBeHidden();
+          await expect(page.locator("#publish-design")).toBeHidden();
+          await expect(page.locator("#design-discard-shortcut")).toBeVisible();
+          await expect(page.locator("#design-save-shortcut")).toBeVisible();
+          await expect(page.locator("#design-publish-shortcut")).toBeVisible();
+        } else {
+          for (const selector of ["#discard-design", "#save-draft", "#publish-design"]) {
+            const button = page.locator(selector);
+            await expect(button).toBeVisible();
+            await expect(button).toBeEnabled();
+            await button.click({ trial: true });
+          }
+        }
       }
       await pageGuide.locator("summary").click();
+      await expect(pageGuide).toHaveAttribute("open", "");
+      await expect(pageGuide.locator(".page-comment-content, .module-guide, .personalization-guide, .session-guide, .request-guide, .facility-guide, .room-guide-card, .intro-guide").first()).toBeVisible();
       const layout = await page.evaluate(() => {
         const width = document.documentElement.scrollWidth;
         const viewport = window.innerWidth;
@@ -786,7 +797,75 @@ test("every visible admin tab opens with page-specific guidance", async ({ page 
   }
 
   expect(pageErrors).toEqual([]);
+}
+
+test.describe("admin navigation at a 375px viewport", () => {
+  test.use({ viewport: { width: 375, height: 812 } });
+
+  test("every visible admin tab opens with page-specific guidance", async ({ page }) => {
+    await verifyAdminNavigation(page, true);
+  });
 });
+
+test.describe("admin navigation at a 1440px desktop viewport", () => {
+  test.use({ viewport: { width: 1440, height: 900 }, isMobile: false, hasTouch: false });
+
+  test("every visible admin tab opens with page-specific guidance", async ({ page }) => {
+    await verifyAdminNavigation(page, false);
+  });
+});
+
+test("design actions require concierge.edit in the UI and on the server", async ({ page, request }) => {
+  const propertyId = await getFirstPropertyId(request);
+  const username = `viewer.design.${Date.now()}`;
+  const created = await request.post("/api/admin/users", {
+    headers: csrfHeaders(request),
+    data: {
+      username,
+      display_name: "Design Viewer",
+      password: "DesignViewerPassword123!",
+      property_id: propertyId,
+      role_id: "role-viewer-auditor",
+      status: "active",
+      force_password_change: false,
+    },
+  });
+  expect(created.ok()).toBeTruthy();
+  const userId = (await created.json()).user.id;
+  try {
+    const adminLogout = await page.request.post("/api/admin/auth/logout", {
+      headers: csrfHeaders(page.request),
+    });
+    expect(adminLogout.ok()).toBeTruthy();
+    const login = await page.request.post("/api/admin/auth/login", {
+      data: { username, password: "DesignViewerPassword123!", remember_me: false },
+    });
+    expect(login.ok()).toBeTruthy();
+    const csrf = (await login.json()).user.csrf_token;
+    await page.goto("/admin");
+    await page.locator('body[data-admin-ready="true"]').waitFor();
+    await openPanel(page, "Design");
+    for (const selector of ["#discard-design", "#save-draft", "#publish-design", "#design-discard-shortcut", "#design-save-shortcut", "#design-publish-shortcut"]) {
+      await expect(page.locator(selector)).toBeHidden();
+    }
+
+    const design = await page.request.get(`/api/admin/properties/${propertyId}/design`);
+    expect(design.ok()).toBeTruthy();
+    const draft = (await design.json()).draft;
+    const headers = { "X-CSRF-Token": csrf };
+    const save = await page.request.put(`/api/admin/properties/${propertyId}/design/draft`, {
+      headers,
+      data: { config: draft },
+    });
+    const discard = await page.request.post(`/api/admin/properties/${propertyId}/design/discard`, { headers });
+    const publish = await page.request.post(`/api/admin/properties/${propertyId}/design/publish`, { headers });
+    for (const response of [save, discard, publish]) {
+      expect(response.status()).toBe(403);
+      expect((await response.json()).detail).toBe("Permission required: concierge.edit");
+    }
+  } finally {
+    await request.delete(`/api/admin/users/${userId}`, { headers: csrfHeaders(request) });
+  }
 });
 
 test("admin: page help uses an accessible question-mark icon", async ({ page }) => {

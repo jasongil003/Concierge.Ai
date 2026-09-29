@@ -52,6 +52,92 @@ def test_optional_loadtest_admin_user_is_not_scheduled_without_credentials():
     assert result.returncode == 0, result.stderr
 
 
+def test_staff_conversation_load_flow_checks_both_absent_and_active_responses():
+    script = r'''
+from loadtest.locustfile import GuestUser
+
+class FakeResponse:
+    def __init__(self, status_code, body):
+        self.status_code = status_code
+        self.body = body
+        self.outcome = None
+    def __enter__(self): return self
+    def __exit__(self, *_args): return False
+    def json(self): return self.body
+    def success(self): self.outcome = "success"
+    def failure(self, message): self.outcome = message
+
+class FakeClient:
+    def __init__(self):
+        self.all_responses = [
+            FakeResponse(404, {"detail": "Staff conversation not found."}),
+            FakeResponse(200, {"status": "waiting_for_staff"}),
+            FakeResponse(200, {"state": "waiting_for_staff", "messages": []}),
+        ]
+        self.responses = list(self.all_responses)
+        self.calls = []
+    def get(self, url, **kwargs):
+        self.calls.append(("GET", url, kwargs))
+        return self.responses.pop(0)
+    def post(self, url, **kwargs):
+        self.calls.append(("POST", url, kwargs))
+        return self.responses.pop(0)
+
+user = GuestUser.__new__(GuestUser)
+user.client_id = "load-guest"
+user.session_id = "session-a"
+user.session_headers = {"X-Concierge-Session": "session-a"}
+user.restaurant_id = "restaurant-a"
+user.staff_conversation_active = False
+user.client = FakeClient()
+user._start_staff_conversation_flow()
+assert [call[0] for call in user.client.calls] == ["GET", "POST", "GET"]
+assert user.client.calls[0][2]["name"].endswith("[no staff conversation]")
+assert user.client.calls[1][2]["json"]["restaurant_id"] == "restaurant-a"
+assert user.client.calls[2][2]["name"].endswith("[active staff conversation]")
+assert user.staff_conversation_active is True
+assert all(response.outcome == "success" for response in user.client.all_responses)
+'''
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_load_smoke_requires_real_staff_conversation_when_requested(tmp_path):
+    path = tmp_path / "staff-stats.csv"
+    fields = ["Name", "Request Count", "Failure Count", "Requests/s", "50%", "95%", "99%"]
+    required = [
+        "GET /api/guest/conversations/{session_id}/staff-messages [no staff conversation]",
+        "POST /api/guest/conversations/{session_id}/escalate [guest escalation]",
+        "GET /api/guest/conversations/{session_id}/staff-messages [active staff conversation]",
+    ]
+
+    def run(names):
+        with path.open("w", encoding="utf-8", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=fields)
+            writer.writeheader()
+            writer.writerow({"Name": "Aggregated", "Request Count": 4, "Failure Count": 0})
+            for name in names:
+                writer.writerow({"Name": name, "Request Count": 1, "Failure Count": 0})
+        return subprocess.run(
+            [sys.executable, str(ROOT / "loadtest" / "assert_smoke.py"), str(path), "--require-staff-conversation"],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    assert run(required).returncode == 0
+    incomplete = run(required[:2])
+    assert incomplete.returncode != 0
+    assert "active staff conversation" in incomplete.stderr
+
+
 def test_controlled_load_profile_has_requested_stages_and_metrics():
     profile = json.loads((ROOT / "loadtest" / "profiles.json").read_text(encoding="utf-8"))
     assert [stage["users"] for stage in profile["controlled_stages"]] == [10, 50, 100, 250, 500, 1000]

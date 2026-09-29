@@ -347,6 +347,27 @@ def test_stolen_guest_session_id_alone_is_rejected(tmp_path: Path, monkeypatch: 
     assert response.status_code == 401
 
 
+def test_guest_session_start_ignores_client_chosen_session_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    session_store = _guest_replay_stores(tmp_path, monkeypatch)
+    supplied_session_id = "attacker-chosen-fixed-session-id"
+    with TestClient(app, base_url="http://a.example.test") as client:
+        response = client.post(
+            "/api/session/start",
+            json={
+                "client_id": "browser-client",
+                "property_id": "hotel-a",
+                "session_id": supplied_session_id,
+            },
+        )
+        assert response.status_code == 200, response.text
+        created_session_id = response.json()["session_id"]
+        assert created_session_id != supplied_session_id
+        assert session_store.peek(supplied_session_id) is None
+        assert session_store.peek(created_session_id) is not None
+        cookie_name = main_module._guest_cookie_names(created_session_id)[0]
+        assert client.cookies.get(cookie_name)
+
+
 def test_legacy_guest_session_without_credentials_fails_closed_in_development(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     session_store = _guest_replay_stores(tmp_path, monkeypatch)
     legacy_session = session_store.create("hotel-a", "legacy-browser")
