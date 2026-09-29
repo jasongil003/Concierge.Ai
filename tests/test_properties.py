@@ -1,8 +1,10 @@
 import base64
 import copy
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 import app.antlabs as antlabs_module
@@ -10,6 +12,7 @@ import app.main as main_module
 from app.hospitality import HospitalityStore
 from app.main import app
 from app.operations import OperationsStore
+from app.guardrails import GuestHostnameConflict
 from app.properties import PropertyRecord, PropertyStore, default_design_config
 from app.zones import ZoneStore
 
@@ -67,6 +70,71 @@ def test_property_round_trip_rich_configuration(tmp_path: Path):
     assert loaded.contact_details["phone"] == "+63 2 555 0100"
     assert loaded.languages == ["en", "fil"]
     assert loaded.public_profile["quick_actions"][0]["label"] == "Checkout"
+
+
+def test_property_store_centrally_rejects_normalized_hostname_and_ip_collisions(tmp_path: Path):
+    store = PropertyStore(tmp_path / "hostname-ownership.db")
+    store.upsert(
+        PropertyRecord(
+            property_id="owner",
+            hotel_name="Owner",
+            domain="XN--MAANA-PTA.EXAMPLE.",
+            guardrails={"guest_access_hosts": ["2001:db8::1"]},
+        )
+    )
+
+    with pytest.raises(GuestHostnameConflict):
+        store.upsert(
+            PropertyRecord(
+                property_id="conflict-idna",
+                hotel_name="Conflict IDNA",
+                guardrails={"guest_access_hosts": ["mañana.example"]},
+            )
+        )
+    with pytest.raises(GuestHostnameConflict):
+        store.upsert(
+            PropertyRecord(
+                property_id="conflict-ipv6",
+                hotel_name="Conflict IPv6",
+                domain="2001:0db8:0:0:0:0:0:1",
+            )
+        )
+
+    duplicate = store.upsert(
+        PropertyRecord(
+            property_id="owner",
+            hotel_name="Owner",
+            domain="xn--maana-pta.example",
+            guardrails={"guest_access_hosts": ["2001:0db8:0:0:0:0:0:1", "2001:db8::1"]},
+        )
+    )
+    assert duplicate.guardrails["guest_access_hosts"] == ["2001:db8::1"]
+    assert store.get("conflict-idna") is None
+    assert store.get("conflict-ipv6") is None
+
+
+def test_concurrent_property_writes_cannot_claim_the_same_guest_host(tmp_path: Path):
+    store = PropertyStore(tmp_path / "concurrent-host-ownership.db")
+
+    def claim(property_id: str):
+        try:
+            store.upsert(
+                PropertyRecord(
+                    property_id=property_id,
+                    hotel_name=property_id,
+                    guardrails={"guest_access_hosts": ["race.example.test"]},
+                )
+            )
+            return "saved"
+        except GuestHostnameConflict:
+            return "conflict"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(claim, ("race-a", "race-b")))
+
+    assert sorted(results) == ["conflict", "saved"]
+    owners = [record.property_id for record in store.list() if "race.example.test" in record.guardrails.get("guest_access_hosts", [])]
+    assert len(owners) == 1
 
 
 def test_property_logo_upload_is_scoped_validated_and_immediately_saved(admin_client: TestClient):

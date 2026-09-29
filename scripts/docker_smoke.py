@@ -67,6 +67,7 @@ def write_phase() -> None:
     if smoke_network not in allowed:
         allowed.append(smoke_network)
     guardrails["allowed_cidrs"] = allowed
+    guardrails["guest_access_hosts"] = ["guest.hotel-a.test"]
     request(f"/api/admin/properties/{property_id}/guardrails", "PUT", {"config": guardrails}, headers)
     request(
         f"/api/admin/properties/{property_id}/knowledge",
@@ -80,6 +81,10 @@ def write_phase() -> None:
         {"default_provider": "local", "routing_mode": "fixed", "local_only": True, "limits": {"requests_per_minute": 10}},
         headers,
     )
+    design = request(f"/api/admin/properties/{property_id}/design", headers=headers)["draft"]
+    design["theme"]["accent"] = "#125D8A"
+    request(f"/api/admin/properties/{property_id}/design/draft", "PUT", {"config": design}, headers)
+    request(f"/api/admin/properties/{property_id}/design/publish", "POST", {}, headers)
     department = request(
         f"/api/admin/properties/{property_id}/departments",
         "PUT",
@@ -90,6 +95,48 @@ def write_phase() -> None:
         f"/api/admin/properties/{property_id}/service-catalog",
         "PUT",
         {"data": {"name": "Docker Towels", "department_id": department["department_id"], "keywords": ["docker-towels"]}},
+        headers,
+    )
+    restaurant = request(
+        f"/api/admin/properties/{property_id}/restaurants",
+        "POST",
+        {"data": {"name": "Docker Persistence Dining", "cuisine": "Test Kitchen"}},
+        headers,
+    )
+    menu = request(
+        f"/api/admin/properties/{property_id}/restaurants/{restaurant['restaurant_id']}/menus",
+        "POST",
+        {"data": {"name": "Docker Persistence Dinner", "meal_period": "dinner"}},
+        headers,
+    )
+    request(
+        f"/api/admin/properties/{property_id}/menus/{menu['menu_id']}/items",
+        "POST",
+        {"data": {"name": "Docker Test Pasta", "description": "Persistence check", "price": "PHP 100"}},
+        headers,
+    )
+    request(f"/api/admin/properties/{property_id}/menus/{menu['menu_id']}/approve", "POST", {}, headers)
+    request(f"/api/admin/properties/{property_id}/menus/{menu['menu_id']}/publish", "POST", {}, headers)
+    promotion = request(
+        f"/api/admin/properties/{property_id}/restaurants/{restaurant['restaurant_id']}/promotions",
+        "POST",
+        {"data": {"title": "Docker Persistence Promotion", "description": "Test only"}},
+        headers,
+    )
+    request(f"/api/admin/properties/{property_id}/promotions/{promotion['promotion_id']}/approve", "POST", {}, headers)
+    request(f"/api/admin/properties/{property_id}/promotions/{promotion['promotion_id']}/publish", "POST", {}, headers)
+    request(
+        "/api/admin/users",
+        "POST",
+        {
+            "username": "docker.persistence.manager",
+            "display_name": "Docker Persistence Manager",
+            "password": "DockerPersistenceManagerPass123!",
+            "property_id": property_id,
+            "role_id": "role-property-administrator",
+            "status": "active",
+            "force_password_change": False,
+        },
         headers,
     )
     guest_headers = {"Host": "hotel-a.test"}
@@ -120,6 +167,29 @@ def verify_phase() -> None:
     ai = request("/api/admin/properties/hotel-a/ai", headers=headers)
     if ai["settings"]["limits"].get("requests_per_minute") != 10:
         raise RuntimeError("AI configuration did not persist.")
+    guardrails = request("/api/admin/properties/hotel-a/guardrails", headers=headers)["config"]
+    if guardrails.get("guest_access_hosts") != ["guest.hotel-a.test"]:
+        raise RuntimeError("Guest host configuration did not persist.")
+    design = request("/api/admin/properties/hotel-a/design", headers=headers)
+    if design["published"]["theme"].get("accent") != "#125D8A":
+        raise RuntimeError("Published guest interface configuration did not persist.")
+    restaurants = request("/api/admin/properties/hotel-a/restaurants", headers=headers)["restaurants"]
+    restaurant = next((item for item in restaurants if item["name"] == "Docker Persistence Dining"), None)
+    if not restaurant:
+        raise RuntimeError("Restaurant configuration did not persist.")
+    menus = request(
+        f"/api/admin/properties/hotel-a/restaurants/{restaurant['restaurant_id']}/menus", headers=headers
+    )["menus"]
+    if not any(menu["name"] == "Docker Persistence Dinner" and menu["workflow_status"] == "published" for menu in menus):
+        raise RuntimeError("Menu configuration did not persist.")
+    promotions = request(
+        f"/api/admin/properties/hotel-a/restaurants/{restaurant['restaurant_id']}/promotions", headers=headers
+    )["promotions"]
+    if not any(item["title"] == "Docker Persistence Promotion" and item["status"] == "published" for item in promotions):
+        raise RuntimeError("Promotion configuration did not persist.")
+    users = request("/api/admin/users", headers=headers)["users"]
+    if not any(item["username"] == "docker.persistence.manager" for item in users):
+        raise RuntimeError("Role and user configuration did not persist.")
 
 
 if __name__ == "__main__":
