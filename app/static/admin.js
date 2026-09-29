@@ -299,10 +299,12 @@ function createNavButton(item) {
   button.addEventListener("click", () => {
     activatePanel(item.panel, item.id);
     const shell = document.querySelector(".platform-shell");
-    if (shell?.classList.contains("mobile-nav-open")) {
-      shell.classList.remove("mobile-nav-open");
-      $("sidebar-toggle")?.setAttribute("aria-label", "Open navigation");
+    const isMobile = window.matchMedia("(max-width: 620px)").matches;
+    if (isMobile) {
+      shell?.classList.remove("mobile-nav-open");
     }
+    syncSidebarToggleState();
+    if (isMobile) $("sidebar-toggle")?.focus({ preventScroll: true });
   });
   return button;
 }
@@ -6472,24 +6474,55 @@ function normalizeColor(value) {
   return /^#[0-9a-f]{6}$/i.test(value) ? value : "#18181b";
 }
 
+function syncSidebarToggleState({ breakpointChanged = false } = {}) {
+  const shell = $("platform-shell");
+  const sidebar = $("platform-sidebar");
+  const toggle = $("sidebar-toggle");
+  if (!shell || !sidebar || !toggle) return;
+
+  const isMobile = window.matchMedia("(max-width: 620px)").matches;
+  if (isMobile) {
+    shell.classList.remove("sidebar-collapsed");
+    if (breakpointChanged) shell.classList.remove("mobile-nav-open");
+    const open = shell.classList.contains("mobile-nav-open");
+    sidebar.inert = !open;
+    const label = open ? "Close navigation" : "Open navigation";
+    toggle.setAttribute("aria-label", label);
+    toggle.title = label;
+    toggle.setAttribute("aria-expanded", String(open));
+    return;
+  }
+
+  shell.classList.remove("mobile-nav-open");
+  if (breakpointChanged) {
+    shell.classList.toggle("sidebar-collapsed", localStorage.getItem("concierge.admin.sidebar") === "collapsed");
+  }
+  sidebar.inert = false;
+  const collapsed = shell.classList.contains("sidebar-collapsed");
+  const label = collapsed ? "Expand sidebar" : "Collapse sidebar";
+  toggle.setAttribute("aria-label", label);
+  toggle.title = label;
+  toggle.setAttribute("aria-expanded", String(!collapsed));
+}
+
 function setup() {
   annotateAdminPages();
   for (const icon of document.querySelectorAll(".nav-icon")) icon.setAttribute("aria-hidden", "true");
   for (const item of document.querySelectorAll(".nav-item")) {
     item.addEventListener("click", () => activatePanel(item.dataset.panel));
   }
-  if (!window.matchMedia("(max-width: 620px)").matches && localStorage.getItem("concierge.admin.sidebar") === "collapsed") {
-    document.querySelector(".platform-shell").classList.add("sidebar-collapsed");
-  }
+  const sidebarViewport = window.matchMedia("(max-width: 620px)");
+  syncSidebarToggleState({ breakpointChanged: true });
+  sidebarViewport.addEventListener("change", () => syncSidebarToggleState({ breakpointChanged: true }));
   $("sidebar-toggle").addEventListener("click", () => {
-    if (window.matchMedia("(max-width: 620px)").matches) {
-      const open = document.querySelector(".platform-shell").classList.toggle("mobile-nav-open");
-      $("sidebar-toggle").setAttribute("aria-label", open ? "Close navigation" : "Open navigation");
-      return;
+    const shell = $("platform-shell");
+    if (sidebarViewport.matches) {
+      shell.classList.toggle("mobile-nav-open");
+    } else {
+      const collapsed = shell.classList.toggle("sidebar-collapsed");
+      localStorage.setItem("concierge.admin.sidebar", collapsed ? "collapsed" : "expanded");
     }
-    const collapsed = document.querySelector(".platform-shell").classList.toggle("sidebar-collapsed");
-    localStorage.setItem("concierge.admin.sidebar", collapsed ? "collapsed" : "expanded");
-    $("sidebar-toggle").setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
+    syncSidebarToggleState();
   });
   for (const target of document.querySelectorAll("[data-dashboard-panel]")) {
     target.dataset.bound = "true";

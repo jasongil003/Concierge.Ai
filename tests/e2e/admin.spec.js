@@ -238,6 +238,149 @@ test("topbar: sidebar and profile buttons perform their actions", async ({ page 
   await expect(page.locator("#property-switcher")).toBeFocused();
 });
 
+test.describe("responsive sidebar toggle state", () => {
+  test.describe("mobile drawer", () => {
+    test.use({ viewport: { width: 375, height: 812 } });
+
+    test("labels, accessibility state, focus, and breakpoint changes stay in sync", async ({ page }, testInfo) => {
+      test.skip(testInfo.project.name !== "mobile-chrome", "The drawer state test runs in the mobile browser project.");
+      const pageErrors = [];
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await page.goto("/admin");
+      await page.locator('body[data-admin-ready="true"]').waitFor();
+
+      const shell = page.locator("#platform-shell");
+      const sidebar = page.locator("#platform-sidebar");
+      const toggle = page.locator("#sidebar-toggle");
+      await expect(toggle).toHaveAttribute("aria-label", "Open navigation");
+      await expect(toggle).toHaveAttribute("title", "Open navigation");
+      await expect(toggle).toHaveAttribute("aria-expanded", "false");
+      expect(await sidebar.evaluate((element) => element.inert)).toBe(true);
+      await expect(shell).not.toHaveClass(/mobile-nav-open/);
+
+      await toggle.click();
+      await expect(shell).toHaveClass(/mobile-nav-open/);
+      await expect(toggle).toHaveAttribute("aria-label", "Close navigation");
+      await expect(toggle).toHaveAttribute("title", "Close navigation");
+      await expect(toggle).toHaveAttribute("aria-expanded", "true");
+      expect(await sidebar.evaluate((element) => element.inert)).toBe(false);
+
+      await page.locator('.nav-item[data-nav-id="guest-requests"]').click();
+      await expect(page.locator("#requests")).toHaveClass(/active/);
+      await expect(shell).not.toHaveClass(/mobile-nav-open/);
+      await expect(toggle).toHaveAttribute("aria-label", "Open navigation");
+      await expect(toggle).toHaveAttribute("title", "Open navigation");
+      await expect(toggle).toHaveAttribute("aria-expanded", "false");
+      await expect(toggle).toBeFocused();
+      expect(await sidebar.evaluate((element) => element.inert)).toBe(true);
+
+      // Native Tab navigation must skip the closed, inert drawer.
+      for (let index = 0; index < 24; index += 1) {
+        await page.keyboard.press("Tab");
+        expect(await page.evaluate(() => Boolean(document.activeElement?.closest(".platform-sidebar")))).toBe(false);
+      }
+
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await expect(toggle).toHaveAttribute("aria-label", "Collapse sidebar");
+      await expect(toggle).toHaveAttribute("title", "Collapse sidebar");
+      await expect(toggle).toHaveAttribute("aria-expanded", "true");
+      await expect(shell).not.toHaveClass(/mobile-nav-open/);
+      await expect(shell).not.toHaveClass(/sidebar-collapsed/);
+      expect(await sidebar.evaluate((element) => element.inert)).toBe(false);
+
+      await toggle.click();
+      await expect(shell).toHaveClass(/sidebar-collapsed/);
+      await expect(toggle).toHaveAttribute("aria-label", "Expand sidebar");
+      await expect(toggle).toHaveAttribute("title", "Expand sidebar");
+      await expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+      await page.setViewportSize({ width: 375, height: 812 });
+      await expect(toggle).toHaveAttribute("aria-label", "Open navigation");
+      await expect(toggle).toHaveAttribute("title", "Open navigation");
+      await expect(toggle).toHaveAttribute("aria-expanded", "false");
+      await expect(shell).not.toHaveClass(/sidebar-collapsed/);
+      await expect(shell).not.toHaveClass(/mobile-nav-open/);
+      expect(await sidebar.evaluate((element) => element.inert)).toBe(true);
+
+      await toggle.click();
+      await expect(toggle).toHaveAttribute("aria-label", "Close navigation");
+      await expect(toggle).toHaveAttribute("aria-expanded", "true");
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await expect(toggle).toHaveAttribute("aria-label", "Expand sidebar");
+      await expect(toggle).toHaveAttribute("aria-expanded", "false");
+      await expect(shell).not.toHaveClass(/mobile-nav-open/);
+      await expect(shell).toHaveClass(/sidebar-collapsed/);
+      expect(await sidebar.evaluate((element) => element.inert)).toBe(false);
+
+      await page.setViewportSize({ width: 620, height: 812 });
+      await expect(toggle).toHaveAttribute("aria-label", "Open navigation");
+      await expect(toggle).toHaveAttribute("aria-expanded", "false");
+      await expect(shell).not.toHaveClass(/sidebar-collapsed/);
+      expect(await sidebar.evaluate((element) => element.inert)).toBe(true);
+
+      await page.setViewportSize({ width: 621, height: 812 });
+      await expect(toggle).toHaveAttribute("aria-label", "Expand sidebar");
+      await expect(toggle).toHaveAttribute("aria-expanded", "false");
+      await expect(shell).toHaveClass(/sidebar-collapsed/);
+      expect(await sidebar.evaluate((element) => element.inert)).toBe(false);
+      expect(pageErrors).toEqual([]);
+    });
+  });
+
+  test.describe("desktop sidebar", () => {
+    test.use({ viewport: { width: 1440, height: 900 }, isMobile: false, hasTouch: false });
+
+    test("labels match expanded state and the saved preference survives reload", async ({ page }, testInfo) => {
+      test.skip(testInfo.project.name !== "chromium", "The desktop sidebar state test runs in standard Chromium.");
+      const pageErrors = [];
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await page.addInitScript(() => {
+        if (localStorage.getItem("concierge.admin.sidebar") === null) {
+          localStorage.setItem("concierge.admin.sidebar", "expanded");
+        }
+      });
+      await page.goto("/admin");
+      await page.locator('body[data-admin-ready="true"]').waitFor();
+
+      const shell = page.locator("#platform-shell");
+      const sidebar = page.locator("#platform-sidebar");
+      const toggle = page.locator("#sidebar-toggle");
+      await expect(toggle).toHaveAttribute("aria-label", "Collapse sidebar");
+      await expect(toggle).toHaveAttribute("title", "Collapse sidebar");
+      await expect(toggle).toHaveAttribute("aria-expanded", "true");
+      await expect(shell).not.toHaveClass(/sidebar-collapsed/);
+      expect(await sidebar.evaluate((element) => element.inert)).toBe(false);
+
+      await toggle.click();
+      await expect(shell).toHaveClass(/sidebar-collapsed/);
+      await expect(toggle).toHaveAttribute("aria-label", "Expand sidebar");
+      await expect(toggle).toHaveAttribute("title", "Expand sidebar");
+      await expect(toggle).toHaveAttribute("aria-expanded", "false");
+      expect(await page.evaluate(() => localStorage.getItem("concierge.admin.sidebar"))).toBe("collapsed");
+
+      await page.reload();
+      await page.locator('body[data-admin-ready="true"]').waitFor();
+      await expect(shell).toHaveClass(/sidebar-collapsed/);
+      await expect(toggle).toHaveAttribute("aria-label", "Expand sidebar");
+      await expect(toggle).toHaveAttribute("title", "Expand sidebar");
+      await expect(toggle).toHaveAttribute("aria-expanded", "false");
+      expect(await sidebar.evaluate((element) => element.inert)).toBe(false);
+
+      await toggle.click();
+      await expect(shell).not.toHaveClass(/sidebar-collapsed/);
+      await expect(toggle).toHaveAttribute("aria-label", "Collapse sidebar");
+      await expect(toggle).toHaveAttribute("title", "Collapse sidebar");
+      await expect(toggle).toHaveAttribute("aria-expanded", "true");
+      await page.reload();
+      await page.locator('body[data-admin-ready="true"]').waitFor();
+      await expect(shell).not.toHaveClass(/sidebar-collapsed/);
+      await expect(toggle).toHaveAttribute("aria-label", "Collapse sidebar");
+      expect(await page.evaluate(() => localStorage.getItem("concierge.admin.sidebar"))).toBe("expanded");
+      expect(pageErrors).toEqual([]);
+    });
+  });
+});
+
 test("sidebar: all navigation items are visible and clickable", async ({ page }) => {
   await page.goto("/admin");
   await expect(page.locator('.nav-item[data-nav-id="knowledge-overview"]')).toHaveCount(0);
