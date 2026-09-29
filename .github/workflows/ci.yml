@@ -202,6 +202,8 @@ jobs:
           export ENABLE_BACKGROUND_WORKERS=false
           export METRICS_TOKEN="$(openssl rand -hex 24)"
           export REDIS_URL=redis://127.0.0.1:6379/0
+          export LOCAL_AI_ALLOWED_ENDPOINTS=http://127.0.0.1:8081
+          python -c 'from app.config import settings; from app.properties import PropertyRecord, PropertyStore; PropertyStore(settings.db_path).upsert(PropertyRecord(property_id="ci-property", hotel_name="CI Load Smoke"))'
           python loadtest/mock_ai.py > /tmp/concierge-mock-ai.log 2>&1 &
           mock_pid=$!
           python -m uvicorn app.main:app --host 127.0.0.1 --port 8092 > /tmp/concierge-api.log 2>&1 &

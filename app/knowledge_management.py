@@ -531,7 +531,7 @@ class KnowledgeStore:
 
     def conflicts(self, property_id: str) -> list[dict[str, Any]]:
         with self._db() as db:
-            rows = db.execute("SELECT * FROM km_conflicts WHERE property_id=? ORDER BY status, rowid DESC", (property_id,)).fetchall()
+            rows = db.execute("SELECT * FROM km_conflicts WHERE property_id=? ORDER BY status, conflict_id DESC", (property_id,)).fetchall()
         return [dict(row) for row in rows]
 
     def resolve_conflict(self, property_id: str, conflict_id: str, winner_id: str, note: str, actor: str) -> dict[str, Any]:

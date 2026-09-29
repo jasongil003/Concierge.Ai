@@ -319,6 +319,22 @@ def _start_guest(client: TestClient, property_id: str = "hotel-a") -> str:
     return session_id
 
 
+def _client_guest_credentials(client: TestClient, session_id: str) -> tuple[str | None, str | None]:
+    token_name, context_name = main_module._guest_cookie_names(session_id)
+    token = client.cookies.get(token_name)
+    context = client.cookies.get(context_name)
+    if token and not context and "." in token:
+        return tuple(token.split(".", 1))
+    return token, context
+
+
+def _client_guest_cookie_header(client: TestClient, session_id: str) -> str:
+    token_name, context_name = main_module._guest_cookie_names(session_id)
+    cookies = dict(client.cookies.items())
+    selected = [f"{name}={cookies[name]}" for name in (token_name, context_name) if name in cookies]
+    return "; ".join(selected)
+
+
 def test_stolen_guest_session_id_alone_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     _guest_replay_stores(tmp_path, monkeypatch)
     with TestClient(app, base_url="http://a.example.test") as original:
@@ -344,10 +360,7 @@ def test_guest_credentials_reject_cross_property_replay(tmp_path: Path, monkeypa
     with TestClient(app, base_url="http://a.example.test") as original:
         session_id = _start_guest(original)
         token_name, context_name = main_module._guest_cookie_names(session_id)
-        credentials = (
-            f"{token_name}={original.cookies.get(token_name)}; "
-            f"{context_name}={original.cookies.get(context_name)}"
-        )
+        credentials = _client_guest_cookie_header(original, session_id)
         # The original browser can still access its session.
         assert original.get("/api/guest/personalization").status_code == 200
 
@@ -375,6 +388,26 @@ def test_expired_guest_credential_is_rejected(tmp_path: Path, monkeypatch: pytes
         response = client.get("/api/guest/personalization")
 
     assert response.status_code == 401
+
+
+def test_expired_guest_credentials_cannot_resume_and_their_cookie_is_cleared(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    session_store = _guest_replay_stores(tmp_path, monkeypatch)
+    with TestClient(app, base_url="http://a.example.test") as client:
+        session_id = _start_guest(client)
+        token_cookie_name = main_module._guest_cookie_names(session_id)[0]
+        with session_store._connect() as db:
+            db.execute(
+                "UPDATE sessions SET guest_token_expires_at=? WHERE session_id=?",
+                (int(time.time()) - 1, session_id),
+            )
+        resumed = client.post(
+            "/api/session/resume",
+            json={"client_id": "browser-client", "session_id": session_id},
+        )
+        assert resumed.status_code == 401
+        assert client.cookies.get(token_cookie_name) is None
 
 
 def test_active_guest_activity_slides_expiry_and_refreshes_cookie_age(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -420,11 +453,57 @@ def test_inactive_guest_session_expires_by_property_timeout(tmp_path: Path, monk
 def test_revoked_guest_credential_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     session_store = _guest_replay_stores(tmp_path, monkeypatch)
     with TestClient(app, base_url="http://a.example.test") as client:
-        session_id = _start_guest(client)
-        session_store.revoke_guest_credentials(session_id)
-        response = client.get("/api/guest/personalization")
+        revoked_session_id = _start_guest(client)
+        active_session_id = _start_guest(client)
+        revoked_cookie_name = main_module._guest_cookie_names(revoked_session_id)[0]
+        active_cookie_name = main_module._guest_cookie_names(active_session_id)[0]
+        session_store.revoke_guest_credentials(revoked_session_id)
+        response = client.get(
+            "/api/guest/personalization",
+            headers={"X-Concierge-Session": revoked_session_id},
+        )
+        assert response.status_code == 401
+        assert client.cookies.get(revoked_cookie_name) is None
+        assert client.cookies.get(active_cookie_name) is not None
+        assert client.get(
+            "/api/guest/personalization",
+            headers={"X-Concierge-Session": active_session_id},
+        ).status_code == 200
 
-    assert response.status_code == 401
+
+@pytest.mark.parametrize("session_count", [2, 10, 25, 50])
+def test_guest_cookie_headers_scale_across_concurrent_sessions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    session_count: int,
+):
+    _guest_replay_stores(tmp_path, monkeypatch)
+    session_ids: list[str] = []
+    with TestClient(app, base_url="http://a.example.test") as tabs:
+        for index in range(session_count):
+            started = tabs.post(
+                "/api/session/start",
+                json={"client_id": f"browser-tab-{index}", "property_id": "hotel-a"},
+            )
+            assert started.status_code == 200, started.text
+            session_ids.append(started.json()["session_id"])
+
+        cookie_header = "; ".join(
+            f"{name}={value}" for name, value in tabs.cookies.items()
+        )
+        assert len(tabs.cookies) == session_count
+        assert len(cookie_header.encode("ascii")) < 8192, (
+            f"{session_count} active sessions produced a {len(cookie_header)} byte Cookie header"
+        )
+
+        # A browser sends all same-origin cookies to every tab. The session
+        # selector must still pick only that tab's credential pair.
+        for session_id in session_ids:
+            response = tabs.get(
+                f"/api/guest/personalization?session_id={session_id}",
+                headers={"X-Concierge-Session": session_id},
+            )
+            assert response.status_code == 200, response.text
 
 
 def test_resume_cannot_revive_revoked_guest_credentials(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -499,15 +578,15 @@ def test_guest_sessions_keep_tab_credentials_and_data_separate(tmp_path: Path, m
 
     with TestClient(app, base_url="http://a.example.test") as tabs:
         session_a = _start_guest(tabs)
-        token_a_name, context_a_name = main_module._guest_cookie_names(session_a)
-        token_a, context_a = tabs.cookies.get(token_a_name), tabs.cookies.get(context_a_name)
+        token_a, context_a = _client_guest_credentials(tabs, session_a)
         assert token_a and context_a
 
         session_b = _start_guest(tabs)
-        token_b_name, context_b_name = main_module._guest_cookie_names(session_b)
-        token_b, context_b = tabs.cookies.get(token_b_name), tabs.cookies.get(context_b_name)
+        token_b, context_b = _client_guest_credentials(tabs, session_b)
         assert token_b and context_b
         assert (token_a, context_a) != (token_b, context_b)
+        token_a_name, context_a_name = main_module._guest_cookie_names(session_a)
+        token_b_name, context_b_name = main_module._guest_cookie_names(session_b)
         assert token_a_name != token_b_name and context_a_name != context_b_name
 
         enabled = tabs.put(
@@ -572,7 +651,7 @@ def test_guest_sessions_keep_tab_credentials_and_data_separate(tmp_path: Path, m
             )
         assert theft.status_code == 401
 
-        a_only_cookie = f"{token_a_name}={token_a}; {context_a_name}={context_a}"
+        a_only_cookie = _client_guest_cookie_header(tabs, session_a)
         with TestClient(app, base_url="http://a.example.test") as wrong_tab:
             wrong_tab_request = wrong_tab.post(
                 "/api/guest/service-requests",
@@ -598,9 +677,7 @@ def test_guest_tokens_are_opaque_hashed_and_not_logged(tmp_path: Path, monkeypat
         assert response.status_code == 200, response.text
         session_id = response.json()["session_id"]
         client.headers["X-Concierge-Session"] = session_id
-        token_name, context_name = main_module._guest_cookie_names(session_id)
-        token = client.cookies.get(token_name)
-        context = client.cookies.get(context_name)
+        token, context = _client_guest_credentials(client, session_id)
         assert token and context
         assert len(token) >= 40 and len(context) >= 40
         assert token not in response.text and context not in response.text
@@ -617,16 +694,38 @@ def test_guest_session_credentials_rotate_on_resume(tmp_path: Path, monkeypatch:
     _guest_replay_stores(tmp_path, monkeypatch)
     with TestClient(app, base_url="http://a.example.test") as client:
         session_id = _start_guest(client)
-        token_name, context_name = main_module._guest_cookie_names(session_id)
-        old_credentials = (client.cookies.get(token_name), client.cookies.get(context_name))
+        old_credentials = _client_guest_credentials(client, session_id)
         resumed = client.post(
             "/api/session/resume",
             json={"client_id": "browser-client", "session_id": session_id},
         )
         assert resumed.status_code == 200, resumed.text
-        new_credentials = (client.cookies.get(token_name), client.cookies.get(context_name))
+        new_credentials = _client_guest_credentials(client, session_id)
         assert new_credentials != old_credentials
         assert client.get("/api/guest/personalization").status_code == 200
+
+
+def test_legacy_guest_cookies_are_rotated_and_removed_after_valid_use(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    session_store = _guest_replay_stores(tmp_path, monkeypatch)
+    session = session_store.create("hotel-a", "legacy-browser")
+    old_token, old_context = session_store.issue_guest_credentials(session.session_id, ttl_seconds=300)
+    legacy_token_name, legacy_context_name = main_module._guest_cookie_names()
+    with TestClient(app, base_url="http://a.example.test") as client:
+        client.cookies.set(legacy_token_name, old_token, domain="a.example.test", path="/")
+        client.cookies.set(legacy_context_name, old_context, domain="a.example.test", path="/")
+        response = client.get(
+            f"/api/guest/personalization?session_id={session.session_id}",
+            headers={"X-Concierge-Session": session.session_id},
+        )
+        assert response.status_code == 200, response.text
+        assert client.cookies.get(legacy_token_name) is None
+        assert client.cookies.get(legacy_context_name) is None
+        new_credentials = _client_guest_credentials(client, session.session_id)
+        assert new_credentials[0] and new_credentials[1]
+        assert new_credentials != (old_token, old_context)
+        assert session_store.verify_guest_credentials(session.session_id, *new_credentials)
 
 
 def test_production_guest_cookies_are_secure_httponly_and_same_site(monkeypatch: pytest.MonkeyPatch):
@@ -640,9 +739,11 @@ def test_production_guest_cookies_are_secure_httponly_and_same_site(monkeypatch:
 
     cookies = response.headers.getlist("set-cookie")
     assert len(cookies) == 2
+    credential_cookie = next(cookie for cookie in cookies if "Max-Age=300" in cookie)
+    cleared_context_cookie = next(cookie for cookie in cookies if "Max-Age=0" in cookie)
     assert all("Secure" in cookie and "HttpOnly" in cookie and "SameSite=strict" in cookie for cookie in cookies)
-    assert all("Path=/" in cookie and "Max-Age=300" in cookie for cookie in cookies)
-    assert any(cookie.startswith("__Host-concierge_guest_") for cookie in cookies)
+    assert "Path=/" in credential_cookie and "__Host-concierge_guest_" in credential_cookie
+    assert "Path=/" in cleared_context_cookie and "__Host-concierge_guest_" in cleared_context_cookie
 
 
 def test_hotel_a_admin_cannot_access_hotel_b_without_permission(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

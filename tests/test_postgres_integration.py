@@ -264,3 +264,38 @@ def test_service_request_query_uses_high_volume_composite_index():
     finally:
         with engine.begin() as connection:
             connection.execute(text("DELETE FROM service_requests WHERE property_id=:property_id"), {"property_id": property_id})
+
+
+def test_postgres_guest_zones_knowledge_conflicts_and_service_request_replay(tmp_path):
+    """Exercise legacy store queries that must remain portable to PostgreSQL."""
+    _configure()
+    from app.hospitality import HospitalityStore
+    from app.knowledge_management import KnowledgeStore
+    from app.properties import PropertyRecord, PropertyStore
+    from app.zones import ZoneStore
+
+    property_id = f"pg-guest-path-{uuid.uuid4().hex[:12]}"
+    db_path = tmp_path / "postgres-path-is-ignored.db"
+    properties = PropertyStore(db_path)
+    hospitality = HospitalityStore(db_path)
+    zones = ZoneStore(db_path)
+    knowledge = KnowledgeStore(db_path, tmp_path / "uploads")
+    properties.upsert(PropertyRecord(property_id=property_id, hotel_name="Postgres Guest Path"))
+    client_request_id = f"guest-{uuid.uuid4().hex}"
+    payload = {
+        "stay_id": f"stay-{uuid.uuid4().hex}",
+        "description": "Please bring extra towels.",
+        "client_request_id": client_request_id,
+    }
+
+    try:
+        assert zones.overview(property_id, guest=True)["maps"] == []
+        assert knowledge.conflicts(property_id) == []
+        created = hospitality.create_service_request(property_id, payload)
+        replayed = hospitality.create_service_request(property_id, payload)
+        assert replayed["request_id"] == created["request_id"]
+        assert replayed["idempotent_replay"] is True
+    finally:
+        with connect_database(db_path) as db:
+            db.execute("DELETE FROM service_requests WHERE property_id=?", (property_id,))
+            db.execute("DELETE FROM properties WHERE property_id=?", (property_id,))

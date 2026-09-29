@@ -6734,6 +6734,8 @@ function setup() {
     showToast("Unsaved editor changes reset to the saved draft.");
   });
   $("design-save-shortcut").addEventListener("click", () => saveDraft().catch((error) => showToast(error.message, "error")));
+  $("design-discard-shortcut").addEventListener("click", () => discardDesign().catch((error) => showToast(error.message, "error")));
+  $("design-publish-shortcut").addEventListener("click", () => publishDesign().catch((error) => showToast(error.message, "error")));
   $("save-draft").addEventListener("click", () => saveDraft().catch((error) => showToast(error.message, "error")));
   $("save-auth-types").addEventListener("click", () => saveAuthenticationTypes().catch((error) => showToast(error.message, "error")));
   $("publish-design").addEventListener("click", () => publishDesign().catch((error) => showToast(error.message, "error")));
