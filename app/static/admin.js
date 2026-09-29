@@ -1915,9 +1915,19 @@ function prettifyAccessStatus(value) {
   return String(value || "not_configured").replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+let networkAccessLoadSequence = 0;
+
 async function loadNetworkAccess() {
-  const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/network-access/status`);
-  state.networkAccess = data;
+  const loadSequence = ++networkAccessLoadSequence;
+  const guestFields = $("guest-access-fields");
+  if (guestFields) {
+    guestFields.disabled = true;
+    guestFields.setAttribute("aria-busy", "true");
+  }
+  try {
+    const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/network-access/status`);
+    if (loadSequence !== networkAccessLoadSequence) return;
+    state.networkAccess = data;
   const management = data.management || {};
   const guest = data.guest || {};
   const managementStatus = prettifyAccessStatus(management.status);
@@ -1962,7 +1972,6 @@ async function loadNetworkAccess() {
   $("guardrail-timeout").value = guest.guest_session_timeout || 30;
   $("guardrail-antlabs").checked = Boolean(guest.antlabs_gateway_enabled);
   $("guardrail-antlabs-ranges").value = (guest.antlabs_gateway_ranges || []).join("\n");
-  $("guest-access-fields").disabled = !can("network.manage");
   $("domain-status").textContent = prettifyAccessStatus(guest.domain_status);
   $("domain-addresses").textContent = (guest.resolved_addresses || []).join(", ") || "—";
   $("deployment-last-checked").textContent = guest.last_checked_at ? formatDate(guest.last_checked_at) : "Never";
@@ -1981,6 +1990,12 @@ async function loadNetworkAccess() {
   $("network-overview-guest-url").textContent = guestUrl;
   $("network-overview-guest-network-only").textContent = guest.guest_network_only === false ? "Disabled" : "Enabled";
   $("network-overview-ssl").textContent = sslStatus;
+  } finally {
+    if (loadSequence === networkAccessLoadSequence && guestFields) {
+      guestFields.disabled = !can("network.manage");
+      guestFields.removeAttribute("aria-busy");
+    }
+  }
 }
 
 async function saveManagementAccess() {
