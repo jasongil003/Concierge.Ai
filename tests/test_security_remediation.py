@@ -228,7 +228,12 @@ def test_password_recovery_link_fails_closed_without_public_origin(monkeypatch: 
         main_module._admin_password_reset_url(request, "opaque-token")
 
 
-def test_deployment_verification_rejects_private_dns_answers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+@pytest.mark.parametrize("address", ["127.0.0.1", "10.10.0.5", "100.64.0.1", "fd00::1"])
+def test_deployment_verification_rejects_private_dns_answers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    address: str,
+):
     import asyncio
     import socket
 
@@ -236,7 +241,9 @@ def test_deployment_verification_rejects_private_dns_answers(tmp_path: Path, mon
     monkeypatch.setattr(
         main_module.socket,
         "getaddrinfo",
-        lambda *args, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443))],
+        lambda *args, **kwargs: [
+            (socket.AF_INET6 if ":" in address else socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, 443))
+        ],
     )
 
     def unexpected_connection(*args, **kwargs):

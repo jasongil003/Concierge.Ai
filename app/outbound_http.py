@@ -62,9 +62,35 @@ class OutboundRequestBroker:
             if redirect_count >= self.max_redirects:
                 self._audit("outbound_redirect_blocked", {"host": urlsplit(current).hostname, "reason": "redirect_limit"})
                 raise OutboundRequestError("Outbound redirect limit exceeded.")
-            current = urljoin(current, location)
+            target = urljoin(current, location)
+            if self._origin(current) != self._origin(target):
+                self._audit(
+                    "outbound_redirect_blocked",
+                    {"host": urlsplit(current).hostname, "reason": "cross_origin_redirect"},
+                )
+                raise OutboundRequestError("Cross-origin outbound redirects are blocked.")
+            current = target
             self._audit("outbound_redirect", {"from_host": urlsplit(response.url).hostname, "to_host": urlsplit(current).hostname})
         raise OutboundRequestError("Outbound redirect limit exceeded.")
+
+    @staticmethod
+    def _origin(url: str) -> tuple[str, str, int]:
+        try:
+            parsed = urlsplit(url)
+            if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+                raise ValueError
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        except ValueError as exc:
+            raise OutboundRequestError("Outbound redirect target is invalid.") from exc
+        hostname = parsed.hostname.casefold().rstrip(".")
+        try:
+            hostname = ipaddress.ip_address(hostname).compressed
+        except ValueError:
+            try:
+                hostname = hostname.encode("idna").decode("ascii")
+            except UnicodeError as exc:
+                raise OutboundRequestError("Outbound redirect target is invalid.") from exc
+        return parsed.scheme.casefold(), hostname, port
 
     @staticmethod
     async def _resolve(hostname: str, port: int) -> list[str]:
@@ -77,14 +103,7 @@ class OutboundRequestBroker:
         address = ipaddress.ip_address(value)
         if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
             address = address.ipv4_mapped
-        return any((
-            address.is_private,
-            address.is_loopback,
-            address.is_link_local,
-            address.is_multicast,
-            address.is_reserved,
-            address.is_unspecified,
-        ))
+        return not address.is_global
 
     async def _request_once(self, url: str, content: bytes, supplied_headers: dict[str, str]) -> OutboundResponse:
         parsed = urlsplit(str(url).strip())
@@ -101,6 +120,21 @@ class OutboundRequestBroker:
         if hostname == "localhost" or hostname.endswith(".localhost"):
             self._audit("outbound_request_blocked", {"host": hostname, "reason": "localhost"})
             raise OutboundRequestError("Local and internal destinations are blocked.")
+        safe_supplied_headers: dict[str, str] = {}
+        for key, value in supplied_headers.items():
+            name = str(key)
+            header_value = str(value)
+            valid_name = bool(name) and name.isascii() and all(
+                character.isalnum() or character in "!#$%&'*+-.^_`|~" for character in name
+            )
+            valid_value = header_value.isascii() and all(
+                (ord(character) >= 32 and ord(character) != 127) or character == "\t"
+                for character in header_value
+            )
+            if not valid_name or not valid_value:
+                raise OutboundRequestError("Outbound request contains an invalid header.")
+            if name.casefold() not in {"host", "content-length", "connection"}:
+                safe_supplied_headers[name] = header_value
         try:
             addresses = await asyncio.wait_for(self._resolver(hostname, port), timeout=self.timeout_seconds)
         except (OSError, asyncio.TimeoutError) as exc:
@@ -121,9 +155,9 @@ class OutboundRequestBroker:
             connect_args["server_hostname"] = hostname
         try:
             reader, writer = await asyncio.wait_for(self._connector(**connect_args), timeout=self.timeout_seconds)
-            host_header = hostname
+            host_header = f"[{hostname}]" if ":" in hostname else hostname
             if explicit_port and explicit_port != (443 if parsed.scheme == "https" else 80):
-                host_header = f"{hostname}:{explicit_port}"
+                host_header = f"[{hostname}]:{explicit_port}" if ":" in hostname else f"{hostname}:{explicit_port}"
             target = urlunsplit(("", "", parsed.path or "/", parsed.query, ""))
             headers = {
                 "Host": host_header,
@@ -132,7 +166,7 @@ class OutboundRequestBroker:
                 "Accept-Encoding": "identity",
                 "Connection": "close",
                 "Content-Length": str(len(content)),
-                **{str(key): str(value) for key, value in supplied_headers.items() if key.casefold() not in {"host", "content-length", "connection"}},
+                **safe_supplied_headers,
             }
             request_bytes = (
                 f"POST {target} HTTP/1.1\r\n"

@@ -82,6 +82,19 @@ def test_ssrf_guard_blocks_internal_destinations(url: str):
         InternetGuard.validate_url(url)
 
 
+def test_ssrf_url_validation_blocks_carrier_nat_and_benchmark_ranges(monkeypatch: pytest.MonkeyPatch):
+    import socket
+
+    monkeypatch.setattr(
+        "app.guardrails.socket.getaddrinfo",
+        lambda *args, **kwargs: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("100.64.0.1", 443))
+        ],
+    )
+    with pytest.raises(ValueError, match="blocked"):
+        InternetGuard.validate_url("https://untrusted.example/webhook")
+
+
 def test_action_guard_requires_backend_confirmation():
     guard = ActionGuard()
     pending = guard.decide("service_request", "hotel-a", {}, "req-action", confirmed=False)
@@ -109,6 +122,104 @@ def test_cross_origin_guest_mutation_is_denied():
             "/api/session/start",
             headers={"Origin": "https://attacker.example"},
             json={"client_id": "cross-origin"},
+        )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Cross-origin guest mutation denied."
+
+
+@pytest.mark.parametrize(
+    "source_header",
+    [
+        {"Origin": "http://attacker.example"},
+        {"Referer": "http://attacker.example/guest/index.html"},
+    ],
+)
+def test_matching_but_unconfigured_host_and_origin_cannot_start_guest_session(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    source_header: dict[str, str],
+):
+    from dataclasses import replace
+
+    property_store = PropertyStore(tmp_path / "origin-allowlist.db")
+    property_store.upsert(PropertyRecord(property_id="test-property", hotel_name="Test Property"))
+    monkeypatch.setattr(main_module, "properties", property_store)
+    monkeypatch.setattr(
+        main_module,
+        "settings",
+        replace(main_module.settings, canonical_hosts=(), allow_body_property_selection=False),
+    )
+    monkeypatch.setattr(main_module, "store", SessionStore(tmp_path / "origin-sessions.db"))
+
+    with TestClient(app, base_url="http://attacker.example") as client:
+        response = client.post(
+            "/api/session/start",
+            headers=source_header,
+            json={"client_id": "host-header-spoof"},
+        )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Cross-origin guest mutation denied."
+
+
+def test_configured_guest_domain_can_start_session_with_matching_origin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    property_store = PropertyStore(tmp_path / "origin-configured.db")
+    property_store.upsert(PropertyRecord(
+        property_id="test-property",
+        hotel_name="Test Property",
+        domain="hotel.example.test",
+        guardrails={"allowed_cidrs": ["127.0.0.0/8"]},
+    ))
+    monkeypatch.setattr(main_module, "properties", property_store)
+    monkeypatch.setattr(main_module, "store", SessionStore(tmp_path / "origin-configured-sessions.db"))
+
+    with TestClient(app, base_url="http://hotel.example.test") as client:
+        response = client.post(
+            "/api/session/start",
+            headers={"Origin": "http://hotel.example.test"},
+            json={"client_id": "configured-origin"},
+        )
+
+    assert response.status_code == 200, response.text
+
+    with TestClient(app, base_url="http://hotel.example.test") as client:
+        referer_response = client.post(
+            "/api/session/start",
+            headers={"Referer": "http://hotel.example.test/guest/index.html"},
+            json={"client_id": "configured-referer"},
+        )
+
+    assert referer_response.status_code == 200, referer_response.text
+
+
+def test_guest_mutation_rejects_explicit_zero_origin_port(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    property_store = PropertyStore(tmp_path / "origin-zero-port.db")
+    property_store.upsert(PropertyRecord(
+        property_id="test-property",
+        hotel_name="Test Property",
+        domain="hotel.example.test",
+        guardrails={"allowed_cidrs": ["127.0.0.0/8"]},
+    ))
+    monkeypatch.setattr(main_module, "properties", property_store)
+    monkeypatch.setattr(main_module, "store", SessionStore(tmp_path / "origin-zero-port-sessions.db"))
+
+    with TestClient(app, base_url="http://hotel.example.test") as client:
+        response = client.post(
+            "/api/session/start",
+            headers={"Origin": "http://hotel.example.test:0"},
+            json={"client_id": "invalid-origin-port"},
+        )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Cross-origin guest mutation denied."
+
+
+def test_guest_mutation_rejects_cross_site_fetch_metadata_without_origin():
+    with TestClient(app, base_url="http://127.0.0.1:8092") as client:
+        response = client.post(
+            "/api/session/start",
+            headers={"Sec-Fetch-Site": "cross-site"},
+            json={"client_id": "cross-site-fetch"},
         )
     assert response.status_code == 403
     assert response.json()["detail"] == "Cross-origin guest mutation denied."

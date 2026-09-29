@@ -795,12 +795,17 @@ class AdminAuthStore:
         encoded = hash_password(new_password)
         now = int(time.time())
         with self._connect() as db:
+            # Claim the one-time token with a conditional write before changing
+            # the password. A SELECT followed by an unconditional UPDATE lets
+            # two concurrent confirmations both observe the unused token.
             row = db.execute(
                 """
-                SELECT reset_id, user_id FROM admin_password_resets
+                UPDATE admin_password_resets
+                SET used_at = ?
                 WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?
+                RETURNING reset_id, user_id
                 """,
-                (self._token_hash(token), now),
+                (now, self._token_hash(token), now),
             ).fetchone()
             if row is None:
                 raise AuthenticationError("Reset link is invalid or has expired.")
@@ -808,7 +813,6 @@ class AdminAuthStore:
                 "UPDATE admin_users SET password_hash = ?, force_password_change = 0, failed_login_count = 0, locked_until = NULL, status = 'active', updated_at = ? WHERE user_id = ?",
                 (encoded, now, row["user_id"]),
             )
-            db.execute("UPDATE admin_password_resets SET used_at = ? WHERE reset_id = ?", (now, row["reset_id"]))
             db.execute("UPDATE admin_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL", (now, row["user_id"]))
         self.audit(None, "auth.password_reset_completed", "user", row["user_id"])
 

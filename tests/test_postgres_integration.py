@@ -4,7 +4,10 @@ import os
 import sqlite3
 import subprocess
 import sys
+import threading
+import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from alembic import command
@@ -123,6 +126,56 @@ def test_postgres_schema_inspection_bootstrap_and_assignment_validation(tmp_path
             db.execute("DELETE FROM restaurants WHERE property_id=?", (property_id,))
             db.execute("DELETE FROM departments WHERE property_id=?", (property_id,))
             db.execute("DELETE FROM properties WHERE property_id=?", (property_id,))
+
+
+def test_postgres_password_reset_token_is_claimed_once_under_concurrency(tmp_path):
+    _configure()
+    from app.admin_auth import AdminAuthStore, AuthenticationError
+
+    auth = AdminAuthStore(tmp_path / "postgres-reset-race.db")
+    username = f"pg-reset-{uuid.uuid4().hex[:12]}"
+    initial_password = "Postgres-Reset-Initial-123!"
+    token = f"pg-reset-token-{uuid.uuid4().hex}"
+    auth.ensure_bootstrap_admin(username, initial_password, "Postgres Reset Race")
+
+    with auth._connect() as db:
+        user = db.execute(
+            "SELECT user_id FROM admin_users WHERE normalized_username = ?",
+            (username.casefold(),),
+        ).fetchone()
+        user_id = user["user_id"]
+        db.execute(
+            "INSERT INTO admin_password_resets "
+            "(reset_id,user_id,token_hash,expires_at,used_at,created_at) "
+            "VALUES (?,?,?,?,NULL,?)",
+            (str(uuid.uuid4()), user_id, auth._token_hash(token), int(time.time()) + 300, int(time.time())),
+        )
+
+    try:
+        barrier = threading.Barrier(2)
+
+        def consume(password: str) -> str:
+            barrier.wait(timeout=10)
+            try:
+                auth.consume_password_reset(token, password)
+                return password
+            except AuthenticationError:
+                return "rejected"
+
+        passwords = ("Postgres-Reset-First-123!", "Postgres-Reset-Second-123!")
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            outcomes = list(executor.map(consume, passwords))
+
+        accepted = [outcome for outcome in outcomes if outcome != "rejected"]
+        assert len(accepted) == 1
+        _, principal = auth.login(username, accepted[0], "127.0.0.1", "postgres reset integration")
+        assert principal.username == username
+    finally:
+        with auth._connect() as db:
+            db.execute("DELETE FROM admin_password_resets WHERE user_id = ?", (user_id,))
+            db.execute("DELETE FROM admin_sessions WHERE user_id = ?", (user_id,))
+            db.execute("DELETE FROM admin_users WHERE user_id = ?", (user_id,))
+
 
 
 def test_fresh_postgres_schema_starts_application(tmp_path):

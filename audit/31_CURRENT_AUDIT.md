@@ -1,5 +1,7 @@
 # Concierge.AI — Current QA and Production Readiness Audit
 
+> Superseded on 2026-09-29. Use [VULNERABILITY_AUDIT.md](VULNERABILITY_AUDIT.md), [VULNERABILITY_FINDINGS.md](VULNERABILITY_FINDINGS.md), and [SECURITY_TEST_RESULTS.md](SECURITY_TEST_RESULTS.md) for current security findings and verification. This document remains as the point-in-time 2026-09-26 audit record.
+
 Audit date: 2026-09-26. Scope: worktree on `audit/production-readiness-final` at `5a71800`, matching the locally cached `origin/main` ref. The initial worktree contained 15 modified tracked files; they were preserved. `git fetch origin` could not authenticate to GitHub, so the current remote tip could not be verified. This is a code and automated-test audit, not a live hotel, gateway, or production-provider certification. No commits or pushes were made.
 
 # 1. Executive Summary
