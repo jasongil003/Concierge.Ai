@@ -697,67 +697,96 @@ test("preview controls are interactive and intro settings save", async ({ page }
   await expect(page.locator("#intro-mode")).toHaveValue("generate_from_logo");
 });
 
+test.describe("admin navigation at a 375px viewport", () => {
+test.use({ viewport: { width: 375, height: 812 } });
+
 test("every visible admin tab opens with page-specific guidance", async ({ page }) => {
   const pageErrors = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.goto("/admin");
   await page.locator('body[data-admin-ready="true"]').waitFor();
   const destinations = await page.locator(".nav-item").evaluateAll((items) => {
-    const seen = new Set();
     return items.flatMap((item) => {
       const panel = item.dataset.panel;
-      if (!panel || seen.has(panel)) return [];
-      seen.add(panel);
+      if (!panel) return [];
       return [{ navId: item.dataset.navId, panel }];
     });
   });
 
   for (const { navId, panel } of destinations) {
-    if ((page.viewportSize()?.width || 1440) <= 620) {
-      const shell = page.locator(".platform-shell");
-      if (!(await shell.evaluate((element) => element.classList.contains("mobile-nav-open")))) {
-        await page.locator("#sidebar-toggle").click();
+    await test.step(`Navigate via ${navId} to ${panel}`, async () => {
+      if ((page.viewportSize()?.width || 1440) <= 620) {
+        const shell = page.locator(".platform-shell");
+        if (!(await shell.evaluate((element) => element.classList.contains("mobile-nav-open")))) {
+          await page.locator("#sidebar-toggle").click();
+        }
+        await expect(shell).toHaveClass(/mobile-nav-open/);
+        await expect(page.locator("#sidebar-toggle")).toHaveAttribute("aria-label", "Close navigation");
+        const sidebar = page.locator(".platform-sidebar");
+        await expect(sidebar).toBeVisible();
+        await expect.poll(() => sidebar.evaluate((element) => Math.round(element.getBoundingClientRect().left)))
+          .toBeGreaterThanOrEqual(0);
+        const sidebarBox = await sidebar.boundingBox();
+        expect(sidebarBox.x).toBeGreaterThanOrEqual(0);
+        expect(sidebarBox.x + sidebarBox.width).toBeLessThanOrEqual(375);
       }
-      await expect(shell).toHaveClass(/mobile-nav-open/);
-      await expect(page.locator("#sidebar-toggle")).toHaveAttribute("aria-label", "Close navigation");
-      const sidebar = page.locator(".platform-sidebar");
-      await expect(sidebar).toBeVisible();
-      await expect(sidebar).toBeInViewport();
-    }
-    const item = page.locator(`.nav-item[data-nav-id="${navId}"]`);
-    await item.evaluate((element) => {
-      const group = element.closest("details");
-      if (group) group.open = true;
+      const item = page.locator(`.nav-item[data-nav-id="${navId}"]`);
+      await item.evaluate((element) => {
+        const group = element.closest("details");
+        if (group) group.open = true;
+      });
+      if ((page.viewportSize()?.width || 1440) <= 620) {
+        await item.scrollIntoViewIfNeeded();
+        await expect(item).toBeInViewport({ ratio: 0.95 });
+        await expect.poll(() => item.evaluate((element) => {
+          const rect = element.getBoundingClientRect();
+          const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+          return Boolean(hit && (hit === element || element.contains(hit)));
+        })).toBe(true);
+      }
+      if ((page.viewportSize()?.width || 1440) <= 620) {
+        // Click the location we just hit-tested. Locator.click() performs a
+        // second scroll of the nested sidebar; at the end of its long list,
+        // that extra scroll can move the row behind adjacent links/topbar.
+        const box = await item.boundingBox();
+        await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      } else {
+        await item.click();
+      }
+      const active = page.locator(".panel.active");
+      await expect(active).toHaveAttribute("id", panel);
+      await expect(active.locator(":scope > .page-title h1, :scope > .onboarding-card h1").first()).toBeVisible();
+      const pageGuide = active.locator(":scope > .page-comment, :scope > .contextual-help-disclosure").first();
+      await expect(pageGuide).toBeVisible();
+      if (panel === "appearance" && (page.viewportSize()?.width || 0) <= 620) {
+        await expect(page.locator("#discard-design")).toBeHidden();
+        await expect(page.locator("#save-draft")).toBeHidden();
+        await expect(page.locator("#publish-design")).toBeHidden();
+        await expect(page.locator("#design-discard-shortcut")).toBeVisible();
+        await expect(page.locator("#design-save-shortcut")).toBeVisible();
+        await expect(page.locator("#design-publish-shortcut")).toBeVisible();
+      }
+      await pageGuide.locator("summary").click();
+      const layout = await page.evaluate(() => {
+        const width = document.documentElement.scrollWidth;
+        const viewport = window.innerWidth;
+        const offenders = [...document.querySelectorAll("body *")].map((element) => {
+          const rect = element.getBoundingClientRect();
+          return { tag: element.tagName, id: element.id, className: typeof element.className === "string" ? element.className : "", right: Math.round(rect.right), left: Math.round(rect.left), width: Math.round(rect.width) };
+        }).filter((item) => item.width > 0 && (item.right > viewport + 1 || item.left < -1)).sort((a, b) => b.right - a.right).slice(0, 6);
+        return { width, viewport, offenders };
+      });
+      expect(layout.width, `Horizontal page overflow on ${panel}: ${JSON.stringify(layout)}`).toBeLessThanOrEqual(layout.viewport + 1);
+      const relatedLink = active.locator(".page-comment-related-link").first();
+      await expect(relatedLink).toBeVisible();
+      const relatedPanel = await relatedLink.getAttribute("data-panel");
+      await relatedLink.click();
+      await expect(page.locator(".panel.active")).toHaveAttribute("id", relatedPanel);
     });
-    if ((page.viewportSize()?.width || 1440) <= 620) {
-      await item.scrollIntoViewIfNeeded();
-      await expect(item).toBeInViewport();
-    }
-    await item.click();
-    const active = page.locator(".panel.active");
-    await expect(active).toHaveAttribute("id", panel);
-    await expect(active.locator(":scope > .page-title h1, :scope > .onboarding-card h1").first()).toBeVisible();
-    const pageGuide = active.locator(":scope > .page-comment, :scope > .contextual-help-disclosure").first();
-    await expect(pageGuide).toBeVisible();
-    await pageGuide.locator("summary").click();
-    const layout = await page.evaluate(() => {
-      const width = document.documentElement.scrollWidth;
-      const viewport = window.innerWidth;
-      const offenders = [...document.querySelectorAll("body *")].map((element) => {
-        const rect = element.getBoundingClientRect();
-        return { tag: element.tagName, id: element.id, className: typeof element.className === "string" ? element.className : "", right: Math.round(rect.right), left: Math.round(rect.left), width: Math.round(rect.width) };
-      }).filter((item) => item.width > 0 && (item.right > viewport + 1 || item.left < -1)).sort((a, b) => b.right - a.right).slice(0, 6);
-      return { width, viewport, offenders };
-    });
-    expect(layout.width, `Horizontal page overflow on ${panel}: ${JSON.stringify(layout)}`).toBeLessThanOrEqual(layout.viewport + 1);
-    const relatedLink = active.locator(".page-comment-related-link").first();
-    await expect(relatedLink).toBeVisible();
-    const relatedPanel = await relatedLink.getAttribute("data-panel");
-    await relatedLink.click();
-    await expect(page.locator(".panel.active")).toHaveAttribute("id", relatedPanel);
   }
 
   expect(pageErrors).toEqual([]);
+});
 });
 
 test("admin: page help uses an accessible question-mark icon", async ({ page }) => {

@@ -486,8 +486,13 @@ def _set_guest_cookies(response: Response, session_id: str, token: str, context:
         "samesite": "strict",
         "path": "/",
     }
-    response.set_cookie(token_cookie, token, **options)
-    response.set_cookie(context_cookie, context, **options)
+    # Keep both independent 256-bit credentials, but carry them in one
+    # session-specific cookie. Browsers send cookies for every open guest tab
+    # on each request; using two names per tab needlessly doubles header size.
+    response.set_cookie(token_cookie, f"{token}.{context}", **options)
+    response.delete_cookie(
+        context_cookie, path="/", httponly=True, secure=secure, samesite="strict"
+    )
     response.headers["Cache-Control"] = "no-store"
 
 
@@ -498,6 +503,14 @@ def _clear_legacy_guest_cookies(response: Response) -> None:
 
 
 def _refresh_guest_cookie_response(request: Request, response: Response) -> Response:
+    cleanup_session_id = getattr(request.state, "guest_cookie_cleanup_session_id", None)
+    if cleanup_session_id and response.status_code >= 400:
+        secure = settings.app_environment in SECURE_ENVIRONMENTS or settings.admin_cookie_secure
+        for cookie_name in _guest_cookie_names(cleanup_session_id):
+            response.delete_cookie(
+                cookie_name, path="/", httponly=True, secure=secure, samesite="strict"
+            )
+        return response
     candidate = getattr(request.state, "guest_cookie_refresh", None)
     if not candidate or response.status_code >= 400:
         return response
@@ -532,6 +545,10 @@ def _guest_session(request: Request, session_id: str | None, action_level: int =
     token_cookie, context_cookie = _guest_cookie_names(resolved_session_id) if resolved_session_id else ("", "")
     token = request.cookies.get(token_cookie) if token_cookie else None
     context = request.cookies.get(context_cookie) if context_cookie else None
+    if token and not context and "." in token:
+        # New cookies bundle the same two independent credentials under one
+        # name. Continue accepting the former pair during its remaining TTL.
+        token, context = token.split(".", 1)
     legacy = False
     # Upgrade uniquely owned pre-0004 credentials after validating them against
     # this specific session. Ambiguous legacy pairs have been revoked by 0004.
@@ -544,9 +561,12 @@ def _guest_session(request: Request, session_id: str | None, action_level: int =
             legacy = True
     session = store.peek(resolved_session_id) if resolved_session_id else None
     if session is None:
+        if resolved_session_id and (token or context):
+            request.state.guest_cookie_cleanup_session_id = resolved_session_id
         decision = GuardrailDecision(False, "Concierge session expired.", "session_validation", None, action_level, False, False, _request_id(request))
         raise GuardrailDenied(decision, status_code=401)
     if not store.verify_guest_credentials(session.session_id, token, context):
+        request.state.guest_cookie_cleanup_session_id = session.session_id
         # Legacy sessions without browser credentials fail closed in every environment.
         decision = GuardrailDecision(False, "Concierge session expired.", "session_validation", None, action_level, False, False, _request_id(request))
         raise GuardrailDenied(decision, status_code=401)
@@ -554,6 +574,7 @@ def _guest_session(request: Request, session_id: str | None, action_level: int =
     policy_config = normalize_guardrails(property_record.guardrails)
     if session.last_seen_at < int(time.time()) - int(policy_config["guest_session_timeout"]) * 60:
         store.delete(session.session_id)
+        request.state.guest_cookie_cleanup_session_id = session.session_id
         decision = GuardrailDecision(False, "Concierge session expired.", "session_validation", property_record.property_id, action_level, False, False, _request_id(request))
         raise GuardrailDenied(decision, status_code=401)
     try:
@@ -5399,7 +5420,12 @@ async def start_session(payload: StartSessionRequest, request: Request, response
 @app.post("/api/session/resume")
 async def resume_session(payload: ResumeSessionRequest, request: Request, response: Response) -> dict[str, Any]:
     candidate = store.peek(payload.session_id)
-    if candidate is None or candidate.client_id != payload.client_id:
+    if candidate is None:
+        token_cookie, context_cookie = _guest_cookie_names(payload.session_id)
+        if request.cookies.get(token_cookie) or request.cookies.get(context_cookie):
+            request.state.guest_cookie_cleanup_session_id = payload.session_id
+        raise HTTPException(status_code=401, detail="Concierge session expired.")
+    if candidate.client_id != payload.client_id:
         raise HTTPException(status_code=401, detail="Concierge session expired.")
     if not await _rate_limit_allowed(f"session-resume:{candidate.property_id}:{candidate.session_id}", 30, 60):
         raise HTTPException(status_code=429, detail="Too many resume attempts. Please wait a moment.")

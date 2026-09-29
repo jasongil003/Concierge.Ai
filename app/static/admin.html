@@ -333,7 +333,14 @@
                 <div class="design-inspector-fields"><div class="version-list" id="version-list"></div></div>
               </details>
             </div>
-            <footer class="design-inspector-footer"><span><i></i> Preview updates as you edit</span><button class="secondary" type="button" id="design-save-shortcut" data-permission="concierge.edit" data-requires-property>Save draft</button></footer>
+            <footer class="design-inspector-footer">
+              <span><i></i> Preview updates as you edit</span>
+              <div class="design-footer-actions">
+                <button class="secondary" type="button" id="design-discard-shortcut" data-permission="concierge.edit" data-requires-property>Discard</button>
+                <button class="secondary" type="button" id="design-save-shortcut" data-permission="concierge.edit" data-requires-property>Save draft</button>
+                <button type="button" id="design-publish-shortcut" data-permission="concierge.edit" data-requires-property>Publish</button>
+              </div>
+            </footer>
           </aside>
         </div>
       </section>

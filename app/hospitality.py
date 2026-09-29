@@ -1397,11 +1397,15 @@ class HospitalityStore:
         service_id = payload.get("service_id") or None
         client_request_id = _clean(payload.get("client_request_id"), 120) or None
         if client_request_id:
+            stay_id = payload.get("stay_id")
+            if stay_id is None:
+                lookup_query = "SELECT * FROM service_requests WHERE property_id=? AND stay_id IS NULL AND client_request_id=?"
+                lookup_values = (property_id, client_request_id)
+            else:
+                lookup_query = "SELECT * FROM service_requests WHERE property_id=? AND stay_id=? AND client_request_id=?"
+                lookup_values = (property_id, stay_id, client_request_id)
             with self._connect() as db:
-                existing = db.execute(
-                    "SELECT * FROM service_requests WHERE property_id=? AND stay_id IS ? AND client_request_id=?",
-                    (property_id, payload.get("stay_id"), client_request_id),
-                ).fetchone()
+                existing = db.execute(lookup_query, lookup_values).fetchone()
             if existing:
                 return {**self._service_dict(existing), "idempotent_replay": True}
         catalog_service = None

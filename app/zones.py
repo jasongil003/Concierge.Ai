@@ -565,7 +565,7 @@ class ZoneStore:
             suffix = " AND guest_visible=1" if guest else ""
             buildings = [dict(row) for row in db.execute("SELECT * FROM buildings WHERE property_id=? ORDER BY name", (property_id,))]
             floors = [dict(row) for row in db.execute("SELECT * FROM floors WHERE property_id=? ORDER BY building_id, level", (property_id,))]
-            maps = [self._map_row(row) for row in db.execute("SELECT * FROM floor_maps WHERE property_id=? ORDER BY created_at DESC,rowid DESC", (property_id,))]
+            maps = [self._map_row(row) for row in db.execute("SELECT * FROM floor_maps WHERE property_id=? ORDER BY created_at DESC,map_id DESC", (property_id,))]
             # B608 rationale: suffix is a fixed visibility predicate selected only by the guest flag.
             zones = [self._public(row) for row in db.execute(f"SELECT * FROM zones WHERE property_id=?{suffix} ORDER BY name", (property_id,))]  # nosec B608
             # B608 rationale: suffix is a fixed visibility predicate selected only by the guest flag.

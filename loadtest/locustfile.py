@@ -117,11 +117,26 @@ class GuestUser(HttpUser):
             headers=self.session_headers,
             name="POST /api/session/resume",
         )
-        self.client.get(
+        # This smoke user does not create a restaurant escalation. An empty
+        # conversation is a valid 404; accept it explicitly while still
+        # recording unexpected errors from the staff-messages API.
+        with self.client.get(
             f"/api/guest/conversations/{self.session_id}/staff-messages",
             headers=self.session_headers,
             name="GET /api/guest/conversations/{session_id}/staff-messages",
-        )
+            catch_response=True,
+        ) as response:
+            if response.status_code == 404:
+                try:
+                    detail = response.json().get("detail")
+                except ValueError:
+                    detail = None
+                if detail == "Staff conversation not found.":
+                    response.success()
+                else:
+                    response.failure("unexpected staff conversation 404")
+            elif response.status_code >= 400:
+                response.failure(f"staff messages returned {response.status_code}")
 
     @task(2)
     def deterministic_ai_chat_and_knowledge_retrieval(self) -> None:
