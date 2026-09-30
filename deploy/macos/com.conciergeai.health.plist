@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.conciergeai.health</string>
+  <key>ProgramArguments</key><array><string>/usr/local/bin/concierge</string><string>internal-health</string></array>
+  <key>StartInterval</key><integer>60</integer>
+  <key>ProcessType</key><string>Background</string>
+  <key>StandardOutPath</key><string>/Library/Logs/Concierge.AI/health.out.log</string>
+  <key>StandardErrorPath</key><string>/Library/Logs/Concierge.AI/health.err.log</string>
+</dict>
+</plist>
