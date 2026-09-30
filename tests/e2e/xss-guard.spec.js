@@ -24,13 +24,31 @@ test("guest-supplied service request text is rendered as inert text (stored XSS 
   expect(properties.length).toBeGreaterThan(0);
   const propertyId = properties[0].property_id;
 
-  const started = await request.post("/api/session/start", { data: { client_id: "xss-guard-e2e" } });
+  const catalogPath = `/api/admin/properties/${propertyId}/service-catalog`;
+  const catalog = await (await request.get(catalogPath)).json();
+  let department = catalog.departments.find((item) => item.name === "XSS Guard Test Department");
+  if (!department) {
+    const csrf = csrfByRequest.get(request);
+    const response = await request.put(`/api/admin/properties/${propertyId}/departments`, {
+      headers: { "X-CSRF-Token": csrf },
+      data: { data: { name: "XSS Guard Test Department" } },
+    });
+    expect(response.ok(), await response.text()).toBeTruthy();
+    department = await response.json();
+  }
+  let service = catalog.services.find((item) => item.name === "XSS Guard Test Service");
+  if (!service) {
+    const response = await request.put(catalogPath, {
+      headers: { "X-CSRF-Token": csrfByRequest.get(request) },
+      data: { data: { name: "XSS Guard Test Service", department_id: department.department_id } },
+    });
+    expect(response.ok(), await response.text()).toBeTruthy();
+    service = await response.json();
+  }
+
+  const started = await request.post("/api/session/start", { data: { client_id: "xss-guard-e2e", property_id: propertyId } });
   expect(started.ok()).toBeTruthy();
   const sessionId = (await started.json()).session_id;
-
-  const catalog = await (await request.get(`/api/admin/properties/${propertyId}/service-catalog`)).json();
-  const service = catalog.services?.[0];
-  expect(service, "catalog must contain at least one service").toBeTruthy();
 
   const payload = '<img src=x onerror="window.__xss_proof=1"> <script>window.__xss_proof=2</script>';
   const created = await request.post("/api/guest/service-requests", {
