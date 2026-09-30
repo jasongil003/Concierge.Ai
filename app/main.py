@@ -3273,6 +3273,7 @@ async def enforce_guest_origin(request: Request, call_next):
             normalized_host = normalize_host_header(host_header)
         except ValueError:
             normalized_host = ""
+        local_loopback_origin = _trusted_loopback_origin(request, normalized_host)
         loopback_health_probe = False
         if path in {"/health", "/health/live", "/health/ready"}:
             try:
@@ -3283,10 +3284,12 @@ async def enforce_guest_origin(request: Request, call_next):
         for record in properties.list():
             recognized_hosts.update(property_guest_hostnames(record))
         recognized_hosts.discard("")
+        if local_loopback_origin:
+            recognized_hosts.update({"localhost", "127.0.0.1", "::1"})
         if not loopback_health_probe and normalized_host not in recognized_hosts:
             response = JSONResponse({"detail": "Unrecognized host."}, status_code=400)
             return _apply_security_headers(request, response)
-        if request.url.scheme != "https" and path not in {"/health", "/health/live", "/health/ready"}:
+        if request.url.scheme != "https" and not local_loopback_origin and path not in {"/health", "/health/live", "/health/ready"}:
             response = JSONResponse({"detail": "HTTPS is required."}, status_code=426)
             return _apply_security_headers(request, response)
 
@@ -3508,6 +3511,34 @@ def _request_is_loopback(request: Request) -> bool:
         return ipaddress.ip_address(direct_ip).is_loopback
     except ValueError:
         return False
+
+
+def _trusted_loopback_origin(request: Request, hostname: str) -> bool:
+    """Permit HTTP localhost only over a direct loopback socket or our localhost-only proxy."""
+    if hostname not in {"localhost", "127.0.0.1", "::1"}:
+        return False
+    if _request_is_loopback(request):
+        return True
+    if request.headers.get("x-concierge-loopback-origin") != "1":
+        return False
+    direct_ip = request.client.host if request.client else ""
+    try:
+        peer = ipaddress.ip_address(direct_ip)
+    except ValueError:
+        return False
+    path = request.url.path
+    management_path = (
+        path == "/admin"
+        or path.startswith("/admin/")
+        or path == "/api/admin"
+        or path.startswith("/api/admin/")
+        or path in {"/metrics", "/health", "/health/live", "/health/ready", "/health/details"}
+    )
+    if management_path:
+        ranges = _effective_management_access_settings().get("management_trusted_proxy_ranges", [])
+    else:
+        ranges = _guest_trusted_proxy_ranges(request)
+    return bool(management_access_guard._matching_network(peer, ranges))
 
 
 def _trusted_forwarded_scheme(request: Request, path: str) -> str:

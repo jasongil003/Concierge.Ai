@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -40,3 +41,34 @@ def test_readiness_reports_database_failure_without_sensitive_details(tmp_path: 
 
     assert captured.value.status_code == 503
     assert captured.value.detail == "Database is not ready."
+
+
+def test_production_localhost_admin_login_is_available_over_loopback(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        main_module,
+        "settings",
+        replace(
+            main_module.settings,
+            app_environment="production",
+            canonical_hosts=("concierge.hotel.example",),
+            admin_allowed_cidrs=("127.0.0.1/32", "::1/128"),
+        ),
+    )
+
+    with TestClient(app, base_url="http://127.0.0.1:8080") as client:
+        response = client.get("/admin/login")
+
+    assert response.status_code == 200
+
+
+def test_production_localhost_exception_does_not_apply_to_hotel_host_over_http(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        main_module,
+        "settings",
+        replace(main_module.settings, app_environment="production", canonical_hosts=("concierge.hotel.example",)),
+    )
+
+    with TestClient(app, base_url="http://concierge.hotel.example") as client:
+        response = client.get("/admin/login")
+
+    assert response.status_code == 426

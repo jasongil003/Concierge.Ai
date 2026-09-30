@@ -1,15 +1,16 @@
 services:
   concierge:
+    image: concierge-ai:${CONCIERGE_VERSION:-local}
     build: .
-    restart: unless-stopped
     init: true
     stop_grace_period: 45s
     env_file:
-      - .env
+      - ${CONCIERGE_CONFIG_FILE:-.env}
     environment:
       APP_ENVIRONMENT: production
       DB_PATH: /state/concierge.db
       UPLOAD_ROOT: /state/uploads
+      CONCIERGE_BACKUP_DIR: /backups
       # The on-prem MVP uses one persistent SQLite database in this volume.
       DATABASE_URL: ""
       # SQLite-backed rate limiting is sufficient for this single-instance profile.
@@ -32,12 +33,14 @@ services:
       - "8080"
     volumes:
       - concierge-state:/state
+      - ${CONCIERGE_BACKUP_DIR:-./.backups}:/backups
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - frontend
 
   proxy:
     image: nginx:1.29-alpine
-    restart: unless-stopped
     ports:
       # Loopback only: terminate HTTPS in a trusted host reverse proxy before this listener.
       - "127.0.0.1:8080:80"
