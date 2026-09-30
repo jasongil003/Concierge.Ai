@@ -634,10 +634,15 @@ test("guardrails panel exposes security controls and network diagnostics", async
 test("Network Access saves exact guest hosts", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium", "The network configuration workflow needs one browser profile.");
   page.on("dialog", (dialog) => dialog.accept());
+  await page.route(/\/api\/admin\/properties\/[^/]+\/network-access\/status$/, async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    await route.continue();
+  });
   await page.goto("/admin");
   await openPanel(page, "Network Access");
   const hosts = page.locator("#guest-access-hosts");
   await expect(hosts).toBeVisible();
+  await expect(hosts).toBeDisabled();
   await expect(hosts).toBeEnabled();
   const original = await hosts.inputValue();
   const configured = [...new Set([...original.split(/\r?\n/).filter(Boolean), "192.168.50.20", "concierge.hotel.local"])].join("\n");

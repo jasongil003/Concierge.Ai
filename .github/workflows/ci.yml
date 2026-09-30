@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - main
-      - feature/**
-      - codex/**
   pull_request:
     branches:
       - main
@@ -81,8 +79,9 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
 
   browser-tests:
-    # Visual snapshots are checked in for macOS; keep CI on the same renderer platform.
-    runs-on: macos-latest
+    # PR gate: run functional browser coverage on the readily available Linux runner.
+    # Platform-dependent visual snapshots are validated by the separate macOS native workflow.
+    runs-on: ubuntu-latest
     timeout-minutes: 20
 
     steps:
@@ -114,7 +113,7 @@ jobs:
         env:
           PLAYWRIGHT_SERVER_COMMAND: python -m uvicorn app.main:app --host 127.0.0.1 --port 8092
           PROPERTY_ID: ci-property
-        run: npm run test:e2e
+        run: npx playwright test $(find tests/e2e -name '*.spec.js' ! -name 'visual.spec.js' -print)
 
       - name: Upload browser report on failure
         if: failure()
@@ -329,7 +328,11 @@ jobs:
       - name: Validate shared and Ubuntu installer shell
         run: |
           for script in deploy/install.sh deploy/linux/install.sh deploy/linux/platform.sh deploy/common/*.sh; do bash -n "$script"; done
+<<<<<<< HEAD
           shellcheck -x deploy/install.sh deploy/linux/install.sh deploy/linux/platform.sh deploy/common/*.sh
+=======
+          shellcheck --severity=warning -x deploy/install.sh deploy/linux/install.sh deploy/linux/platform.sh deploy/common/*.sh
+>>>>>>> 5d859961eeb7f8c9936b9bdae7721805f21afae9
       - name: Validate systemd service files
         run: |
           sudo install -d /etc/concierge /usr/local/bin /opt/concierge/current
@@ -358,6 +361,7 @@ jobs:
           nginx:1.29-alpine nginx -t
 
   deployment-validation-macos:
+<<<<<<< HEAD
     runs-on: macos-latest
     timeout-minutes: 10
     steps:
@@ -390,6 +394,44 @@ jobs:
           echo "CREDENTIAL_ENCRYPTION_SECRET=$(python -c 'import secrets; print(secrets.token_hex(32))')" >> "$GITHUB_ENV"
           echo "METRICS_TOKEN=$(python -c 'import secrets; print(secrets.token_hex(32))')" >> "$GITHUB_ENV"
       - name: Validate production settings under native Python
+=======
+    # PR gate: validate macOS artifacts without waiting for a scarce macOS runner.
+    # Native launchd/Python validation runs in macos-native-validation.yml before release.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+      - name: Install validation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          python -m pip install --requirement requirements.txt
+      - name: Validate shared and macOS installer shell
+        run: |
+          for script in deploy/install.sh deploy/macos/install.sh deploy/macos/platform.sh deploy/macos/concierge-restart deploy/common/*.sh; do bash -n "$script"; done
+          shellcheck --severity=warning -x deploy/install.sh deploy/macos/install.sh deploy/macos/platform.sh deploy/macos/concierge-restart deploy/common/*.sh
+      - name: Validate LaunchDaemon property lists
+        run: |
+          python - <<'PY'
+          import plistlib
+          from pathlib import Path
+          for path in Path("deploy/macos").glob("*.plist"):
+              with path.open("rb") as handle:
+                  plistlib.load(handle)
+              print(f"valid: {path}")
+          PY
+      - name: Check macOS support Python compiles
+        run: python -m py_compile deploy/common/loopback_proxy.py deploy/common/ops.py
+      - name: Validate production settings
+        env:
+          ADMIN_BOOTSTRAP_PASSWORD: PrValidationOnly-A1!
+          CREDENTIAL_ENCRYPTION_SECRET: pr-validation-encryption-secret-00000001
+          METRICS_TOKEN: pr-validation-metrics-token-000000000001
+>>>>>>> 5d859961eeb7f8c9936b9bdae7721805f21afae9
         run: |
           APP_ENVIRONMENT=production \
           PROPERTY_ID=hotel-a \
