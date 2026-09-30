@@ -1,0 +1,7 @@
+[Unit]
+Description=Concierge.AI backup and release retention maintenance
+After=concierge.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/concierge internal-maintenance
