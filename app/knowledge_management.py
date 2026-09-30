@@ -8,8 +8,11 @@ import hashlib
 import io
 import json
 import logging
+import os
 import re
 import sqlite3
+import subprocess
+import sys
 import time
 import uuid
 import zipfile
@@ -116,6 +119,57 @@ def _clean(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
+def _extract_pdf_in_limited_worker(data: bytes) -> list[dict[str, Any]]:
+    worker = Path(__file__).with_name("pdf_extraction_worker.py")
+    try:
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-I",
+                str(worker),
+                str(settings.knowledge_max_file_bytes),
+                str(settings.knowledge_max_extracted_chars),
+            ],
+            input=data,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            env={"PATH": os.defpath, "PYTHONIOENCODING": "utf-8"},
+            timeout=30,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError("PDF processing exceeded its safe time limit. Simplify the document and retry.") from exc
+    except OSError as exc:
+        raise ValueError("The isolated PDF processor is unavailable. Contact the system administrator.") from exc
+
+    try:
+        response = json.loads(result.stdout)
+    except (json.JSONDecodeError, UnicodeDecodeError, TypeError):
+        response = {}
+    if result.returncode != 0:
+        message = response.get("error") if isinstance(response, dict) else None
+        allowed_errors = {
+            "The PDF exceeds the configured upload limit.",
+            "The PDF exceeds the configured page limit.",
+            "Extracted content exceeds the configured processing limit.",
+            "The PDF contains too many text sections to process safely.",
+            "The PDF contains no machine-readable text. OCR for scanned PDFs is not configured.",
+        }
+        if message in allowed_errors:
+            raise ValueError(message)
+        raise ValueError("PDF processing failed within its safe resource limits. Simplify the document and retry.")
+
+    blocks = response.get("blocks") if isinstance(response, dict) else None
+    if not isinstance(blocks, list) or any(
+        not isinstance(block, dict)
+        or not isinstance(block.get("text"), str)
+        or not isinstance(block.get("location"), dict)
+        for block in blocks
+    ):
+        raise ValueError("PDF processing returned an invalid result.")
+    return blocks
+
+
 def parse_document(data: bytes, ext: str) -> list[dict[str, Any]]:
     """Return bounded text blocks with stable source locations; never follow links."""
     blocks: list[dict[str, Any]] = []
@@ -134,12 +188,7 @@ def parse_document(data: bytes, ext: str) -> list[dict[str, Any]]:
             for row_number, line in enumerate(text.splitlines(), 1):
                 if line.strip(): blocks.append({"text": line.strip(), "location": {"line": row_number}})
     elif ext == ".pdf":
-        from pypdf import PdfReader
-        reader = PdfReader(io.BytesIO(data), strict=True)
-        if len(reader.pages) > 300: raise ValueError("PDF exceeds the 300 page processing limit.")
-        for number, page in enumerate(reader.pages, 1):
-            for line in (page.extract_text() or "").splitlines():
-                if line.strip(): blocks.append({"text": line.strip(), "location": {"page": number}})
+        blocks = _extract_pdf_in_limited_worker(data)
         if not blocks: raise ValueError("PDF contains no machine-readable text. OCR for scanned PDFs is not configured.")
     elif ext == ".docx":
         from docx import Document

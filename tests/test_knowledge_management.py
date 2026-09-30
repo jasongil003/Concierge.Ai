@@ -71,6 +71,31 @@ def test_validation_rejects_unsupported_mime_size_magic_and_paths(monkeypatch):
         validate_file("guide.txt", "text/plain", b"too many bytes")
 
 
+def test_pdf_extraction_stops_at_text_budget_before_reading_more_pages(monkeypatch):
+    from app.pdf_extraction_worker import extract_pdf_bytes
+
+    calls = []
+
+    class Page:
+        def __init__(self, text):
+            self.text = text
+
+        def extract_text(self):
+            calls.append(self.text)
+            return self.text
+
+    class Reader:
+        def __init__(self, *_args, **_kwargs):
+            self.pages = [Page("three"), Page("123456"), Page("must not be read")]
+
+    monkeypatch.setattr("pypdf.PdfReader", Reader)
+
+    with pytest.raises(ValueError, match="configured processing limit"):
+        extract_pdf_bytes(b"%PDF-test", 10)
+
+    assert calls == ["three", "123456"]
+
+
 def test_document_upload_rejects_csv_formulas_and_office_zip_bombs():
     with pytest.raises(ValueError, match="formula cells"):
         validate_file("rates.csv", "text/csv", b"item,price\nSuite,=1+1\n")

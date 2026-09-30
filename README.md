@@ -168,6 +168,7 @@ A real hotel pilot should add a proper hostname, internal DNS, trusted HTTPS, ne
 - [Product roadmap](docs/ROADMAP.md)
 - [Master product expansion plan](docs/MASTER_PRODUCT_PLAN.md)
 - [Security boundaries](SECURITY.md)
+- [Current production readiness report](audit/PRODUCTION_READINESS_REPORT.md)
 
 ## Prototype priorities
 
