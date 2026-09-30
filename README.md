@@ -31,7 +31,7 @@ Concierge.AI is designed to sit alongside the hotel network and existing systems
 | Operations | Health/readiness, metrics, alerts, reporting, XLSX/PDF exports, backup/restore and operational diagnostics |
 | Network | Separate management and guest access concepts, management CIDRs, trusted proxy controls, canonical guest host/domain validation and secure production defaults |
 | Data layer | SQLite for simple single-node on-prem deployments; PostgreSQL/Redis integration paths are covered by CI |
-| Deployment | Docker production image, non-root runtime, persistent storage, migration tooling, security scanning and SBOM generation |
+| Deployment | Docker production image plus unattended Ubuntu Server and Apple Silicon Mac appliance paths, non-root runtime, persistent storage, migration tooling, security scanning and SBOM generation |
 | ANTlabs / PMS | Adapters and validation paths exist; the exact live SG5/PMS contract must still be proven against the target hotel environment |
 
 ## High-level architecture
@@ -216,7 +216,7 @@ See [Security boundaries](SECURITY.md) and [Vulnerability findings](audit/VULNER
 
 ## Production readiness
 
-The application is in **RC1 production-hardening**, not general-production certification.
+The application is in **RC1 production-hardening**, not general-production certification. The Ubuntu Server and Apple Silicon Mac appliance paths are implemented but are **not yet production-verified**; complete the documented real-reboot acceptance procedure before claiming platform support.
 
 Before a real hotel rollout, validate at minimum:
 
@@ -247,6 +247,7 @@ tests/e2e/    Playwright browser tests
 
 ## Key documentation
 
+- [Appliance installation and production support status](docs/APPLIANCE_INSTALLATION.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [On-prem deployment](docs/DEPLOYMENT.md)
 - [ANTlabs integration](docs/ANTLABS_INTEGRATION.md)

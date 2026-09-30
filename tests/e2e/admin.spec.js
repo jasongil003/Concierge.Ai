@@ -53,8 +53,8 @@ test.beforeEach(async ({ page, request }) => {
 });
 
 test("admin onboarding: create the first property from an empty workspace", async ({ page, request }) => {
-  const propertyId = await getFirstPropertyId(request);
-  const removed = await request.delete(`/api/admin/properties/${propertyId}`, { headers: csrfHeaders(request) });
+  const existingPropertyId = await getFirstPropertyId(request);
+  const removed = await request.delete(`/api/admin/properties/${existingPropertyId}`, { headers: csrfHeaders(request) });
   expect(removed.ok()).toBeTruthy();
 
   await page.goto("/admin");
@@ -63,13 +63,64 @@ test("admin onboarding: create the first property from an empty workspace", asyn
   await expect(page.getByRole("heading", { name: "Property not configured" })).toBeVisible();
   await page.locator("#onboarding-create-property").click();
   await page.locator("#property-create-name").fill("E2E Onboarding Property");
+  const propertyId = `e2e-onboarding-${Date.now().toString(36)}`;
+  await page.locator("#property-create-id").fill(propertyId);
   await page.locator("#property-create-timezone").selectOption("Asia/Manila");
   await page.locator("#property-create-submit").click();
 
-  await expect(page.locator("#property-switcher")).toHaveValue("e2e-onboarding-property");
-  const created = await request.get("/api/admin/properties/e2e-onboarding-property");
+  await expect(page.locator("#property-switcher")).toHaveValue(propertyId);
+  const created = await request.get(`/api/admin/properties/${propertyId}`);
   expect(created.ok()).toBeTruthy();
   expect((await created.json()).hotel_name).toBe("E2E Onboarding Property");
+
+  const propertyPath = `/api/admin/properties/${propertyId}`;
+  const overview = await request.get(`${propertyPath}/hospitality`);
+  expect(overview.ok()).toBeTruthy();
+  const hospitality = await overview.json();
+  for (const key of ["facilities", "restaurants", "promotions", "events", "service_requests", "notification_rules", "departments", "services", "recommendations"]) {
+    expect(hospitality[key]).toEqual([]);
+  }
+  expect(hospitality.menus).toEqual({});
+  const serviceCatalog = await request.get(`${propertyPath}/service-catalog`).then((response) => response.json());
+  expect(serviceCatalog).toEqual({ departments: [], services: [] });
+  const property = await created.json();
+  expect(property.rooms).toEqual([]);
+  expect(property.domain).toBe("");
+  expect(property.antlabs_config).toEqual({});
+  const antlabs = await request.get(`${propertyPath}/antlabs/status`).then((response) => response.json());
+  expect(antlabs.property_authentication_enabled).toBe(false);
+  expect(antlabs.property_authentication_types).toEqual([]);
+  const deployment = await request.get(`${propertyPath}/deployment/status`).then((response) => response.json());
+  expect(deployment.domain.status).toBe("not_configured");
+  expect(deployment.ssl.status).toBe("not_configured");
+  const zones = await request.get(`${propertyPath}/zones`).then((response) => response.json());
+  for (const key of ["buildings", "floors", "maps", "zones"]) expect(zones[key]).toEqual([]);
+  const knowledge = await request.get(`${propertyPath}/knowledge`).then((response) => response.json());
+  for (const key of ["items", "documents", "faqs"]) expect(knowledge[key]).toEqual([]);
+  const sessions = await request.get(`${propertyPath}/sessions`).then((response) => response.json());
+  for (const key of ["sessions", "stays", "guest_sessions", "devices"]) expect(sessions[key]).toEqual([]);
+
+  await openPanel(page, "Rooms");
+  await expect(page.locator("#room-list")).toContainText("Your room catalog is ready to build");
+  await openPanel(page, "Facilities");
+  await expect(page.locator("#facility-empty")).toContainText("No facilities configured yet.");
+  await expect(page.locator("#empty-add-facility")).toHaveText(/Add Facility/);
+  await openPanel(page, "Restaurants");
+  await expect(page.locator("#restaurant-empty")).toContainText("No restaurants configured yet.");
+  await openPanel(page, "Service Catalog");
+  await expect(page.locator("#department-list")).toContainText("No departments configured.");
+  await expect(page.locator("#catalog-service-list")).toContainText("No services configured.");
+  await openPanel(page, "FAQs");
+  await expect(page.locator("#faq-list")).toContainText("No FAQs configured yet.");
+  await openPanel(page, "Documents");
+  await expect(page.locator("#document-list")).toContainText("No knowledge documents uploaded yet.");
+
+  await page.goto("/");
+  await expect(page.locator("#home-view")).toBeVisible();
+  await expect(page.locator("#home-cards-section")).toBeHidden();
+  for (const section of ["#dining-section", "#facility-section", "#event-section", "#promotion-section", "#recommendation-section"]) {
+    await expect(page.locator(section)).toBeHidden();
+  }
 });
 
 test("facilities panel: empty state, search, and styled CRUD actions work", async ({ page }) => {

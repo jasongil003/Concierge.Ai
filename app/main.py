@@ -3273,6 +3273,7 @@ async def enforce_guest_origin(request: Request, call_next):
             normalized_host = normalize_host_header(host_header)
         except ValueError:
             normalized_host = ""
+        local_loopback_origin = _trusted_loopback_origin(request, normalized_host)
         loopback_health_probe = False
         if path in {"/health", "/health/live", "/health/ready"}:
             try:
@@ -3283,10 +3284,12 @@ async def enforce_guest_origin(request: Request, call_next):
         for record in properties.list():
             recognized_hosts.update(property_guest_hostnames(record))
         recognized_hosts.discard("")
+        if local_loopback_origin:
+            recognized_hosts.update({"localhost", "127.0.0.1", "::1"})
         if not loopback_health_probe and normalized_host not in recognized_hosts:
             response = JSONResponse({"detail": "Unrecognized host."}, status_code=400)
             return _apply_security_headers(request, response)
-        if request.url.scheme != "https" and path not in {"/health", "/health/live", "/health/ready"}:
+        if request.url.scheme != "https" and not local_loopback_origin and path not in {"/health", "/health/live", "/health/ready"}:
             response = JSONResponse({"detail": "HTTPS is required."}, status_code=426)
             return _apply_security_headers(request, response)
 
@@ -3508,6 +3511,34 @@ def _request_is_loopback(request: Request) -> bool:
         return ipaddress.ip_address(direct_ip).is_loopback
     except ValueError:
         return False
+
+
+def _trusted_loopback_origin(request: Request, hostname: str) -> bool:
+    """Permit HTTP localhost only over a direct loopback socket or our localhost-only proxy."""
+    if hostname not in {"localhost", "127.0.0.1", "::1"}:
+        return False
+    if _request_is_loopback(request):
+        return True
+    if request.headers.get("x-concierge-loopback-origin") != "1":
+        return False
+    direct_ip = request.client.host if request.client else ""
+    try:
+        peer = ipaddress.ip_address(direct_ip)
+    except ValueError:
+        return False
+    path = request.url.path
+    management_path = (
+        path == "/admin"
+        or path.startswith("/admin/")
+        or path == "/api/admin"
+        or path.startswith("/api/admin/")
+        or path in {"/metrics", "/health", "/health/live", "/health/ready", "/health/details"}
+    )
+    if management_path:
+        ranges = _effective_management_access_settings().get("management_trusted_proxy_ranges", [])
+    else:
+        ranges = _guest_trusted_proxy_ranges(request)
+    return bool(management_access_guard._matching_network(peer, ranges))
 
 
 def _trusted_forwarded_scheme(request: Request, path: str) -> str:
@@ -4805,8 +4836,16 @@ async def property_ai_usage(property_id: str, days: int = 7) -> dict[str, Any]:
 
 @app.get("/api/admin/properties/{property_id}/antlabs/status")
 async def antlabs_status(property_id: str) -> dict[str, Any]:
-    _require_property(property_id)
-    return antlabs.configuration_status()
+    record = _require_property_record(property_id)
+    status = antlabs.configuration_status()
+    authentication = record.public_profile.get("authentication", {})
+    return {
+        **status,
+        "property_authentication_enabled": bool(authentication.get("enabled")),
+        "property_authentication_types": [
+            item.get("id") for item in authentication.get("enabled_types", [])
+        ],
+    }
 
 
 @app.post("/api/admin/properties/{property_id}/antlabs/test")
@@ -6485,7 +6524,7 @@ def _deployment_status(record: PropertyRecord) -> dict[str, Any]:
             "resolved_addresses": verification.get("resolved_addresses", []),
         },
         "ssl": {
-            "status": verification.get("ssl_status") or "not_checked",
+            "status": verification.get("ssl_status") or ("not_configured" if not domain else "not_checked"),
             "issuer": verification.get("issuer", ""),
             "expires_at": verification.get("expires_at"),
             "days_remaining": verification.get("days_remaining"),

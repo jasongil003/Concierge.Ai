@@ -3,7 +3,7 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-RUN groupadd --system concierge && useradd --system --gid concierge --home-dir /app --shell /usr/sbin/nologin concierge
+RUN groupadd --system --gid 10001 concierge && useradd --system --uid 10001 --gid concierge --home-dir /app --shell /usr/sbin/nologin concierge
 
 WORKDIR /app
 

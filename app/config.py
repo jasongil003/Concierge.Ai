@@ -94,6 +94,7 @@ class Settings:
     allow_demo_settings: bool = _bool("ALLOW_DEMO_SETTINGS", False)
 
     ai_provider_mode: str = os.getenv("AI_PROVIDER_MODE", "auto").strip().lower()
+    local_ai_enabled: bool = _bool("LOCAL_AI_ENABLED", True)
     ai_guest_mode_switch: bool = _bool("AI_GUEST_MODE_SWITCH", True)
     ai_default_mode: str = os.getenv("AI_DEFAULT_MODE", "auto").strip().lower()
     max_output_tokens: int = int(os.getenv("MAX_OUTPUT_TOKENS", "160"))

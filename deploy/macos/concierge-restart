@@ -1,0 +1,4 @@
+#!/bin/bash
+set -euo pipefail
+launchctl kickstart -k system/com.conciergeai.server
+launchctl kickstart -k system/com.conciergeai.proxy
