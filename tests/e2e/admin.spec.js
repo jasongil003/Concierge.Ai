@@ -634,7 +634,7 @@ test("guardrails panel exposes security controls and network diagnostics", async
 test("Network Access saves exact guest hosts", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium", "The network configuration workflow needs one browser profile.");
   page.on("dialog", (dialog) => dialog.accept());
-  await page.route(/\\/api\\/admin\\/properties\\/[^/]+\\/network-access\\/status$/, async (route) => {
+  await page.route(/\/api\/admin\/properties\/[^/]+\/network-access\/status$/, async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 150));
     await route.continue();
   });
