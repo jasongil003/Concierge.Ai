@@ -73,6 +73,7 @@ const INTRO_TEMPLATES = {
   coastal_retreat: { mode: "generate_from_logo", preset: "logo_to_chat_header", duration_ms: 1900, background: "#eff8f7", brand_color: "#1e5d61", welcome_message: "Take a breath. You're right where you need to be." },
 };
 let restaurantAssignmentRequestId = 0;
+let dashboardRequestId = 0;
 
 const $ = (id) => document.getElementById(id);
 
@@ -837,10 +838,13 @@ async function savePersonalizationPolicy() {
 }
 
 async function loadDashboard() {
+  const requestId = ++dashboardRequestId;
   const period = state.operationsPeriod || "24h";
   const range = period === "custom" && state.operationsStart && state.operationsEnd
     ? `&start_at=${encodeURIComponent(state.operationsStart)}&end_at=${encodeURIComponent(state.operationsEnd)}` : "";
-  state.operations = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/operations/dashboard?period=${encodeURIComponent(period)}${range}`);
+  const operations = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/operations/dashboard?period=${encodeURIComponent(period)}${range}`);
+  if (requestId !== dashboardRequestId) return;
+  state.operations = operations;
   renderOperationsDashboard();
 }
 
