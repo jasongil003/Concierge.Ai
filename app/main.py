@@ -183,8 +183,6 @@ management_access_guard = ManagementAccessGuard()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    for property_record in properties.list():
-        hospitality.seed_starter_service_catalog(property_record.property_id)
     personalization.cleanup_expired()
     async def process_pending_knowledge():
         while True:
@@ -3670,8 +3668,6 @@ async def upsert_property(property_id: str, payload: PropertyPayload, request: R
         )
         record.design_published = record.design_draft
     saved = properties.upsert(record)
-    if existing is None:
-        hospitality.seed_starter_service_catalog(property_id)
     return _property_admin_payload(saved, principal)
 
 
@@ -4809,8 +4805,16 @@ async def property_ai_usage(property_id: str, days: int = 7) -> dict[str, Any]:
 
 @app.get("/api/admin/properties/{property_id}/antlabs/status")
 async def antlabs_status(property_id: str) -> dict[str, Any]:
-    _require_property(property_id)
-    return antlabs.configuration_status()
+    record = _require_property_record(property_id)
+    status = antlabs.configuration_status()
+    authentication = record.public_profile.get("authentication", {})
+    return {
+        **status,
+        "property_authentication_enabled": bool(authentication.get("enabled")),
+        "property_authentication_types": [
+            item.get("id") for item in authentication.get("enabled_types", [])
+        ],
+    }
 
 
 @app.post("/api/admin/properties/{property_id}/antlabs/test")
@@ -6489,7 +6493,7 @@ def _deployment_status(record: PropertyRecord) -> dict[str, Any]:
             "resolved_addresses": verification.get("resolved_addresses", []),
         },
         "ssl": {
-            "status": verification.get("ssl_status") or "not_checked",
+            "status": verification.get("ssl_status") or ("not_configured" if not domain else "not_checked"),
             "issuer": verification.get("issuer", ""),
             "expires_at": verification.get("expires_at"),
             "days_remaining": verification.get("days_remaining"),

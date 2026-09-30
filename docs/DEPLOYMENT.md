@@ -74,10 +74,18 @@ configured property in a single-property deployment; leave it blank when
 property routing is based on each property's domain. Do not reuse a development
 database volume for production: stored property data survives image rebuilds.
 
-New properties receive an editable starter service catalog for Housekeeping,
-Maintenance, Front Desk, and Bell Services. Review it for the hotel's actual
-offerings; existing non-empty catalogs are preserved, and removed starter
-items do not return on later restarts.
+New properties start without hotel-specific content. Configure rooms,
+facilities, dining, services, policies, and knowledge from information verified
+by the property. The application does not provide an active template library;
+future templates should require explicit administrator selection, preview,
+confirmation, and copying into property-scoped editable records.
+
+Upgrades do not automatically remove existing service catalog rows. This
+preserves administrator-created data, including rows whose names resemble the
+former starter catalog. Review legacy departments and services in the property
+admin UI and remove any confirmed unused records there. The upgrade removes
+only the obsolete seed-tracking metadata table; it does not delete catalog or
+other property content.
 
 This on-prem profile runs one Concierge API instance and stores its database at
 `/state/concierge.db` inside the `concierge-state` Docker volume. It does not
