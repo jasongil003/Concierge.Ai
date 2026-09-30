@@ -3,3 +3,5 @@
 1ccd746cd27f808c6f546f63c322ebb47a0bee5d:tests/test_ai_providers.py:generic-api-key:40
 d164e12336270069d3b15272143f92bbf8fdc5f7:tests/test_ai_providers.py:generic-api-key:24
 98298e18a0c4b1af24b97bf8d80becd2d240676c:.env.example:generic-api-key:33
+e92b41859c85be293e02e678ad20280f63f67a0d:.github/workflows/ci.yml:generic-api-key:345
+e92b41859c85be293e02e678ad20280f63f67a0d:.github/workflows/ci.yml:generic-api-key:346
