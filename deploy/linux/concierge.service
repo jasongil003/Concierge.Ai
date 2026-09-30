@@ -1,0 +1,21 @@
+[Unit]
+Description=Concierge.AI appliance services
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/concierge/current
+EnvironmentFile=/etc/concierge/concierge.env
+Environment=CONCIERGE_CONFIG_FILE=/etc/concierge/concierge.env
+ExecStart=/usr/local/bin/concierge internal-serve
+ExecStop=/usr/local/bin/concierge internal-stop
+TimeoutStartSec=0
+TimeoutStopSec=75
+KillMode=process
+Restart=no
+
+[Install]
+WantedBy=multi-user.target
