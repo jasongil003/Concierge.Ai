@@ -211,7 +211,11 @@ def test_legacy_catalog_migration_preserves_existing_property_data(tmp_path: Pat
     operations.save_knowledge("legacy-property", {"kind": "faq", "question": "Verified FAQ?", "answer": "Verified answer."})
 
     old_revision = importlib.import_module("migrations.versions.20260928_0001_service_catalog_seed_state")
+<<<<<<< HEAD
     new_revision = importlib.import_module("migrations.versions.20260930_0001_remove_service_catalog_seed_state")
+=======
+    new_revision = importlib.import_module("migrations.versions.20260930_0007_remove_service_catalog_seed_state")
+>>>>>>> 5d859961eeb7f8c9936b9bdae7721805f21afae9
     from sqlalchemy import create_engine, text
     engine = create_engine(f"sqlite:///{database}")
     with engine.begin() as connection:
