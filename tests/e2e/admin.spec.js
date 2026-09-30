@@ -830,6 +830,7 @@ test("Alerts show their evaluated timeframe and refresh the current view", async
   expect((await refreshResponse).ok()).toBeTruthy();
   await expect(page.getByRole("button", { name: "Refresh alerts" })).toBeEnabled();
 });
+
 test("appearance panel: all design controls are wired and update preview", async ({ page }) => {
   await page.goto("/admin");
   await openPanel(page, "Design");
