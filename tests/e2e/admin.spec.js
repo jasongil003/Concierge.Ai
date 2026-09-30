@@ -779,26 +779,57 @@ test("hotel check-in and checkout are time pickers and persist their values", as
 });
 
 test("Alerts show their evaluated timeframe and refresh the current view", async ({ page }) => {
-  let latestDashboardUrl = "";
-  let dashboardLoads = 0;
-  page.on("request", (request) => {
-    if (request.url().includes("/operations/dashboard?")) {
-      latestDashboardUrl = request.url();
-      dashboardLoads += 1;
-    }
-  });
   await page.goto("/admin");
   await openPanel(page, "Alerts");
   await expect(page.locator("#alerts-summary")).toContainText("24h timeframe");
+
+  const dashboardResponseFor = (period) => page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname.endsWith("/operations/dashboard") && url.searchParams.get("period") === period;
+  });
+  let holdNext24HourResponse = false;
+  let releaseStaleResponse;
+  let resolveStaleResponseReady;
+  let resolveStaleResponseFulfilled;
+  const staleResponseReady = new Promise((resolve) => { resolveStaleResponseReady = resolve; });
+  const staleResponseFulfilled = new Promise((resolve) => { resolveStaleResponseFulfilled = resolve; });
+  await page.route("**/operations/dashboard**", async (route) => {
+    const url = new URL(route.request().url());
+    if (!holdNext24HourResponse || url.searchParams.get("period") !== "24h") {
+      await route.continue();
+      return;
+    }
+
+    holdNext24HourResponse = false;
+    const response = await route.fetch();
+    resolveStaleResponseReady();
+    await new Promise((resolve) => { releaseStaleResponse = resolve; });
+    await route.fulfill({ response });
+    resolveStaleResponseFulfilled();
+  });
+
+  const firstOneHourResponse = dashboardResponseFor("1h");
   await page.getByRole("combobox", { name: "Alerts timeframe" }).selectOption("1h");
-  await expect.poll(() => latestDashboardUrl).toContain("period=1h");
+  expect((await firstOneHourResponse).ok()).toBeTruthy();
   await expect(page.locator("#alerts-summary")).toContainText("1h timeframe");
-  const loadsBeforeRefresh = dashboardLoads;
+
+  // A slow earlier request must not replace a newer timeframe after it finishes.
+  holdNext24HourResponse = true;
+  await page.getByRole("combobox", { name: "Alerts timeframe" }).selectOption("24h");
+  await staleResponseReady;
+  const latestOneHourResponse = dashboardResponseFor("1h");
+  await page.getByRole("combobox", { name: "Alerts timeframe" }).selectOption("1h");
+  expect((await latestOneHourResponse).ok()).toBeTruthy();
+  await expect(page.locator("#alerts-summary")).toContainText("1h timeframe");
+  releaseStaleResponse();
+  await staleResponseFulfilled;
+  await expect(page.locator("#alerts-summary")).toContainText("1h timeframe");
+
+  const refreshResponse = dashboardResponseFor("1h");
   await page.getByRole("button", { name: "Refresh alerts" }).click();
-  await expect.poll(() => dashboardLoads).toBeGreaterThan(loadsBeforeRefresh);
+  expect((await refreshResponse).ok()).toBeTruthy();
   await expect(page.getByRole("button", { name: "Refresh alerts" })).toBeEnabled();
 });
-
 test("appearance panel: all design controls are wired and update preview", async ({ page }) => {
   await page.goto("/admin");
   await openPanel(page, "Design");
