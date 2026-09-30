@@ -21,7 +21,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from . import metrics
 
 
-CURRENT_SCHEMA_REVISION = "20260930_0001"
+CURRENT_SCHEMA_REVISION = "20260930_0007"
 _migration_schema_mode: ContextVar[bool] = ContextVar("migration_schema_mode", default=False)
 _migration_connection: ContextVar[Connection | None] = ContextVar("migration_connection", default=None)
 _engine: Engine | None = None
