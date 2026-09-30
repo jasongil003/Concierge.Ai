@@ -582,8 +582,12 @@ def test_guest_sessions_keep_tab_credentials_and_data_separate(tmp_path: Path, m
     session_store = _guest_replay_stores(tmp_path, monkeypatch)
     property_store = main_module.properties
     hospitality = HospitalityStore(tmp_path / "guest-replay.db")
-    hospitality.seed_starter_service_catalog("hotel-a")
-    service_id = hospitality.catalog("hotel-a", guest=True)["services"][0]["service_id"]
+    department = hospitality.upsert_department("hotel-a", {"name": "Test Guest Services"})
+    service = hospitality.upsert_service("hotel-a", {
+        "name": "Test Configured Service", "department_id": department["department_id"],
+        "keywords": ["test service"],
+    })
+    service_id = service["service_id"]
     monkeypatch.setattr(main_module, "hospitality", hospitality)
     monkeypatch.setattr(main_module, "personalization", PersonalizationStore(tmp_path / "guest-replay.db"))
 
