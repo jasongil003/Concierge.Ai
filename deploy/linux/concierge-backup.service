@@ -1,0 +1,7 @@
+[Unit]
+Description=Create and verify a Concierge.AI backup
+After=concierge.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/concierge internal-backup

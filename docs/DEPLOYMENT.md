@@ -1,5 +1,13 @@
 # On-Prem Deployment
 
+For appliance installation on Ubuntu Server or an Apple Silicon Mac mini, follow
+the [Appliance Installation](APPLIANCE_INSTALLATION.md) guide. That guide covers
+machine services, backup/recovery, releases, local AI, and the mandatory real
+reboot acceptance procedure. Appliance support remains **incomplete until the
+reboot acceptance test has passed on each target platform**.
+
+This page retains the manual development and lab setup instructions below.
+
 ## Minimum prototype
 
 You need:

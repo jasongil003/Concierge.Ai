@@ -1,0 +1,7 @@
+[Unit]
+Description=Concierge.AI bounded health and recovery check
+After=concierge.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/concierge internal-health

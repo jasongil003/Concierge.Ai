@@ -28,7 +28,13 @@ The repository currently includes:
 - structured facilities, restaurants, menus, hotel events, service requests, notification guardrails, and guest journey events
 - SQLite prototype state
 - Docker deployment
+- unattended Ubuntu Server and Apple Silicon Mac appliance deployment paths
 - phased architecture/security documentation
+
+The appliance paths are implemented but are **not yet production-verified**.
+Run and record `sudo concierge boot-test prepare`, a real reboot, and
+`sudo concierge boot-test verify` on both Ubuntu and an Apple Silicon Mac mini
+before claiming support. See [Appliance installation](docs/APPLIANCE_INSTALLATION.md).
 
 ## Guest journey
 
@@ -161,6 +167,7 @@ A real hotel pilot should add a proper hostname, internal DNS, trusted HTTPS, ne
 
 ## Documentation
 
+- [Appliance installation and production support status](docs/APPLIANCE_INSTALLATION.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [ANTlabs integration](docs/ANTLABS_INTEGRATION.md)
 - [AI providers and routing](docs/AI_PROVIDERS.md)

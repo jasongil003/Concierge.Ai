@@ -191,6 +191,8 @@ class AIOrchestrator:
         live_context: str,
         advanced: bool,
     ) -> AIResult:
+        if not settings.local_ai_enabled:
+            raise RuntimeError("Local AI is disabled for this appliance.")
         answer = await self.local.chat(
             user_message=user_message,
             hotel_name=hotel_name,
@@ -233,7 +235,7 @@ class AIOrchestrator:
             return await self.compatible.chat(user_message, hotel_name, context, live_context, advanced)
 
         if policy == "hybrid":
-            if not advanced and not live_context:
+            if settings.local_ai_enabled and not advanced and not live_context:
                 try:
                     return await self._local(user_message, hotel_name, context, live_context, False)
                 except Exception:
@@ -245,7 +247,9 @@ class AIOrchestrator:
                 except Exception:
                     continue
 
-            return await self._local(user_message, hotel_name, context, live_context, advanced)
+            if settings.local_ai_enabled:
+                return await self._local(user_message, hotel_name, context, live_context, advanced)
+            raise RuntimeError("No configured AI provider is currently available.")
 
         # auto:
         # - simple request: prefer local, then public/private fallbacks.
@@ -253,9 +257,13 @@ class AIOrchestrator:
         #   but always keep local AI as the last fallback.
         candidates: list[Any]
         if advanced or live_context:
-            candidates = [self.gemini, self.openai, self.compatible, self.local]
+            candidates = [self.gemini, self.openai, self.compatible]
+            if settings.local_ai_enabled:
+                candidates.append(self.local)
         else:
-            candidates = [self.local, self.gemini, self.openai, self.compatible]
+            candidates = [self.gemini, self.openai, self.compatible]
+            if settings.local_ai_enabled:
+                candidates.insert(0, self.local)
 
         for provider in candidates:
             try:

@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Concierge.AI backup schedule
+
+[Timer]
+OnCalendar=*-*-* 03:15:00
+RandomizedDelaySec=10m
+Persistent=true
+Unit=concierge-backup.service
+
+[Install]
+WantedBy=timers.target

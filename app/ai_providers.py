@@ -887,6 +887,26 @@ class LocalProviderAdapter(OpenAICompatibleProvider):
             return await super().list_models(config, credential)
 
 
+class DisabledLocalProviderAdapter:
+    provider_id = "local"
+
+    async def send_message(self, request: AIChatRequest, credential: dict[str, Any]) -> AIChatResponse:
+        raise RuntimeError("Local AI is disabled for this appliance.")
+
+    async def stream_message(self, request: AIChatRequest, credential: dict[str, Any]) -> AsyncIterator[str]:
+        raise RuntimeError("Local AI is disabled for this appliance.")
+        yield ""
+
+    async def list_models(self, config: dict[str, Any], credential: dict[str, Any]) -> list[dict[str, Any]]:
+        return []
+
+    async def test_connection(self, config: dict[str, Any], credential: dict[str, Any]) -> dict[str, Any]:
+        return {"ok": False, "error": "Local AI is disabled for this appliance."}
+
+    def get_capabilities(self) -> dict[str, bool]:
+        return capability_defaults("local")
+
+
 class UnavailableProviderAdapter:
     provider_id = "copilot"
 
@@ -1150,6 +1170,8 @@ class AIModelService:
         if provider_id == "claude":
             return ClaudeProviderAdapter()
         if provider_id == "local":
+            if not settings.local_ai_enabled:
+                return DisabledLocalProviderAdapter()
             return LocalProviderAdapter(validate_local_ai_endpoint(endpoint_url or settings.ollama_base_url, settings))
         return UnavailableProviderAdapter()
 
