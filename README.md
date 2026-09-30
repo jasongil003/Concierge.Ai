@@ -1,186 +1,287 @@
-# Concierge.Ai
+# Concierge.AI
 
-**On-prem, AI-powered hotel concierge designed to integrate with guest Wi-Fi and ANTlabs gateways.**
+[![CI](https://github.com/jasongil003/Concierge.Ai/actions/workflows/ci.yml/badge.svg)](https://github.com/jasongil003/Concierge.Ai/actions/workflows/ci.yml)
 
-Concierge.Ai is intended to turn the hotel Wi-Fi login journey into a temporary digital concierge experience. The gateway remains responsible for guest authentication and Internet access; Concierge.Ai provides the guest interface, local AI, hotel knowledge, and service workflows.
+**On-prem, AI-powered hotel concierge and operations platform designed for guest Wi-Fi environments, property teams, and ANTlabs integrations.**
 
-## Current repository
+Concierge.AI turns the hotel Wi-Fi entry point into a temporary digital concierge experience. Guests get a mobile-first personal assistant for hotel information, dining, service requests, recommendations, directions, and stay support, while hotel teams manage property content, operations, AI providers, access, reporting, and diagnostics from one property-scoped admin platform.
 
-The repository currently includes:
+> **Release stage:** v1.0-RC1 production hardening. The repository has extensive automated security, backend, integration, container, and browser coverage, but a real hotel deployment still requires property-specific network, TLS, ANTlabs/PMS, physical-device, recovery, and capacity validation.
 
-- mobile-first guest concierge UI
-- temporary guest session lifecycle
-- hotel-specific configuration
-- zero-LLM fast paths for common questions
-- local AI through Ollama
-- Qwen3 8B default local model configuration
-- admin-managed AI provider selection: Gemini / Groq / OpenAI / Claude / Copilot placeholder / Local AI
-- property-level AI settings with Local-Only Mode and encrypted server-side credentials
-- Fast / Auto / Advanced guest AI mode switcher
-- live nearby-place recommendation adapter
-- ANTlabs integration adapter
-- mock gateway authentication
-- browser-based ANTlabs authentication handoff scaffold
-- admin zone/facility/floor-map foundation with AP-to-zone mapping and deterministic route graph
-- privacy-first guest stay memory with property-scoped pseudonymous device identity
-- location analytics foundation for live zone occupancy, dwell time, movement, and aggregate reports
-- configurable intro experience with logo-generated presets and validated web animation uploads
-- structured facilities, restaurants, menus, hotel events, service requests, notification guardrails, and guest journey events
-- SQLite prototype state
-- Docker deployment
-- phased architecture/security documentation
+## What Concierge.AI is
+
+Concierge.AI is designed to sit alongside the hotel network and existing systems rather than replace them.
+
+- **ANTlabs / captive portal** remains the authority for guest Internet authentication and network admission.
+- **PMS** remains the authority for hotel stay data when a PMS integration is enabled.
+- **Concierge.AI** provides the guest experience, property knowledge, AI orchestration, service workflows, admin operations, analytics, and controlled integrations.
+- **Hotel data stays property-scoped** so one property's guests, restaurants, configuration, reports, and staff access do not mix with another property.
+
+## Core capabilities
+
+| Area | Current capability |
+| --- | --- |
+| Guest experience | Mobile-first personal stay dashboard, Explore, Requests, My Stay, Concierge, Wi-Fi authentication flow, recommendations, dining, service requests, accessibility and error states |
+| Admin platform | Property management, operational dashboard, guest requests/sessions, reports, health, network access, users/roles, restaurant workflows, design/branding and AI administration |
+| AI | Provider abstraction for OpenAI, Gemini, Groq, Claude, OpenRouter and local OpenAI-compatible/Ollama services; routing, fallback, health, latency and usage controls |
+| Property isolation | Backend-enforced property scope, restaurant assignments, host/domain collision protection and cross-property regression tests |
+| RBAC | Server-side authorization, role ceilings, department/restaurant scope, session controls and audit-sensitive operations |
+| Knowledge | Property-managed FAQs/documents, ingestion, review/publish flow, source metadata and bounded file processing |
+| Hospitality | Facilities, restaurants, menus, promotions, recommendations, service catalog, SLAs, request lifecycle and guest-facing structured data |
+| Operations | Health/readiness, metrics, alerts, reporting, XLSX/PDF exports, backup/restore and operational diagnostics |
+| Network | Separate management and guest access concepts, management CIDRs, trusted proxy controls, canonical guest host/domain validation and secure production defaults |
+| Data layer | SQLite for simple single-node on-prem deployments; PostgreSQL/Redis integration paths are covered by CI |
+| Deployment | Docker production image, non-root runtime, persistent storage, migration tooling, security scanning and SBOM generation |
+| ANTlabs / PMS | Adapters and validation paths exist; the exact live SG5/PMS contract must still be proven against the target hotel environment |
+
+## High-level architecture
+
+```text
+Guest device
+    |
+    | Hotel Wi-Fi / QR / NFC
+    v
+ANTlabs / captive network
+    |
+    | pre-auth access to approved Concierge host
+    v
++-----------------------------+
+|        Concierge.AI         |
+|                             |
+|  Guest Experience           |
+|  Personal Assistant         |
+|  Property Knowledge         |
+|  Service Requests           |
+|  Dining / Recommendations   |
+|  Stay Context               |
++-------------+---------------+
+              |
+      +-------+--------+
+      |                |
+      v                v
+ Admin Platform     AI Router
+      |                |
+      |         +------+-----------------------------+
+      |         |      |      |      |      |        |
+      |       Local  OpenAI Gemini  Groq  Claude OpenRouter
+      |
+      +--> Property / RBAC / Restaurants / Reports / Diagnostics
+      |
+      +--> SQLite or PostgreSQL / Redis
+      |
+      +--> PMS / ANTlabs / approved external integrations
+```
 
 ## Guest journey
 
 ```text
-Join Hotel Wi-Fi
+Join hotel Wi-Fi
       |
       v
 ANTlabs pre-auth session
       |
       v
-Concierge.Ai
+Concierge.AI guest experience
       |
-      +--> hotel questions
-      +--> Wi-Fi help
-      +--> guest authentication
+      +--> hotel information
+      +--> dining and recommendations
+      +--> service requests
+      +--> directions and stay assistance
+      +--> Wi-Fi authentication
       |
       v
-ANTlabs / PMS validates guest
+ANTlabs / PMS validates the guest when configured
       |
       v
 Internet access opens
       |
       v
-Concierge remains available
+Concierge remains available during the stay
       |
       v
-Session expires / checkout
+Checkout / expiry / retention boundary
       |
       v
-Temporary guest context removed
+Temporary guest context is expired, cleared or retained
+according to the configured policy
 ```
 
-## Important integration rule
+## Important integration boundary
 
-Concierge.Ai does **not** open Internet access itself.
+Concierge.AI does **not** directly grant Internet access.
 
-ANTlabs remains the authority that changes a downstream guest from unauthenticated to authenticated. The repository contains a configurable browser-handoff scaffold, but the exact SG5 login endpoint and field names must be captured and validated on a real gateway before enabling it.
+ANTlabs remains responsible for moving a downstream device from unauthenticated to authenticated. Concierge.AI can participate in the guest login journey, but the exact SG5 external-portal fields, redirects, session binding, walled-garden rules, and logout/checkout behavior must be validated against the actual gateway before a hotel pilot.
 
-See [ANTlabs integration plan](docs/ANTLABS_INTEGRATION.md).
+Likewise, simulated PMS tests do not replace validation against the hotel's real PMS implementation. Message formats, timing, resynchronization, missing-guest behavior, checkout events, and recovery paths must be verified in the target environment.
+
+See [ANTlabs integration](docs/ANTLABS_INTEGRATION.md).
 
 ## Quick start
 
-### 1. Install and start Ollama
+### Requirements
 
-```bash
-ollama pull qwen3:8b
-ollama serve
-```
+- Python 3.12 recommended
+- Node.js for Playwright/browser QA
+- Ollama only if using a local AI model
 
-### 2. Run Concierge.Ai
+### 1. Clone and create the Python environment
 
 ```bash
 git clone https://github.com/jasongil003/Concierge.Ai.git
 cd Concierge.Ai
-git checkout main
 
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+```
 
+### 2. Configure the application
+
+```bash
 cp .env.example .env
+```
+
+Review the environment values before using any production profile. Development and mock integration settings are not production defaults.
+
+### 3. Optional: start local AI
+
+```bash
+ollama serve
+```
+
+Configure the selected local model and endpoint in the admin AI settings. When Concierge.AI runs in Docker, the Ollama endpoint must be reachable from the container.
+
+### 4. Start the development server
+
+```bash
 uvicorn app.main:app --host 127.0.0.1 --port 8080 --no-proxy-headers
 ```
 
 Open:
 
 ```text
-http://localhost:8080
+Guest: http://localhost:8080
+Admin: http://localhost:8080/admin
 ```
 
-Admin AI configuration is available at:
+For a phone in a controlled hotel/lab network, use the server address allowed by the lab firewall and walled-garden policy.
 
-```text
-http://localhost:8080/admin
-Settings -> AI Models
-```
+## Testing
 
-New roadmap administration sections are available in the same admin platform:
-
-```text
-Zones
-Sessions
-Location Analytics
-Branding -> Intro Experience
-```
-
-The V1 location model is intentionally aggregate: `Device -> Associated AP -> Zone -> Facility`. Concierge.Ai does not infer exact indoor X/Y guest position from a single AP and guest-facing APIs never expose AP identifiers or WLAN infrastructure.
-
-Commercial data foundations are now normalized rather than stored in one blob. AI responses and proactive notifications should use these verified records for facility status, opening hours, menus, prices, event times, service-request status, and notification eligibility.
-
-For Docker-based local AI, use an endpoint reachable from the container, commonly `http://host.docker.internal:11434`.
-
-### 3. Run browser tests
-
-The repository includes Playwright end-to-end tests for the guest chat and admin platform.
+### Backend
 
 ```bash
-npm install
+python -m pytest -q
+```
+
+### Browser / E2E
+
+```bash
+npm ci
 npx playwright install chromium
 npm run test:e2e
 ```
 
-Playwright starts its own FastAPI server on `http://127.0.0.1:8092` during the test run, so it can run alongside a local dev server on another port.
+The CI workflow also includes:
 
-For a phone on the hotel/lab network:
+- backend tests
+- PostgreSQL and Redis integration tests
+- Python and npm dependency audits
+- static security analysis
+- repository secret scanning
+- Docker production-image build
+- non-root runtime and persistence smoke tests
+- container vulnerability scanning
+- SBOM generation
+- Chromium/mobile browser workflows
+- responsive and accessibility-oriented UI checks
+
+A release should not be treated as green while any required CI gate is failing.
+
+## Security model
+
+Concierge.AI is designed around several boundaries:
+
+- authentication and authorization are enforced server-side
+- privileged actions require backend permission checks
+- property and restaurant scope are validated by the backend
+- guest session credentials are expiring and server-controlled
+- production settings fail closed for unsafe secrets, hosts, origins, cookies, proxies, and broad management access
+- AI-generated actions still pass normal authorization and confirmation rules
+- provider secrets remain server-side and are masked from browser responses/logs
+- uploaded content is validated and resource-bounded
+- management access and guest access are treated as separate trust zones
+
+See [Security boundaries](SECURITY.md) and [Vulnerability findings](audit/VULNERABILITY_FINDINGS.md).
+
+## Production readiness
+
+The application is in **RC1 production-hardening**, not general-production certification.
+
+Before a real hotel rollout, validate at minimum:
+
+1. green release CI on the exact release revision
+2. hotel DNS, trusted HTTPS and canonical guest hostname
+3. management CIDRs, trusted proxy configuration and guest/admin network separation
+4. real ANTlabs SG5 captive-portal and authentication contract
+5. real PMS behavior if PMS integration is enabled
+6. physical iPhone and Android captive/browser flows
+7. backup and restore from the intended off-host location
+8. representative load, soak and failure/recovery tests on target hardware
+9. hotel-specific monitoring, alerts and operating ownership
+
+The repository's latest evidence and remaining gates are tracked in [Production Readiness Report](audit/PRODUCTION_READINESS_REPORT.md).
+
+## Repository structure
 
 ```text
-http://<concierge-server-ip>:8080
+app/          FastAPI application, domain services and web assets
+audit/        QA, security and production-readiness evidence
+deploy/       Deployment and operational support files
+docs/         Architecture, deployment, integrations and product documentation
+loadtest/     Load/performance tooling
+migrations/   Database migrations
+tests/        Backend and integration tests
+tests/e2e/    Playwright browser tests
 ```
 
-The prototype starts in:
-
-```env
-ANTLABS_MODE=mock
-```
-
-so the UI can be built and tested before connecting it to a real SG5 authentication flow.
-
-## Why local first?
-
-The first prototype does not require:
-
-- a public domain
-- a cloud AI account
-- AI token billing
-- a GPU server
-- public Internet exposure
-
-A real hotel pilot should add a proper hostname, internal DNS, trusted HTTPS, network isolation, monitoring, and the validated ANTlabs authentication contract.
-
-## Documentation
+## Key documentation
 
 - [Architecture](docs/ARCHITECTURE.md)
+- [On-prem deployment](docs/DEPLOYMENT.md)
 - [ANTlabs integration](docs/ANTLABS_INTEGRATION.md)
 - [AI providers and routing](docs/AI_PROVIDERS.md)
-- [On-prem deployment](docs/DEPLOYMENT.md)
+- [Hotel Knowledge Management](docs/KNOWLEDGE_MANAGEMENT.md)
 - [Product roadmap](docs/ROADMAP.md)
 - [Master product expansion plan](docs/MASTER_PRODUCT_PLAN.md)
 - [Security boundaries](SECURITY.md)
-- [Current production readiness report](audit/PRODUCTION_READINESS_REPORT.md)
+- [Production readiness](audit/PRODUCTION_READINESS_REPORT.md)
+- [Real-device acceptance](audit/REAL_DEVICE_ACCEPTANCE.md)
 
-## Prototype priorities
+## Product direction
 
-The next technical milestone is deliberately narrow:
+The priority is to prove a dependable hotel operating path:
 
-> **Unauthenticated guest -> local Concierge.Ai -> valid hotel credentials -> ANTlabs authenticates the same device -> Internet opens -> Concierge remains available.**
+```text
+Guest joins Wi-Fi
+      ->
+Concierge is reachable before authentication
+      ->
+Guest receives a premium property-scoped assistant experience
+      ->
+Configured guest authentication succeeds
+      ->
+Internet access is granted by ANTlabs
+      ->
+Concierge remains available during the stay
+      ->
+Operational state, requests and temporary context are safely managed
+```
 
-The commercial roadmap is **on-prem first, cloud/hybrid later**. The immediate order is ANTlabs authentication proof, production HTTPS/re-entry, the self-service property/landing-page platform, hotel knowledge/RAG, and one real hotel pilot. Voice and advanced indoor positioning come after the core flow is proven.
+The commercial architecture remains **on-prem first**, with cloud/hybrid capability evolving without weakening property isolation or requiring the guest experience to be rebuilt.
+
+Native lightweight experiences such as App Clip / Android Instant App are not required for the core v1.0 release path; HTTPS guest access through Wi-Fi, QR or NFC remains the primary baseline.
 
 ## License
 
-No license has been selected yet. Do not assume commercial redistribution rights until a project license is added.
-# Hotel Knowledge Management
-
-Admin AI document ingestion, review, publishing, source citations, and the Guest AI retrieval boundary are described in [Hotel Knowledge Management](docs/KNOWLEDGE_MANAGEMENT.md). Use the [manual QA checklist](docs/KNOWLEDGE_MANAGEMENT_QA.md) after deployment.
+No project license has been selected yet. Do not assume redistribution or commercial-use rights until a license is explicitly added.
