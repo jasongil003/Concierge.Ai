@@ -389,6 +389,9 @@ async function signIn(page) {
 
 async function openPanel(page, panel) {
   const item = page.locator(".nav-item[data-panel=" + JSON.stringify(panel) + "]").first();
+  const networkAccessLoaded = panel === "network-access"
+    ? page.waitForResponse((response) => response.url().includes("/network-access/status") && response.ok())
+    : null;
   await item.evaluate((element) => {
     const group = element.closest("details.nav-group");
     if (group) group.open = true;
@@ -396,6 +399,10 @@ async function openPanel(page, panel) {
   await item.scrollIntoViewIfNeeded();
   await item.click();
   await expect(page.locator(".panel.active")).toHaveAttribute("id", panel);
+  if (networkAccessLoaded) {
+    await networkAccessLoaded;
+    await expect(page.locator("#guest-access-fields")).not.toHaveAttribute("aria-busy", "true");
+  }
 }
 
 async function inventoryVisibleControls(page, view) {
