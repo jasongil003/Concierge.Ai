@@ -18,7 +18,7 @@ Original files live under `UPLOAD_ROOT/knowledge/<hashed-property-id>/<server-ge
 
 ## Supported formats and limits
 
-PDF, DOCX, XLSX, CSV, TXT, Markdown, JSON, PPTX, PNG, JPEG, and WEBP are accepted. PDF text is extracted with pypdf. Office files are parsed as data; macros and embedded executables are never run. Excel formulas are read as cached values. Text files require UTF-8. Image OCR uses Pillow and Tesseract with a 30-second OCR timeout and a 30-megapixel pixel limit. Scanned PDFs currently fail with a clear OCR-not-configured message; machine-readable PDFs are not OCRed.
+PDF, DOCX, XLSX, CSV, TXT, Markdown, JSON, PPTX, PNG, JPEG, and WEBP are accepted. PDF parsing runs in a short-lived child process with a 20-second CPU limit, 30-second wall-clock timeout, a 768 MiB address-space limit on Linux, 300-page ceiling, upload-size ceiling, extracted-text ceiling, and a 10,000 text-section ceiling. The PDF worker receives only a minimal environment and returns structured text; parser stderr is discarded. On macOS, the worker keeps CPU and wall-clock limits but omits `RLIMIT_AS` because shared system mappings can exceed the configured ceiling. Production Docker uses Linux and enforces the address-space limit. Office files are parsed as data; macros and embedded executables are never run. Excel formulas are read as cached values. Text files require UTF-8. Image OCR uses Pillow and Tesseract with a 30-second OCR timeout and a 30-megapixel pixel limit. Scanned PDFs currently fail with a clear OCR-not-configured message; machine-readable PDFs are not OCRed.
 
 | Variable | Default | Purpose |
 | --- | ---: | --- |

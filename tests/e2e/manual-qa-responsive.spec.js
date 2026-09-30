@@ -9,6 +9,7 @@ const VIEWPORTS = [
   { width: 430, height: 932 },
   { width: 390, height: 844 },
   { width: 375, height: 812 },
+  { width: 320, height: 720 },
 ];
 
 async function signIn(page) {
