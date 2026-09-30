@@ -317,3 +317,94 @@ jobs:
         run: |
           docker rm -f concierge-ci || true
           docker volume rm concierge-ci-state || true
+  deployment-validation-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install service and shell validators
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+      - name: Validate shared and Ubuntu installer shell
+        run: |
+          for script in deploy/install.sh deploy/linux/install.sh deploy/linux/platform.sh deploy/common/*.sh; do bash -n "$script"; done
+          shellcheck -x deploy/install.sh deploy/linux/install.sh deploy/linux/platform.sh deploy/common/*.sh
+      - name: Validate systemd service files
+        run: |
+          sudo install -d /etc/concierge /usr/local/bin /opt/concierge/current
+          sudo touch /etc/concierge/concierge.env
+          sudo install -m 0755 /bin/true /usr/local/bin/concierge
+          sudo install -m 0644 deploy/linux/*.service deploy/linux/*.timer /etc/systemd/system/
+          systemd-analyze verify concierge.service concierge-health.service concierge-health.timer concierge-backup.service concierge-backup.timer concierge-maintenance.service concierge-maintenance.timer
+      - name: Validate Compose configuration
+        run: |
+          mkdir -p "$RUNNER_TEMP/backups"
+          cat > "$RUNNER_TEMP/concierge.env" <<EOF
+          ADMIN_BOOTSTRAP_PASSWORD=OneTimeCiPassword123!
+          CREDENTIAL_ENCRYPTION_SECRET=0123456789abcdef0123456789abcdef
+          METRICS_TOKEN=0123456789abcdef0123456789abcdef
+          CANONICAL_HOSTS=concierge.ci.example
+          PUBLIC_BASE_URL=https://concierge.ci.example
+          ADMIN_ALLOWED_CIDRS=127.0.0.1/32
+          CONCIERGE_CONFIG_FILE=$RUNNER_TEMP/concierge.env
+          CONCIERGE_BACKUP_DIR=$RUNNER_TEMP/backups
+          EOF
+          docker compose --env-file "$RUNNER_TEMP/concierge.env" -f docker-compose.yml config --quiet
+      - name: Validate Nginx loopback and forwarding configuration
+        run: >-
+          docker run --rm
+          -v "$PWD/deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro"
+          nginx:1.29-alpine nginx -t
+
+  deployment-validation-macos:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up current supported Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+      - name: Report macOS runner architecture
+        run: |
+          uname -sm
+          python -c 'import platform; print(platform.python_version(), platform.machine())'
+      - name: Validate native dependency setup on macOS
+        run: |
+          python -m pip install --requirement requirements.txt
+          python -m compileall -q app deploy/common
+      - name: Validate shared and macOS installer shell
+        run: |
+          for script in deploy/install.sh deploy/macos/install.sh deploy/macos/platform.sh deploy/macos/concierge-restart deploy/common/*.sh; do bash -n "$script"; done
+          brew install shellcheck
+          shellcheck -x deploy/install.sh deploy/macos/install.sh deploy/macos/platform.sh deploy/macos/concierge-restart deploy/common/*.sh
+      - name: Validate LaunchDaemon property lists
+        run: plutil -lint deploy/macos/*.plist
+      - name: Check local proxy compiles on the runner architecture
+        run: python3 -m py_compile deploy/common/loopback_proxy.py deploy/common/ops.py
+      - name: Generate production validation credentials
+        run: |
+          echo "ADMIN_BOOTSTRAP_PASSWORD=$(python -c 'import secrets; print(secrets.token_hex(24) + "A!")')" >> "$GITHUB_ENV"
+          echo "CREDENTIAL_ENCRYPTION_SECRET=$(python -c 'import secrets; print(secrets.token_hex(32))')" >> "$GITHUB_ENV"
+          echo "METRICS_TOKEN=$(python -c 'import secrets; print(secrets.token_hex(32))')" >> "$GITHUB_ENV"
+      - name: Validate production settings under native Python
+        run: |
+          APP_ENVIRONMENT=production \
+          PROPERTY_ID=hotel-a \
+          DB_PATH="$RUNNER_TEMP/concierge.sqlite" \
+          UPLOAD_ROOT="$RUNNER_TEMP/concierge-uploads" \
+          ADMIN_COOKIE_SECURE=true \
+          ALLOW_BODY_PROPERTY_SELECTION=false \
+          ALLOW_DEMO_SETTINGS=false \
+          APP_DEBUG=false \
+          CANONICAL_HOSTS=hotel-a.test \
+          PUBLIC_BASE_URL=https://hotel-a.test \
+          ADMIN_ALLOWED_CIDRS=127.0.0.1/32 \
+          FORWARDED_ALLOW_IPS=127.0.0.1 \
+          LOCAL_AI_ENABLED=false \
+          ANTLABS_MODE=browser_handoff \
+          ANTLABS_AUTH_URL=https://gateway.example.test/login/main.ant?c=proc \
+          ANTLABS_AUTH_METHOD=POST \
+          python -c 'from app.config import settings; assert settings.app_environment == "production"'
