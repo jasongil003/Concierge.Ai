@@ -79,8 +79,9 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
 
   browser-tests:
-    # Visual snapshots are checked in for macOS; keep CI on the same renderer platform.
-    runs-on: macos-latest
+    # PR gate: run functional browser coverage on the readily available Linux runner.
+    # Platform-dependent visual snapshots are validated by the separate macOS native workflow.
+    runs-on: ubuntu-latest
     timeout-minutes: 20
 
     steps:
@@ -112,7 +113,7 @@ jobs:
         env:
           PLAYWRIGHT_SERVER_COMMAND: python -m uvicorn app.main:app --host 127.0.0.1 --port 8092
           PROPERTY_ID: ci-property
-        run: npm run test:e2e
+        run: npx playwright test $(find tests/e2e -name '*.spec.js' ! -name 'visual.spec.js' -print)
 
       - name: Upload browser report on failure
         if: failure()
@@ -356,38 +357,42 @@ jobs:
           nginx:1.29-alpine nginx -t
 
   deployment-validation-macos:
-    runs-on: macos-latest
+    # PR gate: validate macOS artifacts without waiting for a scarce macOS runner.
+    # Native launchd/Python validation runs in macos-native-validation.yml before release.
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - name: Set up current supported Python
-        uses: actions/setup-python@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
           cache: pip
-      - name: Report macOS runner architecture
+      - name: Install validation tools
         run: |
-          uname -sm
-          python -c 'import platform; print(platform.python_version(), platform.machine())'
-      - name: Validate native dependency setup on macOS
-        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
           python -m pip install --requirement requirements.txt
-          python -m compileall -q app deploy/common
       - name: Validate shared and macOS installer shell
         run: |
           for script in deploy/install.sh deploy/macos/install.sh deploy/macos/platform.sh deploy/macos/concierge-restart deploy/common/*.sh; do bash -n "$script"; done
-          brew install shellcheck
           shellcheck --severity=warning -x deploy/install.sh deploy/macos/install.sh deploy/macos/platform.sh deploy/macos/concierge-restart deploy/common/*.sh
       - name: Validate LaunchDaemon property lists
-        run: plutil -lint deploy/macos/*.plist
-      - name: Check local proxy compiles on the runner architecture
-        run: python3 -m py_compile deploy/common/loopback_proxy.py deploy/common/ops.py
-      - name: Generate production validation credentials
         run: |
-          echo "ADMIN_BOOTSTRAP_PASSWORD=$(python -c 'import secrets; print(secrets.token_hex(24) + "A!")')" >> "$GITHUB_ENV"
-          echo "CREDENTIAL_ENCRYPTION_SECRET=$(python -c 'import secrets; print(secrets.token_hex(32))')" >> "$GITHUB_ENV"
-          echo "METRICS_TOKEN=$(python -c 'import secrets; print(secrets.token_hex(32))')" >> "$GITHUB_ENV"
-      - name: Validate production settings under native Python
+          python - <<'PY'
+          import plistlib
+          from pathlib import Path
+          for path in Path("deploy/macos").glob("*.plist"):
+              with path.open("rb") as handle:
+                  plistlib.load(handle)
+              print(f"valid: {path}")
+          PY
+      - name: Check macOS support Python compiles
+        run: python -m py_compile deploy/common/loopback_proxy.py deploy/common/ops.py
+      - name: Validate production settings
+        env:
+          ADMIN_BOOTSTRAP_PASSWORD: PrValidationOnly-A1!
+          CREDENTIAL_ENCRYPTION_SECRET: pr-validation-encryption-secret-00000001
+          METRICS_TOKEN: pr-validation-metrics-token-000000000001
         run: |
           APP_ENVIRONMENT=production \
           PROPERTY_ID=hotel-a \
