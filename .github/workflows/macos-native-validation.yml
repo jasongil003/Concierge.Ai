@@ -11,7 +11,7 @@ permissions:
 jobs:
   macos-native-validation:
     runs-on: macos-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -35,3 +35,52 @@ jobs:
         run: plutil -lint deploy/macos/*.plist
       - name: Compile local proxy and recovery tooling
         run: python3 -m py_compile deploy/common/loopback_proxy.py deploy/common/ops.py
+      - name: Generate one-run production validation credentials
+        run: |
+          {
+            printf 'ADMIN_BOOTSTRAP_PASSWORD=%sA!\n' "$(python -c 'import secrets; print(secrets.token_hex(24))')"
+            printf 'CREDENTIAL_ENCRYPTION_SECRET=%s\n' "$(python -c 'import secrets; print(secrets.token_hex(32))')"
+            printf 'METRICS_TOKEN=%s\n' "$(python -c 'import secrets; print(secrets.token_hex(32))')"
+          } >> "$GITHUB_ENV"
+      - name: Validate production settings under native Python
+        run: |
+          APP_ENVIRONMENT=production \
+          PROPERTY_ID=ci-property \
+          DB_PATH="$RUNNER_TEMP/concierge.sqlite" \
+          UPLOAD_ROOT="$RUNNER_TEMP/concierge-uploads" \
+          ADMIN_COOKIE_SECURE=true \
+          ALLOW_BODY_PROPERTY_SELECTION=false \
+          ALLOW_DEMO_SETTINGS=false \
+          APP_DEBUG=false \
+          CANONICAL_HOSTS=ci-property.ci.example \
+          PUBLIC_BASE_URL=https://ci-property.ci.example \
+          ADMIN_ALLOWED_CIDRS=127.0.0.1/32 \
+          FORWARDED_ALLOW_IPS=127.0.0.1 \
+          LOCAL_AI_ENABLED=false \
+          ANTLABS_MODE=browser_handoff \
+          ANTLABS_AUTH_URL='https://gateway.example.test/login/main.ant?c=proc' \
+          ANTLABS_AUTH_METHOD=POST \
+          python -c 'from app.config import settings; assert settings.app_environment == "production"'
+      - name: Set up Node.js for platform-specific visual snapshots
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install browser-test dependencies
+        run: npm ci
+      - name: Install Chromium
+        run: npx playwright install chromium
+      - name: Run macOS visual regression tests
+        env:
+          PLAYWRIGHT_SERVER_COMMAND: python -m uvicorn app.main:app --host 127.0.0.1 --port 8092 --no-proxy-headers
+        run: npx playwright test tests/e2e/visual.spec.js --grep @visual
+      - name: Upload visual test report on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-visual-playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7

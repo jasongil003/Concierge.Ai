@@ -37,7 +37,7 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test("guest home visual baseline", async ({ page }) => {
+test("guest home visual baseline", { tag: "@visual" }, async ({ page }) => {
   const homeLoaded = page.waitForResponse((response) =>
     response.url().includes("/api/guest/home") && response.status() === 200,
   );
@@ -53,7 +53,7 @@ test("guest home visual baseline", async ({ page }) => {
   });
 });
 
-test("admin design panel visual baseline", async ({ page }) => {
+test("admin design panel visual baseline", { tag: "@visual" }, async ({ page }) => {
   await loginAdmin(page);
   await page.goto("/admin");
   await page.locator('body[data-admin-ready="true"]').waitFor();

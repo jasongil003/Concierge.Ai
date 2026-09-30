@@ -917,10 +917,10 @@
       <section class="panel" id="audit">
         <div class="page-title"><div><p>System</p><h1>Audit logs</h1><span>Administrative activity across users, properties, configuration, and security.</span></div><button class="secondary" id="refresh-audit" type="button">Refresh</button></div>
         <div class="filter-bar">
-          <input id="audit-username" placeholder="Username">
+          <input id="audit-username" placeholder="Username" aria-label="Filter audit logs by username">
           <select id="audit-property"><option value="">All properties</option></select>
-          <input id="audit-action" placeholder="Action">
-          <input id="audit-resource" placeholder="Resource">
+          <input id="audit-action" placeholder="Action" aria-label="Filter audit logs by action">
+          <input id="audit-resource" placeholder="Resource" aria-label="Filter audit logs by resource">
           <input id="audit-date" type="date" aria-label="Audit date">
           <button id="apply-audit-filters" type="button">Apply</button>
         </div>
