@@ -1,6 +1,6 @@
 # Concierge.AI
 
-[![CI](https://github.com/jasongil003/Concierge.Ai/actions/workflows/ci.yml/badge.svg)](https://github.com/jasongil003/Concierge.Ai/actions/workflows/ci.yml)
+[![CI](https://github.com/jasongil003/Concierge.Ai/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jasongil003/Concierge.Ai/actions/workflows/ci.yml?query=branch%3Amain)
 
 **On-prem, AI-powered hotel concierge and operations platform designed for guest Wi-Fi environments, property teams, and ANTlabs integrations.**
 
