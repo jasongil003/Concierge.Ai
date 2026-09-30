@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Concierge.AI health and recovery supervisor
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=15s
+Persistent=true
+Unit=concierge-health.service
+
+[Install]
+WantedBy=timers.target
