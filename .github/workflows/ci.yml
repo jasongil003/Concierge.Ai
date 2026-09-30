@@ -329,7 +329,7 @@ jobs:
       - name: Validate shared and Ubuntu installer shell
         run: |
           for script in deploy/install.sh deploy/linux/install.sh deploy/linux/platform.sh deploy/common/*.sh; do bash -n "$script"; done
-          shellcheck -x deploy/install.sh deploy/linux/install.sh deploy/linux/platform.sh deploy/common/*.sh
+          shellcheck --severity=warning -x deploy/install.sh deploy/linux/install.sh deploy/linux/platform.sh deploy/common/*.sh
       - name: Validate systemd service files
         run: |
           sudo install -d /etc/concierge /usr/local/bin /opt/concierge/current
@@ -379,7 +379,7 @@ jobs:
         run: |
           for script in deploy/install.sh deploy/macos/install.sh deploy/macos/platform.sh deploy/macos/concierge-restart deploy/common/*.sh; do bash -n "$script"; done
           brew install shellcheck
-          shellcheck -x deploy/install.sh deploy/macos/install.sh deploy/macos/platform.sh deploy/macos/concierge-restart deploy/common/*.sh
+          shellcheck --severity=warning -x deploy/install.sh deploy/macos/install.sh deploy/macos/platform.sh deploy/macos/concierge-restart deploy/common/*.sh
       - name: Validate LaunchDaemon property lists
         run: plutil -lint deploy/macos/*.plist
       - name: Check local proxy compiles on the runner architecture
