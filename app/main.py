@@ -183,8 +183,6 @@ management_access_guard = ManagementAccessGuard()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    for property_record in properties.list():
-        hospitality.seed_starter_service_catalog(property_record.property_id)
     personalization.cleanup_expired()
     async def process_pending_knowledge():
         while True:
@@ -3670,8 +3668,6 @@ async def upsert_property(property_id: str, payload: PropertyPayload, request: R
         )
         record.design_published = record.design_draft
     saved = properties.upsert(record)
-    if existing is None:
-        hospitality.seed_starter_service_catalog(property_id)
     return _property_admin_payload(saved, principal)
 
 
