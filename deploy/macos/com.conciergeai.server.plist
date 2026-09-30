@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.conciergeai.server</string>
+  <key>ProgramArguments</key><array><string>/opt/concierge/current/deploy/common/run-app.sh</string></array>
+  <key>UserName</key><string>_concierge</string>
+  <key>GroupName</key><string>_concierge</string>
+  <key>WorkingDirectory</key><string>/opt/concierge/current</string>
+  <key>EnvironmentVariables</key><dict><key>CONCIERGE_INTERNAL_PORT</key><string>8081</string></dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><false/>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>ExitTimeOut</key><integer>45</integer>
+  <key>ProcessType</key><string>Background</string>
+  <key>StandardOutPath</key><string>/Library/Logs/Concierge.AI/server.out.log</string>
+  <key>StandardErrorPath</key><string>/Library/Logs/Concierge.AI/server.err.log</string>
+</dict>
+</plist>
