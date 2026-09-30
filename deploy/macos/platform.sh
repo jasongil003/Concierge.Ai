@@ -126,7 +126,7 @@ run_app_python() {
     # shellcheck disable=SC1090
     . "$CONFIG_FILE"
     set +a
-    cd "$APP_ROOT/current"
+    cd "$APP_ROOT/current" || return 1
     "$APP_ROOT/current/.venv/bin/python" "$@"
 }
 
