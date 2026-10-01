@@ -63,6 +63,7 @@ async function inventoryVisibleControls(page, view) {
       if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0 || rect.width === 0 || rect.height === 0) continue;
       const tag = element.tagName.toLowerCase();
       const type = tag === "input" ? (element.getAttribute("type") || "text").toLowerCase() : "";
+      const effectivelyDisabled = Boolean(element.matches(":disabled") || element.getAttribute("aria-disabled") === "true");
       const associatedLabel = Array.from(element.labels || [])
         .map((labelElement) => labelElement.innerText || labelElement.textContent || "")
         .join(" ");
@@ -87,7 +88,7 @@ async function inventoryVisibleControls(page, view) {
       const occurrence = counts.get(base) || 0;
       counts.set(base, occurrence + 1);
       const wasFocused = document.activeElement === element;
-      if (!element.disabled && element.tabIndex >= 0) element.focus({ preventScroll: true });
+      if (!effectivelyDisabled && element.tabIndex >= 0) element.focus({ preventScroll: true });
       const focusable = document.activeElement === element || wasFocused;
       rows.push({
         view: currentView,
@@ -99,7 +100,7 @@ async function inventoryVisibleControls(page, view) {
         name: element.getAttribute("name") || "",
         label,
         occurrence,
-        disabled: Boolean(element.disabled || element.getAttribute("aria-disabled") === "true"),
+        disabled: effectivelyDisabled,
         readOnly: Boolean(element.readOnly),
         required: Boolean(element.required || element.getAttribute("aria-required") === "true"),
         checked: "checked" in element ? Boolean(element.checked) : null,
@@ -129,8 +130,10 @@ test("manual QA inventories visible controls on every admin destination and gues
   await page.goto("/");
   await expect(page.locator("#home-view")).toBeVisible();
   records.push(...await inventoryVisibleControls(page, "guest:home"));
+  const guestNavigation = page.locator(".experience-configured-navigation");
+  await expect(guestNavigation).toBeVisible();
   for (const [label, panel] of [["Explore", "#explore-view"], ["Requests", "#requests-view"], ["My Stay", "#stay-view"], ["Concierge", "#concierge-view"], ["Home", "#home-view"]]) {
-    await page.getByRole("button", { name: label, exact: true }).click();
+    await guestNavigation.getByRole("button", { name: label, exact: true }).click();
     await expect(page.locator(panel)).toBeVisible();
     records.push(...await inventoryVisibleControls(page, `guest:${label.toLowerCase().replaceAll(" ", "-")}`));
   }

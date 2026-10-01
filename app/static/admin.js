@@ -9,6 +9,27 @@ const state = {
   property: null,
   designDraft: null,
   designPublished: null,
+  designRevision: 1,
+  guestPages: [],
+  builderRegistry: {},
+  builderSelectedSectionId: null,
+  builderSelection: null,
+  builderCollapsedLayers: new Set(),
+  builderDevice: "desktop",
+  builderPageId: "home",
+  builderInspectorTab: "content",
+  builderLibraryTab: "components",
+  builderGlobalEditBefore: null,
+  builderHospitality: null,
+  builderQuickActionsExpanded: false,
+  builderHistory: [],
+  builderRedo: [],
+  builderEditBefore: null,
+  builderEditRendered: false,
+  builderDrag: null,
+  builderPointerDrag: null,
+  suppressBuilderClick: false,
+  builderDirty: false,
   versions: [],
   ai: null,
   personalizationPolicy: null,
@@ -741,7 +762,7 @@ function activatePanel(panelId, navId = null) {
   const activeNavItem = [...document.querySelectorAll(".nav-item")].find((item) => item.dataset.navId === state.activeNavId);
   const activeNavGroup = activeNavItem?.closest(".nav-group");
   if (activeNavGroup) activeNavGroup.open = true;
-  if (panelId === "appearance") requestAnimationFrame(fitPreview);
+  if (panelId === "appearance") requestAnimationFrame(() => renderBuilderCanvas());
   if (panelId === "ai-assistant" && currentPropertyId()) {
     $("assistant-chat-scope").textContent = propertyName(currentPropertyId()) + " · Personal history";
     loadAssistantConversations().catch((error) => showToast(error.message, "error"));
@@ -2797,11 +2818,1625 @@ async function decideImprovementLoop(decision) {
 function hydrateDesign(design) {
   state.designDraft = structuredClone(design.draft);
   state.designPublished = structuredClone(design.published);
+  state.designRevision = Number(design.revision || 1);
+  state.builderRegistry = design.component_registry || {};
+  state.guestPages = structuredClone(state.designDraft.pages || []);
+  if (!state.guestPages.some((page) => page.id === "home")) {
+    state.guestPages = [{ id: "home", type: "guest_home", version: 1, name: "Home", slug: "/", enabled: true, navigation: true, sections: [] }];
+  }
+  let migratedChrome = false;
+  const home = state.guestPages.find((page) => page.id === "home");
+  if (home && Number(home.version || 1) < 2) {
+    const sections = home.sections || (home.sections = []);
+    if (!sections.some((section) => section.type === "header")) {
+      sections.unshift({ id: "header", type: "header", title: "Header", enabled: true, order: 0, properties: { show_menu: true, show_logo: state.designDraft.header?.showLogo !== false, show_hotel_name: state.designDraft.header?.showHotelName !== false, show_concierge_label: state.designDraft.header?.showConciergeName !== false }, responsive: {}, animation: { entrance: "none", duration: "normal", delay: 0, trigger: "page_load", repeat: "once", interaction: "none" }, appearance: {} });
+      migratedChrome = true;
+    }
+    if (!sections.some((section) => section.type === "bottom_navigation")) {
+      const pages = new Map(state.guestPages.map((page) => [page.id, page]));
+      const items = (state.designDraft.navigation || []).filter((item) => item && pages.has(item.page_id)).map((item) => ({ id: `nav-${item.page_id}`, label: item.label || pages.get(item.page_id).name || item.page_id, icon: item.icon || "", enabled: item.enabled !== false, action: { type: "internal_page", page_id: item.page_id } }));
+      sections.push({ id: "bottom-navigation", type: "bottom_navigation", title: "Bottom Navigation", enabled: true, order: sections.length, properties: { show_labels: true, position: "fixed", height: "medium", icon_size: "medium", safe_area_padding: true, items }, responsive: {}, animation: { entrance: "none", duration: "normal", delay: 0, trigger: "page_load", repeat: "once", interaction: "none" }, appearance: {} });
+      migratedChrome = true;
+    }
+    if (migratedChrome) home.version = 2;
+  }
+  state.builderPageId = "home";
+  state.builderSelectedSectionId = null;
+  state.builderSelection = null;
+  state.builderHistory = [];
+  state.builderRedo = [];
+  state.builderEditBefore = null;
+  state.builderEditRendered = false;
+  state.builderDirty = migratedChrome;
   state.versions = design.versions || [];
   fillDesignForm(state.designDraft);
+  if (migratedChrome) markBuilderDirty();
+  renderBuilderPageOptions();
+  renderBuilderLibrary();
+  renderBuilder();
   renderVersions();
   updatePreview();
   setPublishState(state.versions.length ? `Published v${state.versions.at(-1).version}` : "No published version");
+}
+
+function builderPage() {
+  return state.guestPages.find((page) => page.id === state.builderPageId) || state.guestPages.find((page) => page.id === "home") || null;
+}
+
+function renderBuilderPageOptions() {
+  const select = $("builder-page-select");
+  if (!select) return;
+  select.replaceChildren();
+  for (const page of state.guestPages.filter((item) => item.enabled !== false)) select.appendChild(new Option(page.name || page.id, page.id));
+  if (![...select.options].some((option) => option.value === state.builderPageId)) state.builderPageId = "home";
+  select.value = state.builderPageId;
+}
+
+function builderSnapshot() {
+  const design = designPayload();
+  delete design.pages;
+  return { pages: structuredClone(state.guestPages), pageId: state.builderPageId, sectionId: state.builderSelectedSectionId, selection: structuredClone(state.builderSelection), design };
+}
+
+function builderRecordChange(before = builderSnapshot()) {
+  state.builderHistory.push(before);
+  if (state.builderHistory.length > 60) state.builderHistory.shift();
+  state.builderRedo = [];
+  markBuilderDirty();
+  const page = builderPage(); if (page) page.version = Math.max(2, Number(page.version) || 1);
+  renderBuilderHistoryButtons();
+}
+
+function markBuilderDirty() {
+  state.builderDirty = true;
+  const status = $("builder-save-status");
+  if (status) status.textContent = "Unsaved changes";
+}
+
+function renderBuilderHistoryButtons() {
+  const undo = $("builder-undo-button");
+  const redo = $("builder-redo-button");
+  if (undo) undo.disabled = !can("concierge.edit") || state.builderHistory.length === 0;
+  if (redo) redo.disabled = !can("concierge.edit") || state.builderRedo.length === 0;
+}
+
+function restoreBuilderSnapshot(snapshot, direction) {
+  if (!snapshot) return;
+  const current = builderSnapshot();
+  (direction === "undo" ? state.builderRedo : state.builderHistory).push(current);
+  state.guestPages = structuredClone(snapshot.pages);
+  state.builderPageId = snapshot.pageId;
+  state.builderSelectedSectionId = snapshot.sectionId;
+  state.builderSelection = structuredClone(snapshot.selection);
+  if (snapshot.design) { fillDesignForm({ ...snapshot.design, pages: state.guestPages }); renderBuilderNavigationSettings(snapshot.design.navigation || []); }
+  normalizeBuilderOrder();
+  renderBuilderPageOptions();
+  renderBuilder();
+  markBuilderDirty();
+  renderBuilderHistoryButtons();
+}
+
+function normalizeBuilderOrder() {
+  const page = builderPage();
+  if (!page) return;
+  page.sections = (page.sections || []).map((section, index) => ({ ...section, order: index }));
+}
+
+function builderNewId(type) {
+  const randomId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  return `${type}-${randomId}`.slice(0, 64);
+}
+
+const BUILDER_GROUP_ORDER = ["Basic", "Layout", "Hotel", "AI & Concierge", "Navigation"];
+
+function renderBuilderLibrary() {
+  const root = $("builder-component-library");
+  if (!root) return;
+  root.replaceChildren();
+  const query = ($("builder-component-search")?.value || "").trim().toLocaleLowerCase();
+  const groups = new Map();
+  for (const [type, definition] of Object.entries(state.builderRegistry || {})) {
+    if (!definition || !definition.label || !definition.defaults || !Array.isArray(definition.fields)) continue;
+    if (query && !`${definition.label} ${type} ${definition.group || ""}`.toLocaleLowerCase().includes(query)) continue;
+    const group = definition.group || "Components";
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push([type, definition]);
+  }
+  for (const groupName of [...groups.keys()].sort((a, b) => BUILDER_GROUP_ORDER.indexOf(a) - BUILDER_GROUP_ORDER.indexOf(b))) {
+    const group = document.createElement("section");
+    const heading = document.createElement("h3"); heading.textContent = groupName; group.appendChild(heading);
+    const grid = document.createElement("div"); grid.className = "builder-component-grid";
+    groups.get(groupName).sort((a, b) => a[1].label.localeCompare(b[1].label));
+    for (const [type, definition] of groups.get(groupName)) {
+      const button = document.createElement("button");
+      button.type = "button"; button.className = "builder-component-tile"; button.dataset.builderAdd = type; button.draggable = false; button.setAttribute("aria-label", `Add ${definition.label}; drag to the page or activate to add`); button.title = "Drag to the canvas or click to add";
+      const icon = document.createElement("b"); icon.textContent = definition.icon || "＋";
+      const label = document.createElement("span"); label.textContent = definition.label;
+      const grip = document.createElement("i"); grip.className = "builder-component-grip"; grip.setAttribute("aria-hidden", "true"); grip.textContent = "⠿";
+      button.append(icon, label, grip); grid.appendChild(button);
+    }
+    group.appendChild(grid); root.appendChild(group);
+  }
+  if (!root.childElementCount) { const empty = document.createElement("p"); empty.className = "builder-empty-note"; empty.textContent = "No components match your search."; root.appendChild(empty); }
+}
+
+function builderAddSection(type, beforeId = null) {
+  const page = builderPage();
+  const definition = state.builderRegistry[type];
+  if (!page || !definition || page.sections.length >= 60) return;
+  builderRecordChange();
+  const properties = structuredClone(definition.defaults);
+  if (type === "quick_actions") delete properties.items;
+  const section = {
+    id: builderNewId(type), type, title: definition.label, enabled: true,
+    order: page.sections.length, properties,
+    responsive: {}, animation: { entrance: "none", duration: "normal", delay: 0, trigger: "page_load", repeat: "once", interaction: "none" }, appearance: {},
+  };
+  const beforeIndex = beforeId ? page.sections.findIndex((item) => item.id === beforeId) : -1;
+  page.sections.splice(beforeIndex < 0 ? page.sections.length : beforeIndex, 0, section);
+  page.version = Math.max(2, Number(page.version) || 1);
+  state.builderSelectedSectionId = section.id;
+  state.builderSelection = null;
+  normalizeBuilderOrder();
+  renderBuilder();
+}
+
+function builderSectionAction(sectionId, action) {
+  const page = builderPage();
+  if (!page) return;
+  const index = page.sections.findIndex((section) => section.id === sectionId);
+  if (index < 0) return;
+  const section = page.sections[index];
+  if (action === "duplicate") {
+    builderRecordChange();
+    const duplicate = structuredClone(section);
+    duplicate.id = builderNewId(section.type);
+    duplicate.title = `${section.title} copy`.slice(0, 80);
+    page.sections.splice(index + 1, 0, duplicate);
+    state.builderSelectedSectionId = duplicate.id;
+  } else if (action === "delete") {
+    if (section.type === "bottom_navigation" && !window.confirm("Remove Bottom Navigation? Guests will no longer see it after you publish this draft.")) return;
+    builderRecordChange();
+    page.sections.splice(index, 1);
+    page.version = Math.max(2, Number(page.version) || 1);
+    state.builderSelectedSectionId = page.sections[Math.min(index, page.sections.length - 1)]?.id || null;
+    state.builderSelection = null;
+  } else if (action === "toggle") {
+    builderRecordChange();
+    section.enabled = section.enabled === false;
+    state.builderSelectedSectionId = section.id;
+    state.builderSelection = null;
+  } else if (action === "up" && index > 0) {
+    builderRecordChange();
+    [page.sections[index - 1], page.sections[index]] = [page.sections[index], page.sections[index - 1]];
+    state.builderSelectedSectionId = section.id;
+    state.builderSelection = null;
+  } else if (action === "down" && index < page.sections.length - 1) {
+    builderRecordChange();
+    [page.sections[index + 1], page.sections[index]] = [page.sections[index], page.sections[index + 1]];
+    state.builderSelectedSectionId = section.id;
+    state.builderSelection = null;
+  } else if (action === "select") {
+    state.builderSelectedSectionId = section.id;
+    state.builderSelection = null;
+  }
+  if (action !== "select") page.version = Math.max(2, Number(page.version) || 1);
+  normalizeBuilderOrder();
+  renderBuilder();
+}
+
+function isSafeBuilderImage(value) {
+  if (typeof value !== "string" || !value) return false;
+  if (/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/i.test(value)) return true;
+  if (value.startsWith("/") && !value.startsWith("//")) return true;
+  if (value.startsWith("//")) return false;
+  try { const url = new URL(value, window.location.origin); return !url.username && !url.password && (url.protocol === "https:" || (url.protocol === window.location.protocol && url.origin === window.location.origin)); }
+  catch { return false; }
+}
+
+function isSafeBuilderExternalUrl(value) {
+  if (typeof value !== "string" || !value.trim() || /[\u0000-\u001f\\]/.test(value)) return false;
+  try {
+    const url = new URL(value.trim());
+    return ["https:", "http:"].includes(url.protocol) && Boolean(url.hostname) && !url.username && !url.password;
+  } catch { return false; }
+}
+
+function isSafeBuilderMapUrl(value) {
+  if (typeof value !== "string" || !value.trim() || /[\u0000-\u001f\\]/.test(value) || value.trim().startsWith("//")) return false;
+  if (value.trim().startsWith("/")) return true;
+  return isSafeBuilderExternalUrl(value);
+}
+
+function showBuilderUrlValidation(field, message = "") {
+  field.setCustomValidity(message);
+  if (message) field.setAttribute("aria-invalid", "true");
+  else field.removeAttribute("aria-invalid");
+  const label = field.closest("label");
+  if (!label) return;
+  let hint = label.querySelector("[data-builder-url-error]");
+  if (message && !hint) { hint = document.createElement("small"); hint.className = "builder-field-note builder-url-error"; hint.dataset.builderUrlError = "true"; hint.setAttribute("role", "alert"); label.appendChild(hint); }
+  if (hint) { hint.textContent = message; hint.hidden = !message; }
+}
+
+function builderImageChoices() {
+  const choices = [];
+  const seen = new Set();
+  const add = (label, url) => {
+    if (!isSafeBuilderImage(url) || seen.has(url)) return;
+    seen.add(url);
+    choices.push({ label: String(label || "Property image").slice(0, 100), url });
+  };
+  const draft = state.designDraft || {};
+  add("Property logo", draft.branding?.logoUrl);
+  add("Concierge portrait", draft.branding?.conciergeAvatarUrl);
+  add("Theme background", draft.theme?.backgroundImageUrl);
+  for (const page of state.guestPages || []) {
+    for (const section of page.sections || []) {
+      const properties = section.properties || {};
+      const imageField = section.type === "image" ? "url" : "image_url";
+      add(`${section.title || section.type} · ${page.name || page.id}`, properties[imageField]);
+    }
+  }
+  const inventory = state.builderHospitality || {};
+  for (const [source, records] of Object.entries(inventory)) {
+    if (!Array.isArray(records)) continue;
+    for (const item of records) {
+      if (!item || item.enabled === false || item.archived || item.status === "archived") continue;
+      const name = item.name || item.title || source.replaceAll("_", " ");
+      add(`${name} · ${source.replaceAll("_", " ")}`, item.image_url);
+      for (const url of Array.isArray(item.images) ? item.images : []) add(`${name} · ${source.replaceAll("_", " ")}`, url);
+    }
+  }
+  return choices;
+}
+
+function builderInventory(source) {
+  const data = state.builderHospitality || {};
+  const collection = source === "recommendations" ? (data.recommendations || []) : (data[source] || []);
+  return collection.filter((item) => item && item.enabled !== false && !item.archived && item.status !== "archived");
+}
+
+function builderQuickItems(section) {
+  if (Array.isArray(section.properties?.items)) return section.properties.items;
+  return (state.designDraft?.suggestions || []).map((item, index) => ({ id: item.id || `prompt-${index}`, label: item.label || "", description: item.description || "", icon: item.icon || "", enabled: item.enabled !== false, action: item.action || { type: "prompt", prompt: item.prompt || "" } }));
+}
+
+function builderActionConfigured(action) {
+  if (!action || typeof action !== "object") return false;
+  const propertyPages = state.guestPages || [];
+  switch (action.type) {
+    case "none": return false;
+    case "prompt": return Boolean(String(action.prompt || "").trim());
+    case "internal_page": return propertyPages.some((page) => page.id === action.page_id && page.enabled !== false);
+    case "concierge": return propertyPages.some((page) => page.id === "concierge" && page.enabled !== false);
+    case "external_url": return isSafeBuilderExternalUrl(action.url);
+    case "phone": return Boolean(String(action.phone || "").trim());
+    case "email": return Boolean(String(action.email || "").trim());
+    case "map": {
+      if (action.url) return isSafeBuilderMapUrl(action.url);
+      const location = state.property?.location || {};
+      return Number.isFinite(Number(location.latitude)) && Number.isFinite(Number(location.longitude));
+    }
+    case "service_request": case "room_service": case "housekeeping": case "transportation":
+      return builderInventory("services").some((item) => String(item.service_id) === String(action.service_id));
+    case "restaurant": case "restaurant_menu":
+      return builderInventory("restaurants").some((item) => String(item.restaurant_id) === String(action.resource_id || action.restaurant_id));
+    case "resource": {
+      const source = ({ restaurant: "restaurants", promotion: "promotions", event: "events", facility: "facilities" })[action.resource_type];
+      return Boolean(source && builderInventory(source).some((item) => String(item.restaurant_id || item.promotion_id || item.event_id || item.facility_id) === String(action.resource_id)));
+    }
+    case "promotion": return builderInventory("promotions").some((item) => String(item.promotion_id) === String(action.resource_id));
+    case "event": return builderInventory("events").some((item) => String(item.event_id) === String(action.resource_id));
+    default: return false;
+  }
+}
+
+function builderAppendCard(grid, item, source) {
+  const card = document.createElement("article"); card.className = "guest-content-card builder-data-card";
+  card.dataset.builderPropertyCard = item.restaurant_id || item.facility_id || item.service_id || item.promotion_id || item.event_id || item.recommendation_id || "";
+  const imageUrl = (item.images || []).find(isSafeBuilderImage) || (isSafeBuilderImage(item.image_url) ? item.image_url : "");
+  if (imageUrl) { const image = document.createElement("img"); image.className = "experience-card-image"; image.src = imageUrl; image.alt = ""; image.loading = "lazy"; image.addEventListener("error", () => image.remove(), { once: true }); card.appendChild(image); }
+  const content = document.createElement("div");
+  const title = document.createElement("strong"); title.textContent = item.name || item.title || ""; content.appendChild(title);
+  const summary = document.createElement("p"); summary.textContent = item.description || item.guest_description || item.cuisine || item.category || item.facility_type || ""; if (summary.textContent) content.appendChild(summary);
+  const meta = document.createElement("small"); meta.textContent = source === "restaurants" ? (item.cuisine || "Restaurant") : source.replaceAll("_", " "); content.appendChild(meta);
+  card.appendChild(content); grid.appendChild(card);
+}
+
+function isSyntheticBuilderPreview() {
+  return /synthetic/i.test(`${state.property?.property_id || ""} ${state.property?.hotel_name || state.property?.name || ""}`);
+}
+
+function builderPreviewPlaceholder(title, description) {
+  const preview = document.createElement("article");
+  preview.className = "guest-content-card builder-data-card builder-preview-placeholder";
+  preview.dataset.previewPlaceholder = "true";
+  const name = document.createElement("strong"); name.textContent = title;
+  const copy = document.createElement("p"); copy.textContent = description;
+  const note = document.createElement("small"); note.textContent = "Preview placeholder · not saved to hotel content";
+  preview.append(name, copy, note);
+  return preview;
+}
+
+function builderNavigationItems(section) {
+  if (Array.isArray(section.properties?.items)) return section.properties.items;
+  const pages = new Map((state.guestPages || []).map((page) => [page.id, page]));
+  return (state.designDraft?.navigation || []).filter((item) => item && pages.has(item.page_id)).map((item) => ({ id: `nav-${item.page_id}`, label: item.label || pages.get(item.page_id).name || item.page_id, icon: item.icon || "", enabled: item.enabled !== false, action: { type: "internal_page", page_id: item.page_id } }));
+}
+
+function builderCardItems(section) {
+  return Array.isArray(section.properties?.items) ? section.properties.items : null;
+}
+
+function builderNestedItems(section) {
+  if (section.type === "hero") return (section.properties.buttons || []).map((item, index) => ({ ...item, id: item.id || `hero-cta-${index + 1}`, label: item.label || `CTA ${index + 1}`, _kind: "button", _index: index }));
+  if (section.type === "quick_actions") return builderQuickItems(section).map((item) => ({ ...item, _kind: "quick_action" }));
+  if (section.type === "card_grid") return (builderCardItems(section) || []).map((item) => ({ ...item, _kind: "card_item" }));
+  if (section.type === "bottom_navigation") return builderNavigationItems(section).map((item) => ({ ...item, _kind: "navigation_item" }));
+  if (section.type === "header") return [
+    { id: "menu", label: "Menu button", enabled: section.properties.show_menu !== false, _kind: "header_item", _field: "show_menu" },
+    { id: "logo", label: "Property logo", enabled: section.properties.show_logo !== false, _kind: "header_item", _field: "show_logo" },
+    { id: "hotel-name", label: "Hotel name", enabled: section.properties.show_hotel_name !== false, _kind: "header_item", _field: "show_hotel_name" },
+    { id: "concierge-label", label: "Concierge label", enabled: section.properties.show_concierge_label !== false, _kind: "header_item", _field: "show_concierge_label" },
+  ];
+  return [];
+}
+
+function builderAppendCustomCard(grid, item) {
+  const card = document.createElement("article"); card.className = "guest-content-card builder-custom-card";
+  card.dataset.builderSelect = "card_item"; card.dataset.builderItemId = item.id; card.dataset.builderNestedItem = item.id; card.dataset.builderItemKind = "card_item";
+  card.dataset.builderActionItem = item.id; card.dataset.builderChildType = "card_item"; card.draggable = true;
+  if (item.enabled === false) card.classList.add("is-item-hidden");
+  if (item.style_mode === "custom") applyBuilderItemAppearance(card, item.appearance);
+  if (isSafeBuilderImage(item.image_url)) { const image = document.createElement("img"); image.className = "experience-card-image"; image.src = item.image_url; image.alt = item.title || ""; image.loading = "lazy"; card.appendChild(image); }
+  const content = document.createElement("div");
+  if (item.badge) { const badge = document.createElement("small"); badge.className = "builder-card-badge"; badge.textContent = item.badge; content.appendChild(badge); }
+  if (item.icon) { const icon = document.createElement("span"); icon.className = "experience-action-icon"; icon.textContent = item.icon; content.appendChild(icon); }
+  const title = document.createElement("strong"); title.textContent = item.title || "New card"; content.appendChild(title);
+  if (item.description) { const description = document.createElement("p"); description.textContent = item.description; content.appendChild(description); }
+  if (item.cta) { const cta = document.createElement("span"); cta.className = "builder-card-cta"; cta.textContent = item.cta; content.appendChild(cta); }
+  card.appendChild(content); grid.appendChild(card);
+}
+
+function applyBuilderItemAppearance(element, appearance = {}) {
+  if (appearance.text_color) element.style.color = appearance.text_color;
+  if (appearance.background_color) element.style.backgroundColor = appearance.background_color;
+  if (appearance.border_color) element.style.borderColor = appearance.border_color;
+  if (appearance.radius) element.dataset.radius = appearance.radius;
+  if (appearance.shadow) element.dataset.shadow = appearance.shadow;
+}
+
+function builderGuestVisual(section, design) {
+  const p = section.properties || {};
+  const type = section.type;
+  const root = document.createElement("section");
+  root.className = `experience-section experience-${type}`;
+  root.dataset.sectionId = section.id;
+  if (section.title) root.setAttribute("aria-label", section.title);
+  const addTitle = () => { if (p.title) { const title = document.createElement("h2"); title.className = "experience-section-title"; title.textContent = p.title; root.appendChild(title); } };
+  const editableButton = (config, kind = "button", index = 0) => {
+    const button = document.createElement("button"); button.type = "button"; button.className = `experience-button experience-button-${config.style || "primary"} experience-button-${config.size || "medium"}`; button.dataset.builderSelect = kind; button.dataset.builderIndex = String(index); button.setAttribute("aria-label", `Edit button: ${config.label || "Button"}`); button.textContent = [config.icon, config.label || "Button"].filter(Boolean).join(" "); return button;
+  };
+  if (type === "hero") {
+    root.classList.add(`experience-hero-${p.height || "large"}`, `experience-align-${p.alignment || "left"}`);
+    const imageUrl = isSafeBuilderImage(p.image_url || design.theme?.backgroundImageUrl) ? (p.image_url || design.theme.backgroundImageUrl) : "";
+    if (imageUrl) { const image = document.createElement("img"); image.className = "experience-hero-image"; image.src = imageUrl; image.alt = p.alt || ""; image.addEventListener("error", () => { image.remove(); root.classList.remove("experience-hero-has-image"); }, { once: true }); root.classList.add("experience-hero-has-image"); root.prepend(image); }
+    if (p.eyebrow) { const eyebrow = document.createElement("p"); eyebrow.className = "experience-eyebrow"; eyebrow.textContent = p.eyebrow; root.appendChild(eyebrow); }
+    const heading = document.createElement("h1"); heading.textContent = p.headline || design.welcome?.headline || ""; root.appendChild(heading);
+    const description = document.createElement("p"); description.textContent = p.description || design.welcome?.description || ""; if (description.textContent) root.appendChild(description);
+    (p.buttons || []).forEach((item, index) => { const button = editableButton(item, "button", index); button.dataset.builderItemId = item.id || `hero-cta-${index + 1}`; button.dataset.builderNestedItem = button.dataset.builderItemId; button.dataset.builderItemKind = "button"; button.dataset.builderActionItem = button.dataset.builderItemId; button.dataset.builderChildType = "button"; button.draggable = true; if (item.enabled === false) button.classList.add("is-item-hidden"); root.appendChild(button); });
+    if (!(p.buttons || []).length) { const add = document.createElement("button"); add.type = "button"; add.className = "builder-add-inline"; add.textContent = "+ Add CTA"; add.dataset.builderAddButton = "hero"; root.appendChild(add); }
+  } else if (type === "heading") {
+    const heading = document.createElement(`h${Math.max(1, Math.min(6, Number(p.level) || 2))}`); heading.textContent = p.text || p.headline || section.title; root.appendChild(heading); root.classList.add(`experience-align-${p.alignment || "left"}`);
+  } else if (type === "text") {
+    const text = document.createElement("p"); text.textContent = p.content || p.body || p.description || ""; root.appendChild(text); root.classList.add(`experience-align-${p.alignment || "left"}`);
+  } else if (type === "image") {
+    if (isSafeBuilderImage(p.url)) { const image = document.createElement("img"); image.className = `experience-image experience-image-${p.fit || "cover"}`; image.src = p.url; image.alt = p.alt || ""; image.addEventListener("error", () => image.remove(), { once: true }); root.appendChild(image); }
+    else { const empty = document.createElement("span"); empty.className = "builder-image-empty"; empty.textContent = "Choose an image in Content settings"; root.appendChild(empty); }
+  } else if (type === "button") {
+    root.appendChild(editableButton(p));
+  } else if (type === "divider") {
+    root.setAttribute("role", "separator");
+  } else if (type === "spacer") {
+    root.dataset.spacer = p.size || "medium";
+  } else if (type === "container") {
+    root.dataset.width = p.width || "contained"; root.classList.add(`experience-align-${p.alignment || "left"}`); const copy = document.createElement("p"); copy.textContent = p.content || ""; root.appendChild(copy);
+  } else if (type === "columns") {
+    const columns = document.createElement("div"); columns.className = "builder-live-columns";
+    for (const contentValue of [p.primary, p.secondary]) { const column = document.createElement("div"); column.textContent = contentValue || ""; columns.appendChild(column); }
+    root.appendChild(columns);
+  } else if (type === "quick_actions") {
+    addTitle();
+    const items = builderQuickItems(section);
+    const grid = document.createElement("div"); grid.className = "experience-action-grid";
+    const visibleItems = state.builderQuickActionsExpanded ? items : items.slice(0, 4);
+    for (const [index, item] of visibleItems.entries()) { const button = document.createElement("button"); button.type = "button"; button.draggable = true; button.className = "experience-action-card"; button.dataset.builderSelect = "quick_action"; button.dataset.builderItemId = item.id || `action-${index}`; button.dataset.builderActionItem = item.id || `action-${index}`; button.dataset.builderNestedItem = item.id || `action-${index}`; button.dataset.builderItemKind = "quick_action"; button.dataset.builderChildType = "quick_action"; if (item.enabled === false) button.classList.add("is-item-hidden"); if (item.style_mode === "custom") applyBuilderItemAppearance(button, item.appearance); if (item.icon) { const icon = document.createElement("span"); icon.className = "experience-action-icon"; icon.textContent = item.icon; button.appendChild(icon); } const copy = document.createElement("span"); copy.className = "experience-action-copy"; const title = document.createElement("strong"); title.textContent = item.label || "New action"; copy.appendChild(title); if (item.description) { const desc = document.createElement("small"); desc.textContent = item.description; copy.appendChild(desc); } button.appendChild(copy); grid.appendChild(button); }
+    if (items.length) root.appendChild(grid);
+    else { const empty = document.createElement("div"); empty.className = "builder-empty-state"; const copy = document.createElement("p"); copy.textContent = "No actions yet."; const add = document.createElement("button"); add.type = "button"; add.className = "builder-add-inline"; add.textContent = "+ Add Action"; add.dataset.builderAddQuickAction = "true"; add.disabled = !can("concierge.edit"); empty.append(copy, add); root.appendChild(empty); }
+    if (items.length > 4) { const toggle = document.createElement("button"); toggle.type = "button"; toggle.className = "experience-see-all"; toggle.dataset.builderPreviewToggle = "quick_actions"; toggle.setAttribute("aria-expanded", String(state.builderQuickActionsExpanded)); toggle.textContent = state.builderQuickActionsExpanded ? "Show less" : "See all"; root.appendChild(toggle); }
+  } else if (["card_grid", "carousel", "restaurant", "room_service", "housekeeping", "transportation", "amenities", "promotions", "events"].includes(type)) {
+    addTitle();
+    const source = p.source || ({ restaurant: "restaurants", room_service: "services", housekeeping: "services", transportation: "services", amenities: "facilities", promotions: "promotions", events: "events" })[type] || "recommendations";
+    const configuredCards = type === "card_grid" ? builderCardItems(section) : null;
+    const items = configuredCards ? configuredCards : builderInventory(source).slice(0, Number(p.limit) || 4);
+    const grid = document.createElement("div"); grid.className = `experience-card-grid${type === "carousel" ? " experience-carousel" : ""}`; grid.style.setProperty("--experience-columns", Number(section.responsive?.columns) || Number(p.columns) || 2);
+    if (configuredCards) items.forEach((item) => builderAppendCustomCard(grid, item));
+    else items.forEach((item) => builderAppendCard(grid, item, source));
+    if (grid.childElementCount) root.appendChild(grid);
+    if (configuredCards && !configuredCards.length) { const empty = document.createElement("div"); empty.className = "builder-empty-state"; const copy = document.createElement("p"); copy.textContent = "No cards yet."; const add = document.createElement("button"); add.type = "button"; add.className = "builder-add-inline"; add.textContent = "+ Add Card"; add.dataset.builderAddCard = "true"; empty.append(copy, add); root.appendChild(empty); }
+    else {
+      root.dataset.emptyContent = "true";
+      if (isSyntheticBuilderPreview()) {
+        const placeholders = { restaurants: ["Sample restaurant", "Restaurant preview"], promotions: ["Sample promotion", "Promotion preview"], facilities: ["Sample amenity", "Amenity preview"], services: ["Sample service", "Guest service preview"], events: ["Sample event", "Event preview"], recommendations: ["Sample featured content", "Featured content preview"] };
+        const [title, description] = placeholders[source] || placeholders.recommendations;
+        grid.appendChild(builderPreviewPlaceholder(title, description)); root.appendChild(grid);
+      }
+      else { const empty = document.createElement("div"); empty.className = "builder-empty-state"; const copy = document.createElement("p"); copy.textContent = "No content selected."; const add = document.createElement("button"); add.type = "button"; add.className = "builder-add-inline"; add.textContent = "+ Add Content"; add.dataset.builderAddContent = ({ restaurants: "restaurants", facilities: "facilities", services: "service-catalog" })[source] || "recommendations"; empty.append(copy, add); root.appendChild(empty); }
+    }
+  } else if (type === "banner") {
+    if (p.eyebrow) { const eyebrow = document.createElement("p"); eyebrow.className = "experience-eyebrow"; eyebrow.textContent = p.eyebrow; root.appendChild(eyebrow); }
+    if (isSafeBuilderImage(p.image_url)) { const image = document.createElement("img"); image.className = "experience-banner-image"; image.src = p.image_url; image.alt = p.alt || ""; image.addEventListener("error", () => image.remove(), { once: true }); root.appendChild(image); }
+    if (p.headline) { const heading = document.createElement("h2"); heading.textContent = p.headline; root.appendChild(heading); }
+    if (p.description) { const description = document.createElement("p"); description.textContent = p.description; root.appendChild(description); }
+    if (p.action) root.appendChild(editableButton({ label: p.action.label || "Explore", action: p.action }, "button", 0));
+    if (!p.eyebrow && !p.headline && !p.description && !p.image_url && !p.action) {
+      if (isSyntheticBuilderPreview()) root.appendChild(builderPreviewPlaceholder("Sample promotion", "Promotion preview"));
+      else { const empty = document.createElement("div"); empty.className = "builder-empty-state"; const copy = document.createElement("p"); copy.textContent = "No promotion content yet."; const add = document.createElement("button"); add.type = "button"; add.className = "builder-add-inline"; add.textContent = "Configure banner"; add.dataset.builderConfigureSection = "true"; empty.append(copy, add); root.appendChild(empty); }
+    }
+  } else if (type === "concierge_composer") {
+    if (p.enabled === false) { const empty = document.createElement("p"); empty.className = "builder-empty-component"; empty.textContent = "The guest concierge composer is disabled."; root.appendChild(empty); }
+    else { const form = document.createElement("div"); form.className = "builder-preview-composer"; const input = document.createElement("textarea"); input.disabled = true; input.placeholder = p.placeholder || "Ask your concierge..."; input.setAttribute("aria-label", "Guest concierge composer preview; typing is disabled"); const send = document.createElement("button"); send.type = "button"; send.disabled = true; send.textContent = "Send"; send.setAttribute("aria-label", "Guest preview only; sending is disabled"); form.append(input, send); root.appendChild(form); }
+  } else if (type === "ai_suggestion") {
+    if (p.title || p.content) { const heading = document.createElement("h2"); heading.textContent = p.title || ""; if (heading.textContent) root.appendChild(heading); const content = document.createElement("p"); content.textContent = p.content || ""; if (content.textContent) root.appendChild(content); }
+    else { const empty = document.createElement("p"); empty.className = "builder-empty-component"; empty.textContent = "Configure a property-approved suggestion in Content settings."; root.appendChild(empty); }
+  } else if (type === "header") {
+    root.classList.add("builder-live-header");
+    if (p.show_menu !== false) { const menu = document.createElement("button"); menu.type = "button"; menu.dataset.builderSelect = "header_item"; menu.dataset.builderItemId = "menu"; menu.textContent = "☰"; menu.setAttribute("aria-label", "Select header menu button"); root.appendChild(menu); }
+    if (p.show_logo !== false) { const logo = document.createElement("span"); logo.dataset.builderSelect = "header_item"; logo.dataset.builderItemId = "logo"; logo.className = "builder-live-header-logo"; const logoUrl = design.branding?.logoUrl; if (isSafeBuilderImage(logoUrl)) { const image = document.createElement("img"); image.src = logoUrl; image.alt = ""; logo.appendChild(image); } else logo.textContent = (design.branding?.hotelName || state.property?.hotel_name || "P").trim().slice(0, 1).toUpperCase(); root.appendChild(logo); }
+    const identity = document.createElement("span"); identity.className = "builder-live-header-identity";
+    if (p.show_hotel_name !== false) { const brand = document.createElement("strong"); brand.dataset.builderSelect = "header_item"; brand.dataset.builderItemId = "hotel-name"; brand.textContent = design.branding?.hotelName || state.property?.hotel_name || "Property"; identity.appendChild(brand); }
+    if (p.show_concierge_label !== false) { const concierge = document.createElement("small"); concierge.dataset.builderSelect = "header_item"; concierge.dataset.builderItemId = "concierge-label"; concierge.textContent = design.branding?.conciergeName || state.property?.concierge_name || "Concierge"; identity.appendChild(concierge); }
+    if (identity.childElementCount) root.appendChild(identity);
+    if (!root.childElementCount) { const empty = document.createElement("p"); empty.className = "builder-empty-component"; empty.textContent = "The configured header has no visible elements."; root.appendChild(empty); }
+  } else if (type === "bottom_navigation") {
+    root.classList.add("builder-live-bottom-nav"); root.dataset.position = p.position || "fixed"; root.dataset.height = p.height || "medium"; root.dataset.iconSize = p.icon_size || "medium"; root.dataset.safeArea = String(p.safe_area_padding !== false);
+    for (const item of builderNavigationItems(section)) { const link = document.createElement("button"); link.type = "button"; link.draggable = true; link.dataset.builderSelect = "navigation_item"; link.dataset.builderItemId = item.id; link.dataset.builderNestedItem = item.id; link.dataset.builderItemKind = "navigation_item"; link.dataset.builderActionItem = item.id; link.dataset.builderChildType = "navigation_item"; link.setAttribute("aria-label", `Select navigation item ${item.label || "New item"}`); if (item.enabled === false) link.classList.add("is-item-hidden"); if (item.icon) { const icon = document.createElement("span"); icon.setAttribute("aria-hidden", "true"); icon.textContent = item.icon; link.appendChild(icon); } if (p.show_labels !== false) { const label = document.createElement("small"); label.textContent = item.label || "New item"; link.appendChild(label); } root.appendChild(link); }
+    if (!root.childElementCount) { const empty = document.createElement("div"); empty.className = "builder-empty-state"; const copy = document.createElement("p"); copy.textContent = "No navigation items yet."; const add = document.createElement("button"); add.type = "button"; add.className = "builder-add-inline"; add.textContent = "+ Add Item"; add.dataset.builderAddNavigationItem = "true"; empty.append(copy, add); root.appendChild(empty); }
+  }
+  const appearance = section.appearance || {};
+  if (appearance.text_color) root.style.color = appearance.text_color;
+  if (appearance.background_color) root.style.backgroundColor = appearance.background_color;
+  if (appearance.active_color) root.style.setProperty("--experience-active-color", appearance.active_color);
+  if (appearance.border_color) root.style.setProperty("--experience-border-color", appearance.border_color);
+  if (appearance.shadow === "none") root.style.boxShadow = "none";
+  if (appearance.shadow === "subtle") root.style.boxShadow = "0 4px 15px rgba(25,25,25,.06)";
+  if (appearance.shadow === "raised") root.style.boxShadow = "0 12px 28px rgba(25,25,25,.12)";
+  if (appearance.radius) root.dataset.radius = appearance.radius;
+  if (appearance.shadow) root.dataset.shadow = appearance.shadow;
+  if (section.layout?.width && type === "container") root.dataset.width = section.layout.width;
+  if (section.layout?.height && ["hero", "banner"].includes(type)) root.classList.add(`experience-${type}-${section.layout.height}`);
+  if (section.layout?.spacing) root.dataset.spacing = section.layout.spacing;
+  if (section.layout?.alignment && ["hero", "heading", "text", "container"].includes(type)) root.classList.add(`experience-align-${section.layout.alignment}`);
+  applyBuilderAnimation(root, section);
+  return root;
+}
+
+function applyBuilderAnimation(element, section) {
+  const animation = section.animation || {};
+  const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  const entrance = reducedMotion ? "none" : (animation.entrance || "none");
+  element.dataset.animation = entrance;
+  element.dataset.interaction = reducedMotion ? "none" : (animation.interaction || "none");
+  element.style.setProperty("--experience-duration", ({ fast: "180ms", normal: "320ms", slow: "520ms" })[animation.duration] || "320ms");
+  element.style.setProperty("--experience-delay", `${Math.min(500, Number(animation.delay) || 0)}ms`);
+  if (entrance === "none") return;
+  const show = () => element.classList.add("experience-visible");
+  if (animation.trigger !== "enter_viewport" || !("IntersectionObserver" in window)) { requestAnimationFrame(show); return; }
+  const observer = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) {
+        if (animation.repeat === "each") element.classList.remove("experience-visible");
+        continue;
+      }
+      show();
+      if (animation.repeat !== "each") observer.unobserve(element);
+    }
+  }, { threshold: 0.12 });
+  observer.observe(element);
+}
+
+function renderBuilderCanvas() {
+  const canvas = $("builder-canvas");
+  const page = builderPage();
+  if (!canvas || !page) return;
+  canvas.replaceChildren();
+  canvas.dataset.device = state.builderDevice;
+  const design = designPayload();
+  canvas.style.setProperty("--builder-page-bg", design.theme?.background || "#faf8f4");
+  canvas.style.setProperty("--builder-page-surface", design.theme?.surface || "#ffffff");
+  canvas.style.setProperty("--builder-page-ink", design.theme?.textPrimary || "#1c1c1c");
+  canvas.style.setProperty("--builder-page-muted", design.theme?.textSecondary || "#6e6a64");
+  canvas.style.setProperty("--builder-page-accent", design.theme?.accent || "#9b7337");
+  canvas.style.setProperty("--builder-page-font", previewFontStack(design.typography?.fontFamily || design.theme?.font || "Geist"));
+  canvas.style.setProperty("--builder-page-font-size", `${Number(design.typography?.baseFontSize) || 15}px`);
+  canvas.style.setProperty("--builder-page-radius", `${Number(design.theme?.radius) || 14}px`);
+  canvas.style.setProperty("--builder-content-width", `${Number(design.layout?.contentWidth) || 1100}px`);
+  const sections = [...(page.sections || [])].sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+  const pageShell = document.createElement("div"); pageShell.className = "builder-guest-page";
+  const pageBody = document.createElement("div"); pageBody.className = "builder-guest-content";
+  if (!sections.length) {
+    const empty = document.createElement("div"); empty.className = "builder-empty-canvas";
+    empty.textContent = `Your ${page.name || "page"} is empty. Drag a component here or click one in the library.`; pageBody.appendChild(empty);
+  }
+  for (const [index, section] of sections.entries()) pageBody.appendChild(createBuilderSectionWrapper(section, index, design));
+  pageShell.appendChild(pageBody);
+  canvas.appendChild(pageShell);
+  renderBuilderLayers(sections);
+}
+
+function createBuilderSectionWrapper(section, index, design) {
+  const wrapper = document.createElement("div");
+  wrapper.className = `builder-canvas-section${section.id === state.builderSelectedSectionId ? " is-selected" : ""}${section.enabled === false ? " is-hidden" : ""}`;
+  if (section.type === "concierge_composer") wrapper.classList.add("builder-composer-section");
+  wrapper.dataset.builderSection = section.id; wrapper.dataset.sectionIndex = String(index); wrapper.tabIndex = 0;
+  wrapper.setAttribute("aria-label", `${state.builderRegistry[section.type]?.label || section.type}, section ${index + 1}`);
+  const toolbar = document.createElement("div"); toolbar.className = "builder-section-toolbar";
+  const label = document.createElement("strong"); label.textContent = `${state.builderRegistry[section.type]?.label || section.type}${section.enabled === false ? " · Hidden" : ""}`;
+  const drag = document.createElement("button"); drag.type = "button"; drag.className = "builder-drag-handle"; drag.draggable = false; drag.dataset.builderDragHandle = section.id; drag.textContent = "⠿ Drag"; drag.setAttribute("aria-label", `Drag to reorder ${section.title || "section"}`); drag.title = "Drag section; use Move up or Move down in its settings for keyboard access";
+  const tools = document.createElement("div"); tools.className = "builder-section-tools";
+  for (const [toolLabel, action] of [["Duplicate", "duplicate"], [section.enabled === false ? "Show" : "Hide", "toggle"], ["Delete", "delete"]]) {
+    const button = document.createElement("button"); button.type = "button"; button.textContent = toolLabel; button.dataset.builderAction = action; button.dataset.sectionId = section.id; button.disabled = !can("concierge.edit"); tools.appendChild(button);
+  }
+  toolbar.append(label, drag, tools); wrapper.appendChild(toolbar);
+  const visual = builderGuestVisual(section, design); visual.classList.add("builder-guest-component"); if (section.enabled === false) visual.setAttribute("aria-hidden", "true");
+  if (state.builderSelection?.itemId && state.builderSelectedSectionId === section.id) { const selectedItem = visual.querySelector(`[data-builder-item-id="${CSS.escape(state.builderSelection.itemId)}"]`); selectedItem?.classList.add("is-item-selected"); }
+  const effect = section.appearance || {};
+  if (effect.overlay_color && ["hero", "banner"].includes(section.type)) visual.style.setProperty("--builder-overlay", `${effect.overlay_color}${Math.round((effect.overlay_opacity ?? 30) * 2.55).toString(16).padStart(2, "0")}`);
+  const device = state.builderDevice === "mobile" ? "phone" : state.builderDevice;
+  if (section.responsive?.[device] === false || (device === "phone" && section.responsive?.mobile_behavior === "hide")) {
+    wrapper.classList.add("is-responsive-hidden"); visual.hidden = true; visual.setAttribute("aria-hidden", "true");
+    const note = document.createElement("p"); note.className = "builder-responsive-note"; note.textContent = `Hidden on ${device} preview`; wrapper.appendChild(note);
+  }
+  if (device === "phone" && section.responsive?.mobile_behavior === "scroll") visual.classList.add("experience-scroll-mobile");
+  wrapper.appendChild(visual);
+  return wrapper;
+}
+
+function createBuilderChromeWrapper(visual, component, label) {
+  const selected = state.builderSelection?.type === "chrome" && state.builderSelection.component === component;
+  const wrapper = document.createElement("div");
+  wrapper.className = `builder-canvas-chrome${selected ? " is-selected" : ""}`;
+  wrapper.dataset.builderChrome = component;
+  wrapper.tabIndex = 0;
+  wrapper.setAttribute("role", "group");
+  wrapper.setAttribute("aria-label", `${label}, guest page chrome`);
+  const toolbar = document.createElement("div"); toolbar.className = "builder-chrome-toolbar";
+  const badge = document.createElement("span"); badge.textContent = label; toolbar.appendChild(badge);
+  wrapper.append(toolbar, visual);
+  return wrapper;
+}
+
+function builderNestedConfig(section, selection = state.builderSelection) {
+  if (!section || !selection || !selection.type || selection.type === "chrome") return null;
+  const items = builderNestedItems(section);
+  const item = items.find((entry) => entry.id === selection.itemId || (entry._kind === "button" && entry._index === selection.index));
+  if (!item) return null;
+  if (item._kind === "header_item") return { ...item, _field: item._field, enabled: section.properties?.[item._field] !== false };
+  return item;
+}
+
+function builderNestedLabel(section, item) {
+  if (!item) return "";
+  if (item._kind === "button") return item.label || `CTA ${Number(item._index) + 1}`;
+  if (item._kind === "quick_action") return item.label || "New action";
+  if (item._kind === "card_item") return item.title || "New card";
+  if (item._kind === "navigation_item") return item.label || "New navigation item";
+  return item.label || item._field?.replaceAll("_", " ") || "Header element";
+}
+
+function builderSelectParent() {
+  state.builderSelection = null;
+  setBuilderInspectorTab("content");
+  renderBuilder();
+}
+
+function builderAddBreadcrumb(root, section, item) {
+  if (!item || item._kind === "data_card") return;
+  const crumb = document.createElement("nav"); crumb.className = "builder-selection-breadcrumb"; crumb.setAttribute("aria-label", "Selection path");
+  const parent = document.createElement("button"); parent.type = "button"; parent.dataset.builderSelectParent = "true"; parent.textContent = section.title || state.builderRegistry[section.type]?.label || section.type;
+  const separator = document.createElement("span"); separator.setAttribute("aria-hidden", "true"); separator.textContent = "›";
+  const child = document.createElement("strong"); child.textContent = builderNestedLabel(section, item);
+  crumb.append(parent, separator, child); root.appendChild(crumb);
+}
+
+function renderBuilderLayers(sections) {
+  const list = $("builder-section-layers");
+  if (!list) return;
+  list.replaceChildren();
+  $("builder-layer-count").textContent = String(sections.length);
+  for (const section of sections) {
+    const item = document.createElement("li"); item.className = `builder-layer-row${section.id === state.builderSelectedSectionId ? " active" : ""}`; item.dataset.builderLayerSection = section.id;
+    const drag = document.createElement("button"); drag.type = "button"; drag.className = "builder-layer-drag-handle"; drag.draggable = false; drag.dataset.builderLayerDragHandle = section.id; drag.textContent = "⠿"; drag.setAttribute("aria-label", `Drag to reorder ${section.title || "section"}`); drag.title = "Drag to reorder";
+    const select = document.createElement("button"); select.type = "button"; select.className = "builder-layer-select"; select.dataset.builderLayerSelect = section.id; select.textContent = section.title || state.builderRegistry[section.type]?.label || section.type; select.setAttribute("aria-current", String(section.id === state.builderSelectedSectionId));
+    const status = document.createElement("small"); status.textContent = section.enabled === false ? "Hidden" : state.builderRegistry[section.type]?.label || section.type;
+    const hide = document.createElement("button"); hide.type = "button"; hide.className = "builder-layer-visibility"; hide.dataset.builderAction = "toggle"; hide.dataset.sectionId = section.id; hide.textContent = section.enabled === false ? "◉" : "◎"; hide.setAttribute("aria-label", `${section.enabled === false ? "Show" : "Hide"} ${select.textContent}`); hide.title = hide.getAttribute("aria-label");
+    const menu = document.createElement("details"); menu.className = "builder-layer-menu";
+    const summary = document.createElement("summary"); summary.textContent = "⋯"; summary.setAttribute("aria-label", `More actions for ${select.textContent}`); menu.appendChild(summary);
+    for (const [label, action] of [["Move up", "up"], ["Move down", "down"], ["Duplicate", "duplicate"], ["Delete", "delete"]]) { const button = document.createElement("button"); button.type = "button"; button.textContent = label; button.dataset.builderAction = action; button.dataset.sectionId = section.id; button.disabled = !can("concierge.edit") || (action === "up" && sections[0] === section) || (action === "down" && sections.at(-1) === section); menu.appendChild(button); }
+    const children = builderNestedItems(section);
+    item.append(drag, select, status, hide, menu);
+    if (children.length) {
+      const toggle = document.createElement("button"); toggle.type = "button"; toggle.className = "builder-layer-collapse"; toggle.dataset.builderLayerCollapse = section.id; toggle.setAttribute("aria-expanded", String(!state.builderCollapsedLayers.has(section.id))); toggle.setAttribute("aria-label", `${state.builderCollapsedLayers.has(section.id) ? "Expand" : "Collapse"} ${select.textContent} items`); toggle.textContent = state.builderCollapsedLayers.has(section.id) ? "›" : "⌄"; item.appendChild(toggle);
+      const nested = document.createElement("ol"); nested.className = "builder-layer-children"; nested.hidden = state.builderCollapsedLayers.has(section.id); nested.setAttribute("aria-label", `${select.textContent} items`);
+      for (const childConfig of children) {
+        const child = document.createElement("li"); child.className = `builder-layer-child${state.builderSelection?.itemId === childConfig.id && state.builderSelectedSectionId === section.id ? " active" : ""}`; child.dataset.builderNestedLayer = childConfig.id; child.dataset.builderChildType = childConfig._kind; child.dataset.builderParentSection = section.id;
+        const childDrag = document.createElement("button"); childDrag.type = "button"; childDrag.className = "builder-layer-child-drag"; childDrag.draggable = true; childDrag.dataset.builderLayerItemDragHandle = childConfig.id; childDrag.dataset.builderChildType = childConfig._kind; childDrag.dataset.builderParentSection = section.id; childDrag.textContent = "⠿"; childDrag.setAttribute("aria-label", `Drag to reorder ${builderNestedLabel(section, childConfig)}`);
+        const childSelect = document.createElement("button"); childSelect.type = "button"; childSelect.className = "builder-layer-child-select"; childSelect.dataset.builderLayerItemSelect = childConfig.id; childSelect.dataset.builderChildType = childConfig._kind; childSelect.dataset.builderParentSection = section.id; childSelect.textContent = builderNestedLabel(section, childConfig); childSelect.setAttribute("aria-current", String(state.builderSelection?.itemId === childConfig.id && state.builderSelectedSectionId === section.id));
+        const childVisibility = document.createElement("button"); childVisibility.type = "button"; childVisibility.className = "builder-layer-child-visibility"; childVisibility.dataset.builderNestedItemAction = "toggle"; childVisibility.dataset.builderItemId = childConfig.id; childVisibility.dataset.builderChildType = childConfig._kind; childVisibility.dataset.builderParentSection = section.id; childVisibility.textContent = childConfig.enabled === false ? "◉" : "◎"; childVisibility.setAttribute("aria-label", `${childConfig.enabled === false ? "Show" : "Hide"} ${childSelect.textContent}`);
+        child.append(childDrag, childSelect, childVisibility); nested.appendChild(child);
+      }
+      item.appendChild(nested);
+    }
+    list.appendChild(item);
+  }
+}
+
+function renderBuilderChromeInspector(root, component) {
+  if (state.builderInspectorTab !== "content") {
+    const inherited = document.createElement("p"); inherited.className = "builder-inspector-help";
+    inherited.textContent = `${component === "header" ? "Header" : "Bottom navigation"} inherit the page theme. Edit their content on the Content tab; global colors and typography remain in Page Settings.`;
+    root.appendChild(inherited);
+    return;
+  }
+  const note = document.createElement("p"); note.className = "builder-inspector-help";
+  if (component === "header") {
+    note.textContent = "Edit the guest header here. Property name, logo, and concierge label come from Page Settings → Brand Identity.";
+    root.appendChild(note);
+    const header = designPayload().header || {};
+    for (const [name, label, value] of [["enabled", "Show header", header.enabled !== false], ["showLogo", "Show logo mark", header.showLogo !== false], ["showHotelName", "Show hotel name", header.showHotelName !== false], ["showConciergeName", "Show concierge label", header.showConciergeName !== false]]) {
+      root.appendChild(builderField(label, name, value, "checkbox", { bucket: "chrome", component }));
+    }
+    return;
+  }
+  note.textContent = "Edit visible destinations and labels for the guest bottom navigation. These remain scoped to this property.";
+  root.appendChild(note);
+  const navigation = $("builder-navigation-settings");
+  const host = $("inspector-navigation")?.querySelector(".design-inspector-fields");
+  if (navigation && host) { renderBuilderNavigationSettings(readBuilderNavigation()); root.appendChild(navigation); }
+}
+
+function renderBuilderInspector() {
+  const inspector = $("builder-inspector");
+  const page = builderPage();
+  if (!inspector || !page) return;
+  const selectedChrome = state.builderSelection?.type === "chrome" ? state.builderSelection.component : null;
+  const section = page.sections.find((item) => item.id === state.builderSelectedSectionId);
+  const showingNavigationEditor = (selectedChrome === "bottom_navigation" || section?.type === "bottom_navigation") && state.builderInspectorTab === "content";
+  const navigation = readBuilderNavigation();
+  const navigationSettings = $("builder-navigation-settings");
+  const navigationHost = $("inspector-navigation")?.querySelector(".design-inspector-fields");
+  if (navigationSettings && navigationHost && !showingNavigationEditor) navigationHost.appendChild(navigationSettings);
+  inspector.replaceChildren();
+  if (!section && !selectedChrome) {
+    $("builder-inspector-title").textContent = "Page Settings";
+    $("builder-page-settings").hidden = false;
+    $("builder-inspector-tabs").hidden = true;
+    inspector.hidden = true;
+    document.querySelectorAll("#builder-page-settings [data-inspector-panel]").forEach((panel) => { panel.open = ["brand", "content", "theme"].includes(panel.dataset.inspectorPanel); });
+    if (navigationHost) navigationHost.appendChild(navigationSettings);
+    renderBuilderNavigationSettings(navigation);
+    return;
+  }
+  $("builder-page-settings").hidden = true;
+  $("builder-inspector-tabs").hidden = false;
+  inspector.hidden = false;
+  const tab = state.builderInspectorTab || "content";
+  inspector.dataset.tab = tab;
+  if (!section && selectedChrome) {
+    $("builder-inspector-title").textContent = selectedChrome === "header" ? "Header" : "Bottom Navigation";
+    renderBuilderChromeInspector(inspector, selectedChrome);
+    return;
+  }
+  const definition = state.builderRegistry[section.type];
+  const selected = state.builderSelection || {};
+  const nested = builderNestedConfig(section, selected);
+  const target = selected.type === "data_card" ? { type: "data_card", itemId: selected.itemId } : section.type === "button" && selected.type === "button" ? { type: "button", config: section.properties, index: 0 } : nested ? { type: nested._kind, config: nested, itemId: nested.id, index: nested._index } : null;
+  $("builder-inspector-title").textContent = target?.type === "button" ? "Button" : target?.type === "quick_action" ? "Quick Action" : target?.type === "card_item" ? "Card" : target?.type === "navigation_item" ? "Navigation Item" : target?.type === "header_item" ? "Header Element" : target?.type === "data_card" ? "Property Content" : definition?.label || "Section";
+  if (tab === "content") renderBuilderContentInspector(inspector, section, definition, target);
+  else if (tab === "style") renderBuilderStyleInspector(inspector, section, target);
+  else if (tab === "layout") renderBuilderLayoutInspector(inspector, section, target);
+  else renderBuilderAnimationInspector(inspector, section, target);
+}
+
+function renderBuilderNavigationSettings(items = null) {
+  const root = $("builder-navigation-settings");
+  if (!root) return;
+  const source = items || state.designDraft?.navigation || [];
+  const pagesById = new Map((state.guestPages || []).map((page) => [page.id, page]));
+  const navigation = source.filter((item) => item && pagesById.has(item.page_id));
+  root.replaceChildren();
+  if (!navigation.length) {
+    const empty = document.createElement("p"); empty.className = "field-note"; empty.textContent = "Add a page with navigation enabled to configure destinations here."; root.appendChild(empty); return;
+  }
+  for (const item of navigation) {
+    const row = document.createElement("div"); row.className = "builder-navigation-row";
+    const page = pagesById.get(item.page_id);
+    const label = document.createElement("label"); label.className = "builder-navigation-label"; label.textContent = page.name || item.label || item.page_id;
+    const input = document.createElement("input"); input.type = "text"; input.maxLength = 40; input.value = item.label || page.name || item.page_id; input.dataset.builderNavigationLabel = item.page_id; input.setAttribute("aria-label", `Navigation label for ${page.name || item.page_id}`); input.disabled = !can("concierge.edit"); label.appendChild(input);
+    const visible = document.createElement("label"); visible.className = "builder-navigation-visible";
+    const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.checked = item.enabled !== false; checkbox.dataset.builderNavigationEnabled = item.page_id; checkbox.setAttribute("aria-label", `Show ${page.name || item.page_id} in guest navigation`); checkbox.disabled = !can("concierge.edit");
+    visible.append(checkbox, document.createTextNode(" Show in guest navigation")); row.append(label, visible); root.appendChild(row);
+  }
+}
+
+function readBuilderNavigation() {
+  const controls = [...document.querySelectorAll("#builder-navigation-settings [data-builder-navigation-label]")];
+  if (!controls.length) return structuredClone(state.designDraft?.navigation || []);
+  return controls.map((input) => {
+    const previous = (state.designDraft?.navigation || []).find((item) => item.page_id === input.dataset.builderNavigationLabel) || {};
+    const checkbox = [...document.querySelectorAll("#builder-navigation-settings [data-builder-navigation-enabled]")].find((field) => field.dataset.builderNavigationEnabled === input.dataset.builderNavigationLabel);
+    return { page_id: input.dataset.builderNavigationLabel, label: input.value.trim() || previous.label || input.dataset.builderNavigationLabel, icon: previous.icon || "", enabled: checkbox?.checked !== false };
+  });
+}
+
+function builderSelectedButton(section, index) {
+  if (section.type === "button") return { type: "button", config: section.properties || {}, index: 0 };
+  if (section.type === "hero") { const buttons = section.properties?.buttons || []; const resolvedIndex = typeof index === "string" ? buttons.findIndex((item, itemIndex) => (item.id || `hero-cta-${itemIndex + 1}`) === index) : Number(index); return { type: "button", config: buttons[resolvedIndex] || null, index: resolvedIndex }; }
+  return null;
+}
+
+function builderSelectedQuickAction(section, itemId) { return { type: "quick_action", config: builderQuickItems(section).find((item) => item.id === itemId) || null, itemId }; }
+
+function builderField(labelText, name, value, control = "text", options = {}) {
+  const label = document.createElement("label"); label.className = "builder-field"; label.appendChild(document.createTextNode(labelText));
+  let input;
+  if (control === "select") { input = document.createElement("select"); for (const option of options.values || []) input.appendChild(new Option(String(option.label ?? option), String(option.value ?? option))); input.value = String(value ?? ""); }
+  else if (control === "textarea") { input = document.createElement("textarea"); input.value = value ?? ""; }
+  else { input = document.createElement("input"); input.type = control; if (control === "checkbox") input.checked = value !== false; else input.value = value ?? ""; }
+  input.dataset.builderField = name; if (options.bucket) input.dataset.builderBucket = options.bucket; if (options.component) input.dataset.builderComponent = options.component; if (options.index !== undefined) input.dataset.builderIndex = String(options.index); if (options.itemId) input.dataset.builderItemId = options.itemId; if (options.itemKind) input.dataset.builderItemKind = options.itemKind; if (options.placeholder) input.placeholder = options.placeholder; if (options.min !== undefined) input.min = String(options.min); if (options.max !== undefined) input.max = String(options.max); input.disabled = !can("concierge.edit"); input.setAttribute("aria-label", labelText); label.appendChild(input); return label;
+}
+
+function renderBuilderChildItemList(root, section, kind) {
+  let items = builderNestedItems(section).filter((item) => item._kind === kind);
+  if (kind === "card_item" && !builderCardItems(section)) items = [];
+  const list = document.createElement("div"); list.className = "builder-child-item-list";
+  for (const item of items) {
+    const row = document.createElement("div"); row.className = `builder-child-item-row${item.enabled === false ? " is-hidden" : ""}`; row.dataset.builderActionItem = item.id; row.dataset.builderItemId = item.id; row.dataset.builderChildType = kind; row.dataset.builderParentSection = section.id;
+    const drag = document.createElement("button"); drag.type = "button"; drag.className = "builder-child-drag"; drag.draggable = true; drag.dataset.builderChildDragHandle = item.id; drag.dataset.builderItemId = item.id; drag.dataset.builderChildType = kind; drag.dataset.builderParentSection = section.id; drag.textContent = "⠿"; drag.setAttribute("aria-label", `Drag to reorder ${builderNestedLabel(section, item)}`);
+    const select = document.createElement("button"); select.type = "button"; select.className = "builder-child-select"; select.dataset.builderSelectNested = item.id; select.dataset.builderItemId = item.id; select.dataset.builderChildType = kind; select.dataset.builderParentSection = section.id; select.textContent = `${item.icon ? `${item.icon} ` : ""}${builderNestedLabel(section, item)}`;
+    const duplicate = document.createElement("button"); duplicate.type = "button"; duplicate.dataset.builderNestedItemAction = "duplicate"; duplicate.dataset.builderItemId = item.id; duplicate.dataset.builderChildType = kind; duplicate.dataset.builderParentSection = section.id; duplicate.textContent = "＋"; duplicate.setAttribute("aria-label", `Duplicate ${builderNestedLabel(section, item)}`);
+    const up = document.createElement("button"); up.type = "button"; up.dataset.builderNestedMove = "-1"; up.dataset.builderItemId = item.id; up.dataset.builderChildType = kind; up.dataset.builderParentSection = section.id; up.textContent = "↑"; up.setAttribute("aria-label", `Move ${builderNestedLabel(section, item)} up`);
+    const down = document.createElement("button"); down.type = "button"; down.dataset.builderNestedMove = "1"; down.dataset.builderItemId = item.id; down.dataset.builderChildType = kind; down.dataset.builderParentSection = section.id; down.textContent = "↓"; down.setAttribute("aria-label", `Move ${builderNestedLabel(section, item)} down`);
+    const toggle = document.createElement("button"); toggle.type = "button"; toggle.dataset.builderNestedItemAction = "toggle"; toggle.dataset.builderItemId = item.id; toggle.dataset.builderChildType = kind; toggle.dataset.builderParentSection = section.id; toggle.textContent = item.enabled === false ? "◉" : "◎"; toggle.setAttribute("aria-label", `${item.enabled === false ? "Show" : "Hide"} ${builderNestedLabel(section, item)}`);
+    const remove = document.createElement("button"); remove.type = "button"; remove.dataset.builderNestedItemAction = "delete"; remove.dataset.builderItemId = item.id; remove.dataset.builderChildType = kind; remove.dataset.builderParentSection = section.id; remove.textContent = "×"; remove.setAttribute("aria-label", `Delete ${builderNestedLabel(section, item)}`);
+    for (const control of [drag, select, duplicate, up, down, toggle, remove]) control.disabled = !can("concierge.edit");
+    row.append(drag, select, duplicate, up, down, toggle, remove); list.appendChild(row);
+  }
+  if (items.length) root.appendChild(list);
+  else { const empty = document.createElement("p"); empty.className = "builder-empty-note"; empty.textContent = kind === "quick_action" ? "No actions yet." : kind === "card_item" ? "No cards yet." : kind === "navigation_item" ? "No navigation items yet." : "No items yet."; root.appendChild(empty); }
+}
+
+function renderBuilderActionFields(root, action, bucket, itemId, itemKind = "") {
+  if (!action || action.type === "none") return;
+  const options = { bucket, itemId, itemKind, ...(bucket === "action" ? { index: Number(itemId) } : {}) };
+  if (action.type === "internal_page") {
+    const pages = (state.guestPages || []).filter((page) => page.enabled !== false).map((page) => ({ value: page.id, label: page.name || page.id }));
+    root.appendChild(builderField("Destination", "page_id", action.page_id || "home", "select", { ...options, values: pages }));
+  } else if (action.type === "external_url") {
+    root.appendChild(builderField("URL", "url", action.url || "", "url", { ...options, placeholder: "https://example.com" }));
+    root.appendChild(builderField("Open", "open_in", action.open_in || "new_tab", "select", { ...options, values: [["same_tab", "Same tab"], ["new_tab", "New tab"]].map(([value, label]) => ({ value, label })) }));
+    const note = document.createElement("p"); note.className = "builder-field-note"; note.textContent = "Use a valid HTTP or HTTPS URL. New tabs open with noopener and noreferrer."; root.appendChild(note);
+  } else if (["restaurant", "restaurant_menu", "promotion", "event", "resource"].includes(action.type)) {
+    if (action.type === "resource") root.appendChild(builderField("Property item type", "resource_type", action.resource_type || "restaurant", "select", { ...options, values: [["restaurant", "Restaurant"], ["promotion", "Promotion"], ["event", "Event"], ["facility", "Amenity"]].map(([value, label]) => ({ value, label })) }));
+    root.appendChild(builderField(action.type === "restaurant" || action.type === "restaurant_menu" ? "Restaurant ID" : "Property item ID", "resource_id", action.resource_id || "", "text", { ...options, placeholder: "Configured property item identifier" }));
+  } else if (["service_request", "room_service", "housekeeping", "transportation"].includes(action.type)) root.appendChild(builderField("Service ID", "service_id", action.service_id || "", "text", { ...options, placeholder: "Configured service identifier" }));
+  else if (action.type === "phone") root.appendChild(builderField("Phone", "phone", action.phone || "", "tel", options));
+  else if (action.type === "email") root.appendChild(builderField("Email", "email", action.email || "", "email", options));
+  else if (action.type === "map") root.appendChild(builderField("Map URL (optional)", "url", action.url || "", "url", { ...options, placeholder: "https://maps.example/..." }));
+  else if (action.type === "prompt") root.appendChild(builderField("Concierge prompt", "prompt", action.prompt || "", "textarea", options));
+}
+
+function renderBuilderCardEditor(root, section, item, itemId) {
+  if (!item) return;
+  for (const [name, label, control] of [["title", "Title", "text"], ["description", "Description", "textarea"], ["badge", "Badge", "text"], ["icon", "Icon", "text"], ["image_url", "Image URL", "url"], ["cta", "CTA label", "text"]]) root.appendChild(builderField(label, name, item[name] || "", control, { bucket: "nested_item", itemId, itemKind: "card_item", placeholder: name === "image_url" ? "HTTPS or same-origin image URL" : "" }));
+  if (isSafeBuilderImage(item.image_url)) { const preview = document.createElement("img"); preview.className = "builder-inspector-image"; preview.src = item.image_url; preview.alt = item.title || ""; preview.addEventListener("error", () => preview.remove(), { once: true }); root.appendChild(preview); }
+  const subheading = document.createElement("h3"); subheading.className = "builder-inspector-subheading"; subheading.textContent = "Action"; root.appendChild(subheading);
+  root.appendChild(builderField("Action Type", "type", item.action?.type || "none", "select", { bucket: "nested_action", itemId, itemKind: "card_item", values: builderActionTypeOptions() }));
+  renderBuilderActionFields(root, item.action, "nested_action", itemId, "card_item");
+  root.appendChild(builderField("Visible on guest page", "enabled", item.enabled !== false, "checkbox", { bucket: "nested_item", itemId, itemKind: "card_item" }));
+  renderBuilderNestedFooterActions(root, section, item, "card_item");
+}
+
+function builderActionTypeOptions() {
+  return [["none", "No action"], ["internal_page", "Internal Page"], ["external_url", "External URL"], ["restaurant", "Restaurant"], ["restaurant_menu", "Menu"], ["room_service", "Room Service"], ["housekeeping", "Housekeeping"], ["transportation", "Transportation"], ["promotion", "Promotion"], ["event", "Event"], ["concierge", "Concierge"], ["service_request", "Service Request"], ["resource", "Property Item"], ["phone", "Phone"], ["email", "Email"], ["map", "Map / Location"], ["prompt", "Concierge Prompt"]].map(([value, label]) => ({ value, label }));
+}
+
+function renderBuilderNavigationItemEditor(root, section, item, itemId) {
+  if (!item) return;
+  root.appendChild(builderField("Label", "label", item.label || "", "text", { bucket: "nested_item", itemId, itemKind: "navigation_item" }));
+  root.appendChild(builderField("Icon", "icon", item.icon || "", "text", { bucket: "nested_item", itemId, itemKind: "navigation_item", placeholder: "Icon or symbol" }));
+  root.appendChild(builderField("Action Type", "type", item.action?.type || "internal_page", "select", { bucket: "nested_action", itemId, itemKind: "navigation_item", values: builderActionTypeOptions() }));
+  renderBuilderActionFields(root, item.action, "nested_action", itemId, "navigation_item");
+  root.appendChild(builderField("Visible on guest page", "enabled", item.enabled !== false, "checkbox", { bucket: "nested_item", itemId, itemKind: "navigation_item" }));
+  renderBuilderNestedFooterActions(root, section, item, "navigation_item");
+}
+
+function renderBuilderHeaderItemEditor(root, section, item) {
+  if (!item) return;
+  const copy = document.createElement("p"); copy.className = "builder-inspector-help";
+  copy.textContent = item._field === "show_menu" ? "The menu control opens the guest app menu. You can give it a property-approved action." : "The brand identity values are managed in Page Settings and inherit here.";
+  root.appendChild(copy);
+  root.appendChild(builderField("Visible in header", item._field, section.properties?.[item._field] !== false, "checkbox", { bucket: "nested_item", itemId: item.id, itemKind: "header_item" }));
+  if (item._field === "show_menu") {
+    const action = section.properties.menu_action || { type: "none" };
+    root.appendChild(builderField("Menu action type", "type", action.type, "select", { bucket: "header_action", itemId: item.id, itemKind: "header_item", values: [["none", "Open guest menu"], ["internal_page", "Internal Page"], ["external_url", "External URL"], ["concierge", "Concierge"], ["phone", "Phone"], ["email", "Email"], ["map", "Map / Location"]].map(([value, label]) => ({ value, label })) }));
+    renderBuilderActionFields(root, action, "header_action", item.id, "header_item");
+  }
+}
+
+function renderBuilderNestedFooterActions(root, section, item, kind) {
+  const row = document.createElement("div"); row.className = "builder-inline-actions";
+  for (const [label, delta] of [["Move up", -1], ["Move down", 1]]) { const move = document.createElement("button"); move.type = "button"; move.textContent = label; move.dataset.builderNestedMove = String(delta); move.dataset.builderItemId = item.id; move.dataset.builderChildType = kind; move.dataset.builderParentSection = section.id; row.appendChild(move); }
+  for (const [label, action] of [["Duplicate", "duplicate"], [item.enabled === false ? "Show" : "Hide", "toggle"], ["Delete", "delete"]]) {
+    const button = document.createElement("button"); button.type = "button"; button.textContent = label; button.dataset.builderNestedItemAction = action; button.dataset.builderItemId = item.id; button.dataset.builderChildType = kind; button.dataset.builderParentSection = section.id; button.disabled = !can("concierge.edit"); row.appendChild(button);
+  }
+  root.appendChild(row);
+}
+
+function renderBuilderContentInspector(root, section, definition, target) {
+  const props = section.properties || {};
+  const note = document.createElement("p"); note.className = "builder-inspector-help"; note.textContent = "Content edits update this draft and stay private until you publish."; root.appendChild(note);
+  if (target && target.type !== "data_card") builderAddBreadcrumb(root, section, target.config);
+  if (target?.type === "button") { renderBuilderButtonEditor(root, section, target.config, target.index); return; }
+  if (target?.type === "quick_action") { renderBuilderQuickActionEditor(root, section, target.config, target.itemId); return; }
+  if (target?.type === "card_item") { renderBuilderCardEditor(root, section, target.config, target.itemId); return; }
+  if (target?.type === "navigation_item") { renderBuilderNavigationItemEditor(root, section, target.config, target.itemId); return; }
+  if (target?.type === "header_item") { renderBuilderHeaderItemEditor(root, section, target.config); return; }
+  if (target?.type === "data_card") { const note = document.createElement("p"); note.className = "builder-inspector-help"; note.textContent = "This card is rendered from active property-scoped content. Edit its details in the matching property catalog."; root.appendChild(note); return; }
+  root.appendChild(builderField("Section label", "__sectionTitle", section.title || ""));
+  if (section.type === "header") {
+    root.appendChild(builderField("Show menu icon", "show_menu", props.show_menu !== false, "checkbox"));
+    root.appendChild(builderField("Show property logo", "show_logo", props.show_logo !== false, "checkbox"));
+    root.appendChild(builderField("Show hotel name", "show_hotel_name", props.show_hotel_name !== false, "checkbox"));
+    root.appendChild(builderField("Show concierge label", "show_concierge_label", props.show_concierge_label !== false, "checkbox"));
+    root.appendChild(builderField("Menu action type", "type", (props.menu_action || { type: "none" }).type, "select", { bucket: "header_action", values: [["none", "Open guest menu"], ["internal_page", "Internal Page"], ["external_url", "External URL"], ["concierge", "Concierge"], ["phone", "Phone"], ["email", "Email"], ["map", "Map / Location"]].map(([value, label]) => ({ value, label })) }));
+    renderBuilderActionFields(root, props.menu_action || { type: "none" }, "header_action", "menu");
+  }
+  if (section.type === "bottom_navigation") {
+    root.appendChild(builderField("Show destination labels", "show_labels", props.show_labels !== false, "checkbox"));
+    const subheading = document.createElement("h3"); subheading.className = "builder-inspector-subheading"; subheading.textContent = "Navigation items"; root.appendChild(subheading);
+    renderBuilderChildItemList(root, section, "navigation_item");
+    const add = document.createElement("button"); add.type = "button"; add.className = "builder-add-inline"; add.dataset.builderAddNavigationItem = "true"; add.textContent = "+ Add Navigation Item"; add.disabled = builderNavigationItems(section).length >= 12 || !can("concierge.edit"); root.appendChild(add);
+  }
+  for (const field of definition?.fields || []) {
+    if (["image", "hero", "banner"].includes(section.type) && ["url", "image_url"].includes(field.name) && /^data:image\/(?:png|jpeg|webp);base64,/i.test(String(props[field.name] || ""))) continue;
+    const value = props[field.name] ?? definition.defaults?.[field.name];
+    root.appendChild(builderField(field.label, field.name, value, field.control === "number" ? "number" : field.control || "text", { values: field.options, min: field.min, max: field.max, placeholder: field.name.includes("image") || field.name === "url" ? "https:// or a same-origin path" : "" }));
+  }
+  if (section.type === "image" || section.type === "hero" || section.type === "banner") {
+    const imageField = section.type === "image" ? "url" : "image_url";
+    const imageValue = props[imageField] || "";
+    if (isSafeBuilderImage(imageValue)) { const image = document.createElement("img"); image.className = "builder-inspector-image"; image.src = imageValue; image.alt = props.alt || ""; root.appendChild(image); }
+    const choices = builderImageChoices();
+    if (choices.length) {
+      const label = document.createElement("label"); label.className = "builder-field"; label.textContent = "Choose existing property image";
+      const select = document.createElement("select"); select.dataset.builderImageLibrary = imageField; select.setAttribute("aria-label", "Choose existing property image"); select.appendChild(new Option("Select an image…", ""));
+      for (const choice of choices) select.appendChild(new Option(choice.label, choice.url));
+      select.disabled = !can("concierge.edit"); label.appendChild(select); root.appendChild(label);
+    } else {
+      const noMedia = document.createElement("p"); noMedia.className = "builder-field-note"; noMedia.textContent = "No saved property images are available yet."; root.appendChild(noMedia);
+    }
+    const actions = document.createElement("div"); actions.className = "builder-image-actions";
+    const change = document.createElement("button"); change.type = "button"; change.textContent = imageValue ? "Upload or Change Image" : "Upload Image"; change.dataset.builderUploadImage = imageField;
+    const upload = document.createElement("input"); upload.type = "file"; upload.accept = "image/png,image/jpeg,image/webp"; upload.hidden = true; upload.dataset.builderImageUpload = imageField; upload.setAttribute("aria-label", "Upload PNG, JPEG, or WebP image under 500 KB");
+    const remove = document.createElement("button"); remove.type = "button"; remove.className = "secondary"; remove.textContent = "Remove Image"; remove.dataset.builderRemoveImage = imageField; remove.disabled = !imageValue || !can("concierge.edit"); actions.append(change, remove); root.appendChild(actions);
+    root.appendChild(upload);
+    const hint = document.createElement("p"); hint.className = "builder-field-note"; hint.textContent = "Upload a PNG, JPEG, or WebP under 500 KB. The image stays with this property’s page draft."; root.appendChild(hint);
+  }
+  if (section.type === "hero") {
+    const subheading = document.createElement("h3"); subheading.className = "builder-inspector-subheading"; subheading.textContent = "Buttons"; root.appendChild(subheading);
+    (props.buttons || []).forEach((button, index) => { const edit = document.createElement("button"); edit.type = "button"; edit.className = "builder-action-edit"; edit.textContent = `${button.label || "Button"} · Edit`; edit.dataset.builderSelectButton = String(index); root.appendChild(edit); });
+    const add = document.createElement("button"); add.type = "button"; add.className = "builder-add-inline"; add.textContent = "+ Add button"; add.dataset.builderAddButton = "hero"; add.disabled = (props.buttons || []).length >= 2 || !can("concierge.edit"); root.appendChild(add);
+  }
+  if (section.type === "quick_actions") {
+    const subheading = document.createElement("h3"); subheading.className = "builder-inspector-subheading"; subheading.textContent = "Quick Actions"; root.appendChild(subheading);
+    renderBuilderChildItemList(root, section, "quick_action");
+    const add = document.createElement("button"); add.type = "button"; add.className = "builder-add-inline"; add.textContent = "+ Add Action"; add.dataset.builderAddQuickAction = "true"; add.disabled = builderQuickItems(section).length >= 12 || !can("concierge.edit"); root.appendChild(add);
+  }
+  if (section.type === "card_grid") {
+    const subheading = document.createElement("h3"); subheading.className = "builder-inspector-subheading"; subheading.textContent = "Cards"; root.appendChild(subheading);
+    renderBuilderChildItemList(root, section, "card_item");
+    const add = document.createElement("button"); add.type = "button"; add.className = "builder-add-inline"; add.textContent = "+ Add Card"; add.dataset.builderAddCard = "true"; add.disabled = (builderCardItems(section) || []).length >= 12 || !can("concierge.edit"); root.appendChild(add);
+  }
+  if (section.type === "hero") {
+    const rows = root.querySelectorAll("[data-builder-select-button]");
+    rows.forEach((edit, index) => { edit.dataset.builderSelectButton = section.properties.buttons[index].id || `hero-cta-${index + 1}`; });
+  }
+}
+
+function renderBuilderButtonEditor(root, section, config, index) {
+  if (!config) { const note = document.createElement("p"); note.className = "builder-empty-note"; note.textContent = "Select a button in the canvas to edit its action."; root.appendChild(note); return; }
+  const bucket = section.type === "hero" ? "button" : "section";
+  root.appendChild(builderField("Label", "label", config.label || "", "text", { bucket, index }));
+  root.appendChild(builderField("Icon", "icon", config.icon || "", "text", { bucket, index, placeholder: "Optional icon" }));
+  root.appendChild(builderField("Style", "style", config.style || "primary", "select", { bucket, index, values: ["primary", "secondary", "outline", "text"] }));
+  root.appendChild(builderField("Size", "size", config.size || "medium", "select", { bucket, index, values: ["small", "medium", "large"] }));
+  const action = config.action || { type: "none" };
+  root.appendChild(builderField("Action Type", "type", action.type, "select", { bucket: "action", index, values: builderActionTypeOptions() }));
+  renderBuilderActionFields(root, action, "action", String(index));
+  if (section.type === "hero") root.appendChild(builderField("Visible on guest page", "enabled", config.enabled !== false, "checkbox", { bucket: "button", index }));
+  const remove = document.createElement("button"); remove.type = "button"; remove.className = "builder-delete-inline"; remove.textContent = "Remove button"; remove.dataset.builderRemoveButton = String(index); if (section.type === "button") remove.hidden = true; root.appendChild(remove);
+  if (section.type === "hero") {
+    const duplicate = document.createElement("button"); duplicate.type = "button"; duplicate.className = "builder-action-edit"; duplicate.textContent = "Duplicate CTA"; duplicate.dataset.builderDuplicateButton = String(index); duplicate.disabled = (section.properties.buttons || []).length >= 2 || !can("concierge.edit"); root.appendChild(duplicate);
+  }
+}
+
+function renderBuilderQuickActionEditor(root, section, item, itemId) {
+  if (!item) { const note = document.createElement("p"); note.className = "builder-empty-note"; note.textContent = "This action may come from the published prompts. Add a configured action to edit it here."; root.appendChild(note); return; }
+  root.appendChild(builderField("Label", "label", item.label || "", "text", { bucket: "quick", itemId }));
+  root.appendChild(builderField("Description", "description", item.description || "", "textarea", { bucket: "quick", itemId }));
+  root.appendChild(builderField("Icon", "icon", item.icon || "", "text", { bucket: "quick", itemId }));
+  const action = item.action || { type: "prompt", prompt: "" };
+  root.appendChild(builderField("Action Type", "type", action.type || "prompt", "select", { bucket: "quick_action", itemId, values: builderActionTypeOptions() }));
+  renderBuilderActionFields(root, action, "quick_action_value", itemId, "quick_action");
+  const enabled = builderField("Visible on guest page", "enabled", item.enabled !== false, "checkbox", { bucket: "quick", itemId }); root.appendChild(enabled);
+  root.appendChild(builderField("Style", "style_mode", item.style_mode || "section", "select", { bucket: "quick", itemId, values: [["section", "Use Section Style"], ["custom", "Custom Style"]].map(([value, label]) => ({ value, label })) }));
+  renderBuilderNestedFooterActions(root, section, item, "quick_action");
+}
+
+function renderBuilderStyleInspector(root, section, target = null) {
+  if (target && ["quick_action", "card_item"].includes(target.type)) {
+    const config = target.config; const kind = target.type;
+    root.appendChild(builderField("Style", "style_mode", config.style_mode || "section", "select", { bucket: "nested_item", itemId: config.id, itemKind: kind, values: [["section", "Use Section Style"], ["custom", "Custom Style"]].map(([value, label]) => ({ value, label })) }));
+    if (config.style_mode === "custom") {
+      const appearance = config.appearance || {}; const theme = designPayload().theme || {};
+      root.appendChild(builderField("Text color", "appearance.text_color", appearance.text_color || theme.textPrimary || "#1f2933", "color", { bucket: "nested_item", itemId: config.id, itemKind: kind }));
+      root.appendChild(builderField("Background", "appearance.background_color", appearance.background_color || theme.surface || "#ffffff", "color", { bucket: "nested_item", itemId: config.id, itemKind: kind }));
+      root.appendChild(builderField("Border", "appearance.border_color", appearance.border_color || "#e8e4dc", "color", { bucket: "nested_item", itemId: config.id, itemKind: kind }));
+      root.appendChild(builderField("Radius", "appearance.radius", appearance.radius || "medium", "select", { bucket: "nested_item", itemId: config.id, itemKind: kind, values: ["none", "small", "medium", "large", "pill"] }));
+      root.appendChild(builderField("Shadow", "appearance.shadow", appearance.shadow || "subtle", "select", { bucket: "nested_item", itemId: config.id, itemKind: kind, values: ["none", "subtle", "raised"] }));
+    }
+    const reset = document.createElement("button"); reset.type = "button"; reset.className = "builder-reset-theme"; reset.textContent = "Use Section Style"; reset.dataset.builderNestedResetStyle = config.id; reset.dataset.builderChildType = kind; reset.disabled = config.style_mode !== "custom" || !can("concierge.edit"); root.appendChild(reset);
+    return;
+  }
+  const style = section.appearance || {};
+  const theme = designPayload().theme || {};
+  root.appendChild(builderField("Text color", "text_color", style.text_color || theme.textPrimary || "#1f2933", "color", { bucket: "appearance" }));
+  root.appendChild(builderField("Background color", "background_color", style.background_color || theme.surface || "#ffffff", "color", { bucket: "appearance" }));
+  if (section.type === "bottom_navigation") { root.appendChild(builderField("Active color", "active_color", style.active_color || theme.accent || "#9b7337", "color", { bucket: "appearance" })); root.appendChild(builderField("Border color", "border_color", style.border_color || "#e8e4dc", "color", { bucket: "appearance" })); }
+  if (["hero", "banner"].includes(section.type)) { root.appendChild(builderField("Overlay color", "overlay_color", style.overlay_color || "#1f2933", "color", { bucket: "appearance" })); root.appendChild(builderField("Overlay opacity", "overlay_opacity", style.overlay_opacity ?? 30, "range", { bucket: "appearance", min: 0, max: 100 })); }
+  root.appendChild(builderField("Card radius", "radius", style.radius || "medium", "select", { bucket: "appearance", values: ["none", "small", "medium", "large", "pill"] }));
+  root.appendChild(builderField("Shadow", "shadow", style.shadow || "subtle", "select", { bucket: "appearance", values: ["none", "subtle", "raised"] }));
+  const reset = document.createElement("button"); reset.type = "button"; reset.className = "builder-reset-theme"; reset.textContent = "Use Global Theme"; reset.dataset.builderResetTheme = "true"; reset.disabled = !Object.keys(style).length || !can("concierge.edit"); root.appendChild(reset);
+}
+
+function renderBuilderLayoutInspector(root, section, target = null) {
+  if (target) { const note = document.createElement("p"); note.className = "builder-inspector-help"; note.textContent = "This item uses its parent section’s layout. Reorder it from the canvas or Layers."; root.appendChild(note); return; }
+  if (section.type === "bottom_navigation") {
+    root.appendChild(builderField("Placement", "position", section.properties?.position || "fixed", "select", { bucket: "properties", values: [["fixed", "Fixed to bottom"], ["inline", "Inline"]].map(([value, label]) => ({ value, label })) }));
+    root.appendChild(builderField("Height", "height", section.properties?.height || "medium", "select", { bucket: "properties", values: [["compact", "Compact"], ["medium", "Medium"], ["tall", "Tall"]].map(([value, label]) => ({ value, label })) }));
+    root.appendChild(builderField("Icon size", "icon_size", section.properties?.icon_size || "medium", "select", { bucket: "properties", values: [["small", "Small"], ["medium", "Medium"], ["large", "Large"]].map(([value, label]) => ({ value, label })) }));
+    root.appendChild(builderField("Show labels", "show_labels", section.properties?.show_labels !== false, "checkbox", { bucket: "properties" }));
+    root.appendChild(builderField("Safe area padding", "safe_area_padding", section.properties?.safe_area_padding !== false, "checkbox", { bucket: "properties" }));
+  }
+  root.appendChild(builderField("Mobile behavior", "mobile_behavior", section.responsive?.mobile_behavior || "stack", "select", { bucket: "responsive", values: [["stack", "Stack"], ["scroll", "Scroll"], ["hide", "Hide"]].map(([value, label]) => ({ value, label })) }));
+  if (section.type !== "bottom_navigation") root.appendChild(builderField("Columns", "columns", section.responsive?.columns || section.properties?.columns || 2, "select", { bucket: "responsive", values: [1, 2, 3, 4] }));
+  root.appendChild(builderField("Section width", "width", section.layout?.width || "contained", "select", { bucket: "layout", values: [["contained", "Contained"], ["wide", "Wide"], ["full", "Full"]].map(([value, label]) => ({ value, label })) }));
+  if (section.type !== "bottom_navigation") root.appendChild(builderField("Height", "height", section.layout?.height || section.properties?.height || "medium", "select", { bucket: "layout", values: [["small", "Small"], ["medium", "Medium"], ["large", "Large"], ["full", "Full"]].map(([value, label]) => ({ value, label })) }));
+  root.appendChild(builderField("Spacing", "spacing", section.layout?.spacing || "medium", "select", { bucket: "layout", values: ["small", "medium", "large"] }));
+  root.appendChild(builderField("Alignment", "alignment", section.layout?.alignment || section.properties?.alignment || "left", "select", { bucket: "layout", values: ["left", "center", "right"] }));
+  for (const [device, label] of [["desktop", "Show on desktop"], ["tablet", "Show on tablet"], ["phone", "Show on phone"]]) root.appendChild(builderField(label, device, section.responsive?.[device] !== false, "checkbox", { bucket: "responsive" }));
+}
+
+function renderBuilderAnimationInspector(root, section, target = null) {
+  if (target) { const note = document.createElement("p"); note.className = "builder-inspector-help"; note.textContent = "Animation is configured on the parent section."; root.appendChild(note); return; }
+  const animation = section.animation || {};
+  root.appendChild(builderField("Entrance", "entrance", animation.entrance || "none", "select", { bucket: "animation", values: [["none", "None"], ["fade", "Fade"], ["fade_up", "Fade Up"], ["fade_down", "Fade Down"], ["slide_left", "Slide Left"], ["slide_right", "Slide Right"], ["scale", "Scale"]].map(([value, label]) => ({ value, label })) }));
+  root.appendChild(builderField("Duration", "duration", animation.duration || "normal", "select", { bucket: "animation", values: [["fast", "Fast"], ["normal", "Normal"], ["slow", "Slow"]].map(([value, label]) => ({ value, label })) }));
+  root.appendChild(builderField("Delay", "delay", animation.delay || 0, "select", { bucket: "animation", values: [0, 100, 200, 300, 500].map((value) => ({ value, label: `${value} ms` })) }));
+  root.appendChild(builderField("Trigger", "trigger", animation.trigger || "page_load", "select", { bucket: "animation", values: [["page_load", "Page Load"], ["enter_viewport", "Enter Viewport"]].map(([value, label]) => ({ value, label })) }));
+  root.appendChild(builderField("Animate", "repeat", animation.repeat || "once", "select", { bucket: "animation", values: [["once", "Once"], ["each", "Every Enter"]].map(([value, label]) => ({ value, label })) }));
+  root.appendChild(builderField("Hover effect", "interaction", animation.interaction || "none", "select", { bucket: "animation", values: [["none", "None"], ["lift", "Lift"], ["scale", "Scale"], ["shadow", "Shadow"]].map(([value, label]) => ({ value, label })) }));
+  const replay = document.createElement("button"); replay.type = "button"; replay.className = "builder-replay-animation"; replay.textContent = "Replay Animation"; replay.dataset.builderReplayAnimation = section.id; root.appendChild(replay);
+  const note = document.createElement("p"); note.className = "builder-field-note"; note.textContent = "Motion is disabled when the guest device requests reduced motion."; root.appendChild(note);
+}
+
+function renderBuilder() {
+  renderBuilderCanvas();
+  renderBuilderInspector();
+  renderBuilderLibraryMode();
+  renderBuilderHistoryButtons();
+}
+
+function renderBuilderLibraryMode() {
+  const tab = state.builderLibraryTab || "components";
+  document.querySelectorAll("[data-builder-library-tab]").forEach((button) => button.setAttribute("aria-selected", String(button.dataset.builderLibraryTab === tab)));
+  document.querySelectorAll("[data-builder-library-panel]").forEach((panel) => { panel.hidden = panel.dataset.builderLibraryPanel !== tab; });
+  const title = $("builder-library-title");
+  if (title) title.textContent = tab === "layers" ? "Layers" : "Components";
+}
+
+function setBuilderDevice(device) {
+  if (!["desktop", "tablet", "mobile"].includes(device)) return;
+  state.builderDevice = device;
+  const labels = { desktop: "Desktop · Full width", tablet: "Tablet · 768 px", mobile: "Mobile · 390 px" };
+  $("builder-page-size-label").textContent = labels[device];
+  document.querySelectorAll("[data-builder-device]").forEach((button) => {
+    const selected = button.dataset.builderDevice === device;
+    button.setAttribute("aria-pressed", String(selected)); button.classList.toggle("active", selected);
+  });
+  const canvas = $("builder-canvas");
+  canvas.style.setProperty("--builder-canvas-max", device === "desktop" ? "100%" : device === "tablet" ? "768px" : "390px");
+  renderBuilder();
+}
+
+function bindBuilderEvents() {
+  $("builder-component-library")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-builder-add]");
+    if (state.suppressBuilderClick) { state.suppressBuilderClick = false; event.preventDefault(); return; }
+    if (button && can("concierge.edit")) builderAddSection(button.dataset.builderAdd);
+  });
+  $("builder-component-search")?.addEventListener("input", renderBuilderLibrary);
+  $("builder-inspector")?.addEventListener("input", updateBuilderField);
+  $("builder-inspector")?.addEventListener("change", updateBuilderField);
+  $("builder-inspector")?.addEventListener("change", handleBuilderLibraryImage);
+  $("builder-inspector")?.addEventListener("change", handleBuilderImageUpload);
+  $("builder-inspector")?.addEventListener("focusin", (event) => { if (event.target.matches("[data-builder-navigation-label], [data-builder-navigation-enabled]") && !state.builderGlobalEditBefore) state.builderGlobalEditBefore = builderSnapshot(); });
+  $("builder-inspector")?.addEventListener("input", (event) => { if (event.target.matches("[data-builder-navigation-label]")) { if (!state.builderGlobalEditBefore) state.builderGlobalEditBefore = builderSnapshot(); updatePreview(); markBuilderDirty(); } });
+  $("builder-inspector")?.addEventListener("change", (event) => { if (event.target.matches("[data-builder-navigation-label], [data-builder-navigation-enabled]")) commitBuilderGlobalEdit(); });
+  $("builder-inspector")?.addEventListener("dragstart", (event) => { const handle = event.target.closest("[data-builder-child-drag-handle]"); if (!handle) return; state.builderPointerDrag && (state.builderPointerDrag.native = true); state.builderDrag = { kind: "child", id: handle.dataset.builderItemId, childType: handle.dataset.builderChildType, sectionId: handle.dataset.builderParentSection }; event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", handle.dataset.builderItemId); });
+  $("builder-inspector")?.addEventListener("dragend", () => { state.builderDrag = null; state.builderPointerDrag = null; document.querySelectorAll(".drop-before,.drop-after").forEach((item) => item.classList.remove("drop-before", "drop-after")); });
+  $("builder-section-layers")?.addEventListener("click", (event) => {
+    const nestedSelect = event.target.closest("[data-builder-layer-item-select]");
+    if (nestedSelect) { const section = builderPage()?.sections?.find((item) => item.id === nestedSelect.dataset.builderParentSection); selectBuilderChild(section, nestedSelect.dataset.builderChildType, nestedSelect.dataset.builderLayerItemSelect); return; }
+    const collapse = event.target.closest("[data-builder-layer-collapse]");
+    if (collapse) { const id = collapse.dataset.builderLayerCollapse; state.builderCollapsedLayers.has(id) ? state.builderCollapsedLayers.delete(id) : state.builderCollapsedLayers.add(id); renderBuilderLayers([...builderPage().sections].sort((a, b) => a.order - b.order)); return; }
+    const itemAction = event.target.closest("[data-builder-nested-item-action]");
+    if (itemAction) { const section = builderPage()?.sections?.find((item) => item.id === itemAction.dataset.builderParentSection); builderChildAction(section, itemAction.dataset.builderItemId, itemAction.dataset.builderChildType, itemAction.dataset.builderNestedItemAction); return; }
+    const layer = event.target.closest("[data-builder-layer-select]"); if (layer) builderSectionAction(layer.dataset.builderLayerSelect, "select");
+    const action = event.target.closest("[data-builder-action]"); if (action) builderSectionAction(action.dataset.sectionId, action.dataset.builderAction);
+  });
+  document.querySelectorAll("[data-builder-device]").forEach((button) => button.addEventListener("click", () => setBuilderDevice(button.dataset.builderDevice)));
+  $("builder-page-select")?.addEventListener("change", () => { state.builderPageId = $("builder-page-select").value; state.builderSelectedSectionId = null; state.builderSelection = null; renderBuilder(); });
+  document.querySelectorAll("[data-builder-library-tab]").forEach((button) => button.addEventListener("click", () => { state.builderLibraryTab = button.dataset.builderLibraryTab; renderBuilderLibraryMode(); }));
+  $("builder-preview-button")?.addEventListener("click", () => {
+    showToast("The center canvas is the live preview of this draft.");
+  });
+  $("builder-undo-button")?.addEventListener("click", () => restoreBuilderSnapshot(state.builderHistory.pop(), "undo"));
+  $("builder-redo-button")?.addEventListener("click", () => restoreBuilderSnapshot(state.builderRedo.pop(), "redo"));
+  $("builder-focus-button")?.addEventListener("click", () => { const builder = document.querySelector(".experience-builder"); const active = builder.classList.toggle("is-focus-mode"); $("builder-focus-button").setAttribute("aria-pressed", String(active)); $("builder-focus-button").textContent = active ? "Exit focus" : "Focus mode"; });
+  $("builder-templates-button")?.addEventListener("click", () => { const menu = $("builder-template-menu"); const open = menu.hidden; menu.hidden = !open; $("builder-templates-button").setAttribute("aria-expanded", String(open)); });
+  $("builder-template-menu")?.addEventListener("click", (event) => { const button = event.target.closest("[data-builder-template]"); if (button) applyBuilderTemplate(button.dataset.builderTemplate); });
+  $("builder-inspector")?.addEventListener("click", handleBuilderInspectorClick);
+  document.querySelectorAll("[data-builder-tab]").forEach((button) => button.addEventListener("click", () => setBuilderInspectorTab(button.dataset.builderTab)));
+  bindBuilderDragAndDrop();
+  $("builder-canvas")?.addEventListener("click", (event) => {
+    const addButton = event.target.closest("[data-builder-add-button]");
+    if (addButton) { const section = builderPage()?.sections?.find((item) => item.id === addButton.closest("[data-builder-section]")?.dataset.builderSection); if (section) builderAddHeroButton(section); return; }
+    const inlineAdd = event.target.closest("[data-builder-add-quick-action]");
+    if (inlineAdd) { const section = builderPage()?.sections?.find((item) => item.id === inlineAdd.closest("[data-builder-section]")?.dataset.builderSection); if (section) builderAddQuickAction(section); return; }
+    const addNavItem = event.target.closest("[data-builder-add-navigation-item]");
+    if (addNavItem) { const section = builderPage()?.sections?.find((item) => item.id === addNavItem.closest("[data-builder-section]")?.dataset.builderSection); if (section) builderAddNavigationItem(section); return; }
+    const addCard = event.target.closest("[data-builder-add-card]");
+    if (addCard) { const section = builderPage()?.sections?.find((item) => item.id === addCard.closest("[data-builder-section]")?.dataset.builderSection); if (section) builderAddCard(section); return; }
+    const addContent = event.target.closest("[data-builder-add-content]");
+    if (addContent) { if (addContent.dataset.builderAddContent) activatePanel(addContent.dataset.builderAddContent); return; }
+    const configureSection = event.target.closest("[data-builder-configure-section]");
+    if (configureSection) { const wrapper = configureSection.closest("[data-builder-section]"); if (wrapper) { state.builderSelectedSectionId = wrapper.dataset.builderSection; state.builderSelection = null; setBuilderInspectorTab("content"); renderBuilder(); } return; }
+    const action = event.target.closest("[data-builder-action]");
+    if (action) { event.preventDefault(); event.stopPropagation(); builderSectionAction(action.dataset.sectionId, action.dataset.builderAction); return; }
+    if (event.target.closest("[data-builder-preview-toggle='quick_actions']")) { event.preventDefault(); state.builderQuickActionsExpanded = !state.builderQuickActionsExpanded; renderBuilderCanvas(); return; }
+    const chrome = event.target.closest("[data-builder-chrome]");
+    if (chrome) { state.builderSelectedSectionId = null; state.builderSelection = { type: "chrome", component: chrome.dataset.builderChrome }; renderBuilder(); return; }
+    const wrapper = event.target.closest("[data-builder-section]");
+    if (!wrapper) {
+      if (event.target.matches("#builder-canvas, .builder-guest-page, .builder-guest-content") && (state.builderSelectedSectionId || state.builderSelection)) { state.builderSelectedSectionId = null; state.builderSelection = null; renderBuilder(); }
+      return;
+    }
+    const section = builderPage()?.sections?.find((item) => item.id === wrapper.dataset.builderSection);
+    if (!section) return;
+    const nested = event.target.closest("[data-builder-select]");
+    if (nested?.dataset.builderItemId) {
+      const kind = nested.dataset.builderItemKind || nested.dataset.builderSelect;
+      if (["button", "quick_action", "card_item", "navigation_item", "header_item"].includes(kind)) state.builderSelection = kind === "button" ? { type: kind, itemId: nested.dataset.builderItemId, index: Number(nested.dataset.builderIndex || 0) } : { type: kind, itemId: nested.dataset.builderItemId };
+      else state.builderSelection = null;
+    }
+    else if (event.target.closest("[data-builder-property-card]")) state.builderSelection = { type: "data_card", itemId: event.target.closest("[data-builder-property-card]").dataset.builderPropertyCard };
+    else state.builderSelection = null;
+    state.builderSelectedSectionId = section.id; renderBuilder();
+  });
+  $("builder-canvas")?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    if (event.target.closest("button")) return;
+    const chrome = event.target.closest("[data-builder-chrome]");
+    if (chrome) { event.preventDefault(); state.builderSelectedSectionId = null; state.builderSelection = { type: "chrome", component: chrome.dataset.builderChrome }; renderBuilder(); return; }
+    const wrapper = event.target.closest("[data-builder-section]");
+    if (wrapper) { event.preventDefault(); builderSectionAction(wrapper.dataset.builderSection, "select"); }
+  });
+  $("builder-page-settings")?.addEventListener("focusin", () => { if (!state.builderGlobalEditBefore) state.builderGlobalEditBefore = builderSnapshot(); });
+  $("builder-page-settings")?.addEventListener("input", (event) => { if (event.target.matches("[data-builder-navigation-label]")) { updatePreview(); markBuilderDirty(); } });
+  $("builder-page-settings")?.addEventListener("change", (event) => { if (event.target.matches("input,select,textarea") && event.target.type !== "file") commitBuilderGlobalEdit(); });
+  $("builder-page-settings")?.addEventListener("click", (event) => { if (event.target.closest("#add-prompt, button[aria-label='Remove prompt']")) { if (!state.builderGlobalEditBefore) state.builderGlobalEditBefore = builderSnapshot(); queueMicrotask(commitBuilderGlobalEdit); } }, true);
+  $("builder-discard-button")?.addEventListener("click", () => discardDesign().catch((error) => showToast(error.message, "error")));
+  $("builder-save-button")?.addEventListener("click", () => saveDraft().catch((error) => showToast(error.message, "error")));
+  $("builder-publish-button")?.addEventListener("click", () => {
+    if (!window.confirm("Publish Guest Experience?\n\nThe saved draft will become visible to guests.")) return;
+    publishDesign().catch((error) => showToast(error.message, "error"));
+  });
+}
+
+function setBuilderInspectorTab(tab) {
+  if (!["content", "style", "layout", "animation"].includes(tab)) return;
+  state.builderInspectorTab = tab;
+  document.querySelectorAll("[data-builder-tab]").forEach((button) => { const active = button.dataset.builderTab === tab; button.setAttribute("aria-selected", String(active)); button.tabIndex = active ? 0 : -1; });
+  $("builder-inspector")?.setAttribute("aria-labelledby", `builder-tab-${tab}`);
+  renderBuilderInspector();
+}
+
+function handleBuilderInspectorClick(event) {
+  const target = event.target;
+  const button = target.closest("button");
+  if (!button || !can("concierge.edit")) return;
+  const section = builderPage()?.sections?.find((item) => item.id === (button.dataset.builderParentSection || state.builderSelectedSectionId));
+  if (!section && !button.dataset.builderSelectParent) return;
+  if (button.dataset.builderSelectParent) { builderSelectParent(); return; }
+  if (button.dataset.builderNestedItemAction) { builderChildAction(section, button.dataset.builderItemId, button.dataset.builderChildType, button.dataset.builderNestedItemAction); return; }
+  if (button.dataset.builderNestedMove) { moveBuilderChild(section, button.dataset.builderItemId, button.dataset.builderChildType, Number(button.dataset.builderNestedMove)); return; }
+  if (button.dataset.builderNestedResetStyle) {
+    const item = builderMutableChildItems(section, button.dataset.builderChildType)?.find((entry) => entry.id === button.dataset.builderNestedResetStyle);
+    if (item) { builderRecordChange(); item.style_mode = "section"; delete item.appearance; renderBuilder(); } return;
+  }
+  if (button.dataset.builderUploadImage) { const input = $("builder-inspector").querySelector("[data-builder-image-upload='" + button.dataset.builderUploadImage + "']"); input?.click(); return; }
+  if (button.dataset.builderResetTheme) { builderRecordChange(); section.appearance = {}; renderBuilder(); return; }
+  if (button.dataset.builderSelectButton !== undefined) { selectBuilderChild(section, "button", button.dataset.builderSelectButton); return; }
+  if (button.dataset.builderSelectQuickAction) { state.builderSelection = { type: "quick_action", itemId: button.dataset.builderSelectQuickAction }; renderBuilder(); return; }
+  if (button.dataset.builderSelectNested) { selectBuilderChild(section, button.dataset.builderChildType, button.dataset.builderSelectNested); return; }
+  if (button.dataset.builderAddButton === "hero") { builderAddHeroButton(section); return; }
+  if (button.dataset.builderRemoveButton !== undefined) { const index = Number(button.dataset.builderRemoveButton); const item = section.properties.buttons?.[index]; if (item) builderChildAction(section, item.id || `hero-cta-${index + 1}`, "button", "delete"); return; }
+  if (button.dataset.builderDuplicateButton !== undefined) { const index = Number(button.dataset.builderDuplicateButton); const item = section.properties.buttons?.[index]; if (item) builderChildAction(section, item.id || `hero-cta-${index + 1}`, "button", "duplicate"); return; }
+  if (button.dataset.builderAddQuickAction) { builderAddQuickAction(section); return; }
+  if (button.dataset.builderAddNavigationItem) { builderAddNavigationItem(section); return; }
+  if (button.dataset.builderAddCard) { builderAddCard(section); return; }
+  if (button.dataset.builderQuickAction) {
+    const actionName = button.dataset.builderQuickAction;
+    if (actionName === "back") { state.builderSelection = null; renderBuilder(); return; }
+    if (!section.properties.items?.length) section.properties.items = builderQuickItems(section).map((item) => structuredClone(item));
+    const item = section.properties.items.find((entry) => entry.id === button.dataset.builderItemId);
+    if (!item) return;
+    if (actionName === "delete") { builderRecordChange(); section.properties.items = section.properties.items.filter((entry) => entry.id !== item.id); state.builderSelection = null; }
+    else if (actionName === "toggle") { builderRecordChange(); item.enabled = item.enabled === false; }
+    else if (actionName === "duplicate") { builderRecordChange(); const clone = structuredClone(item); clone.id = builderNewId("action"); const index = section.properties.items.indexOf(item); section.properties.items.splice(index + 1, 0, clone); state.builderSelection = { type: "quick_action", itemId: clone.id }; }
+    renderBuilder(); return;
+  }
+  if (button.dataset.builderQuickMove) { moveBuilderQuickAction(section, button.dataset.builderItemId, Number(button.dataset.builderQuickMove)); return; }
+  if (button.dataset.builderRemoveImage) { builderRecordChange(); section.properties[button.dataset.builderRemoveImage] = ""; renderBuilder(); return; }
+  if (button.dataset.focusBuilderField) { $("builder-inspector").querySelector(`[data-builder-field='${button.dataset.focusBuilderField}']`)?.focus(); return; }
+  if (button.dataset.builderReplayAnimation) { const visual = document.querySelector(`[data-builder-section='${CSS.escape(button.dataset.builderReplayAnimation)}'] .builder-guest-component`); if (visual) { visual.classList.remove("experience-visible"); void visual.offsetWidth; visual.classList.add("experience-visible"); } }
+}
+
+function builderAddQuickAction(section) {
+  if (!section || !can("concierge.edit")) return;
+  builderRecordChange();
+  const id = builderNewId("action");
+  const existing = builderQuickItems(section).map((item) => structuredClone(item));
+  section.properties.items = [...existing, { id, label: "New action", description: "", icon: "✦", enabled: true, action: { type: "prompt", prompt: "" } }];
+  state.builderSelectedSectionId = section.id;
+  state.builderSelection = { type: "quick_action", itemId: id };
+  renderBuilder();
+}
+
+function builderAddNavigationItem(section) {
+  if (!section || section.type !== "bottom_navigation" || !can("concierge.edit")) return;
+  const items = builderNavigationItems(section);
+  if (items.length >= 12) return;
+  builderRecordChange();
+  const page = (state.guestPages || []).find((item) => item.id === "home" && item.enabled !== false) || (state.guestPages || []).find((item) => item.enabled !== false);
+  const id = builderNewId("nav");
+  const label = page?.name || "New link";
+  section.properties.items = [...items.map((item) => structuredClone(item)), { id, label, icon: "", enabled: true, action: page ? { type: "internal_page", page_id: page.id } : { type: "none" } }];
+  state.builderSelectedSectionId = section.id;
+  state.builderSelection = { type: "navigation_item", itemId: id };
+  renderBuilder();
+}
+
+function builderAddCard(section) {
+  if (!section || section.type !== "card_grid" || !can("concierge.edit")) return;
+  const cards = builderCardItems(section) || [];
+  if (cards.length >= 12) return;
+  builderRecordChange();
+  const id = builderNewId("card");
+  section.properties.items = [...cards.map((item) => structuredClone(item)), { id, title: "", description: "", badge: "", icon: "", image_url: "", cta: "", enabled: true, action: { type: "none" }, style_mode: "section" }];
+  state.builderSelectedSectionId = section.id;
+  state.builderSelection = { type: "card_item", itemId: id };
+  renderBuilder();
+}
+
+function builderAddHeroButton(section) {
+  if (!section || !can("concierge.edit")) return;
+  builderRecordChange();
+  const destination = state.guestPages.find((page) => page.id !== state.builderPageId && page.enabled !== false);
+  const id = builderNewId("cta");
+  section.properties.buttons = [...(section.properties.buttons || []), { id, label: destination?.name || "Button", icon: "", style: "primary", size: "medium", enabled: true, action: destination ? { type: "internal_page", page_id: destination.id } : { type: "none" } }];
+  state.builderSelection = { type: "button", itemId: id, index: section.properties.buttons.length - 1 };
+  renderBuilder();
+}
+
+function commitBuilderGlobalEdit() {
+  if (state.builderGlobalEditBefore) {
+    const before = state.builderGlobalEditBefore;
+    state.builderGlobalEditBefore = null;
+    builderRecordChange(before);
+  }
+  updatePreview();
+}
+
+function moveBuilderQuickAction(section, itemId, delta) {
+  if (!section.properties.items?.length) section.properties.items = builderQuickItems(section).map((item) => structuredClone(item));
+  const items = section.properties?.items || []; const index = items.findIndex((item) => item.id === itemId); const target = index + delta;
+  if (index < 0 || target < 0 || target >= items.length) return;
+  builderRecordChange(); [items[index], items[target]] = [items[target], items[index]]; state.builderSelection = { type: "quick_action", itemId }; renderBuilder();
+}
+
+function builderMutableChildItems(section, kind) {
+  if (!section) return null;
+  if (kind === "quick_action") {
+    if (!Array.isArray(section.properties.items)) section.properties.items = builderQuickItems(section).map((item) => structuredClone(item));
+    return section.properties.items;
+  }
+  if (kind === "navigation_item") {
+    if (!Array.isArray(section.properties.items)) section.properties.items = builderNavigationItems(section).map((item) => structuredClone(item));
+    return section.properties.items;
+  }
+  if (kind === "card_item") {
+    if (!Array.isArray(section.properties.items)) section.properties.items = [];
+    return section.properties.items;
+  }
+  if (kind === "button" && section.type === "hero") {
+    section.properties.buttons ||= [];
+    section.properties.buttons.forEach((item, index) => { item.id ||= `hero-cta-${index + 1}`; });
+    return section.properties.buttons;
+  }
+  return null;
+}
+
+function selectBuilderChild(section, kind, itemId) {
+  if (!section) return;
+  const entry = builderNestedItems(section).find((item) => item._kind === kind && item.id === itemId);
+  if (!entry) return;
+  state.builderSelectedSectionId = section.id;
+  state.builderSelection = kind === "button" ? { type: "button", itemId, index: entry._index } : { type: kind, itemId };
+  setBuilderInspectorTab("content");
+  renderBuilder();
+}
+
+function builderChildAction(section, itemId, kind, action) {
+  if (!section || !can("concierge.edit")) return;
+  if (kind === "header_item") {
+    if (action !== "toggle") return;
+    const header = builderNestedItems(section).find((entry) => entry.id === itemId && entry._kind === kind);
+    if (!header) return;
+    builderRecordChange(); section.properties[header._field] = section.properties[header._field] === false; renderBuilder(); return;
+  }
+  const items = builderMutableChildItems(section, kind);
+  const item = items?.find((entry, index) => (entry.id || (kind === "button" ? `hero-cta-${index + 1}` : "")) === itemId);
+  if (!item) return;
+  if (action === "delete") {
+    builderRecordChange();
+    if (kind === "button") section.properties.buttons = items.filter((entry) => entry !== item);
+    else section.properties.items = items.filter((entry) => entry !== item);
+    state.builderSelection = null;
+  } else if (action === "toggle") {
+    builderRecordChange(); item.enabled = item.enabled === false;
+  } else if (action === "duplicate") {
+    const limit = kind === "button" ? 2 : 12;
+    if (items.length >= limit) return;
+    builderRecordChange();
+    const clone = structuredClone(item); clone.id = builderNewId(kind === "button" ? "cta" : kind === "navigation_item" ? "nav" : kind === "card_item" ? "card" : "action");
+    items.splice(items.indexOf(item) + 1, 0, clone);
+    state.builderSelection = kind === "button" ? { type: "button", itemId: clone.id, index: items.indexOf(clone) } : { type: kind, itemId: clone.id };
+  }
+  renderBuilder();
+}
+
+function moveBuilderChild(section, itemId, kind, delta) {
+  const items = builderMutableChildItems(section, kind); if (!items) return;
+  const index = items.findIndex((item, itemIndex) => (item.id || (kind === "button" ? `hero-cta-${itemIndex + 1}` : "")) === itemId); const target = index + delta;
+  if (index < 0 || target < 0 || target >= items.length) return;
+  builderRecordChange(); [items[index], items[target]] = [items[target], items[index]];
+  state.builderSelection = kind === "button" ? { type: "button", itemId, index: target } : { type: kind, itemId };
+  renderBuilder();
+}
+
+function reorderBuilderChild(drag, sectionId, targetId, before = true) {
+  if (!drag || drag.sectionId !== sectionId || !targetId || drag.id === targetId) return;
+  const section = builderPage()?.sections?.find((item) => item.id === sectionId); if (!section) return;
+  const items = builderMutableChildItems(section, drag.childType); if (!items) return;
+  const from = items.findIndex((item, index) => (item.id || (drag.childType === "button" ? `hero-cta-${index + 1}` : "")) === drag.id);
+  const to = items.findIndex((item, index) => (item.id || (drag.childType === "button" ? `hero-cta-${index + 1}` : "")) === targetId);
+  if (from < 0 || to < 0) return;
+  builderRecordChange(); const [item] = items.splice(from, 1); let insert = to; if (from < to) insert -= 1; if (!before) insert += 1; items.splice(Math.max(0, Math.min(insert, items.length)), 0, item);
+  const index = items.indexOf(item);
+  state.builderSelectedSectionId = section.id;
+  state.builderSelection = drag.childType === "button" ? { type: "button", itemId: item.id, index } : { type: drag.childType, itemId: item.id };
+  renderBuilder();
+}
+
+function bindBuilderDragAndDrop() {
+  const library = $("builder-component-library"); const canvas = $("builder-canvas"); const layers = $("builder-section-layers"); if (!library || !canvas || !layers) return;
+  const clearDropMarkers = () => document.querySelectorAll("#builder-canvas .drop-before, #builder-canvas .drop-after, #builder-section-layers .drop-before, #builder-section-layers .drop-after").forEach((item) => item.classList.remove("drop-before", "drop-after"));
+  const setDropMarker = (target, clientY, kind) => {
+    clearDropMarkers();
+    const nested = target?.closest?.("[data-builder-action-item], [data-builder-nested-layer]");
+    if (nested && kind === "child") {
+      const rect = nested.getBoundingClientRect();
+      nested.classList.add(clientY < rect.top + rect.height / 2 ? "drop-before" : "drop-after");
+      return;
+    }
+    const layer = target?.closest?.("[data-builder-layer-section]");
+    if (layer) {
+      const rect = layer.getBoundingClientRect();
+      layer.classList.add(clientY < rect.top + rect.height / 2 ? "drop-before" : "drop-after");
+      return;
+    }
+    const over = target?.closest?.("[data-builder-section]");
+    if (!over) return;
+    if (kind === "quick_action") {
+      const action = target.closest?.("[data-builder-action-item]");
+      action?.classList.add("drop-after");
+      return;
+    }
+    const rect = over.getBoundingClientRect();
+    over.classList.add(clientY < rect.top + rect.height / 2 ? "drop-before" : "drop-after");
+  };
+  const descriptorFor = (target) => {
+    const item = target?.closest?.("[data-builder-add]");
+    const layerHandle = target?.closest?.("[data-builder-layer-drag-handle]");
+    const layerItemHandle = target?.closest?.("[data-builder-layer-item-drag-handle]");
+    const childHandle = target?.closest?.("[data-builder-child-drag-handle]");
+    const handle = target?.closest?.("[data-builder-drag-handle]");
+    const actionItem = target?.closest?.("[data-builder-action-item]");
+    if (item && library.contains(item)) return { kind: "component", type: item.dataset.builderAdd, source: item };
+    if (layerItemHandle && layers.contains(layerItemHandle)) return { kind: "child", id: layerItemHandle.dataset.builderLayerItemDragHandle, childType: layerItemHandle.dataset.builderChildType, sectionId: layerItemHandle.dataset.builderParentSection, source: layerItemHandle };
+    if (childHandle && $("builder-inspector")?.contains(childHandle)) return { kind: "child", id: childHandle.dataset.builderItemId, childType: childHandle.dataset.builderChildType, sectionId: childHandle.dataset.builderParentSection, source: childHandle };
+    if (layerHandle && layers.contains(layerHandle)) return { kind: "section", id: layerHandle.dataset.builderLayerDragHandle, source: layerHandle };
+    if (handle && canvas.contains(handle)) return { kind: "section", id: handle.dataset.builderDragHandle, source: handle };
+    if (actionItem && canvas.contains(actionItem)) return { kind: "child", id: actionItem.dataset.builderItemId, childType: actionItem.dataset.builderChildType, sectionId: actionItem.closest("[data-builder-section]")?.dataset.builderSection, source: actionItem };
+    return null;
+  };
+  const performDrop = (drag, target, clientY) => {
+    const over = target?.closest?.("[data-builder-section]");
+    const layer = target?.closest?.("[data-builder-layer-section]");
+    if (drag.kind === "component" && canvas.contains(target)) { builderAddSection(drag.type, over?.dataset.builderSection || null); return; }
+    if (drag.kind === "section" && (over || layer)) {
+      const targetId = over?.dataset.builderSection || layer?.dataset.builderLayerSection;
+      const rect = (over || layer).getBoundingClientRect();
+      reorderBuilderSection(drag.id, targetId, clientY < rect.top + rect.height / 2);
+      return;
+    }
+    if (drag.kind === "child") {
+      const nested = target?.closest?.("[data-builder-action-item], [data-builder-nested-layer]");
+      const targetId = nested?.dataset.builderItemId || nested?.dataset.builderNestedLayer;
+      const targetType = nested?.dataset.builderChildType;
+      const sectionId = nested?.dataset.builderParentSection || over?.dataset.builderSection || layer?.dataset.builderLayerSection;
+      if (targetId && targetType === drag.childType) { const rect = nested.getBoundingClientRect(); reorderBuilderChild(drag, sectionId, targetId, clientY < rect.top + rect.height / 2); }
+    }
+  };
+  library.addEventListener("dragstart", (event) => { const item = event.target.closest("[data-builder-add]"); if (!item || !can("concierge.edit")) return; state.builderPointerDrag && (state.builderPointerDrag.native = true); state.builderDrag = { kind: "component", type: item.dataset.builderAdd }; event.dataTransfer.effectAllowed = "copy"; event.dataTransfer.setData("text/plain", item.dataset.builderAdd); });
+  canvas.addEventListener("dragstart", (event) => { const handle = event.target.closest("[data-builder-drag-handle]"); const actionItem = event.target.closest("[data-builder-action-item]"); if (handle) { state.builderPointerDrag && (state.builderPointerDrag.native = true); state.builderDrag = { kind: "section", id: handle.dataset.builderDragHandle }; event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", handle.dataset.builderDragHandle); } else if (actionItem) { state.builderPointerDrag && (state.builderPointerDrag.native = true); state.builderDrag = { kind: "child", id: actionItem.dataset.builderItemId, childType: actionItem.dataset.builderChildType, sectionId: actionItem.closest("[data-builder-section]")?.dataset.builderSection }; event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", actionItem.dataset.builderItemId); } });
+  canvas.addEventListener("dragover", (event) => { if (!state.builderDrag) return; event.preventDefault(); setDropMarker(event.target, event.clientY, state.builderDrag.kind); });
+  canvas.addEventListener("drop", (event) => { if (!state.builderDrag || !can("concierge.edit")) return; event.preventDefault(); const drag = state.builderDrag; state.builderDrag = null; state.builderPointerDrag = null; performDrop(drag, event.target, event.clientY); clearDropMarkers(); });
+  canvas.addEventListener("dragend", () => { state.builderDrag = null; state.builderPointerDrag = null; clearDropMarkers(); });
+  layers.addEventListener("dragstart", (event) => {
+    const itemHandle = event.target.closest("[data-builder-layer-item-drag-handle]");
+    if (itemHandle && can("concierge.edit")) { state.builderPointerDrag && (state.builderPointerDrag.native = true); state.builderDrag = { kind: "child", id: itemHandle.dataset.builderLayerItemDragHandle, childType: itemHandle.dataset.builderChildType, sectionId: itemHandle.dataset.builderParentSection }; event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", itemHandle.dataset.builderLayerItemDragHandle); return; }
+    const handle = event.target.closest("[data-builder-layer-drag-handle]");
+    if (!handle || !can("concierge.edit")) return;
+    state.builderPointerDrag && (state.builderPointerDrag.native = true);
+    state.builderDrag = { kind: "section", id: handle.dataset.builderLayerDragHandle, source: handle };
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", handle.dataset.builderLayerDragHandle);
+  });
+  layers.addEventListener("dragover", (event) => {
+    if (!(["section", "child"].includes(state.builderDrag?.kind))) return;
+    const target = state.builderDrag.kind === "child" ? event.target.closest("[data-builder-nested-layer]") : event.target.closest("[data-builder-layer-section]");
+    if (!target) return;
+    event.preventDefault();
+    setDropMarker(target, event.clientY, state.builderDrag.kind);
+  });
+  layers.addEventListener("drop", (event) => {
+    if (!(["section", "child"].includes(state.builderDrag?.kind)) || !can("concierge.edit")) return;
+    const target = state.builderDrag.kind === "child" ? event.target.closest("[data-builder-nested-layer]") : event.target.closest("[data-builder-layer-section]");
+    if (!target) return;
+    event.preventDefault();
+    const drag = state.builderDrag;
+    state.builderDrag = null;
+    state.builderPointerDrag = null;
+    performDrop(drag, target, event.clientY);
+    clearDropMarkers();
+  });
+  layers.addEventListener("dragend", () => { state.builderDrag = null; state.builderPointerDrag = null; clearDropMarkers(); });
+
+  // Pointer fallback keeps drag/drop available in embedded browsers that expose
+  // draggable controls but do not dispatch native HTML drag events reliably.
+  document.addEventListener("pointerdown", (event) => {
+    if (!can("concierge.edit") || (event.pointerType === "mouse" && event.button !== 0)) return;
+    const descriptor = descriptorFor(event.target);
+    if (descriptor) state.builderPointerDrag = { ...descriptor, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, active: false, native: false };
+  }, true);
+  document.addEventListener("pointermove", (event) => {
+    const pending = state.builderPointerDrag;
+    if (!pending || pending.pointerId !== event.pointerId || pending.native) return;
+    if (!pending.active && Math.hypot(event.clientX - pending.startX, event.clientY - pending.startY) < 7) return;
+    pending.active = true;
+    state.builderDrag = { kind: pending.kind, type: pending.type, id: pending.id, childType: pending.childType, sectionId: pending.sectionId };
+    if (pending.kind === "component") pending.source.classList.add("is-dragging");
+    const scroll = canvas.closest(".builder-canvas-scroll");
+    if (scroll) {
+      const rect = scroll.getBoundingClientRect();
+      const edge = Math.min(42, rect.height * 0.12);
+      if (event.clientY < rect.top + edge && scroll.scrollTop > 0) scroll.scrollTop = Math.max(0, scroll.scrollTop - 24);
+      else if (event.clientY > Math.min(rect.bottom, window.innerHeight) - edge && scroll.scrollTop + scroll.clientHeight < scroll.scrollHeight) scroll.scrollTop = Math.min(scroll.scrollHeight - scroll.clientHeight, scroll.scrollTop + 24);
+    }
+    const target = document.elementFromPoint(event.clientX, event.clientY);
+    setDropMarker(target, event.clientY, pending.kind);
+    if (event.cancelable) event.preventDefault();
+  }, { capture: true, passive: false });
+  document.addEventListener("pointerup", (event) => {
+    const pending = state.builderPointerDrag;
+    if (!pending || pending.pointerId !== event.pointerId) return;
+    state.builderPointerDrag = null;
+    pending.source.classList.remove("is-dragging");
+    if (pending.native || !pending.active) return;
+    state.suppressBuilderClick = pending.kind === "component";
+    const target = document.elementFromPoint(event.clientX, event.clientY);
+    performDrop({ kind: pending.kind, type: pending.type, id: pending.id, childType: pending.childType, sectionId: pending.sectionId }, target, event.clientY);
+    clearDropMarkers();
+    window.setTimeout(() => { state.suppressBuilderClick = false; }, 0);
+  }, true);
+  document.addEventListener("pointercancel", (event) => {
+    const pending = state.builderPointerDrag;
+    if (!pending || pending.pointerId !== event.pointerId) return;
+    pending.source.classList.remove("is-dragging");
+    if (!pending.native) { state.builderPointerDrag = null; state.builderDrag = null; clearDropMarkers(); }
+  }, true);
+}
+
+function reorderBuilderSection(sectionId, targetId, before) {
+  const page = builderPage(); if (!page || sectionId === targetId) return;
+  const from = page.sections.findIndex((item) => item.id === sectionId); let to = page.sections.findIndex((item) => item.id === targetId); if (from < 0 || to < 0) return;
+  builderRecordChange(); const [item] = page.sections.splice(from, 1); if (from < to) to -= 1; if (!before) to += 1; page.sections.splice(Math.max(0, Math.min(to, page.sections.length)), 0, item); normalizeBuilderOrder(); state.builderSelectedSectionId = sectionId; state.builderSelection = null; renderBuilder();
+}
+
+function reorderBuilderQuickAction(drag, sectionId, targetId) {
+  if (drag.sectionId !== sectionId || !targetId || drag.id === targetId) return;
+  const section = builderPage()?.sections?.find((item) => item.id === sectionId); if (!section) return;
+  if (!section.properties.items?.length) section.properties.items = builderQuickItems(section).map((item) => structuredClone(item));
+  const items = section.properties.items; const from = items.findIndex((item) => item.id === drag.id); const to = items.findIndex((item) => item.id === targetId); if (from < 0 || to < 0) return;
+  builderRecordChange(); const [item] = items.splice(from, 1); items.splice(to, 0, item); state.builderSelection = { type: "quick_action", itemId: item.id }; renderBuilder();
+}
+
+function applyBuilderTemplate(template) {
+  const page = builderPage(); if (!page) return;
+  if (!window.confirm(`Replace the ${page.name || "page"} draft sections with the ${template === "restaurant" ? "Restaurant Focused" : template} template? This changes only the draft.`)) return;
+  const specs = {
+    luxury: [["hero", "Welcome"], ["quick_actions", "Quick actions"], ["banner", "Promotion"], ["card_grid", "Featured Content"], ["concierge_composer", "Ask the concierge"]],
+    elegant: [["hero", "Welcome"], ["quick_actions", "Quick actions"], ["promotions", "Featured offers"], ["restaurant", "Restaurants"], ["concierge_composer", "Ask the concierge"]],
+    minimal: [["hero", "Welcome"], ["quick_actions", "Quick actions"], ["concierge_composer", "Ask the concierge"]],
+    business: [["hero", "Welcome"], ["quick_actions", "Guest services"], ["amenities", "Amenities"], ["concierge_composer", "Ask the concierge"]],
+    resort: [["hero", "Welcome"], ["quick_actions", "Guest services"], ["promotions", "Offers"], ["amenities", "Amenities"], ["concierge_composer", "Ask the concierge"]],
+    restaurant: [["hero", "Welcome"], ["restaurant", "Restaurants"], ["carousel", "Featured dining"], ["concierge_composer", "Ask the concierge"]],
+    blank: [],
+  };
+  builderRecordChange(); page.sections = (specs[template] || []).map(([type, title], index) => { const definition = state.builderRegistry[type]; const properties = structuredClone(definition?.defaults || {}); if (type === "quick_actions") delete properties.items; return { id: builderNewId(type), type, title, enabled: true, order: index, properties, responsive: {}, animation: { entrance: "none", duration: "normal", delay: 0, trigger: "page_load", repeat: "once", interaction: "none" }, appearance: {} }; });
+  state.builderSelectedSectionId = page.sections[0]?.id || null; state.builderSelection = null; $("builder-template-menu").hidden = true; $("builder-templates-button").setAttribute("aria-expanded", "false"); normalizeBuilderOrder(); renderBuilder();
+}
+
+function updateBuilderField(event) {
+  const field = event.target.closest("[data-builder-field]");
+  const page = builderPage();
+  if (!field || !page || !can("concierge.edit")) return;
+  const name = field.dataset.builderField; const bucket = field.dataset.builderBucket; const selected = state.builderSelection || {};
+  const section = page.sections.find((item) => item.id === state.builderSelectedSectionId);
+  const chrome = bucket === "chrome" && selected.type === "chrome" ? selected.component : null;
+  if (!section && !chrome) return;
+  const isCommit = event.type === "change";
+  let value = field.type === "checkbox" ? field.checked : field.value;
+  if ((field.type === "number" || (field.tagName === "SELECT" && /^\d+$/.test(value))) && value !== "") value = Number(value);
+  const nestedKind = field.dataset.builderItemKind;
+  const nestedItem = section && nestedKind && nestedKind !== "header_item" ? builderMutableChildItems(section, nestedKind)?.find((item, index) => item.id === field.dataset.builderItemId || (nestedKind === "button" && `hero-cta-${index + 1}` === field.dataset.builderItemId)) : null;
+  const actionConfig = section && bucket === "action" ? (section.type === "hero" ? section.properties.buttons?.[Number(field.dataset.builderIndex)] : section.properties) : section && bucket === "quick_action_value" ? builderQuickItems(section).find((item) => item.id === field.dataset.builderItemId) : nestedItem;
+  const action = bucket === "header_action" ? (section?.properties?.menu_action || { type: "none" }) : actionConfig?.action;
+  if (["action", "quick_action_value", "nested_action", "header_action"].includes(bucket) && name === "url" && ["external_url", "map"].includes(action?.type)) {
+    const valid = value === "" || (action.type === "map" ? isSafeBuilderMapUrl(value) : isSafeBuilderExternalUrl(value));
+    showBuilderUrlValidation(field, valid ? "" : "Enter a safe HTTP or HTTPS URL without login credentials.");
+    if (!valid) return;
+  }
+  if (bucket === "nested_item" && name === "image_url" && value !== "" && !isSafeBuilderImage(value)) { showBuilderUrlValidation(field, "Enter an HTTPS, same-origin, or supported uploaded image URL."); return; }
+  if (!state.builderEditBefore) state.builderEditBefore = builderSnapshot();
+  if (chrome === "header") {
+    const headerControls = { enabled: "header-enabled-input", showLogo: "show-logo-input", showHotelName: "show-name-input", showConciergeName: "show-concierge-input" };
+    const control = $(headerControls[name]);
+    if (control) control.checked = value;
+  }
+  else if (name === "__sectionTitle") section.title = String(value).slice(0, 80);
+  else if (bucket === "appearance") { section.appearance ||= {}; section.appearance[name] = value; }
+  else if (bucket === "responsive") { section.responsive ||= {}; section.responsive[name] = value; }
+  else if (bucket === "layout") { section.layout ||= {}; section.layout[name] = value; if (name === "alignment" && ["hero", "heading", "text", "container"].includes(section.type)) section.properties.alignment = value; if (name === "height" && ["hero", "banner"].includes(section.type)) section.properties.height = value; }
+  else if (bucket === "animation") { section.animation ||= {}; section.animation[name] = value; }
+  else if (bucket === "button") { const config = section.type === "hero" ? section.properties.buttons[Number(field.dataset.builderIndex)] : section.properties; if (config) config[name] = value; }
+  else if (bucket === "action") { const config = section.type === "hero" ? section.properties.buttons[Number(field.dataset.builderIndex)] : section.properties; if (config) config.action = updateBuilderAction(config.action, name, value); }
+  else if (bucket === "header_action") { section.properties.menu_action = updateBuilderAction(section.properties.menu_action, name, value); }
+  else if (bucket === "nested_action") { if (nestedItem) nestedItem.action = updateBuilderAction(nestedItem.action, name, value); }
+  else if (bucket === "nested_item") {
+    if (nestedKind === "header_item") { const headerItem = builderNestedItems(section).find((item) => item.id === field.dataset.builderItemId); if (headerItem) section.properties[headerItem._field] = value; }
+    else if (nestedItem) {
+      if (name.startsWith("appearance.")) { nestedItem.style_mode = "custom"; nestedItem.appearance ||= {}; nestedItem.appearance[name.slice("appearance.".length)] = value; }
+      else nestedItem[name] = value;
+    }
+  }
+  else if (bucket === "properties") { section.properties[name] = value; }
+  else if (["quick", "quick_action", "quick_action_value"].includes(bucket)) {
+    if (!Array.isArray(section.properties.items) || !section.properties.items.length) section.properties.items = builderQuickItems(section).map((item) => structuredClone(item));
+    const item = section.properties.items.find((entry) => entry.id === field.dataset.builderItemId);
+    if (item && bucket === "quick") item[name] = value;
+    else if (item && bucket === "quick_action") item.action = updateBuilderAction(item.action, name, value);
+    else if (item) item.action = { ...item.action, [name]: value };
+  }
+  else { section.properties ||= {}; section.properties[name] = value; }
+  markBuilderDirty();
+  if (isCommit) {
+    if (!state.builderEditRendered) renderBuilderCanvas();
+    builderRecordChange(state.builderEditBefore);
+    state.builderEditBefore = null;
+    state.builderEditRendered = false;
+    renderBuilderInspector();
+  } else {
+    state.builderEditRendered = true;
+    renderBuilderCanvas();
+  }
+}
+
+function handleBuilderImageUpload(event) {
+  const input = event.target.closest("[data-builder-image-upload]");
+  const file = input?.files?.[0];
+  if (!input || !file) return;
+  input.value = "";
+  if (!("image/png" === file.type || "image/jpeg" === file.type || "image/webp" === file.type) || file.size > 500 * 1024) {
+    showToast("Choose a PNG, JPEG, or WebP image under 500 KB.", "error");
+    return;
+  }
+  const reader = new FileReader();
+  reader.onerror = () => showToast("The image could not be read.", "error");
+  reader.onload = () => {
+    const value = typeof reader.result === "string" ? reader.result : "";
+    const page = builderPage();
+    const section = page?.sections?.find((item) => item.id === state.builderSelectedSectionId);
+    if (!section || !isSafeBuilderImage(value)) { showToast("That image could not be used safely.", "error"); return; }
+    builderRecordChange();
+    section.properties[input.dataset.builderImageUpload] = value;
+    renderBuilder();
+  };
+  reader.readAsDataURL(file);
+}
+
+function handleBuilderLibraryImage(event) {
+  const select = event.target.closest("[data-builder-image-library]");
+  if (!select?.value || !can("concierge.edit") || !isSafeBuilderImage(select.value)) return;
+  const section = builderPage()?.sections?.find((item) => item.id === state.builderSelectedSectionId);
+  if (!section) return;
+  builderRecordChange();
+  section.properties ||= {};
+  section.properties[select.dataset.builderImageLibrary] = select.value;
+  renderBuilder();
+}
+
+function updateBuilderAction(action, field, value) {
+  if (field === "type") {
+    const defaults = { none: { type: "none" }, prompt: { type: "prompt", prompt: "" }, internal_page: { type: "internal_page", page_id: "home" }, external_url: { type: "external_url", url: "", open_in: "new_tab" }, phone: { type: "phone", phone: "" }, email: { type: "email", email: "" }, map: { type: "map", destination: "property" }, resource: { type: "resource", resource_type: "restaurant", resource_id: "" }, service_request: { type: "service_request", service_id: "" }, restaurant: { type: "restaurant", resource_id: "" }, restaurant_menu: { type: "restaurant_menu", resource_id: "" }, room_service: { type: "room_service", service_id: "" }, housekeeping: { type: "housekeeping", service_id: "" }, transportation: { type: "transportation", service_id: "" }, promotion: { type: "promotion", resource_id: "" }, event: { type: "event", resource_id: "" }, concierge: { type: "concierge" } };
+    return structuredClone(defaults[value] || defaults.none);
+  }
+  return { ...(action || {}), [field]: value };
 }
 
 function fillDesignForm(config) {
@@ -2817,14 +4452,15 @@ function fillDesignForm(config) {
   }
   $("greeting-input").value = config.welcome?.greeting || "";
   $("welcome-input").value = config.welcome?.headline || "";
+  $("welcome-description-input").value = config.welcome?.description || "";
   $("composer-placeholder-input").value = config.composer?.placeholder || "";
-  $("background-input").value = normalizeColor(config.theme?.background || "#fbfbfa");
+  $("background-input").value = normalizeColor(config.theme?.background || "#faf8f4");
   $("surface-input").value = normalizeColor(config.theme?.surface || "#ffffff");
-  $("text-color-input").value = normalizeColor(config.theme?.textPrimary || "#18181b");
-  $("secondary-text-color-input").value = normalizeColor(config.theme?.textSecondary || "#71717a");
-  $("accent-input").value = normalizeColor(config.theme?.accent || "#18181b");
-  $("user-message-input").value = normalizeColor(config.theme?.userMessageBackground || "#eeeeee");
-  $("button-color-input").value = normalizeColor(config.theme?.buttonColor || config.theme?.accent || "#18181b");
+  $("text-color-input").value = normalizeColor(config.theme?.textPrimary || "#1c1c1c");
+  $("secondary-text-color-input").value = normalizeColor(config.theme?.textSecondary || "#6e6a64");
+  $("accent-input").value = normalizeColor(config.theme?.accent || "#b38a4a");
+  $("user-message-input").value = normalizeColor(config.theme?.userMessageBackground || "#f0ede7");
+  $("button-color-input").value = normalizeColor(config.theme?.buttonColor || config.theme?.accent || "#b38a4a");
   $("composer-background-input").value = normalizeColor(config.composer?.background || config.theme?.composerBackground || "#ffffff");
   $("background-image-url-input").value = config.theme?.backgroundImageUrl || "";
   $("background-overlay-input").value = config.theme?.backgroundOverlay ?? 0;
@@ -2832,7 +4468,7 @@ function fillDesignForm(config) {
   $("density-input").value = config.theme?.density || "comfortable";
   $("content-width-input").value = config.layout?.contentWidth || 840;
   $("message-width-input").value = config.layout?.messageWidth || 680;
-  $("composer-width-input").value = config.layout?.composerWidth || 840;
+  $("composer-width-input").value = config.layout?.composerWidth || 720;
   $("base-font-size-input").value = config.typography?.baseFontSize || 15;
   $("message-spacing-input").value = config.layout?.messageSpacing || config.messages?.messageSpacing || 24;
   $("radius-input").value = config.theme?.radius ?? 14;
@@ -2848,6 +4484,11 @@ function fillDesignForm(config) {
 
 function designPayload() {
   const base = structuredClone(state.designDraft || {});
+  const previousGreeting = base.welcome?.greeting;
+  const previousWelcome = base.welcome?.headline;
+  const previousDescription = base.welcome?.description;
+  base.schema_version = 1;
+  if (state.guestPages.length) base.pages = structuredClone(state.guestPages);
   base.branding = {
     ...(base.branding || {}),
     hotelName: $("design-hotel-name").value.trim(),
@@ -2864,10 +4505,10 @@ function designPayload() {
     textSecondary: $("secondary-text-color-input").value,
     accent: $("accent-input").value,
     accentText: state.designAccentText || base.theme?.accentText || "#ffffff",
-    border: base.theme?.border || "#e4e4e7",
+    border: base.theme?.border || "#e8e3da",
     userMessageBackground: $("user-message-input").value,
-    userMessageText: base.theme?.userMessageText || "#18181b",
-    assistantText: base.theme?.assistantText || "#18181b",
+    userMessageText: base.theme?.userMessageText || "#1c1c1c",
+    assistantText: base.theme?.assistantText || "#1c1c1c",
     composerBackground: $("composer-background-input").value,
     buttonColor: $("button-color-input").value,
     radius: Number($("radius-input").value || 0),
@@ -2884,7 +4525,7 @@ function designPayload() {
     ...(base.layout || {}),
     contentWidth: Number($("content-width-input").value || 840),
     messageWidth: Number($("message-width-input").value || 680),
-    composerWidth: Number($("composer-width-input").value || 840),
+    composerWidth: Number($("composer-width-input").value || 720),
     messageSpacing: Number($("message-spacing-input").value || 24),
     suggestionLayout: $("suggestion-layout-input").value,
   };
@@ -2895,11 +4536,18 @@ function designPayload() {
     showHotelName: $("show-name-input").checked,
     showConciergeName: $("show-concierge-input").checked,
   };
+  base.navigation = readBuilderNavigation();
   base.welcome = {
     ...(base.welcome || {}),
     greeting: $("greeting-input").value.trim() || "Good evening.",
-    headline: $("welcome-input").value.trim() || "How can I help with your stay?",
+    headline: $("welcome-input").value.trim() || "How can I help with your stay today?",
+    description: $("welcome-description-input").value.trim(),
   };
+  const home = (base.pages || []).find((page) => page.id === "home");
+  const defaultHero = home?.sections?.find((section) => section.type === "hero");
+  if (defaultHero?.properties?.eyebrow === previousGreeting) defaultHero.properties.eyebrow = base.welcome.greeting;
+  if (defaultHero?.properties?.headline === previousWelcome) defaultHero.properties.headline = base.welcome.headline;
+  if (defaultHero?.properties?.description === previousDescription) defaultHero.properties.description = base.welcome.description;
   base.composer = {
     ...(base.composer || {}),
     placeholder: $("composer-placeholder-input").value.trim() || "Ask your concierge...",
@@ -2967,12 +4615,17 @@ function renderPrompts(suggestions) {
   const list = $("prompt-list");
   list.innerHTML = "";
   for (const suggestion of suggestions) {
-    addPromptRow(suggestion.label || suggestion.prompt || "", suggestion.prompt || suggestion.label || "", suggestion.enabled !== false);
+    addPromptRow(
+      suggestion.label || suggestion.prompt || "",
+      suggestion.prompt || suggestion.label || "",
+      suggestion.enabled !== false,
+      suggestion.description || "",
+    );
   }
   renderPreviewPrompts();
 }
 
-function addPromptRow(label = "New prompt", prompt = "New prompt", enabled = true) {
+function addPromptRow(label = "New prompt", prompt = "New prompt", enabled = true, description = "") {
   const row = document.createElement("div");
   row.className = "prompt-row";
 
@@ -2985,6 +4638,14 @@ function addPromptRow(label = "New prompt", prompt = "New prompt", enabled = tru
   promptInput.className = "prompt-text";
   promptInput.setAttribute("aria-label", "Suggested prompt text");
   promptInput.value = prompt;
+
+  const descriptionInput = document.createElement("textarea");
+  descriptionInput.className = "prompt-description";
+  descriptionInput.setAttribute("aria-label", "Quick action description");
+  descriptionInput.setAttribute("maxlength", "140");
+  descriptionInput.setAttribute("rows", "2");
+  descriptionInput.placeholder = "Card description shown to guests (optional)";
+  descriptionInput.value = description;
 
   const enabledLabel = document.createElement("label");
   enabledLabel.className = "prompt-enabled";
@@ -3005,12 +4666,13 @@ function addPromptRow(label = "New prompt", prompt = "New prompt", enabled = tru
 
   row.appendChild(labelInput);
   row.appendChild(promptInput);
+  row.appendChild(descriptionInput);
   row.appendChild(enabledLabel);
   row.appendChild(removeButton);
 
-  for (const input of row.querySelectorAll("input")) {
-    input.addEventListener("input", updatePreview);
-    input.addEventListener("change", updatePreview);
+  for (const input of row.querySelectorAll("input, textarea")) {
+    input.addEventListener("input", () => { updatePreview(); markBuilderDirty(); });
+    input.addEventListener("change", commitBuilderGlobalEdit);
   }
   $("prompt-list").appendChild(row);
 }
@@ -3020,9 +4682,11 @@ function readPrompts() {
     .map((row, index) => {
       const label = row.querySelector(".prompt-label").value.trim();
       const prompt = row.querySelector(".prompt-text").value.trim();
+      const description = row.querySelector(".prompt-description").value.trim();
       return {
         label,
         prompt: prompt || label,
+        description,
         icon: "",
         enabled: row.querySelector(".prompt-enabled input").checked,
         order: index,
@@ -3033,6 +4697,7 @@ function readPrompts() {
 
 function renderPreviewPrompts() {
   const preview = $("preview-prompts");
+  if (!preview) return;
   preview.innerHTML = "";
   for (const item of readPrompts().filter((candidate) => candidate.enabled)) {
     const element = document.createElement("span");
@@ -3065,48 +4730,9 @@ function renderVersions() {
 }
 
 function updatePreview() {
-  const config = designPayload();
-  const accent = config.theme.accent;
-  const preview = $("chat-preview");
-  const logo = $("preview-logo");
-  $("preview-hotel").textContent = config.branding.hotelName || "Property not configured";
-  $("preview-concierge").textContent = config.branding.conciergeName;
-  logo.textContent = config.branding.hotelName.slice(0, 1).toUpperCase();
-  logo.style.backgroundImage = config.branding.logoUrl ? `url("${config.branding.logoUrl}")` : "";
-  logo.classList.toggle("has-image", Boolean(config.branding.logoUrl));
-  preview.dataset.logoDisplay = config.branding.logoDisplay || "mark_name";
-  preview.dataset.headerVisible = String(config.header.enabled !== false);
-  preview.dataset.logoVisible = String(config.header.showLogo !== false);
-  preview.dataset.nameVisible = String(config.header.showHotelName !== false);
-  preview.dataset.conciergeVisible = String(config.header.showConciergeName !== false);
-  preview.dataset.userStyle = config.messages.userStyle || "bubble";
-  preview.dataset.assistantStyle = config.messages.assistantStyle || "minimal";
-  preview.dataset.promptLayout = config.layout.suggestionLayout || "stack";
-  $("preview-greeting").textContent = config.welcome.greeting;
-  $("preview-welcome").textContent = config.welcome.headline;
-  $("preview-placeholder").textContent = config.composer.placeholder;
-  preview.style.setProperty("--preview-bg", config.theme.background);
-  preview.style.setProperty("--preview-surface", config.theme.surface);
-  preview.style.setProperty("--preview-text", config.theme.textPrimary);
-  preview.style.setProperty("--preview-subtle", config.theme.textSecondary);
-  preview.style.setProperty("--preview-border", config.theme.border || "#e4e4e7");
-  preview.style.setProperty("--preview-user-bubble", config.theme.userMessageBackground || "#eeeeee");
-  preview.style.setProperty("--preview-bg-image", config.theme.backgroundImageUrl ? `url("${config.theme.backgroundImageUrl}")` : "none");
-  preview.style.setProperty("--preview-overlay", (config.theme.backgroundOverlay || 0) / 100);
-  preview.style.setProperty("--preview-font", previewFontStack(config.typography.fontFamily || config.theme.font || "Geist"));
-  preview.style.setProperty("--preview-accent", accent);
-  preview.style.setProperty("--preview-button", config.theme.buttonColor || accent);
-  preview.style.setProperty("--preview-button-text", config.theme.accentText || "#ffffff");
-  preview.style.setProperty("--preview-composer", config.composer.background || config.theme.composerBackground || config.theme.surface);
-  preview.style.setProperty("--preview-radius", `${config.theme.radius ?? 14}px`);
-  preview.style.setProperty("--preview-font-size", `${config.typography.baseFontSize || 15}px`);
-  preview.style.setProperty("--preview-message-spacing", `${config.layout.messageSpacing || 24}px`);
-  preview.style.setProperty("--preview-content-width", `${config.layout.contentWidth || 840}px`);
-  preview.style.setProperty("--preview-message-width", `${config.layout.messageWidth || 680}px`);
-  preview.style.setProperty("--preview-composer-width", `${config.layout.composerWidth || 840}px`);
-  preview.style.setProperty("--preview-density", config.theme.density === "compact" ? "0.78" : "1");
-  $("background-overlay-value").textContent = `${config.theme.backgroundOverlay || 0}%`;
-  renderPreviewPrompts();
+  const overlay = $("background-overlay-value");
+  if (overlay) overlay.textContent = `${$("background-overlay-input")?.value || 0}%`;
+  renderBuilderCanvas();
 }
 
 const designPresets = {
@@ -3125,6 +4751,7 @@ const designPresets = {
 function applyDesignPreset(presetName) {
   const preset = designPresets[presetName];
   if (!preset) return;
+  builderRecordChange();
   const values = {
     "background-input": preset.background,
     "surface-input": preset.surface,
@@ -3151,7 +4778,7 @@ function applyDesignPreset(presetName) {
     button.setAttribute("aria-pressed", String(selected));
   });
   updatePreview();
-  showToast(`${document.querySelector(`[data-design-preset="${presetName}"] .template-copy strong`).textContent} applied to the preview. Save draft to keep it.`);
+  showToast(`${presetName.replaceAll("-", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())} palette applied to the draft.`);
 }
 
 function setDesignInspector(panelName) {
@@ -3231,6 +4858,7 @@ function handleImageUpload(input, targetId, { maxBytes, recommended, onStatus })
     showToast(`${recommended} Try a smaller file.`, "error");
     onStatus?.("This file exceeds the upload size limit.", "error");
     input.value = "";
+    state.builderGlobalEditBefore = null;
     return;
   }
   onStatus?.(`Reading ${file.name}...`, "loading");
@@ -3238,11 +4866,12 @@ function handleImageUpload(input, targetId, { maxBytes, recommended, onStatus })
   reader.addEventListener("load", () => {
     $(targetId).value = reader.result;
     onStatus?.(`${file.name} is ready in this draft.`, "ready");
-    updatePreview();
+    commitBuilderGlobalEdit();
   });
   reader.addEventListener("error", () => {
     onStatus?.("The file could not be read. Choose another.", "error");
     input.value = "";
+    state.builderGlobalEditBefore = null;
     showToast("The selected image could not be read.", "error");
   }, { once: true });
   reader.readAsDataURL(file);
@@ -3258,6 +4887,7 @@ async function savePropertyBasics() {
 }
 
 async function saveDraft({ quiet = false } = {}) {
+  if ($("builder-save-status")) $("builder-save-status").textContent = "Saving…";
   const activePanel = document.querySelector(".panel.active")?.id;
   if (activePanel === "appearance") {
     $("hotel-name-input").value = $("design-hotel-name").value || $("hotel-name-input").value;
@@ -3266,34 +4896,54 @@ async function saveDraft({ quiet = false } = {}) {
     $("design-hotel-name").value = $("hotel-name-input").value || $("design-hotel-name").value;
     $("design-concierge-name").value = $("concierge-name-input").value || $("design-concierge-name").value;
   }
-  await savePropertyBasics();
-  const result = await jsonFetch("/api/admin/properties/" + encodeURIComponent(currentPropertyId()) + "/design/draft", {
-    method: "PUT",
-    body: JSON.stringify({ config: designPayload() }),
-  });
-  state.designDraft = structuredClone(result.draft);
-  fillDesignForm(state.designDraft);
-  updatePreview();
-  setPublishState("Draft saved");
-  if (!quiet) showToast("Draft saved.");
+  try {
+    await savePropertyBasics();
+    const result = await jsonFetch("/api/admin/properties/" + encodeURIComponent(currentPropertyId()) + "/design/draft", {
+      method: "PUT",
+      body: JSON.stringify({ config: designPayload(), expected_revision: state.designRevision }),
+    });
+    state.designDraft = structuredClone(result.draft);
+    state.designRevision = Number(result.revision || state.designRevision + 1);
+    state.guestPages = structuredClone(state.designDraft.pages || []);
+    state.builderDirty = false;
+    state.builderHistory = [];
+    state.builderRedo = [];
+    fillDesignForm(state.designDraft);
+    renderBuilderPageOptions();
+    renderBuilder();
+    updatePreview();
+    if ($("builder-save-status")) $("builder-save-status").textContent = "Saved · draft only";
+    setPublishState("Draft saved");
+    if (!quiet) showToast("Draft saved.");
+  } catch (error) {
+    if ($("builder-save-status")) $("builder-save-status").textContent = "Save failed";
+    throw error;
+  }
 }
 
 async function publishDesign() {
   await saveDraft({ quiet: true });
   const result = await jsonFetch("/api/admin/properties/" + encodeURIComponent(currentPropertyId()) + "/design/publish", {
     method: "POST",
+    body: JSON.stringify({ expected_revision: state.designRevision }),
   });
   state.designPublished = structuredClone(result.published);
+  state.designRevision = Number(result.revision || state.designRevision + 1);
   await loadDesign();
+  if ($("builder-save-status")) $("builder-save-status").textContent = "Published to guests";
   showToast(`Published guest chat v${result.version}.`);
 }
 
 async function discardDesign() {
   const result = await jsonFetch("/api/admin/properties/" + encodeURIComponent(currentPropertyId()) + "/design/discard", {
     method: "POST",
+    body: JSON.stringify({ expected_revision: state.designRevision }),
   });
   state.designDraft = structuredClone(result.draft);
+  state.designRevision = Number(result.revision || state.designRevision + 1);
+  state.guestPages = structuredClone(state.designDraft.pages || []);
   fillDesignForm(state.designDraft);
+  renderBuilder();
   updatePreview();
   setPublishState("Draft discarded");
   showToast("Draft reset to the published design.");
@@ -3302,10 +4952,13 @@ async function discardDesign() {
 async function restoreVersion(version) {
   const result = await jsonFetch("/api/admin/properties/" + encodeURIComponent(currentPropertyId()) + "/design/restore", {
     method: "POST",
-    body: JSON.stringify({ version }),
+    body: JSON.stringify({ version, expected_revision: state.designRevision }),
   });
   state.designDraft = structuredClone(result.draft);
+  state.designRevision = Number(result.revision || state.designRevision + 1);
+  state.guestPages = structuredClone(state.designDraft.pages || []);
   fillDesignForm(state.designDraft);
+  renderBuilder();
   updatePreview();
   setPublishState(`Restored v${version} to draft`);
   showToast(`Version ${version} restored to draft. Publish when ready.`);
@@ -3314,6 +4967,12 @@ async function restoreVersion(version) {
 async function loadDesign() {
   const design = await jsonFetch("/api/admin/properties/" + encodeURIComponent(currentPropertyId()) + "/design");
   hydrateDesign(design);
+  try {
+    state.builderHospitality = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/hospitality`);
+    renderBuilderCanvas();
+  } catch {
+    state.builderHospitality = null;
+  }
 }
 
 async function loadProperty() {
@@ -5187,6 +6846,7 @@ function editRecommendation(item) {
   $("recommendation-address").value = item.address;
   $("recommendation-map-url").value = item.map_url;
   $("recommendation-description").value = item.description;
+  $("recommendation-images").value = (item.images || []).join(", ");
   $("recommendation-source").value = item.source;
   $("recommendation-enabled").checked = item.enabled;
 }
@@ -5198,9 +6858,11 @@ async function saveRecommendation() {
     recommendation_id: $("recommendation-id").value || undefined, name,
     category: $("recommendation-category").value.trim() || "other", address: $("recommendation-address").value.trim(),
     map_url: $("recommendation-map-url").value.trim(), description: $("recommendation-description").value.trim(),
+    images: $("recommendation-images").value.split(",").map((item) => item.trim()).filter(Boolean),
     source: $("recommendation-source").value.trim() || "property", enabled: $("recommendation-enabled").checked,
   } }) });
   $("recommendation-id").value = ""; $("recommendation-name").value = ""; $("recommendation-description").value = "";
+  $("recommendation-images").value = "";
   await loadRecommendations(); showToast("Recommendation saved.");
 }
 
@@ -6528,6 +8190,7 @@ function syncSidebarToggleState({ breakpointChanged = false } = {}) {
 
 function setup() {
   annotateAdminPages();
+  bindBuilderEvents();
   for (const icon of document.querySelectorAll(".nav-icon")) icon.setAttribute("aria-hidden", "true");
   for (const item of document.querySelectorAll(".nav-item")) {
     item.addEventListener("click", () => activatePanel(item.dataset.panel));
@@ -6713,6 +8376,7 @@ function setup() {
     "logo-display-input",
     "greeting-input",
     "welcome-input",
+    "welcome-description-input",
     "composer-placeholder-input",
     "background-input",
     "surface-input",
@@ -6740,10 +8404,11 @@ function setup() {
     "show-concierge-input",
   ];
   for (const id of liveInputs) {
-    $(id).addEventListener("input", updatePreview);
-    $(id).addEventListener("change", updatePreview);
+    $(id).addEventListener("input", () => { updatePreview(); markBuilderDirty(); });
+    $(id).addEventListener("change", () => { commitBuilderGlobalEdit(); });
   }
   $("logo-upload-input").addEventListener("change", (event) => {
+    state.builderGlobalEditBefore ||= builderSnapshot();
     handleImageUpload(event.target, "logo-url-input", {
       maxBytes: 500 * 1024,
       recommended: "Recommended logo: 512 x 512 px or 800 x 240 px, under 500 KB.",
@@ -6754,6 +8419,7 @@ function setup() {
     });
   });
   $("background-image-input").addEventListener("change", (event) => {
+    state.builderGlobalEditBefore ||= builderSnapshot();
     handleImageUpload(event.target, "background-image-url-input", {
       maxBytes: 1536 * 1024,
       recommended: "Recommended background: 1600 x 2400 px portrait or 2400 x 1600 px landscape, under 1.5 MB.",
@@ -6779,21 +8445,20 @@ function setup() {
   }
   for (const button of document.querySelectorAll("[data-design-preset]")) {
     button.setAttribute("aria-pressed", "false");
-    button.addEventListener("click", () => applyDesignPreset(button.dataset.designPreset));
+    button.addEventListener("click", () => { applyDesignPreset(button.dataset.designPreset); $("builder-template-menu").hidden = true; $("builder-templates-button").setAttribute("aria-expanded", "false"); });
   }
   $("reset-design-template").addEventListener("click", () => {
     if (!state.designDraft) return;
+    const before = builderSnapshot();
     fillDesignForm(state.designDraft);
     document.querySelectorAll("[data-design-preset]").forEach((button) => {
       button.classList.remove("selected");
       button.setAttribute("aria-pressed", "false");
     });
+    builderRecordChange(before);
     updatePreview();
-    showToast("Unsaved editor changes reset to the saved draft.");
+    showToast("Page settings reset to the saved draft.");
   });
-  $("design-save-shortcut").addEventListener("click", () => saveDraft().catch((error) => showToast(error.message, "error")));
-  $("design-discard-shortcut").addEventListener("click", () => discardDesign().catch((error) => showToast(error.message, "error")));
-  $("design-publish-shortcut").addEventListener("click", () => publishDesign().catch((error) => showToast(error.message, "error")));
   $("save-draft").addEventListener("click", () => saveDraft().catch((error) => showToast(error.message, "error")));
   $("save-auth-types").addEventListener("click", () => saveAuthenticationTypes().catch((error) => showToast(error.message, "error")));
   $("publish-design").addEventListener("click", () => publishDesign().catch((error) => showToast(error.message, "error")));
@@ -7101,17 +8766,7 @@ function setup() {
   $("save-smtp").addEventListener("click", () => saveSMTPSettings().catch((error) => showToast(error.message, "error")));
   $("test-smtp").addEventListener("click", () => testSMTP().catch((error) => showToast(error.message, "error")));
 
-  for (const button of document.querySelectorAll(".preview-size")) {
-    button.addEventListener("click", () => setPreviewDevice(button.dataset.size));
-  }
-  for (const button of document.querySelectorAll("[data-preview-zoom]")) {
-    button.addEventListener("click", () => {
-      if (button.dataset.previewZoom === "fit") fitPreview();
-      else updatePreviewZoom(state.designZoom + (button.dataset.previewZoom === "in" ? 0.1 : -0.1));
-    });
-  }
-  setPreviewDevice("mobile");
-  setDesignInspector("templates");
+  setBuilderDevice("desktop");
 }
 
 document.body.dataset.adminReady = "false";
