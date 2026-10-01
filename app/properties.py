@@ -14,9 +14,16 @@ from .guardrails import (
     public_guardrails,
     validate_guest_hostname_ownership,
 )
+from .guest_experience import default_guest_pages, default_navigation, is_safe_image_url, validate_guest_pages, validate_navigation
 
 
 logger = logging.getLogger(__name__)
+
+
+class DesignRevisionConflict(ValueError):
+    def __init__(self, current_revision: int) -> None:
+        self.current_revision = current_revision
+        super().__init__(f"This design changed in another session. Reload revision {current_revision} before saving.")
 
 
 SAFE_FONTS = {
@@ -93,7 +100,7 @@ AUTHENTICATION_RULES = {
 def default_design_config(
     hotel_name: str = "",
     concierge_name: str = "Concierge",
-    welcome: str = "How can I help with your stay?",
+    welcome: str = "How can I help with your stay today?",
     quick_actions: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     suggestions = []
@@ -104,11 +111,13 @@ def default_design_config(
                 "label": action.get("label") or prompt[:28] or "Suggestion",
                 "icon": "",
                 "prompt": prompt,
+                "description": str(action.get("description") or "").strip()[:140],
                 "enabled": True,
                 "order": index,
             }
         )
     return {
+        "schema_version": 1,
         "branding": {
             "hotelName": hotel_name,
             "conciergeName": concierge_name,
@@ -119,18 +128,18 @@ def default_design_config(
         },
         "theme": {
             "font": "Geist",
-            "background": "#fbfbfa",
+            "background": "#faf8f4",
             "surface": "#ffffff",
-            "textPrimary": "#18181b",
-            "textSecondary": "#71717a",
-            "accent": "#18181b",
-            "accentText": "#ffffff",
-            "border": "#e4e4e7",
-            "userMessageBackground": "#eeeeee",
-            "userMessageText": "#18181b",
-            "assistantText": "#18181b",
+            "textPrimary": "#1c1c1c",
+            "textSecondary": "#6e6a64",
+            "accent": "#b38a4a",
+            "accentText": "#1c1c1c",
+            "border": "#e8e3da",
+            "userMessageBackground": "#f0ede7",
+            "userMessageText": "#1c1c1c",
+            "assistantText": "#1c1c1c",
             "composerBackground": "#ffffff",
-            "buttonColor": "#18181b",
+            "buttonColor": "#b38a4a",
             "radius": 14,
             "density": "comfortable",
             "backgroundImageUrl": "",
@@ -147,7 +156,7 @@ def default_design_config(
             "contentWidth": 840,
             "messageWidth": 680,
             "messageSpacing": 24,
-            "composerWidth": 840,
+            "composerWidth": 720,
             "composerPosition": "bottom",
             "suggestionLayout": "stack",
         },
@@ -164,10 +173,10 @@ def default_design_config(
         "welcome": {
             "greeting": "Good evening.",
             "headline": welcome,
-            "description": "",
+            "description": "Your personal concierge is here to make your stay more comfortable.",
         },
         "composer": {
-            "placeholder": "Ask about your stay...",
+            "placeholder": "Ask your concierge...",
             "attachments": False,
             "voice": False,
             "border": True,
@@ -184,12 +193,34 @@ def default_design_config(
             "timestampVisibility": False,
         },
         "suggestions": suggestions,
+        "pages": default_guest_pages(),
+        "navigation": default_navigation(),
     }
 
 
 def validate_design_config(config: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(config, dict):
+        raise ValueError("Guest experience configuration must be an object.")
     merged = default_design_config()
+    unknown_fields = set(config) - set(merged)
+    if unknown_fields:
+        raise ValueError("Unsupported guest experience configuration field.")
+    nested_fields = {
+        "branding": {"hotelName", "conciergeName", "logoUrl", "logoDisplay", "conciergeAvatarUrl", "faviconUrl"},
+        "theme": {"font", "background", "surface", "textPrimary", "textSecondary", "accent", "accentText", "border", "userMessageBackground", "userMessageText", "assistantText", "composerBackground", "buttonColor", "radius", "density", "backgroundImageUrl", "backgroundOverlay"},
+        "typography": {"fontFamily", "baseFontSize", "headingWeight", "bodyWeight", "letterSpacing"},
+        "layout": {"contentWidth", "messageWidth", "messageSpacing", "composerWidth", "composerPosition", "suggestionLayout"},
+        "header": {"enabled", "showLogo", "showHotelName", "showConciergeName", "subtitle", "sticky", "background", "border"},
+        "welcome": {"greeting", "headline", "description"},
+        "composer": {"enabled", "placeholder", "attachments", "voice", "border", "radius", "background", "sendButtonStyle", "position"},
+        "messages": {"userStyle", "assistantStyle", "radius", "messageSpacing", "avatarVisibility", "timestampVisibility"},
+    }
     for section, value in config.items():
+        if section in nested_fields:
+            if not isinstance(value, dict):
+                raise ValueError(f"{section} configuration must be an object.")
+            if set(value) - nested_fields[section]:
+                raise ValueError(f"Unsupported {section} configuration field.")
         if isinstance(value, dict) and isinstance(merged.get(section), dict):
             merged[section].update(value)
         else:
@@ -198,8 +229,22 @@ def validate_design_config(config: dict[str, Any]) -> dict[str, Any]:
     theme = merged["theme"]
     typography = merged["typography"]
     layout = merged["layout"]
+    welcome = merged["welcome"]
     composer = merged["composer"]
     messages = merged["messages"]
+    branding = merged["branding"]
+
+    for field in ("logoUrl", "conciergeAvatarUrl", "faviconUrl"):
+        image_url = branding.get(field, "")
+        if not isinstance(image_url, str) or len(image_url) > 700000:
+            raise ValueError(f"Invalid image URL for {field}.")
+        if image_url and not is_safe_image_url(image_url):
+            raise ValueError(f"Image URL for {field} must use HTTPS, a same-origin path, or a supported image upload.")
+    background_image_url = theme.get("backgroundImageUrl", "")
+    if not isinstance(background_image_url, str) or len(background_image_url) > 700000:
+        raise ValueError("Invalid background image URL.")
+    if background_image_url and not is_safe_image_url(background_image_url):
+        raise ValueError("Background image must use HTTPS, a same-origin path, or a supported image upload.")
 
     font = typography.get("fontFamily") or theme.get("font") or "Geist"
     if font not in SAFE_FONTS:
@@ -226,6 +271,9 @@ def validate_design_config(config: dict[str, Any]) -> dict[str, Any]:
     layout["messageWidth"] = _bounded_int(layout.get("messageWidth"), 280, 900, "messageWidth")
     layout["messageSpacing"] = _bounded_int(layout.get("messageSpacing"), 10, 44, "messageSpacing")
     layout["composerWidth"] = _bounded_int(layout.get("composerWidth"), 320, 1100, "composerWidth")
+    welcome["greeting"] = str(welcome.get("greeting") or "Welcome").strip()[:80]
+    welcome["headline"] = str(welcome.get("headline") or "How can I help with your stay today?").strip()[:160]
+    welcome["description"] = str(welcome.get("description") or "Your personal concierge is here to make your stay more comfortable.").strip()[:280]
     composer["radius"] = _bounded_int(composer.get("radius"), 8, 32, "composer radius")
     messages["radius"] = _bounded_int(messages.get("radius"), 0, 28, "message radius")
     messages["messageSpacing"] = _bounded_int(messages.get("messageSpacing"), 10, 44, "message spacing")
@@ -249,19 +297,37 @@ def validate_design_config(config: dict[str, Any]) -> dict[str, Any]:
             continue
         label = str(suggestion.get("label", "")).strip()[:48]
         prompt = str(suggestion.get("prompt", "")).strip()[:500]
-        if not label or not prompt:
+        action = suggestion.get("action")
+        if not label or (not prompt and not isinstance(action, dict)):
             continue
-        suggestions.append(
-            {
-                "label": label,
-                "icon": str(suggestion.get("icon", "")).strip()[:32],
-                "prompt": prompt,
-                "enabled": bool(suggestion.get("enabled", True)),
-                "order": int(suggestion.get("order", index)),
-            }
-        )
+        item = {
+            "label": label,
+            "icon": str(suggestion.get("icon", "")).strip()[:32],
+            "prompt": prompt,
+            "description": str(suggestion.get("description", "")).strip()[:140],
+            "enabled": bool(suggestion.get("enabled", True)),
+            "order": int(suggestion.get("order", index)),
+        }
+        if isinstance(action, dict):
+            from .guest_experience import validate_action
+            item["action"] = validate_action(action)
+        suggestions.append(item)
     suggestions.sort(key=lambda item: item["order"])
     merged["suggestions"] = suggestions[:12]
+    merged["schema_version"] = 1
+    pages_config = merged.get("pages", default_guest_pages())
+    if isinstance(pages_config, list):
+        # Migration from the fixed guest Home preserves the property's existing
+        # welcome copy as the starting Hero settings.
+        home = next((page for page in pages_config if isinstance(page, dict) and page.get("id") == "home"), None)
+        if home and isinstance(home.get("sections"), list):
+            hero = next((section for section in home["sections"] if isinstance(section, dict) and section.get("type") == "hero"), None)
+            if hero and isinstance(hero.get("properties", {}), dict):
+                hero.setdefault("properties", {}).setdefault("eyebrow", welcome["greeting"])
+                hero.setdefault("properties", {}).setdefault("headline", welcome["headline"])
+                hero.setdefault("properties", {}).setdefault("description", welcome["description"])
+    merged["pages"] = validate_guest_pages(pages_config)
+    merged["navigation"] = validate_navigation(merged.get("navigation", default_navigation()), merged["pages"])
     return merged
 
 
@@ -335,6 +401,7 @@ class PropertyRecord:
     design_draft: dict[str, Any] = field(default_factory=default_design_config)
     design_published: dict[str, Any] = field(default_factory=default_design_config)
     design_versions: list[dict[str, Any]] = field(default_factory=list)
+    design_revision: int = 1
     created_at: int = 0
     updated_at: int = 0
     # Runtime-only marker set when persisted guest/network data cannot be trusted.
@@ -381,6 +448,7 @@ class PropertyRecord:
             "design_draft": self.design_draft,
             "design_published": self.design_published,
             "design_versions": self.design_versions,
+            "design_revision": self.design_revision,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -521,6 +589,7 @@ class PropertyStore:
         "design_draft",
         "design_published",
         "design_versions",
+        "design_revision",
         "created_at",
         "updated_at",
     )
@@ -587,6 +656,7 @@ class PropertyStore:
                     design_draft TEXT NOT NULL DEFAULT '{}',
                     design_published TEXT NOT NULL DEFAULT '{}',
                     design_versions TEXT NOT NULL DEFAULT '[]',
+                    design_revision INTEGER NOT NULL DEFAULT 1,
                     created_at INTEGER NOT NULL,
                     updated_at INTEGER NOT NULL
                 )
@@ -595,6 +665,7 @@ class PropertyStore:
             self._ensure_column(db, "design_draft", "TEXT NOT NULL DEFAULT '{}'")
             self._ensure_column(db, "design_published", "TEXT NOT NULL DEFAULT '{}'")
             self._ensure_column(db, "design_versions", "TEXT NOT NULL DEFAULT '[]'")
+            self._ensure_column(db, "design_revision", "INTEGER NOT NULL DEFAULT 1")
             self._ensure_column(db, "rooms", "TEXT NOT NULL DEFAULT '[]'")
             self._ensure_column(db, "guest_modules", "TEXT NOT NULL DEFAULT '[]'")
             self._ensure_column(db, "personality", "TEXT NOT NULL DEFAULT '{}'")
@@ -678,18 +749,21 @@ class PropertyStore:
             cursor = db.execute("DELETE FROM properties WHERE property_id = ?", (property_id,))
             return cursor.rowcount > 0
 
-    def save_design_draft(self, property_id: str, config: dict[str, Any]) -> PropertyRecord:
+    def save_design_draft(self, property_id: str, config: dict[str, Any], expected_revision: int | None = None) -> PropertyRecord:
         record = self.get(property_id)
         if record is None:
             raise KeyError(property_id)
+        if expected_revision is not None and record.design_revision != expected_revision:
+            raise DesignRevisionConflict(record.design_revision)
         record.design_draft = validate_design_config(config)
-        record.updated_at = int(time.time())
-        return self.upsert(record)
+        return self._write_design(record, expected_revision=record.design_revision, draft=True)
 
-    def publish_design(self, property_id: str, published_by: str = "local-admin") -> PropertyRecord:
+    def publish_design(self, property_id: str, published_by: str = "local-admin", expected_revision: int | None = None) -> PropertyRecord:
         record = self.get(property_id)
         if record is None:
             raise KeyError(property_id)
+        if expected_revision is not None and record.design_revision != expected_revision:
+            raise DesignRevisionConflict(record.design_revision)
         published = validate_design_config(record.design_draft)
         now = int(time.time())
         record.design_published = published
@@ -704,19 +778,67 @@ class PropertyStore:
             }
         )
         record.design_versions = versions[-10:]
-        record.updated_at = now
-        return self.upsert(record)
+        record.design_published = published
+        return self._write_design(record, expected_revision=record.design_revision, publish=True)
 
-    def restore_design_version(self, property_id: str, version: int) -> PropertyRecord:
+    def discard_design(self, property_id: str, expected_revision: int | None = None) -> PropertyRecord:
         record = self.get(property_id)
         if record is None:
             raise KeyError(property_id)
+        if expected_revision is not None and record.design_revision != expected_revision:
+            raise DesignRevisionConflict(record.design_revision)
+        record.design_draft = validate_design_config(record.design_published)
+        return self._write_design(record, expected_revision=record.design_revision, draft=True)
+
+    def restore_design_version(self, property_id: str, version: int, expected_revision: int | None = None) -> PropertyRecord:
+        record = self.get(property_id)
+        if record is None:
+            raise KeyError(property_id)
+        if expected_revision is not None and record.design_revision != expected_revision:
+            raise DesignRevisionConflict(record.design_revision)
         match = next((item for item in record.design_versions if item.get("version") == version), None)
         if match is None:
             raise ValueError("Version not found.")
         record.design_draft = validate_design_config(match["config"])
-        record.updated_at = int(time.time())
-        return self.upsert(record)
+        return self._write_design(record, expected_revision=record.design_revision, draft=True)
+
+    def _write_design(
+        self,
+        record: PropertyRecord,
+        *,
+        expected_revision: int,
+        draft: bool = False,
+        publish: bool = False,
+    ) -> PropertyRecord:
+        now = int(time.time())
+        record.design_revision = expected_revision + 1
+        record.updated_at = now
+        assignments = ["design_revision = design_revision + 1", "updated_at = ?"]
+        params: list[Any] = [now]
+        if draft:
+            assignments.append("design_draft = ?")
+            params.append(json.dumps(record.design_draft, separators=(",", ":")))
+        if publish:
+            assignments.extend(["design_published = ?", "design_versions = ?"])
+            params.extend([
+                json.dumps(record.design_published, separators=(",", ":")),
+                json.dumps(record.design_versions, separators=(",", ":")),
+            ])
+        params.extend([record.property_id, expected_revision])
+        with self._connect() as db:
+            cursor = db.execute(
+                f"UPDATE properties SET {', '.join(assignments)} WHERE property_id = ? AND design_revision = ?",
+                params,
+            )
+            if cursor.rowcount != 1:
+                latest = db.execute("SELECT design_revision FROM properties WHERE property_id = ?", (record.property_id,)).fetchone()
+                if latest is None:
+                    raise KeyError(record.property_id)
+                raise DesignRevisionConflict(int(latest["design_revision"]))
+        saved = self.get(record.property_id)
+        if saved is None:
+            raise KeyError(record.property_id)
+        return saved
 
     def _serialize_record(self, record: PropertyRecord) -> dict[str, Any]:
         data = record.to_dict(include_secrets=True)
@@ -804,6 +926,20 @@ class PropertyStore:
             )
         if not data.get("design_published"):
             data["design_published"] = data["design_draft"]
+        for design_field in ("design_draft", "design_published"):
+            try:
+                data[design_field] = validate_design_config(data[design_field])
+            except (TypeError, ValueError):
+                logger.warning(
+                    "Invalid stored guest experience design; using a safe property default",
+                    extra={"property_id": data.get("property_id"), "config_field": design_field},
+                )
+                data[design_field] = default_design_config(
+                    hotel_name=data.get("hotel_name", ""),
+                    concierge_name=data.get("concierge_name", "Concierge"),
+                    welcome=data.get("welcome", "How can I help?"),
+                    quick_actions=data.get("quick_actions", []),
+                )
         record = PropertyRecord(**data)
         record.guest_configuration_malformed = malformed_guest_configuration
         return record
@@ -813,6 +949,7 @@ class PropertyStore:
             "design_draft": "TEXT NOT NULL DEFAULT '{}'",
             "design_published": "TEXT NOT NULL DEFAULT '{}'",
             "design_versions": "TEXT NOT NULL DEFAULT '[]'",
+            "design_revision": "INTEGER NOT NULL DEFAULT 1",
             "rooms": "TEXT NOT NULL DEFAULT '[]'",
             "guest_modules": "TEXT NOT NULL DEFAULT '[]'",
             "personality": "TEXT NOT NULL DEFAULT '{}'",

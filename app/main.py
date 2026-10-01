@@ -110,7 +110,8 @@ from .network_access import (
 from .observability import DiagnosticContext, DiagnosticToolRegistry, ObservabilityStore, PERIODS, period_window
 from .outbound_http import OutboundRequestBroker, OutboundRequestError
 from .places import GooglePlaces, format_places_for_ai, rank_places
-from .properties import AUTHENTICATION_RULES, PropertyRecord, PropertyStore, default_design_config, validate_design_config
+from .properties import AUTHENTICATION_RULES, DesignRevisionConflict, PropertyRecord, PropertyStore, default_design_config, validate_design_config
+from .guest_experience import COMPONENT_REGISTRY
 from .reporting import ReportService
 from .rbac import bind_admin_route_policies, matched_admin_policy
 from .session_store import SessionStore
@@ -758,10 +759,16 @@ class PropertyLogoPayload(BaseModel):
 
 class DesignConfigPayload(BaseModel):
     config: dict[str, Any]
+    expected_revision: int | None = Field(default=None, ge=1)
+
+
+class DesignPublishPayload(BaseModel):
+    expected_revision: int | None = Field(default=None, ge=1)
 
 
 class RestoreDesignPayload(BaseModel):
     version: int
+    expected_revision: int | None = Field(default=None, ge=1)
 
 
 class AISettingsPayload(BaseModel):
@@ -3690,6 +3697,7 @@ async def upsert_property(property_id: str, payload: PropertyPayload, request: R
         record.design_draft = existing.design_draft
         record.design_published = existing.design_published
         record.design_versions = existing.design_versions
+        record.design_revision = existing.design_revision
     else:
         record.design_draft = default_design_config(
             hotel_name=record.hotel_name,
@@ -4334,6 +4342,8 @@ async def get_property_design(property_id: str) -> dict[str, Any]:
         "property_id": property_id,
         "draft": record.design_draft,
         "published": record.design_published,
+        "revision": record.design_revision,
+        "component_registry": COMPONENT_REGISTRY,
         "versions": [
             {
                 "version": item.get("version"),
@@ -4415,21 +4425,25 @@ async def test_property_ai_provider(property_id: str, provider_id: str) -> dict[
 @app.put("/api/admin/properties/{property_id}/design/draft")
 async def save_property_design_draft(property_id: str, payload: DesignConfigPayload) -> dict[str, Any]:
     try:
-        record = properties.save_design_draft(property_id, payload.config)
+        record = properties.save_design_draft(property_id, payload.config, payload.expected_revision)
     except KeyError:
         raise HTTPException(status_code=404, detail="Property not found.") from None
     except ValueError as exc:
+        if isinstance(exc, DesignRevisionConflict):
+            raise HTTPException(status_code=409, detail={"message": str(exc), "current_revision": exc.current_revision}) from exc
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return {"status": "draft_saved", "draft": record.design_draft}
+    return {"status": "draft_saved", "draft": record.design_draft, "revision": record.design_revision}
 
 
 @app.post("/api/admin/properties/{property_id}/design/publish")
-async def publish_property_design(property_id: str) -> dict[str, Any]:
+async def publish_property_design(property_id: str, payload: DesignPublishPayload | None = None) -> dict[str, Any]:
     try:
-        record = properties.publish_design(property_id)
+        record = properties.publish_design(property_id, expected_revision=payload.expected_revision if payload else None)
     except KeyError:
         raise HTTPException(status_code=404, detail="Property not found.") from None
     except ValueError as exc:
+        if isinstance(exc, DesignRevisionConflict):
+            raise HTTPException(status_code=409, detail={"message": str(exc), "current_revision": exc.current_revision}) from exc
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     latest = record.design_versions[-1] if record.design_versions else {}
     return {
@@ -4437,28 +4451,34 @@ async def publish_property_design(property_id: str) -> dict[str, Any]:
         "published": record.design_published,
         "version": latest.get("version"),
         "published_at": latest.get("published_at"),
+        "revision": record.design_revision,
     }
 
 
 @app.post("/api/admin/properties/{property_id}/design/discard")
-async def discard_property_design(property_id: str) -> dict[str, Any]:
-    record = properties.get(property_id)
-    if record is None:
+async def discard_property_design(property_id: str, payload: DesignPublishPayload | None = None) -> dict[str, Any]:
+    try:
+        record = properties.discard_design(property_id, payload.expected_revision if payload else None)
+    except KeyError:
         raise HTTPException(status_code=404, detail="Property not found.")
-    record.design_draft = validate_design_config(record.design_published)
-    properties.upsert(record)
-    return {"status": "discarded", "draft": record.design_draft}
+    except ValueError as exc:
+        if isinstance(exc, DesignRevisionConflict):
+            raise HTTPException(status_code=409, detail={"message": str(exc), "current_revision": exc.current_revision}) from exc
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"status": "discarded", "draft": record.design_draft, "revision": record.design_revision}
 
 
 @app.post("/api/admin/properties/{property_id}/design/restore")
 async def restore_property_design(property_id: str, payload: RestoreDesignPayload) -> dict[str, Any]:
     try:
-        record = properties.restore_design_version(property_id, payload.version)
+        record = properties.restore_design_version(property_id, payload.version, payload.expected_revision)
     except KeyError:
         raise HTTPException(status_code=404, detail="Property not found.") from None
     except ValueError as exc:
+        if isinstance(exc, DesignRevisionConflict):
+            raise HTTPException(status_code=409, detail={"message": str(exc), "current_revision": exc.current_revision}) from exc
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return {"status": "restored_to_draft", "draft": record.design_draft}
+    return {"status": "restored_to_draft", "draft": record.design_draft, "revision": record.design_revision}
 
 
 @app.delete("/api/admin/properties/{property_id}")

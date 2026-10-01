@@ -211,11 +211,7 @@ def test_legacy_catalog_migration_preserves_existing_property_data(tmp_path: Pat
     operations.save_knowledge("legacy-property", {"kind": "faq", "question": "Verified FAQ?", "answer": "Verified answer."})
 
     old_revision = importlib.import_module("migrations.versions.20260928_0001_service_catalog_seed_state")
-<<<<<<< HEAD
-    new_revision = importlib.import_module("migrations.versions.20260930_0001_remove_service_catalog_seed_state")
-=======
     new_revision = importlib.import_module("migrations.versions.20260930_0007_remove_service_catalog_seed_state")
->>>>>>> 5d859961eeb7f8c9936b9bdae7721805f21afae9
     from sqlalchemy import create_engine, text
     engine = create_engine(f"sqlite:///{database}")
     with engine.begin() as connection:
@@ -287,7 +283,9 @@ def test_property_a_content_stays_out_of_empty_property_b(tmp_path: Path, monkey
         "name": "A Configured Service", "department_id": department["department_id"], "keywords": ["a-service"],
     })
     stores["hospitality"].upsert_facility_profile("qa-property-a", {"name": "A Facility", "facility_type": "amenity"})
-    stores["hospitality"].create_restaurant("qa-property-a", {"name": "A Restaurant"})
+    stores["hospitality"].create_restaurant("qa-property-a", {
+        "name": "A Restaurant", "images": ["/media/qa-property-a-dining.webp"],
+    })
     stores["operations"].save_knowledge("qa-property-a", {
         "kind": "faq", "question": "A verified question?", "answer": "A verified answer.",
     })
@@ -305,6 +303,14 @@ def test_property_a_content_stays_out_of_empty_property_b(tmp_path: Path, monkey
         assert cross_delete.status_code == 404
         assert stores["hospitality"].catalog("qa-property-a")["services"][0]["service_id"] == service["service_id"]
 
+        session_a = client.post("/api/session/start", json={
+            "property_id": "qa-property-a", "client_id": "qa-a-guest",
+        })
+        assert session_a.status_code == 200, session_a.text
+        home_a = client.get(f"/api/guest/home?session_id={session_a.json()['session_id']}")
+        assert home_a.status_code == 200, home_a.text
+        assert home_a.json()["inventory"]["restaurants"][0]["images"] == ["/media/qa-property-a-dining.webp"]
+
         session_b = client.post("/api/session/start", json={
             "property_id": "qa-property-b", "client_id": "qa-b-guest",
         })
@@ -315,6 +321,8 @@ def test_property_a_content_stays_out_of_empty_property_b(tmp_path: Path, monkey
         assert all(home_b.json()["inventory"][key] == [] for key in (
             "restaurants", "facilities", "events", "promotions", "menu_items", "recommendations",
         ))
+        assert "A Restaurant" not in str(home_b.json())
+        assert "/media/qa-property-a-dining.webp" not in str(home_b.json())
         proposal = client.post("/api/guest/actions/propose", json={
             "session_id": session_id, "message": "Please send the A Configured Service",
         })

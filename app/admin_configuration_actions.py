@@ -132,48 +132,70 @@ def register_admin_configuration_actions(registry: ConfigurationActionRegistry, 
     design_schema = _object({
         "theme": any_object, "branding": any_object, "typography": any_object,
         "layout": any_object, "card": any_object, "composer": any_object,
+        "welcome": any_object, "header": any_object,
         "messages": any_object,
         "suggestions": {"type": "array", "maxItems": 24, "items": any_object},
+        "pages": {"type": "array", "maxItems": 12, "items": any_object},
+        "navigation": {"type": "array", "maxItems": 12, "items": any_object},
     })
 
     def validate_design(ctx: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
         try:
-            return {"config": services["validate_design_config"](params["config"])}
+            record = _property_record(ctx)
+            expected_revision = params.get("expected_revision", record.design_revision)
+            if expected_revision != record.design_revision:
+                raise ValueError("The guest experience changed after this AI proposal was created. Create a new proposal from the current draft.")
+            return {"config": services["validate_design_config"](params["config"]), "expected_revision": expected_revision}
         except (TypeError, ValueError) as exc:
             raise ValueError(str(exc)) from exc
 
     def design_preview(ctx: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
         record = _property_record(ctx)
+        if record.design_revision != params["expected_revision"]:
+            raise ValueError("The guest experience changed after this AI proposal was created. Create a new proposal from the current draft.")
         return {"current": record.design_draft, "proposed": params["config"], "impact": "Saves a design draft for preview; the published guest page is unchanged."}
 
     def design_execute(ctx: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
-        record = services["properties"].save_design_draft(ctx.property_id, params["config"])
-        return {"status": "draft_saved", "design": record.design_draft}
+        record = services["properties"].save_design_draft(ctx.property_id, params["config"], params["expected_revision"])
+        return {"status": "draft_saved", "design": record.design_draft, "revision": record.design_revision}
 
     def design_rollback(ctx: ActionContext, params: dict[str, Any], current: Any) -> Any:
         return services["properties"].save_design_draft(ctx.property_id, current)
 
     register(ConfigurationAction(
         "design.create_draft", "Create and validate a guest landing-page design draft.", "concierge.edit",
-        _object({"config": design_schema}, ["config"]), validate_design, design_execute, design_preview,
+        _object({"config": design_schema, "expected_revision": {"type": "integer", "minimum": 1}}, ["config"]), validate_design, design_execute, design_preview,
         rollback=design_rollback,
+    ))
+
+    def validate_design_publish(ctx: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
+        record = _property_record(ctx)
+        expected_revision = params.get("expected_revision", record.design_revision)
+        if expected_revision != record.design_revision:
+            raise ValueError("The guest experience changed after this publish proposal was created. Create a new proposal from the current draft.")
+        return {"expected_revision": expected_revision}
+
+    def design_publish_preview(ctx: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
+        record = _property_record(ctx)
+        if record.design_revision != params["expected_revision"]:
+            raise ValueError("The guest experience changed after this publish proposal was created. Create a new proposal from the current draft.")
+        return {"current": record.design_published, "proposed": record.design_draft, "impact": "Publishes the validated design draft to the guest experience."}
+
+    def design_publish_execute(ctx: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
+        record = services["properties"].publish_design(
+            ctx.property_id, ctx.principal.user_id, params["expected_revision"],
+        )
+        return {"status": "published", "design": record.design_published, "revision": record.design_revision}
+
+    register(ConfigurationAction(
+        "design.publish", "Publish the property's current guest experience draft.", "concierge.edit",
+        _object({"expected_revision": {"type": "integer", "minimum": 1}}),
+        validate_design_publish, design_publish_execute, design_publish_preview,
+        confirmation_requirement="normal",
     ))
 
     def validate_empty(ctx: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
         return params
-
-    def publish_preview(ctx: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
-        record = _property_record(ctx)
-        return {"current": record.design_published, "proposed": record.design_draft, "impact": "Publishes the validated design draft to the guest landing page."}
-
-    def publish_design(ctx: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
-        record = services["properties"].publish_design(ctx.property_id, ctx.principal.user_id)
-        return {"status": "published", "design": record.design_published}
-
-    register(ConfigurationAction(
-        "design.publish", "Publish the property's current design draft.", "concierge.edit",
-        _object({}), validate_empty, publish_design, publish_preview, confirmation_requirement="normal",
-    ))
 
     # Safe property AI settings only; credentials, arbitrary config blobs and API keys are excluded.
     provider_fields = {
