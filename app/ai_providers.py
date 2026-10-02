@@ -1175,33 +1175,49 @@ class AIModelService:
             return LocalProviderAdapter(validate_local_ai_endpoint(endpoint_url or settings.ollama_base_url, settings))
         return UnavailableProviderAdapter()
 
-    def resolve_connection(self, property_id: str) -> dict[str, Any]:
-        ai_settings = self.store.get_settings(property_id)
-        provider_id = ai_settings["default_provider"]
-        if ai_settings["local_only"] and PROVIDER_DEFINITIONS[provider_id]["cloud"]:
-            provider_id = "local"
-        connection = self.store.get_connection(property_id, provider_id)
-        return connection
+    def resolve_connection(self, property_id: str) -> dict[str, Any] | None:
+        connections = self.resolve_connections(property_id)
+        return connections[0] if connections else None
 
     def resolve_connections(self, property_id: str) -> list[dict[str, Any]]:
         ai_settings = self.store.get_settings(property_id)
-        default = ai_settings["default_provider"]
-        chain = [item for item in ai_settings["fallback_chain"] if item in PROVIDER_DEFINITIONS]
+        connections = {
+            item["provider_id"]: item
+            for item in self.store.list_connections(property_id)
+        }
+        enabled_provider_ids = {
+            provider_id
+            for provider_id, connection in connections.items()
+            if connection["enabled"]
+            and (
+                not ai_settings["local_only"]
+                or not PROVIDER_DEFINITIONS[provider_id]["cloud"]
+            )
+        }
+        configured_default = ai_settings["default_provider"]
+        default = configured_default if configured_default in enabled_provider_ids else None
+        chain = [
+            item for item in ai_settings["fallback_chain"]
+            if item in enabled_provider_ids
+        ]
         mode = ai_settings["routing_mode"]
         if mode == "fixed":
-            ordered = [default]
+            ordered = [default] if default else []
         elif mode == "privacy_first":
-            ordered = ["local", *chain, default]
+            ordered = (["local"] if "local" in enabled_provider_ids else []) + chain
+            if default:
+                ordered.append(default)
         elif mode == "cloud_first":
-            ordered = [*chain, default, "local"]
+            ordered = [*chain]
+            if default:
+                ordered.append(default)
+            if "local" in enabled_provider_ids:
+                ordered.append("local")
             ordered.sort(key=lambda item: PROVIDER_DEFINITIONS[item]["cloud"], reverse=True)
         else:
-            ordered = [default, *chain]
+            ordered = ([default] if default else []) + chain
         unique = list(dict.fromkeys(ordered))
-        if ai_settings["local_only"]:
-            unique = [item for item in unique if not PROVIDER_DEFINITIONS[item]["cloud"]]
-        connections = [self.store.get_connection(property_id, item) for item in unique]
-        return [item for index, item in enumerate(connections) if item["enabled"] or index == 0]
+        return [connections[item] for item in unique]
 
     async def concierge_chat(
         self,
