@@ -44,6 +44,15 @@ def test_production_rejects_default_admin_password(tmp_path: Path):
         )
 
 
+def test_production_allows_the_initial_root_admin_bootstrap_pair(tmp_path: Path):
+    production = _production_settings(
+        tmp_path,
+        admin_bootstrap_username="root",
+        admin_bootstrap_password="admin",
+    )
+    validate_production_settings(production)
+
+
 def test_production_rejects_default_encryption_secret(tmp_path: Path):
     with pytest.raises(RuntimeError, match="CREDENTIAL_ENCRYPTION_SECRET"):
         validate_production_settings(

@@ -43,6 +43,24 @@ def auth_client(auth_store: AdminAuthStore, tmp_path: Path, monkeypatch: pytest.
     return TestClient(app)
 
 
+@pytest.fixture
+def default_auth_store(tmp_path: Path) -> AdminAuthStore:
+    store = AdminAuthStore(tmp_path / "default-admin-auth.db")
+    store.ensure_bootstrap_admin("root", "admin")
+    return store
+
+
+@pytest.fixture
+def default_auth_client(
+    default_auth_store: AdminAuthStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> TestClient:
+    monkeypatch.setattr(main_module, "admin_auth", default_auth_store)
+    properties = PropertyStore(tmp_path / "default-auth-properties.db")
+    properties.upsert(PropertyRecord(property_id="tenant-a", hotel_name="Test Tenant A"))
+    monkeypatch.setattr(main_module, "properties", properties)
+    return TestClient(app)
+
+
 def login(client: TestClient, username: str = "admin", password: str = ADMIN_PASSWORD) -> str:
     response = client.post(
         "/api/admin/auth/login",
@@ -62,6 +80,94 @@ def test_username_normalization_and_password_hashing():
     assert ADMIN_PASSWORD not in encoded
     assert verify_password(ADMIN_PASSWORD, encoded)
     assert not verify_password("WrongPassword1!", encoded)
+
+
+def test_initial_root_admin_is_hashed_and_only_uses_default_password_state(default_auth_store: AdminAuthStore):
+    with default_auth_store._connect() as db:
+        row = db.execute(
+            "SELECT password_hash, force_password_change, using_default_password, default_password_prompted FROM admin_users WHERE normalized_username='root'"
+        ).fetchone()
+    assert row["password_hash"] != "admin"
+    assert verify_password("admin", row["password_hash"])
+    assert row["force_password_change"] == 0
+    assert row["using_default_password"] == 1
+    assert row["default_password_prompted"] == 0
+
+    _, principal = default_auth_store.login("root", "admin", "127.0.0.1", "pytest")
+    assert principal.username == "root"
+    assert principal.using_default_password is True
+    assert principal.show_default_password_prompt is True
+    assert principal.force_password_change is False
+    with pytest.raises(ValueError, match="at least 12 characters"):
+        hash_password("admin")
+
+
+def test_bootstrap_does_not_add_or_reset_an_admin_when_one_already_exists(tmp_path: Path):
+    store = AdminAuthStore(tmp_path / "existing-admin.db")
+    store.ensure_bootstrap_admin("existing.owner", "Existing-Admin-123!")
+    store.ensure_bootstrap_admin("root", "admin")
+
+    with store._connect() as db:
+        rows = db.execute("SELECT username FROM admin_users").fetchall()
+    assert [row["username"] for row in rows] == ["existing.owner"]
+    store.login("existing.owner", "Existing-Admin-123!", "127.0.0.1", "pytest")
+    with pytest.raises(AuthenticationError):
+        store.login("root", "admin", "127.0.0.1", "pytest")
+
+
+def test_default_password_skip_keeps_access_and_warning(default_auth_client: TestClient):
+    response = default_auth_client.post(
+        "/api/admin/auth/login", json={"username": "root", "password": "admin"}
+    )
+    assert response.status_code == 200
+    user = response.json()["user"]
+    assert user["using_default_password"] is True
+    assert user["show_default_password_prompt"] is True
+    assert user["force_password_change"] is False
+    default_auth_client.headers.update({"X-CSRF-Token": user["csrf_token"]})
+
+    assert default_auth_client.get("/api/admin/permissions").status_code == 200
+    skipped = default_auth_client.post("/api/admin/auth/default-password-prompt/dismiss", json={})
+    assert skipped.status_code == 200
+    current = default_auth_client.get("/api/admin/auth/me").json()["user"]
+    assert current["using_default_password"] is True
+    assert current["show_default_password_prompt"] is False
+    assert default_auth_client.get("/api/admin/permissions").status_code == 200
+    assert "Default Administrator Password" in default_auth_client.get("/admin").text
+    assert "Skip for Now" in default_auth_client.get("/admin").text
+
+
+def test_default_password_change_enforces_policy_and_clears_warning(default_auth_client: TestClient):
+    response = default_auth_client.post(
+        "/api/admin/auth/login", json={"username": "root", "password": "admin"}
+    )
+    assert response.status_code == 200
+    default_auth_client.headers.update({"X-CSRF-Token": response.json()["user"]["csrf_token"]})
+
+    weak = default_auth_client.post(
+        "/api/admin/auth/change-password",
+        json={"current_password": "admin", "new_password": "weak"},
+    )
+    assert weak.status_code == 422
+    wrong_current = default_auth_client.post(
+        "/api/admin/auth/change-password",
+        json={"current_password": "wrong", "new_password": "Secure-New-Password-123!"},
+    )
+    assert wrong_current.status_code == 422
+
+    changed = default_auth_client.post(
+        "/api/admin/auth/change-password",
+        json={"current_password": "admin", "new_password": "Secure-New-Password-123!"},
+    )
+    assert changed.status_code == 200
+    current = default_auth_client.get("/api/admin/auth/me").json()["user"]
+    assert current["using_default_password"] is False
+    assert current["show_default_password_prompt"] is False
+    assert default_auth_client.get("/api/admin/permissions").status_code == 200
+    with pytest.raises(AuthenticationError):
+        main_module.admin_auth.login("root", "admin", "127.0.0.1", "pytest")
+    _, principal = main_module.admin_auth.login("root", "Secure-New-Password-123!", "127.0.0.1", "pytest")
+    assert principal.using_default_password is False
 
 
 def test_admin_page_and_api_require_authentication(auth_client: TestClient):

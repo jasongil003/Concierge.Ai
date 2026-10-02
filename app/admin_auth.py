@@ -190,6 +190,8 @@ class AdminPrincipal:
     csrf_token: str
     force_password_change: bool
     expires_at: int
+    using_default_password: bool = False
+    show_default_password_prompt: bool = False
 
     def can(self, permission: str) -> bool:
         return permission in self.permissions
@@ -210,6 +212,8 @@ class AdminPrincipal:
             "permissions": sorted(self.permissions),
             "csrf_token": self.csrf_token,
             "force_password_change": self.force_password_change,
+            "using_default_password": self.using_default_password,
+            "show_default_password_prompt": self.show_default_password_prompt,
             "session_expires_at": self.expires_at,
         }
 
@@ -236,6 +240,10 @@ def validate_password(password: str) -> None:
 
 def hash_password(password: str) -> str:
     validate_password(password)
+    return _hash_password_value(password)
+
+
+def _hash_password_value(password: str) -> str:
     salt = secrets.token_bytes(16)
     n, r, p = 2**14, 8, 1
     digest = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=n, r=r, p=p, dklen=32)
@@ -323,6 +331,8 @@ class AdminAuthStore:
                     failed_login_count INTEGER NOT NULL DEFAULT 0,
                     locked_until INTEGER,
                     force_password_change INTEGER NOT NULL DEFAULT 0,
+                    using_default_password INTEGER NOT NULL DEFAULT 0,
+                    default_password_prompted INTEGER NOT NULL DEFAULT 1,
                     last_login_at INTEGER,
                     created_at INTEGER NOT NULL,
                     updated_at INTEGER NOT NULL,
@@ -399,6 +409,14 @@ class AdminAuthStore:
             columns = table_columns(db, "admin_users")
             if "department_id" not in columns:
                 db.execute("ALTER TABLE admin_users ADD COLUMN department_id TEXT")
+            if "using_default_password" not in columns:
+                db.execute("ALTER TABLE admin_users ADD COLUMN using_default_password INTEGER NOT NULL DEFAULT 0")
+            if "default_password_prompted" not in columns:
+                db.execute("ALTER TABLE admin_users ADD COLUMN default_password_prompted INTEGER NOT NULL DEFAULT 1")
+            db.execute(
+                "INSERT OR IGNORE INTO admin_schema_migrations (version, name, applied_at) VALUES (2, 'default_bootstrap_password_state', ?)",
+                (int(time.time()),),
+            )
             db.execute(
                 """
                 CREATE TABLE IF NOT EXISTS user_restaurants (
@@ -444,26 +462,29 @@ class AdminAuthStore:
                 )
 
     def ensure_bootstrap_admin(self, username: str, password: str, display_name: str = "Platform Administrator") -> None:
+        """Create the initial account only when no administrator exists yet."""
         normalized = normalize_username(username)
         with self._connect() as db:
-            exists = db.execute(
-                "SELECT 1 FROM admin_users WHERE normalized_username = ?", (normalized,)
-            ).fetchone()
+            exists = db.execute("SELECT 1 FROM admin_users LIMIT 1").fetchone()
         if exists:
             return
-        self.create_user(
-            {
-                "username": username,
-                "display_name": display_name,
-                "email": None,
-                "password": password,
-                "role_id": "role-super-admin",
-                "property_id": None,
-                "status": "active",
-                "force_password_change": False,
-            },
-            actor=None,
-        )
+        initial_default = normalized == "root" and password == "admin"
+        payload = {
+            "username": username,
+            "display_name": display_name,
+            "email": None,
+            "password": password,
+            "role_id": "role-super-admin",
+            "property_id": None,
+            "status": "active",
+            "force_password_change": False,
+            "using_default_password": initial_default,
+            "default_password_prompted": not initial_default,
+        }
+        if initial_default:
+            self._create_user(payload, actor=None, allow_initial_default=True)
+        else:
+            self.create_user(payload, actor=None)
 
     def login(self, username: str, password: str, ip_address: str, user_agent: str) -> tuple[str, AdminPrincipal]:
         normalized = normalize_username(username)
@@ -548,7 +569,8 @@ class AdminAuthStore:
             row = db.execute(
                 """
                 SELECT s.*, u.username, u.display_name, u.email, u.role_id, u.property_id, u.department_id, u.status,
-                       u.force_password_change, r.name AS role_name, r.slug AS role_slug
+                       u.force_password_change, u.using_default_password, u.default_password_prompted,
+                       r.name AS role_name, r.slug AS role_slug
                 FROM admin_sessions s
                 JOIN admin_users u ON u.user_id = s.user_id
                 JOIN admin_roles r ON r.role_id = u.role_id
@@ -587,6 +609,10 @@ class AdminAuthStore:
             csrf_token=row["csrf_token"],
             force_password_change=bool(row["force_password_change"]),
             expires_at=row["expires_at"],
+            using_default_password=bool(row["using_default_password"]),
+            show_default_password_prompt=bool(
+                row["using_default_password"] and not row["default_password_prompted"]
+            ),
         )
 
     def logout(self, principal: AdminPrincipal) -> None:
@@ -625,6 +651,15 @@ class AdminAuthStore:
         return (self._serialize_user(row) | {"restaurant_ids": self._restaurant_ids_for_user(user_id)}) if row else None
 
     def create_user(self, payload: dict[str, Any], actor: AdminPrincipal | None) -> dict[str, Any]:
+        return self._create_user(payload, actor)
+
+    def _create_user(
+        self,
+        payload: dict[str, Any],
+        actor: AdminPrincipal | None,
+        *,
+        allow_initial_default: bool = False,
+    ) -> dict[str, Any]:
         username = str(payload.get("username", "")).strip()
         normalized = normalize_username(username)
         display_name = str(payload.get("display_name", "")).strip()
@@ -654,7 +689,13 @@ class AdminAuthStore:
         status = str(payload.get("status", "active")).strip().lower()
         if status not in {"active", "disabled", "locked"}:
             raise ValueError("Status must be active, disabled, or locked.")
-        password_hash = hash_password(str(payload.get("password", "")))
+        password = str(payload.get("password", ""))
+        if allow_initial_default:
+            if actor is not None or normalized != "root" or password != "admin":
+                raise ValueError("The default password is reserved for the initial root account.")
+            password_hash = _hash_password_value(password)
+        else:
+            password_hash = hash_password(password)
         user_id = str(uuid.uuid4())
         now = int(time.time())
         try:
@@ -663,12 +704,16 @@ class AdminAuthStore:
                     """
                     INSERT INTO admin_users
                     (user_id, username, normalized_username, display_name, email, password_hash, role_id,
-                     property_id, department_id, status, force_password_change, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     property_id, department_id, status, force_password_change, using_default_password,
+                     default_password_prompted, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         user_id, username, normalized, display_name, email, password_hash, role["role_id"],
-                        property_id, department_id, status, 1 if payload.get("force_password_change") else 0, now, now,
+                        property_id, department_id, status, 1 if payload.get("force_password_change") else 0,
+                        1 if payload.get("using_default_password") and allow_initial_default else 0,
+                        0 if payload.get("using_default_password") and allow_initial_default else 1,
+                        now, now,
                     ),
                 )
                 db.execute(
@@ -764,7 +809,8 @@ class AdminAuthStore:
         with self._connect() as db:
             db.execute(
                 """
-                UPDATE admin_users SET password_hash = ?, force_password_change = ?, failed_login_count = 0,
+                UPDATE admin_users SET password_hash = ?, force_password_change = ?, using_default_password = 0,
+                    default_password_prompted = 1, failed_login_count = 0,
                     locked_until = NULL, status = 'active', updated_at = ? WHERE user_id = ?
                 """,
                 (encoded, 1 if force_change else 0, now, user_id),
@@ -815,7 +861,7 @@ class AdminAuthStore:
             if row is None:
                 raise AuthenticationError("Reset link is invalid or has expired.")
             db.execute(
-                "UPDATE admin_users SET password_hash = ?, force_password_change = 0, failed_login_count = 0, locked_until = NULL, status = 'active', updated_at = ? WHERE user_id = ?",
+                "UPDATE admin_users SET password_hash = ?, force_password_change = 0, using_default_password = 0, default_password_prompted = 1, failed_login_count = 0, locked_until = NULL, status = 'active', updated_at = ? WHERE user_id = ?",
                 (encoded, now, row["user_id"]),
             )
             db.execute("UPDATE admin_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL", (now, row["user_id"]))
@@ -829,7 +875,7 @@ class AdminAuthStore:
             encoded = hash_password(new_password)
             now = int(time.time())
             db.execute(
-                "UPDATE admin_users SET password_hash = ?, force_password_change = 0, updated_at = ? WHERE user_id = ?",
+                "UPDATE admin_users SET password_hash = ?, force_password_change = 0, using_default_password = 0, default_password_prompted = 1, updated_at = ? WHERE user_id = ?",
                 (encoded, now, principal.user_id),
             )
             db.execute(
@@ -837,6 +883,14 @@ class AdminAuthStore:
                 (now, principal.user_id, principal.session_id),
             )
         self.audit(principal, "auth.password_changed", "user", principal.user_id)
+
+    def dismiss_default_password_prompt(self, principal: AdminPrincipal) -> None:
+        with self._connect() as db:
+            db.execute(
+                "UPDATE admin_users SET default_password_prompted = 1, updated_at = ? WHERE user_id = ? AND using_default_password = 1",
+                (int(time.time()), principal.user_id),
+            )
+        self.audit(principal, "auth.default_password_prompt_skipped", "user", principal.user_id)
 
     def revoke_sessions(self, user_id: str, actor: AdminPrincipal, keep_session_id: str | None = None) -> int:
         current = self.get_user(user_id)
@@ -1222,7 +1276,8 @@ class AdminAuthStore:
             "department_id": row["department_id"] if "department_id" in row.keys() else None,
             "status": row["status"],
             "failed_login_count": row["failed_login_count"], "locked_until": row["locked_until"],
-            "force_password_change": bool(row["force_password_change"]), "last_login": row["last_login_at"],
+            "force_password_change": bool(row["force_password_change"]),
+            "using_default_password": bool(row["using_default_password"]), "last_login": row["last_login_at"],
             "created": row["created_at"], "updated": row["updated_at"],
         }
         if "active_sessions" in row.keys():

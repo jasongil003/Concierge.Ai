@@ -63,10 +63,10 @@ generate_config() {
             *) break ;;
         esac
     done
-    validate_single_line "$canonical_host" && validate_single_line "$antlabs_url" && validate_single_line "$admin_cidrs" || \
+    if ! validate_single_line "$canonical_host" || ! validate_single_line "$antlabs_url" || ! validate_single_line "$admin_cidrs"; then
         die "Configuration values may not contain quotes or newlines."
+    fi
 
-    admin_password=$(openssl rand -hex 20)
     credential_secret=$(openssl rand -hex 32)
     metrics_token=$(openssl rand -hex 32)
     umask 027
@@ -77,7 +77,7 @@ generate_config() {
         printf "UPLOAD_ROOT='%s/uploads'\n" "$state_path"
         printf "CONCIERGE_BACKUP_DIR='%s'\n" "$backup_path"
         printf "DATABASE_URL=''\nREDIS_URL=''\n"
-        printf "ADMIN_BOOTSTRAP_USERNAME='admin'\nADMIN_BOOTSTRAP_PASSWORD='%s'\n" "$admin_password"
+        printf "ADMIN_BOOTSTRAP_USERNAME='root'\nADMIN_BOOTSTRAP_PASSWORD='admin'\n"
         printf "METRICS_TOKEN='%s'\n" "$metrics_token"
         printf "CANONICAL_HOSTS='%s'\nPUBLIC_BASE_URL='%s'\n" "$canonical_host" "$public_url"
         printf "ADMIN_ALLOWED_CIDRS='%s,127.0.0.1/32,::1/128'\n" "$admin_cidrs"
@@ -98,6 +98,6 @@ generate_config() {
     if [ "$CONCIERGE_OS" = macos ]; then
         chown root:_concierge "$backup_path"
     fi
-    printf '\nOne-time administrator password: %s\n' "$admin_password"
-    printf 'Store it in the hotel password manager. It will not be displayed again.\n\n'
+    printf '\nDefault administrator login: root / admin\n'
+    printf 'Concierge.Ai will offer to change the default password after first sign-in.\n\n'
 }

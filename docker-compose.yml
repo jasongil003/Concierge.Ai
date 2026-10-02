@@ -15,7 +15,8 @@ services:
       DATABASE_URL: ""
       # SQLite-backed rate limiting is sufficient for this single-instance profile.
       REDIS_URL: ""
-      ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD:?Set a unique strong ADMIN_BOOTSTRAP_PASSWORD in .env}
+      ADMIN_BOOTSTRAP_USERNAME: ${ADMIN_BOOTSTRAP_USERNAME:-root}
+      ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD:-admin}
       CREDENTIAL_ENCRYPTION_SECRET: ${CREDENTIAL_ENCRYPTION_SECRET:?Set a unique CREDENTIAL_ENCRYPTION_SECRET in .env}
       METRICS_TOKEN: ${METRICS_TOKEN:?Set a random METRICS_TOKEN in .env}
       CANONICAL_HOSTS: ${CANONICAL_HOSTS:?Set comma-separated public hostnames in .env}

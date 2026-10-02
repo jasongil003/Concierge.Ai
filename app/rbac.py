@@ -24,6 +24,7 @@ AUTH_ONLY_ADMIN_ROUTES = frozenset(
     {
         "GET /api/admin/auth/me",
         "POST /api/admin/auth/change-password",
+        "POST /api/admin/auth/default-password-prompt/dismiss",
         "POST /api/admin/auth/logout",
     }
 )
