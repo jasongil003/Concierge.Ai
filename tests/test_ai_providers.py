@@ -172,10 +172,12 @@ class _FakeAdapter:
         self.provider_id = provider_id
         self.calls = calls
         self.error = error
+        self.requests: list[AIChatRequest] = []
 
     async def send_message(self, request, credential):
         del credential
         self.calls.append(request.provider_id)
+        self.requests.append(request)
         if self.error:
             raise self.error
         return AIChatResponse("safe response", request.provider_id, request.model, 10, 5)
@@ -210,6 +212,232 @@ def test_fallback_chain_order_and_actual_provider_usage(tmp_path: Path, monkeypa
     usage = store.usage_rows("hotel-a")
     assert [(row["provider_id"], row["success"]) for row in usage] == [("gemini", 0), ("openai", 1)]
     assert sum(row["total_tokens"] or 0 for row in usage) == 15
+
+
+@pytest.mark.parametrize(
+    ("routing_mode", "expected_providers"),
+    [
+        ("fixed", []),
+        ("automatic", ["groq"]),
+        ("privacy_first", ["groq"]),
+        ("cloud_first", ["groq"]),
+    ],
+)
+def test_disabled_candidates_are_filtered_before_routing(
+    tmp_path: Path,
+    routing_mode: str,
+    expected_providers: list[str],
+):
+    store = AIProviderStore(tmp_path / f"disabled-{routing_mode}.db")
+    store.save_connection("hotel-a", "openai", {"enabled": False})
+    store.save_connection("hotel-a", "groq", {"enabled": True})
+    store.save_connection("hotel-a", "local", {"enabled": False})
+    store.save_settings(
+        "hotel-a",
+        {
+            "default_provider": "openai",
+            "routing_mode": routing_mode,
+            "fallback_chain": ["groq", "local"],
+        },
+    )
+
+    service = AIModelService(store)
+    connections = service.resolve_connections("hotel-a")
+    selected = service.resolve_connection("hotel-a")
+
+    assert [item["provider_id"] for item in connections] == expected_providers
+    assert all(item["enabled"] for item in connections)
+    assert (selected["provider_id"] if selected else None) == (expected_providers[0] if expected_providers else None)
+
+
+@pytest.mark.parametrize(
+    ("routing_mode", "expected_provider"),
+    [
+        ("fixed", None),
+        ("automatic", "groq"),
+        ("privacy_first", "groq"),
+        ("cloud_first", "groq"),
+    ],
+)
+def test_disabled_default_and_later_candidates_never_receive_guest_content(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    routing_mode: str,
+    expected_provider: str | None,
+):
+    store = AIProviderStore(tmp_path / f"disabled-adapters-{routing_mode}.db")
+    store.save_connection("hotel-a", "openai", {"enabled": False})
+    store.save_connection("hotel-a", "groq", {"enabled": True})
+    store.save_connection("hotel-a", "local", {"enabled": False})
+    store.save_settings(
+        "hotel-a",
+        {
+            "default_provider": "openai",
+            "routing_mode": routing_mode,
+            "fallback_chain": ["groq", "local"],
+        },
+    )
+    adapters = {
+        provider_id: _FakeAdapter(provider_id, [])
+        for provider_id in ("openai", "groq", "local")
+    }
+    service = AIModelService(store)
+    monkeypatch.setattr(service, "adapter_for", lambda provider_id, endpoint_url="": adapters[provider_id])
+
+    if expected_provider is None:
+        with pytest.raises(RuntimeError, match="No enabled AI provider"):
+            asyncio.run(
+                service.concierge_chat(
+                    "hotel-a",
+                    "PROMPT-SENTINEL",
+                    "Hotel A",
+                    [{"answer": "KNOWLEDGE-SENTINEL"}],
+                    live_context="LIVE-SENTINEL",
+                    conversation_history=[{"role": "guest", "content": "HISTORY-SENTINEL"}],
+                )
+            )
+    else:
+        response = asyncio.run(
+            service.concierge_chat(
+                "hotel-a",
+                "PROMPT-SENTINEL",
+                "Hotel A",
+                [{"answer": "KNOWLEDGE-SENTINEL"}],
+                live_context="LIVE-SENTINEL",
+                conversation_history=[{"role": "guest", "content": "HISTORY-SENTINEL"}],
+            )
+        )
+        assert response.provider == expected_provider
+
+    assert adapters["openai"].requests == []
+    assert adapters["local"].requests == []
+    assert len(adapters["groq"].requests) == (1 if expected_provider == "groq" else 0)
+
+
+def test_disabled_fallback_later_in_chain_never_receives_fallback_traffic(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    store = AIProviderStore(tmp_path / "disabled-fallback.db")
+    store.save_connection("hotel-a", "gemini", {"enabled": True})
+    store.save_connection("hotel-a", "openai", {"enabled": False})
+    store.save_connection("hotel-a", "groq", {"enabled": True})
+    store.save_settings(
+        "hotel-a",
+        {"default_provider": "gemini", "routing_mode": "automatic", "fallback_chain": ["openai", "groq"]},
+    )
+    adapters = {
+        "gemini": _FakeAdapter("gemini", [], TimeoutError("primary unavailable")),
+        "openai": _FakeAdapter("openai", []),
+        "groq": _FakeAdapter("groq", []),
+    }
+    service = AIModelService(store)
+    monkeypatch.setattr(service, "adapter_for", lambda provider_id, endpoint_url="": adapters[provider_id])
+    monkeypatch.setattr(ai_provider_module, "settings", replace(ai_provider_module.settings, ai_provider_retry_attempts=0))
+
+    response = asyncio.run(service.concierge_chat("hotel-a", "PROMPT-SENTINEL", "Hotel A", []))
+
+    assert response.provider == "groq"
+    assert len(adapters["gemini"].requests) == 1
+    assert adapters["openai"].requests == []
+    assert len(adapters["groq"].requests) == 1
+
+
+def test_local_only_never_routes_to_configured_cloud_providers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    store = AIProviderStore(tmp_path / "strict-local-only.db")
+    store.save_connection("hotel-a", "local", {"enabled": True})
+    store.save_connection("hotel-a", "openai", {"enabled": True})
+    store.save_connection("hotel-a", "gemini", {"enabled": True})
+    store.save_settings(
+        "hotel-a",
+        {
+            "default_provider": "local",
+            "routing_mode": "automatic",
+            "fallback_chain": ["openai", "gemini"],
+            "local_only": True,
+        },
+    )
+    adapters = {
+        provider_id: _FakeAdapter(provider_id, [])
+        for provider_id in ("local", "openai", "gemini")
+    }
+    service = AIModelService(store)
+    monkeypatch.setattr(service, "adapter_for", lambda provider_id, endpoint_url="": adapters[provider_id])
+
+    response = asyncio.run(service.concierge_chat("hotel-a", "PROMPT-SENTINEL", "Hotel A", []))
+
+    assert response.provider == "local"
+    assert len(adapters["local"].requests) == 1
+    assert adapters["openai"].requests == []
+    assert adapters["gemini"].requests == []
+
+
+def test_all_disabled_providers_return_contact_fallback_without_adapter_calls(
+    admin_client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    store = AIProviderStore(tmp_path / "no-enabled-provider.db")
+    for provider_id in ("openai", "gemini", "local"):
+        store.save_connection("test-property", provider_id, {"enabled": False})
+    store.save_settings(
+        "test-property",
+        {
+            "default_provider": "openai",
+            "routing_mode": "automatic",
+            "fallback_chain": ["gemini", "local"],
+        },
+    )
+    service = AIModelService(store)
+    adapter_requests: list[AIChatRequest] = []
+
+    class SpyAdapter:
+        async def send_message(self, request, credential):
+            del credential
+            adapter_requests.append(request)
+            return AIChatResponse("should not be called", request.provider_id, request.model)
+
+    monkeypatch.setattr(service, "adapter_for", lambda provider_id, endpoint_url="": SpyAdapter())
+    monkeypatch.setattr(main_module, "ai_models", service)
+    started = admin_client.post("/api/session/start", json={"client_id": "all-ai-disabled-guest"})
+    assert started.status_code == 200, started.text
+
+    response = admin_client.post(
+        "/api/chat",
+        json={
+            "session_id": started.json()["session_id"],
+            "message": "Where can I find a quiet reading spot?",
+            "mode": "advanced",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["source"] == "concierge_contact"
+    assert response.json()["contact_concierge"] is True
+    assert adapter_requests == []
+
+
+def test_provider_routing_is_property_scoped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    store = AIProviderStore(tmp_path / "property-provider-isolation.db")
+    store.save_connection("hotel-a", "openai", {"enabled": True})
+    store.save_connection("hotel-a", "gemini", {"enabled": False})
+    store.save_connection("hotel-b", "openai", {"enabled": False})
+    store.save_connection("hotel-b", "gemini", {"enabled": True})
+    store.save_settings("hotel-a", {"default_provider": "openai", "routing_mode": "fixed"})
+    store.save_settings("hotel-b", {"default_provider": "gemini", "routing_mode": "fixed"})
+    adapters = {
+        provider_id: _FakeAdapter(provider_id, [])
+        for provider_id in ("openai", "gemini")
+    }
+    service = AIModelService(store)
+    monkeypatch.setattr(service, "adapter_for", lambda provider_id, endpoint_url="": adapters[provider_id])
+
+    response_a = asyncio.run(service.concierge_chat("hotel-a", "A-ONLY-PROMPT", "Hotel A", []))
+    response_b = asyncio.run(service.concierge_chat("hotel-b", "B-ONLY-PROMPT", "Hotel B", []))
+
+    assert response_a.provider == "openai"
+    assert response_b.provider == "gemini"
+    assert [item.property_id for item in adapters["openai"].requests] == ["hotel-a"]
+    assert [item.property_id for item in adapters["gemini"].requests] == ["hotel-b"]
+    assert "B-ONLY-PROMPT" not in str(adapters["openai"].requests)
+    assert "A-ONLY-PROMPT" not in str(adapters["gemini"].requests)
 
 
 def test_provider_bulkhead_limits_concurrency_and_bounds_waiters(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

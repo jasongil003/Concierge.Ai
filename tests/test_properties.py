@@ -73,6 +73,65 @@ def test_property_round_trip_rich_configuration(tmp_path: Path):
     assert loaded.public_profile["quick_actions"][0]["label"] == "Checkout"
 
 
+def test_guest_hotel_api_omits_untrusted_ai_settings_and_isolates_properties(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    store = PropertyStore(tmp_path / "public-ai-settings.db")
+    sentinels_a = {
+        "api_key": "SECRET-SENTINEL-A",
+        "token": "TOKEN-SENTINEL-A",
+        "client_secret": "CLIENT-SECRET-SENTINEL-A",
+        "nested": {"password": "PASSWORD-SENTINEL-A"},
+        "unknown_provider_setting": "PRIVATE-SENTINEL-A",
+    }
+    sentinels_b = {
+        "api_key": "SECRET-SENTINEL-B",
+        "nested": {"credential": "PRIVATE-CREDENTIAL-SENTINEL-B"},
+        "debug_endpoint": "https://internal.example.test/ai",
+    }
+    store.upsert(PropertyRecord(
+        property_id="hotel-a",
+        hotel_name="Hotel A",
+        domain="a.example.test",
+        ai_settings=sentinels_a,
+    ))
+    store.upsert(PropertyRecord(
+        property_id="hotel-b",
+        hotel_name="Hotel B",
+        domain="b.example.test",
+        ai_settings=sentinels_b,
+    ))
+    monkeypatch.setattr(main_module, "properties", store)
+
+    with TestClient(app, base_url="https://a.example.test") as guest_a:
+        response_a = guest_a.get("/api/hotel")
+    with TestClient(app, base_url="https://b.example.test") as guest_b:
+        response_b = guest_b.get("/api/hotel")
+
+    assert response_a.status_code == 200, response_a.text
+    assert response_b.status_code == 200, response_b.text
+    payload_a = response_a.json()
+    payload_b = response_b.json()
+    assert payload_a["name"] == "Hotel A"
+    assert payload_b["name"] == "Hotel B"
+    assert "ai" not in payload_a
+    assert "ai" not in payload_b
+    all_sentinels = (
+        "SECRET-SENTINEL-A",
+        "TOKEN-SENTINEL-A",
+        "CLIENT-SECRET-SENTINEL-A",
+        "PASSWORD-SENTINEL-A",
+        "PRIVATE-SENTINEL-A",
+        "SECRET-SENTINEL-B",
+        "PRIVATE-CREDENTIAL-SENTINEL-B",
+        "internal.example.test",
+    )
+    for sentinel in all_sentinels:
+        assert sentinel not in response_a.text
+        assert sentinel not in response_b.text
+
+
 def test_guest_home_design_welcome_copy_has_a_generic_default_and_bounded_description():
     defaults = default_design_config()
     assert defaults["welcome"]["headline"] == "How can I help with your stay today?"
