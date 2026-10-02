@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 import asyncio
 import base64
 import binascii
+import copy
 import hashlib
 import hmac
 import inspect
@@ -74,6 +75,7 @@ from .guardrails import (
     AIInputSanitizer,
     AIOutputValidator,
     ActionGuard,
+    DEFAULT_GUARDRAILS,
     GuardrailDecision,
     GuardrailDenied,
     GuestHostnameConflict,
@@ -724,6 +726,97 @@ class PropertyPayload(BaseModel):
 
     def to_record(self) -> PropertyRecord:
         return PropertyRecord(**self.model_dump())
+
+
+PROPERTY_FIELD_WRITE_PERMISSIONS: dict[str, tuple[str, ...]] = {
+    "domain": ("domains.configure", "network.manage"),
+    "deployment_mode": ("domains.configure",),
+    "ai_settings": ("ai.configure",),
+    "personality": ("ai.configure",),
+    "antlabs_config": ("integrations.configure", "security.configure"),
+    "knowledge_sources": ("knowledge.edit",),
+    "guardrails": ("security.configure",),
+}
+PROPERTY_APP_SETTINGS_PERMISSIONS: dict[str, tuple[str, ...]] = {
+    "locations": ("properties.edit",),
+    "application": ("properties.edit",),
+    "deployment": ("domains.configure", "network.manage"),
+}
+PROPERTY_APPLICATION_SETTING_KEYS = frozenset(
+    {"default_language", "timezone", "maintenance_enabled", "maintenance_message"}
+)
+PROPERTY_DEPLOYMENT_SETTING_KEYS = frozenset(
+    {"guest_access_enabled", "public_base_url", "reverse_proxy", "https_required", "trusted_proxy"}
+)
+PROPERTY_GUARDRAIL_SETTING_KEYS = frozenset(DEFAULT_GUARDRAILS) | frozenset(
+    {"allowed_topics", "restricted_topics", "sensitive_information", "antlabs_signature_configured"}
+)
+PROPERTY_SENSITIVE_FIELD_PATTERN = re.compile(
+    r"password|secret|credential|token|private.?key|api.?key|(?:^|[_-])key$", re.I
+)
+
+
+def _require_config_permissions(principal: AdminPrincipal, permissions: tuple[str, ...]) -> None:
+    missing = [permission for permission in permissions if not principal.can(permission)]
+    if missing:
+        raise HTTPException(status_code=403, detail=f"Permission required: {', '.join(missing)}")
+
+
+def _merge_property_mapping(existing: Any, incoming: Any, field_name: str = "") -> Any:
+    if PROPERTY_SENSITIVE_FIELD_PATTERN.search(field_name) and incoming == "[redacted]":
+        return copy.deepcopy(existing) if existing is not None else None
+    if isinstance(incoming, dict):
+        merged = copy.deepcopy(existing) if isinstance(existing, dict) else {}
+        for key, value in incoming.items():
+            if (
+                value == "[redacted]"
+                and PROPERTY_SENSITIVE_FIELD_PATTERN.search(str(key))
+                and key not in merged
+            ):
+                continue
+            merged[key] = _merge_property_mapping(merged.get(key), value, str(key))
+        return merged
+    if isinstance(incoming, list) and isinstance(existing, list):
+        return [
+            _merge_property_mapping(existing[index] if index < len(existing) else None, value, field_name)
+            for index, value in enumerate(incoming)
+        ]
+    return copy.deepcopy(incoming)
+
+
+def _require_property_payload_permissions(updates: dict[str, Any], principal: AdminPrincipal) -> None:
+    for field_name, permissions in PROPERTY_FIELD_WRITE_PERMISSIONS.items():
+        if field_name in updates:
+            _require_config_permissions(principal, permissions)
+
+    if "guardrails" in updates:
+        incoming = updates["guardrails"]
+        unknown = set(incoming) - PROPERTY_GUARDRAIL_SETTING_KEYS
+        if unknown:
+            _require_config_permissions(principal, ("system.configure",))
+        if set(incoming) & set(GUEST_NETWORK_GUARDRAIL_FIELDS):
+            _require_config_permissions(principal, ("network.manage",))
+
+    app_settings = updates.get("app_settings")
+    if app_settings is None:
+        return
+    for setting_name, setting_value in app_settings.items():
+        required = PROPERTY_APP_SETTINGS_PERMISSIONS.get(setting_name)
+        if required:
+            _require_config_permissions(principal, required)
+        else:
+            _require_config_permissions(principal, ("system.configure",))
+
+        if setting_name == "application" and isinstance(setting_value, dict):
+            unknown = set(setting_value) - PROPERTY_APPLICATION_SETTING_KEYS
+            if unknown:
+                _require_config_permissions(principal, ("system.configure",))
+        elif setting_name == "deployment" and isinstance(setting_value, dict):
+            if "last_verification" in setting_value:
+                raise HTTPException(status_code=403, detail="Deployment verification status is managed by the verification workflow.")
+            unknown = set(setting_value) - PROPERTY_DEPLOYMENT_SETTING_KEYS
+            if unknown:
+                _require_config_permissions(principal, ("system.configure",))
 
 
 class ManagementAccessPayload(BaseModel):
@@ -3659,24 +3752,46 @@ async def save_personalization_policy(property_id: str, payload: GenericPayload)
 async def upsert_property(property_id: str, payload: PropertyPayload, request: Request) -> dict[str, Any]:
     if property_id != payload.property_id:
         raise HTTPException(status_code=400, detail="Property ID must match the request path.")
-    if not payload.hotel_name.strip():
+    updates = payload.model_dump(exclude_unset=True)
+    if "hotel_name" not in updates or not payload.hotel_name.strip():
         raise HTTPException(status_code=422, detail="Property name is required.")
-    if not payload.timezone.strip():
+    if "timezone" in updates and not payload.timezone.strip():
         raise HTTPException(status_code=422, detail="Timezone is required.")
-    record = payload.to_record()
+    existing = properties.get(property_id)
+    principal = _admin_principal(request)
+    _require_property_payload_permissions(updates, principal)
+
+    # Treat this serializer as a partial update. Merge explicitly supplied
+    # fields into the stored record so omitted permission-scoped data survives.
+    record_values = copy.deepcopy(existing.to_dict(include_secrets=True)) if existing else {}
+    for field_name, value in updates.items():
+        if field_name == "app_settings":
+            current_settings = dict(record_values.get("app_settings") or {})
+            for setting_name, setting_value in value.items():
+                current_settings[setting_name] = _merge_property_mapping(
+                    current_settings.get(setting_name), setting_value, setting_name
+                )
+            record_values[field_name] = current_settings
+        elif field_name == "guardrails":
+            current_guardrails = dict(record_values.get("guardrails") or {})
+            incoming_guardrails = dict(value)
+            incoming_guardrails.pop("antlabs_signature_configured", None)
+            record_values[field_name] = _merge_property_mapping(current_guardrails, incoming_guardrails)
+        elif field_name in {"ai_settings", "antlabs_config", "personality"}:
+            record_values[field_name] = _merge_property_mapping(record_values.get(field_name), value)
+        else:
+            record_values[field_name] = value
+    record = PropertyRecord(**record_values)
     record.hotel_name = payload.hotel_name.strip()
-    record.timezone = payload.timezone.strip()
+    if "timezone" in updates:
+        record.timezone = payload.timezone.strip()
     try:
         record.domain = _validated_guest_domain(record.domain)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    existing = properties.get(property_id)
-    principal = _admin_principal(request)
     if existing and not principal.can("network.manage"):
-        if "guest_access_hosts" not in record.guardrails:
+        if "guardrails" in updates and "guest_access_hosts" not in updates["guardrails"]:
             record.guardrails["guest_access_hosts"] = normalize_guardrails(existing.guardrails)["guest_access_hosts"]
-        elif normalize_guardrails(record.guardrails)["guest_access_hosts"] != normalize_guardrails(existing.guardrails)["guest_access_hosts"]:
-            raise HTTPException(status_code=403, detail="Permission required: network.manage")
         if _guest_network_settings(existing) != _guest_network_settings(record):
             raise HTTPException(status_code=403, detail="Permission required: network.manage")
         if _deployment_network_settings(existing) != _deployment_network_settings(record) or existing.domain != record.domain:
@@ -6286,13 +6401,94 @@ def _require_property(property_id: str) -> None:
 
 def _property_admin_payload(record: PropertyRecord, principal: AdminPrincipal) -> dict[str, Any]:
     payload = record.to_dict()
-    if not principal.can("network.manage") and isinstance(payload.get("guardrails"), dict):
-        payload["guardrails"].pop("guest_access_hosts", None)
-    if principal.can("properties.all") or principal.can("properties.edit"):
-        return payload
-    for key in ("ai_settings", "antlabs_config", "knowledge_sources", "personality", "guardrails", "app_settings", "design_draft", "design_versions"):
-        payload.pop(key, None)
+    field_read_permissions = {
+        "domain": ("domains.view",),
+        "deployment_mode": ("domains.view",),
+        "ai_settings": ("ai.view",),
+        "personality": ("ai.view",),
+        "antlabs_config": ("integrations.view", "security.view"),
+        "knowledge_sources": ("knowledge.view",),
+        "design_draft": ("concierge.view",),
+        "design_published": ("concierge.view",),
+        "design_versions": ("concierge.view",),
+        "design_revision": ("concierge.view",),
+    }
+    for field_name, permissions in field_read_permissions.items():
+        if not all(principal.can(permission) for permission in permissions):
+            payload.pop(field_name, None)
+
+    if principal.can("security.view"):
+        guardrails = payload.get("guardrails")
+        if isinstance(guardrails, dict):
+            guardrails = {
+                key: value
+                for key, value in guardrails.items()
+                if key in PROPERTY_GUARDRAIL_SETTING_KEYS
+            }
+            if not principal.can("network.view"):
+                for key in GUEST_NETWORK_GUARDRAIL_FIELDS:
+                    guardrails.pop(key, None)
+            if not principal.can("network.manage"):
+                guardrails.pop("guest_access_hosts", None)
+            payload["guardrails"] = guardrails
+    else:
+        payload.pop("guardrails", None)
+
+    app_settings = _property_admin_app_settings(record.app_settings, principal)
+    if app_settings:
+        payload["app_settings"] = app_settings
+    else:
+        payload.pop("app_settings", None)
+
+    for field_name in ("ai_settings", "personality", "antlabs_config", "app_settings"):
+        if field_name in payload:
+            payload[field_name] = _redact_property_secrets(payload[field_name])
     return payload
+
+
+def _property_admin_app_settings(
+    value: dict[str, Any] | None, principal: AdminPrincipal
+) -> dict[str, Any]:
+    settings = value if isinstance(value, dict) else {}
+    visible: dict[str, Any] = {}
+    for key, item in settings.items():
+        if key in {"locations", "application"} and principal.can("properties.view"):
+            if key == "application" and isinstance(item, dict):
+                app_values = {
+                    name: setting
+                    for name, setting in item.items()
+                    if name in PROPERTY_APPLICATION_SETTING_KEYS or principal.can("system.configure")
+                }
+                if app_values:
+                    visible[key] = app_values
+            else:
+                visible[key] = item
+        elif key == "deployment" and principal.can("domains.view") and principal.can("network.view"):
+            if isinstance(item, dict):
+                deployment = {
+                    name: setting
+                    for name, setting in item.items()
+                    if name in PROPERTY_DEPLOYMENT_SETTING_KEYS | {"last_verification"}
+                }
+                if principal.can("system.configure"):
+                    deployment.update(
+                        {name: setting for name, setting in item.items() if name not in deployment}
+                    )
+                if deployment:
+                    visible[key] = deployment
+        elif principal.can("system.configure"):
+            visible[key] = item
+    return visible
+
+
+def _redact_property_secrets(value: Any, field_name: str = "") -> Any:
+    if PROPERTY_SENSITIVE_FIELD_PATTERN.search(field_name):
+        return "[redacted]"
+    if isinstance(value, dict):
+        return {str(key): _redact_property_secrets(item, str(key)) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_redact_property_secrets(item, field_name) for item in value]
+    return value
 
 
 def _require_property_record(property_id: str) -> PropertyRecord:

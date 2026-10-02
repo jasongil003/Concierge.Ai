@@ -105,7 +105,7 @@ DEFAULT_ROLES: dict[str, dict[str, Any]] = {
         "description": "Operational reporting and request management for one assigned hotel department.",
         "permissions": [
             "dashboard.view", "properties.view", "requests.view", "requests.manage", "analytics.view",
-            "assistant.use", "diagnostics.view", "reports.export", "guest_sessions.view", "guest_sessions.manage",
+            "assistant.use", "diagnostics.view", "reports.export",
         ],
     },
     "restaurant-manager": {
@@ -564,6 +564,11 @@ class AdminAuthStore:
                     "SELECT permission FROM admin_role_permissions WHERE role_id = ?", (row["role_id"],)
                 ).fetchall()
             }
+            # Stays and guest sessions are property-scoped records with no
+            # department ownership relation. Fail closed for this role even
+            # if a legacy/customized role row still grants these permissions.
+            if row["role_slug"] == "department-manager":
+                permissions.difference_update({"guest_sessions.view", "guest_sessions.manage"})
             if touch and now - row["last_seen_at"] >= 60:
                 db.execute("UPDATE admin_sessions SET last_seen_at = ? WHERE session_id = ?", (now, row["session_id"]))
         return AdminPrincipal(

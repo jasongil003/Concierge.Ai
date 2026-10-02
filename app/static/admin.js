@@ -4590,19 +4590,10 @@ function designPayload() {
 
 function propertyPayload() {
   const property = state.property || {};
-  const antlabsConfig = {
-    ...(property.antlabs_config || {}),
-    authentication_enabled: $("authentication-enabled")?.checked ?? Boolean(property.antlabs_config?.authentication_enabled),
-    authentication_types: Object.fromEntries(
-      readAuthTypes().map((type) => [type.id, { label: type.label, enabled: type.enabled }])
-    ),
-  };
-  return {
+  const payload = {
     property_id: $("property-id").value,
     hotel_name: $("hotel-name-input").value,
     description: property.description || "",
-    domain: $("domain-input").value,
-    deployment_mode: $("deployment-mode").value,
     timezone: property.timezone || "UTC",
     latitude: property.latitude,
     longitude: property.longitude,
@@ -4624,16 +4615,61 @@ function propertyPayload() {
     policies: property.policies || [],
     support_contacts: property.support_contacts || [],
     quick_actions: readPrompts().map((item) => ({ label: item.label, prompt: item.prompt })),
-    ai_settings: property.ai_settings || {},
-    antlabs_config: antlabsConfig,
-    knowledge_sources: property.knowledge_sources || [],
     rooms: property.rooms || [],
     guest_modules: property.guest_modules || [],
-    personality: property.personality || {},
-    guardrails: property.guardrails || {},
-    app_settings: property.app_settings || {},
     welcome: $("welcome-input").value,
   };
+
+  if (can("domains.configure")) payload.deployment_mode = $("deployment-mode").value;
+  if (can("domains.configure") && can("network.manage")) payload.domain = $("domain-input").value;
+  if (can("ai.configure")) {
+    payload.ai_settings = property.ai_settings || {};
+    payload.personality = property.personality || {};
+  }
+  if (can("integrations.configure") && can("security.configure")) {
+    payload.antlabs_config = {
+      ...(property.antlabs_config || {}),
+      authentication_enabled: $("authentication-enabled")?.checked ?? Boolean(property.antlabs_config?.authentication_enabled),
+      authentication_types: Object.fromEntries(
+        readAuthTypes().map((type) => [type.id, { label: type.label, enabled: type.enabled }])
+      ),
+    };
+  }
+  if (can("knowledge.edit")) payload.knowledge_sources = property.knowledge_sources || [];
+  if (can("security.configure")) {
+    const guardrails = { ...(property.guardrails || {}) };
+    if (!can("network.manage")) {
+      for (const key of ["guest_network_only", "guest_access_hosts", "allowed_cidrs", "trusted_proxy_ranges", "session_network_revalidation", "guest_session_timeout", "antlabs_gateway_enabled", "antlabs_gateway_ranges"]) delete guardrails[key];
+    }
+    payload.guardrails = guardrails;
+  }
+
+  const currentAppSettings = property.app_settings || {};
+  const appSettings = {};
+  if (can("properties.edit")) {
+    for (const key of ["locations", "application"]) {
+      if (Object.hasOwn(currentAppSettings, key)) appSettings[key] = currentAppSettings[key];
+    }
+  }
+  if (can("domains.configure") && can("network.manage") && Object.hasOwn(currentAppSettings, "deployment")) {
+    const deployment = { ...(currentAppSettings.deployment || {}) };
+    delete deployment.last_verification;
+    appSettings.deployment = deployment;
+  }
+  if (can("system.configure")) {
+    for (const [key, value] of Object.entries(currentAppSettings)) {
+      if (Object.hasOwn(appSettings, key)) continue;
+      if (key === "deployment" && value && typeof value === "object") {
+        const deployment = { ...value };
+        delete deployment.last_verification;
+        appSettings.deployment = deployment;
+      } else {
+        appSettings[key] = value;
+      }
+    }
+  }
+  if (Object.keys(appSettings).length) payload.app_settings = appSettings;
+  return payload;
 }
 
 function renderPrompts(suggestions) {
