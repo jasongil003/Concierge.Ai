@@ -47,6 +47,16 @@ async function openPanel(page, label) {
   await button.click();
 }
 
+async function openLegacyDesignControls(page) {
+  await openPanel(page, "Design");
+  await expect(page.locator("#builder-page-settings")).toBeVisible();
+}
+
+async function openDesignGroup(page, name) {
+  const group = page.locator(`[data-inspector-panel="${name}"]`);
+  if (!(await group.evaluate((element) => element.open))) await group.locator(":scope > summary").click();
+}
+
 test.beforeEach(async ({ page, request }) => {
   await loginAdmin(request);
   await loginAdmin(page.request);
@@ -247,9 +257,12 @@ test("topbar: publish state, Save Draft, Publish, Discard, Open guest app", asyn
     await expect(page.getByRole("button", { name: "Discard" })).toBeHidden();
     await openPanel(page, "Design");
     await expect(page.locator("#publish-state")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Save Draft", exact: true })).toBeEnabled();
-    await expect(page.getByRole("button", { name: "Publish" })).toBeEnabled();
-    await expect(page.getByRole("button", { name: "Discard" })).toBeEnabled();
+    for (const selector of ["#discard-design", "#save-draft", "#publish-design"]) {
+      await expect(page.locator(selector)).toBeHidden();
+    }
+    await expect(page.locator("#builder-discard-button")).toBeEnabled();
+    await expect(page.locator("#builder-save-button")).toBeEnabled();
+    await expect(page.locator("#builder-publish-button")).toBeEnabled();
   } else {
     await expect(page.locator("#property-switcher")).toBeVisible();
     await expect(page.locator("#profile-button")).toBeVisible();
@@ -831,43 +844,90 @@ test("Alerts show their evaluated timeframe and refresh the current view", async
   await expect(page.getByRole("button", { name: "Refresh alerts" })).toBeEnabled();
 });
 
-test("appearance panel: all design controls are wired and update preview", async ({ page }) => {
+test("appearance panel: one builder owns page theme controls and updates the canvas", async ({ page }) => {
   await page.goto("/admin");
-  await openPanel(page, "Design");
+  await openLegacyDesignControls(page);
 
   const selectedPropertyName = (await page.locator("#property-switcher option:checked").innerText()).trim();
-  await expect(page.getByRole("region", { name: "Live guest chat preview" })).toBeVisible();
-  const previewCanvas = await page.locator("#preview-stage").evaluate((element) => {
-    const style = getComputedStyle(element);
-    return { backgroundColor: style.backgroundColor, backgroundImage: style.backgroundImage };
-  });
-  expect(previewCanvas).toEqual({ backgroundColor: "rgb(255, 255, 255)", backgroundImage: "none" });
+  await expect(page.locator("#builder-canvas")).toBeVisible();
+  await expect(page.locator(".legacy-design-settings, #chat-preview, .design-stage, .design-workspace")).toHaveCount(0);
+  await expect(page.locator("#builder-inspector-title")).toHaveText("Page Settings");
 
   const inspectorControls = {
     brand: ["design-hotel-name", "logo-display-input", "logo-upload-input", "header-enabled-input", "show-logo-input", "show-name-input"],
     content: ["greeting-input", "welcome-input", "composer-placeholder-input"],
     theme: ["background-input", "text-color-input", "secondary-text-color-input", "background-image-input", "background-overlay-input", "accent-input"],
     layout: ["font-input", "density-input", "content-width-input", "message-width-input", "user-style-input", "assistant-style-input"],
+    navigation: ["builder-navigation-settings"],
     prompts: ["add-prompt"],
+    versions: ["version-list"],
   };
   for (const [inspector, controlIds] of Object.entries(inspectorControls)) {
-    await page.locator(`[data-design-inspector="${inspector}"]`).click();
-    await expect(page.locator(`[data-inspector-panel="${inspector}"]`)).toHaveAttribute("open", "");
+    const group = page.locator(`[data-inspector-panel="${inspector}"]`);
+    if (!(await group.evaluate((element) => element.open))) await group.locator(":scope > summary").click();
+    await expect(group).toHaveAttribute("open", "");
     for (const controlId of controlIds) {
       await expect(page.locator(`#${controlId}`)).toBeVisible();
-      await expect(page.locator(`#${controlId}`)).toBeEnabled();
+      if (controlId !== "builder-navigation-settings" && controlId !== "version-list") await expect(page.locator(`#${controlId}`)).toBeEnabled();
     }
   }
-  await page.locator('[data-design-inspector="brand"]').click();
+  await openDesignGroup(page, "brand");
   await page.locator("#design-hotel-name").fill("Preview-only design check");
-  await expect(page.locator("#preview-hotel")).toHaveText("Preview-only design check");
+  await expect(page.locator(".builder-live-header-identity strong")).toHaveText("Preview-only design check");
   await page.locator("#design-hotel-name").fill(selectedPropertyName);
+});
+
+test("appearance panel: one editor switches between components, layers, page settings, and section settings", async ({ page }) => {
+  await page.goto("/admin");
+  await expect(page.locator(".panel.active")).toHaveCount(1);
+  await expect(page.locator("#appearance")).toBeHidden();
+  await openLegacyDesignControls(page);
+
+  await expect(page.locator("#builder-canvas")).toHaveCount(1);
+  await expect(page.locator("#builder-canvas .builder-guest-page")).toHaveCount(1);
+  await expect(page.locator(".legacy-design-settings, #chat-preview, .design-stage, .design-workspace, .preview-stage")).toHaveCount(0);
+  await expect(page.locator("#builder-page-settings")).toBeVisible();
+  await expect(page.locator("#builder-inspector")).toBeHidden();
+  await expect(page.locator("#builder-inspector-tabs")).toBeHidden();
+  await expect(page.locator('[data-builder-library-panel="components"]')).toBeVisible();
+  await expect(page.locator('[data-builder-library-panel="layers"]')).toBeHidden();
+
+  const componentsTab = page.locator('[data-builder-library-tab="components"]');
+  const layersTab = page.locator('[data-builder-library-tab="layers"]');
+  await expect(componentsTab).toHaveAttribute("tabindex", "0");
+  await expect(layersTab).toHaveAttribute("tabindex", "-1");
+  await componentsTab.focus();
+  await componentsTab.press("ArrowRight");
+  await expect(layersTab).toBeFocused();
+  await expect(layersTab).toHaveAttribute("aria-selected", "true");
+  await expect(layersTab).toHaveAttribute("tabindex", "0");
+  await layersTab.press("ArrowLeft");
+  await expect(componentsTab).toBeFocused();
+  await expect(componentsTab).toHaveAttribute("tabindex", "0");
+
+  await layersTab.click();
+  await expect(page.locator('[data-builder-library-panel="components"]')).toBeHidden();
+  await expect(page.locator('[data-builder-library-panel="layers"]')).toBeVisible();
+  const sectionCount = await page.locator("#builder-canvas .builder-canvas-section").count();
+  await expect(page.locator("#builder-section-layers > li")).toHaveCount(sectionCount);
+  await page.locator("#builder-section-layers [data-builder-layer-select]").first().click();
+  await expect(page.locator("#builder-page-settings")).toBeHidden();
+  await expect(page.locator("#builder-inspector")).toBeVisible();
+  await expect(page.locator("#builder-inspector-tabs")).toBeVisible();
+  await expect(page.locator("#builder-inspector-title")).not.toHaveText("Page Settings");
+
+  await componentsTab.click();
+  await expect(page.locator('[data-builder-library-panel="components"]')).toBeVisible();
+  await expect(page.locator('[data-builder-library-panel="layers"]')).toBeHidden();
+  await page.locator("#builder-templates-button").click();
+  await expect(page.locator('#builder-template-menu [aria-label="Page layouts"]')).toBeVisible();
+  await expect(page.locator('#builder-template-menu [aria-label="Theme palettes"]')).toBeVisible();
 });
 
 test("appearance panel: logo uploader shows selected-file status and previews the image", async ({ page }) => {
   await page.goto("/admin");
-  await openPanel(page, "Design");
-  await page.locator('[data-design-inspector="brand"]').click();
+  await openLegacyDesignControls(page);
+  await openDesignGroup(page, "brand");
 
   await expect(page.getByLabel("Upload hotel logo")).toBeVisible();
   await expect(page.getByText("Choose logo")).toBeVisible();
@@ -879,26 +939,28 @@ test("appearance panel: logo uploader shows selected-file status and previews th
 
   await expect(page.locator("#logo-upload-status")).toHaveText("hotel-logo.png is ready in this draft.");
   await expect(page.locator("#logo-url-input")).toHaveValue(/^data:image\/png;base64,/);
-  await expect(page.locator("#preview-logo")).toHaveClass(/has-image/);
+  await expect(page.locator(".builder-live-header-logo img")).toBeVisible();
 });
 
-test("appearance panel: preview size buttons work", async ({ page }) => {
+test("appearance panel: center canvas device buttons resize the live page", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto("/admin");
-  await openPanel(page, "Design");
+  await openLegacyDesignControls(page);
 
-  await expect(page.locator(".phone-preview")).toHaveClass(/mobile/);
-  await page.locator('[data-size="tablet"]').click();
-  await expect(page.locator(".phone-preview")).toHaveClass(/tablet/);
-  await page.locator('[data-size="desktop"]').click();
-  await expect(page.locator(".phone-preview")).toHaveClass(/desktop/);
-  await page.locator('[data-size="mobile"]').click();
-  await expect(page.locator(".phone-preview")).toHaveClass(/mobile/);
+  await page.locator('[data-builder-device="desktop"]').click();
+  const desktopWidth = await page.locator("#builder-canvas").evaluate((element) => element.getBoundingClientRect().width);
+  await page.locator('[data-builder-device="tablet"]').click();
+  await expect.poll(() => page.locator("#builder-canvas").evaluate((element) => element.getBoundingClientRect().width)).toBeLessThanOrEqual(768);
+  await page.locator('[data-builder-device="mobile"]').click();
+  await expect.poll(() => page.locator("#builder-canvas").evaluate((element) => element.getBoundingClientRect().width)).toBeLessThanOrEqual(390);
+  await expect(desktopWidth).toBeGreaterThan(390);
 });
 
 test("appearance panel: add and remove prompt buttons work", async ({ page }) => {
   await page.goto("/admin");
-  await openPanel(page, "Design");
-  await page.locator('[data-design-inspector="prompts"]').click();
+  await openLegacyDesignControls(page);
+  await openDesignGroup(page, "prompts");
+  const prompts = page.locator('[data-inspector-panel="prompts"]');
   const rows = page.locator("#prompt-list .prompt-row");
   const initialCount = await rows.count();
 
@@ -924,9 +986,10 @@ test("preview controls are interactive and intro settings save", async ({ page }
   });
   expect(resetIntro.ok()).toBeTruthy();
   await page.goto("/admin");
-  await openPanel(page, "Design");
-  await expect(page.locator("#chat-preview button[title='Preview only']")).toHaveCount(3);
-  for (const button of await page.locator("#chat-preview button").all()) {
+  await openLegacyDesignControls(page);
+  await expect(page.locator("#builder-canvas")).toBeVisible();
+  await expect(page.locator("#builder-preview-button")).toBeVisible();
+  for (const button of await page.locator(".builder-preview-composer button, .builder-preview-composer textarea").all()) {
     await expect(button).toBeDisabled();
   }
 
@@ -1122,11 +1185,18 @@ async function verifyAdminNavigation(page, isMobile) {
           await expect(page.locator("#discard-design")).toBeHidden();
           await expect(page.locator("#save-draft")).toBeHidden();
           await expect(page.locator("#publish-design")).toBeHidden();
-          await expect(page.locator("#design-discard-shortcut")).toBeVisible();
-          await expect(page.locator("#design-save-shortcut")).toBeVisible();
-          await expect(page.locator("#design-publish-shortcut")).toBeVisible();
+          await expect(page.locator(".legacy-design-settings")).toHaveCount(0);
+          await expect(page.locator("#builder-page-settings")).toBeVisible();
+          await expect(page.locator(".builder-more-menu summary")).toBeVisible();
+          await expect(page.locator("#builder-save-button")).toBeVisible();
+          await expect(page.locator("#builder-publish-button")).toBeVisible();
         } else {
           for (const selector of ["#discard-design", "#save-draft", "#publish-design"]) {
+            const button = page.locator(selector);
+            await expect(button).toBeHidden();
+          }
+          await page.locator(".builder-more-menu summary").click();
+          for (const selector of ["#builder-discard-button", "#builder-save-button", "#builder-publish-button"]) {
             const button = page.locator(selector);
             await expect(button).toBeVisible();
             await expect(button).toBeEnabled();
@@ -1208,7 +1278,7 @@ test("design actions require concierge.edit in the UI and on the server", async 
     await page.goto("/admin");
     await page.locator('body[data-admin-ready="true"]').waitFor();
     await openPanel(page, "Design");
-    for (const selector of ["#discard-design", "#save-draft", "#publish-design", "#design-discard-shortcut", "#design-save-shortcut", "#design-publish-shortcut"]) {
+    for (const selector of ["#discard-design", "#save-draft", "#publish-design", "#builder-discard-button", "#builder-save-button", "#builder-publish-button"]) {
       await expect(page.locator(selector)).toBeHidden();
     }
 
@@ -1231,6 +1301,412 @@ test("design actions require concierge.edit in the UI and on the server", async 
   }
 });
 
+test("admin: visual builder renders guest sections and supports direct editing, history, templates, devices, and draft save", async ({ page, request }) => {
+  test.skip(test.info().project.name !== "chromium", "Builder interaction workflow runs once in desktop Chromium.");
+  const builderPageErrors = [];
+  page.on("pageerror", (error) => builderPageErrors.push(error.message));
+  const propertyId = await getFirstPropertyId(request);
+  const initialResponse = await request.get(`/api/admin/properties/${propertyId}/design`);
+  expect(initialResponse.ok()).toBeTruthy();
+  const initial = await initialResponse.json();
+
+  try {
+    await page.goto("/admin");
+    await openPanel(page, "Design");
+    const canvas = page.locator("#builder-canvas");
+    const initialCount = await canvas.locator(".builder-canvas-section").count();
+    await expect(canvas.locator(".builder-guest-page")).toBeVisible();
+    await expect(canvas.locator(".builder-live-header")).toBeVisible();
+    await expect(page.locator("#builder-page-settings")).toBeVisible();
+    await expect(page.locator("#builder-inspector-tabs")).toBeHidden();
+    await expect(page.locator("#builder-section-layers > li")).toHaveCount(initialCount);
+    await page.locator("#builder-component-search").fill("Carousel");
+    await expect(page.locator('[data-builder-add="carousel"]')).toBeVisible();
+    await page.locator("#builder-component-search").fill("");
+    await page.locator('[data-builder-add="heading"]').click();
+    const headingCard = canvas.locator('.builder-canvas-section[data-builder-section^="heading-"]').last();
+    await expect(headingCard).toBeVisible();
+    await expect(page.locator(".builder-inspector-tabs [data-builder-tab='animation']")).toBeVisible();
+    await page.locator('#builder-inspector [data-builder-field="text"]').fill("A configurable page heading");
+    await expect(canvas).toContainText("A configurable page heading");
+
+    const duplicateButton = headingCard.locator('[data-builder-action="duplicate"]');
+    await duplicateButton.scrollIntoViewIfNeeded();
+    await duplicateButton.click();
+    expect(builderPageErrors).toEqual([]);
+    await expect(canvas.locator('.builder-canvas-section[data-builder-section^="heading-"]')).toHaveCount(2);
+    const ids = await canvas.locator('.builder-canvas-section[data-builder-section^="heading-"]').evaluateAll((cards) => cards.map((card) => card.dataset.builderSection));
+    expect(new Set(ids).size).toBe(2);
+    const duplicate = canvas.locator(`.builder-canvas-section[data-builder-section="${ids[1]}"]`);
+    await duplicate.locator('[data-builder-action="toggle"]').click();
+    await expect(duplicate).toHaveClass(/is-hidden/);
+    await duplicate.locator('[data-builder-action="toggle"]').click();
+    await expect(duplicate).not.toHaveClass(/is-hidden/);
+    const duplicateLayer = page.locator(`#builder-section-layers > li:has([data-builder-layer-select="${ids[1]}"])`);
+    await page.locator('[data-builder-library-tab="layers"]').click();
+    await duplicateLayer.locator(".builder-layer-menu > summary", {}).click();
+    await duplicateLayer.getByRole("button", { name: "Move up", exact: true }).click();
+    let sectionPositions = await canvas.locator(".builder-canvas-section").evaluateAll((sections) => Object.fromEntries(sections.map((section, index) => [section.dataset.builderSection, index])));
+    expect(sectionPositions[ids[1]]).toBe(sectionPositions[ids[0]] - 1);
+    await duplicateLayer.locator(".builder-layer-menu > summary", {}).click();
+    await duplicateLayer.getByRole("button", { name: "Move down", exact: true }).click();
+    sectionPositions = await canvas.locator(".builder-canvas-section").evaluateAll((sections) => Object.fromEntries(sections.map((section, index) => [section.dataset.builderSection, index])));
+    expect(sectionPositions[ids[1]]).toBe(sectionPositions[ids[0]] + 1);
+    await page.locator('[data-builder-library-tab="components"]').click();
+
+    await page.locator('[data-builder-device="tablet"]').click();
+    await expect(page.locator('[data-builder-device="tablet"]')).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator("#builder-page-size-label")).toContainText("768 px");
+    await expect.poll(() => canvas.evaluate((element) => element.getBoundingClientRect().width)).toBeLessThanOrEqual(768);
+    await page.locator('[data-builder-device="mobile"]').click();
+    await expect(page.locator('[data-builder-device="mobile"]')).toHaveAttribute("aria-pressed", "true");
+    await expect.poll(() => canvas.evaluate((element) => element.getBoundingClientRect().width)).toBeLessThanOrEqual(390);
+
+    await page.locator('[data-builder-tab="animation"]').click();
+    await page.locator('#builder-inspector [data-builder-field="entrance"]').selectOption("fade_up");
+    await page.locator('#builder-inspector [data-builder-field="delay"]').selectOption("200");
+    await expect(duplicate.locator(".builder-guest-component")).toHaveAttribute("data-animation", "fade_up");
+    await page.locator('[data-builder-tab="style"]').click();
+    await page.locator('#builder-inspector [data-builder-field="radius"]').selectOption("large");
+    await page.locator('[data-builder-tab="layout"]').click();
+    await page.locator('#builder-inspector [data-builder-field="mobile_behavior"]').selectOption("scroll");
+    await page.locator('[data-builder-tab="content"]').click();
+    await duplicate.locator('[data-builder-action="delete"]').click();
+    await expect(canvas.locator('.builder-canvas-section[data-builder-section^="heading-"]')).toHaveCount(1);
+    expect(await canvas.locator(".builder-canvas-section").count()).toBe(initialCount + 1);
+
+    await page.locator("#builder-undo-button").click();
+    await expect(canvas.locator('.builder-canvas-section[data-builder-section^="heading-"]')).toHaveCount(2);
+    await page.locator("#builder-redo-button").click();
+    await expect(canvas.locator('.builder-canvas-section[data-builder-section^="heading-"]')).toHaveCount(1);
+
+    const heroSection = canvas.locator('.builder-canvas-section:has(.experience-hero)').first();
+    await heroSection.locator(".builder-guest-component").click();
+    await page.locator('#builder-inspector [data-builder-add-button="hero"]').click();
+    await heroSection.locator('.builder-guest-component [data-builder-select="button"]').first().click();
+    await expect(page.locator("#builder-inspector-title")).toHaveText("Button");
+    await page.locator('#builder-inspector [data-builder-field="type"]').selectOption("external_url");
+    await page.locator('#builder-inspector [data-builder-field="url"]').fill("https://example.org/guest");
+    await page.locator('#builder-inspector [data-builder-field="open_in"]').selectOption("new_tab");
+
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.locator("#builder-templates-button").click();
+    await page.locator('[data-builder-template="elegant"]').click();
+    await expect(canvas.locator(".builder-canvas-section")).toHaveCount(5);
+    await expect(page.locator("#builder-save-status")).toHaveText("Unsaved changes");
+    await page.locator("#builder-preview-button").click();
+    await expect(page.getByText("The center canvas is the live preview of this draft.")).toBeVisible();
+
+    await page.locator("#builder-save-button").click();
+    await expect(page.getByText("Draft saved.")).toBeVisible();
+    const savedResponse = await request.get(`/api/admin/properties/${propertyId}/design`);
+    const saved = await savedResponse.json();
+    expect(saved.draft.pages[0].sections.some((section) => section.type === "restaurant")).toBe(true);
+    expect(saved.published.pages[0].sections.some((section) => section.type === "restaurant")).toBe(false);
+  } finally {
+    const latest = await request.get(`/api/admin/properties/${propertyId}/design`);
+    const current = await latest.json();
+    await request.put(`/api/admin/properties/${propertyId}/design/draft`, {
+      headers: csrfHeaders(request),
+      data: { config: initial.draft, expected_revision: current.revision },
+    });
+  }
+});
+
+test("admin: builder visual evidence covers devices, inspector tabs, image upload, and drag reorder", async ({ page, request }, testInfo) => {
+  test.skip(test.info().project.name !== "chromium", "Builder screenshot evidence is captured once in desktop Chromium.");
+  test.setTimeout(120_000);
+  const propertyId = await getFirstPropertyId(request);
+  const initialResponse = await request.get(`/api/admin/properties/${propertyId}/design`);
+  expect(initialResponse.ok()).toBeTruthy();
+  const initial = await initialResponse.json();
+  const screenshot = async (name) => page.screenshot({ path: testInfo.outputPath(`builder-${name}.png`), fullPage: true });
+  const pointerDrag = async (source, target, targetOffset = { x: 20, y: 12 }, expectDropIndicator = false, indicatorScreenshot = "") => {
+    await source.scrollIntoViewIfNeeded();
+    const sourceBox = await source.boundingBox();
+    let targetBox = await target.boundingBox();
+    expect(sourceBox).toBeTruthy();
+    expect(targetBox).toBeTruthy();
+    await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(sourceBox.x + sourceBox.width / 2 + 12, sourceBox.y + sourceBox.height / 2 + 5, { steps: 3 });
+    const scrollBox = await page.locator(".builder-canvas-scroll").boundingBox();
+    const viewportHeight = await page.evaluate(() => window.innerHeight);
+    const visibleTop = Math.max(0, scrollBox.y);
+    const visibleBottom = Math.min(viewportHeight, scrollBox.y + scrollBox.height);
+    if (targetBox.y < visibleTop || targetBox.y > visibleBottom) {
+      const edgeX = Math.min(Math.max(sourceBox.x + sourceBox.width / 2, scrollBox.x + 12), scrollBox.x + scrollBox.width - 12);
+      const edgeY = targetBox.y < visibleTop ? visibleTop + 10 : visibleBottom - 10;
+      for (let attempt = 0; attempt < 14; attempt += 1) {
+        await page.mouse.move(edgeX, edgeY + (attempt % 2), { steps: 1 });
+        await page.waitForTimeout(24);
+        targetBox = await target.boundingBox();
+        if (targetBox.y >= visibleTop && targetBox.y <= visibleBottom) break;
+      }
+    }
+    targetBox = await target.boundingBox();
+    await page.mouse.move(targetBox.x + targetOffset.x, targetBox.y + targetOffset.y, { steps: 8 });
+    if (expectDropIndicator) {
+      const indicators = page.locator("#builder-canvas .drop-before, #builder-canvas .drop-after, #builder-canvas [data-builder-action-item].drop-after, #builder-section-layers .drop-before, #builder-section-layers .drop-after");
+      await expect(indicators).toHaveCount(1);
+      if (indicatorScreenshot) await screenshot(indicatorScreenshot);
+    }
+    await page.mouse.up();
+  };
+
+  try {
+    await page.setViewportSize({ width: 1749, height: 1126 });
+    await page.goto("/admin");
+    await openPanel(page, "Design");
+    const canvas = page.locator("#builder-canvas");
+    await expect(canvas.locator(".builder-guest-page")).toBeVisible();
+    await expect(page.locator("#builder-component-library")).toContainText("Hero");
+    await screenshot("desktop");
+    await screenshot("component-library");
+    await page.locator("#builder-focus-button").click();
+    await expect(page.locator(".experience-builder")).toHaveClass(/is-focus-mode/);
+    await expect(page.locator(".builder-library-panel")).toBeHidden();
+    await expect(page.locator("#builder-canvas")).toBeVisible();
+    await screenshot("focus-mode");
+    await page.locator("#builder-focus-button").click();
+
+    await page.locator('[data-builder-library-tab="layers"]').click();
+    await expect(page.locator("#builder-section-layers > li")).toHaveCount(await canvas.locator(".builder-canvas-section").count());
+    await expect(page.locator("#builder-section-layers .builder-layer-drag-handle").first()).toBeVisible();
+    await screenshot("layers");
+    const firstLayer = page.locator("#builder-section-layers > li").first();
+    const secondLayer = page.locator("#builder-section-layers > li").nth(1);
+    const firstLayerId = await firstLayer.getAttribute("data-builder-layer-section");
+    const secondLayerBox = await secondLayer.boundingBox();
+    await pointerDrag(firstLayer.locator("[data-builder-layer-drag-handle]"), secondLayer, { x: 18, y: secondLayerBox.height - 2 }, true, "drop-indicator-layers");
+    await expect(page.locator("#builder-section-layers > li").nth(1)).toHaveAttribute("data-builder-layer-section", firstLayerId);
+    await page.locator('[data-builder-library-tab="components"]').click();
+    await page.locator("#builder-templates-button").click();
+    await screenshot("templates");
+    await page.locator("#builder-templates-button").click();
+    await screenshot("page-theme");
+
+    const headerSection = canvas.locator('.builder-canvas-section:has(.builder-live-header)').first();
+    if (await headerSection.count()) {
+      const menuItem = headerSection.locator('.builder-guest-component [data-builder-select="header_item"][data-builder-item-id="menu"]');
+      await expect(menuItem).toBeVisible();
+      await menuItem.click();
+      await expect(page.locator("#builder-inspector-title")).toHaveText("Header Element");
+      await expect(page.locator('#builder-inspector [data-builder-field="show_menu"]')).toBeVisible();
+      await screenshot("header-selected");
+    }
+    const existingNavigation = canvas.locator('.builder-canvas-section:has(.builder-live-bottom-nav)').first();
+    if (await existingNavigation.count()) {
+      const navigationSectionId = await existingNavigation.getAttribute("data-builder-section");
+      await page.locator('[data-builder-library-tab="layers"]').click();
+      await page.locator(`#builder-section-layers [data-builder-layer-select="${navigationSectionId}"]`).click();
+      await expect(page.locator("#builder-inspector-title")).toHaveText("Bottom Navigation");
+      await expect(page.locator('#builder-inspector [data-builder-add-navigation-item="true"]')).toBeVisible();
+      await page.locator('[data-builder-library-tab="components"]').click();
+    }
+    await canvas.evaluate((element) => element.click());
+    await expect(page.locator("#builder-inspector-title")).toHaveText("Page Settings");
+
+    for (const section of await canvas.locator(".builder-canvas-section").all()) {
+      await section.locator(".builder-guest-component").click();
+      await expect(section).toHaveClass(/is-selected/);
+      await expect(page.locator("#builder-inspector-title")).not.toHaveText("Page Settings");
+    }
+
+    const hero = canvas.locator('.builder-canvas-section:has(.experience-hero)').first();
+    await hero.locator(".builder-guest-component").click();
+    await expect(hero).toHaveClass(/is-selected/);
+    await expect(page.locator('[data-builder-tab="content"]')).toBeVisible();
+    await expect(page.locator('[data-builder-tab="style"]')).toBeVisible();
+    await expect(page.locator('[data-builder-tab="layout"]')).toBeVisible();
+    await expect(page.locator('[data-builder-tab="animation"]')).toBeVisible();
+    await page.locator('[data-builder-tab="content"]').click();
+    await screenshot("hero-selected");
+
+    await page.locator('[data-builder-tab="animation"]').click();
+    await page.locator('#builder-inspector [data-builder-field="entrance"]').selectOption("fade_up");
+    const animationOptions = await page.locator('#builder-inspector [data-builder-field="entrance"] option').allTextContents();
+    for (const label of ["None", "Fade", "Fade Up", "Fade Down", "Slide Left", "Slide Right", "Scale"]) expect(animationOptions).toContain(label);
+    await expect(hero.locator(".builder-guest-component")).toHaveAttribute("data-animation", "fade_up");
+    await expect(hero.locator(".builder-guest-component")).toHaveClass(/experience-visible/);
+    await page.locator("#builder-inspector [data-builder-replay-animation]").click();
+    await page.waitForTimeout(500);
+    await screenshot("animation-inspector");
+
+    await page.locator('[data-builder-device="mobile"]').click();
+    await expect.poll(() => canvas.evaluate((element) => element.getBoundingClientRect().width)).toBeLessThanOrEqual(390);
+    await screenshot("mobile-canvas");
+    await page.locator('[data-builder-device="desktop"]').click();
+
+    await pointerDrag(page.locator('[data-builder-add="text"]'), canvas);
+    const textSection = canvas.locator('.builder-canvas-section[data-builder-section^="text-"]').last();
+    await expect(textSection).toBeVisible();
+    const quickActions = canvas.locator('.builder-canvas-section:has(.experience-quick_actions)').first();
+    const quickActionsId = await quickActions.getAttribute("data-builder-section");
+    await pointerDrag(quickActions.locator("[data-builder-drag-handle]"), hero, { x: 22, y: 3 }, true);
+    await expect(canvas.locator(".builder-canvas-section").first()).toHaveAttribute("data-builder-section", quickActionsId);
+    await screenshot("drag-reorder");
+
+    await quickActions.locator(".builder-guest-component").click();
+    await page.locator('[data-builder-tab="content"]').click();
+    await expect(page.locator("#builder-inspector-title")).toHaveText("Quick Actions");
+    await screenshot("quick-actions-selected");
+    await page.locator('#builder-inspector [data-builder-add-quick-action="true"]').click();
+    await page.locator('#builder-inspector [data-builder-field="label"]').fill("Dining");
+    await page.locator('#builder-inspector [data-builder-field="label"]').press("Tab");
+    await page.locator('#builder-inspector [data-builder-field="prompt"]').fill("Show configured property dining options.");
+    await page.locator('#builder-inspector [data-builder-field="prompt"]').press("Tab");
+    await quickActions.locator(".builder-guest-component").click();
+    await page.locator('#builder-inspector [data-builder-add-quick-action="true"]').click();
+    await page.locator('#builder-inspector [data-builder-field="label"]').fill("Wellness");
+    await page.locator('#builder-inspector [data-builder-field="label"]').press("Tab");
+    await page.locator('#builder-inspector [data-builder-field="prompt"]').fill("Show configured property wellness options.");
+    await page.locator('#builder-inspector [data-builder-field="prompt"]').press("Tab");
+    const quickCards = quickActions.locator(".experience-action-card");
+    await expect(quickCards).toHaveCount(2);
+    await quickCards.last().click();
+    await expect(page.locator("#builder-inspector-title")).toHaveText("Quick Action");
+    await expect(page.locator('#builder-inspector [data-builder-field="label"]')).toBeVisible();
+    await screenshot("quick-action-selected");
+    await page.locator('#builder-inspector [data-builder-nested-item-action="delete"]').click();
+    await expect(quickCards).toHaveCount(1);
+    await quickActions.locator(".builder-guest-component").click();
+    await page.locator('#builder-inspector [data-builder-add-quick-action="true"]').click();
+    await page.locator('#builder-inspector [data-builder-field="label"]').fill("Wellness");
+    await page.locator('#builder-inspector [data-builder-field="label"]').press("Tab");
+    await page.locator('#builder-inspector [data-builder-field="prompt"]').fill("Show configured property wellness options.");
+    await page.locator('#builder-inspector [data-builder-field="prompt"]').press("Tab");
+    await expect(quickCards).toHaveCount(2);
+    await pointerDrag(quickCards.nth(1), quickCards.first(), { x: 20, y: 12 }, true);
+    await expect(quickCards.first()).toContainText("Wellness");
+    await screenshot("quick-actions");
+
+    const currentHero = canvas.locator('.builder-canvas-section:has(.experience-hero)').first();
+    await currentHero.locator(".builder-guest-component").click();
+    await page.locator('[data-builder-tab="content"]').click();
+    const [imageChooser] = await Promise.all([
+      page.waitForEvent("filechooser"),
+      page.locator('[data-builder-upload-image="image_url"]').click(),
+    ]);
+    await imageChooser.setFiles({
+      name: "synthetic-builder.png",
+      mimeType: "image/png",
+      buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/pZ8AAAAASUVORK5CYII=", "base64"),
+    });
+    await expect.poll(() => currentHero.locator(".experience-hero-image").evaluate((image) => image.src.startsWith("data:image/png;base64,"))).toBe(true);
+    await screenshot("hero-image");
+
+    await page.locator('[data-builder-add="image"]').click();
+    const imageSection = canvas.locator('.builder-canvas-section:has(.experience-image)').last();
+    const mediaPicker = page.locator('#builder-inspector [data-builder-image-library="url"]');
+    await expect(mediaPicker).toBeVisible();
+    const imageOptions = await mediaPicker.locator("option").evaluateAll((items) => items.map((option) => ({ label: option.textContent, value: option.value })));
+    const libraryImage = imageOptions.find((option) => option.value.startsWith("data:image/png;base64,"));
+    expect(libraryImage).toBeTruthy();
+    await mediaPicker.selectOption({ value: libraryImage.value });
+    await expect(imageSection.locator("img.experience-image")).toHaveAttribute("src", libraryImage.value);
+    await screenshot("property-media-library");
+
+    await currentHero.locator(".builder-guest-component").click();
+    await page.locator('#builder-inspector [data-builder-add-button="hero"]').click();
+    await currentHero.locator('.builder-guest-component [data-builder-select="button"]').first().click();
+    await page.locator('#builder-inspector [data-builder-field="type"]').selectOption("external_url");
+    const actionTypeOptions = await page.locator('#builder-inspector [data-builder-field="type"] option').allTextContents();
+    for (const label of ["Internal Page", "External URL", "Restaurant", "Menu", "Room Service", "Housekeeping", "Transportation", "Concierge", "Phone", "Email", "Map / Location"]) expect(actionTypeOptions).toContain(label);
+    await page.locator('#builder-inspector [data-builder-field="url"]').fill("javascript:alert(1)");
+    await expect(page.locator('#builder-inspector [data-builder-field="url"]')).toHaveAttribute("aria-invalid", "true");
+    await expect(page.locator("#builder-inspector [data-builder-url-error]")).toContainText("HTTP or HTTPS");
+    await page.locator('#builder-inspector [data-builder-field="url"]').fill("https://example.org/guest");
+    await page.locator('#builder-inspector [data-builder-field="open_in"]').selectOption("new_tab");
+    await expect(currentHero.locator(".builder-guest-component")).toHaveClass(/experience-visible/);
+    await screenshot("button-action-inspector");
+    const draftSections = await page.evaluate(() => ({
+      mobile: document.querySelector("#builder-canvas").dataset.device,
+      width: document.querySelector("#builder-canvas").getBoundingClientRect().width,
+    }));
+    expect(draftSections.mobile).toBe("desktop");
+    expect(draftSections.width).toBeGreaterThan(390);
+    await page.locator('[data-builder-library-tab="layers"]').click();
+    await expect(page.locator("#builder-section-layers .builder-layer-child-select").filter({ hasText: "Dining" }).first()).toBeVisible();
+    await screenshot("nested-layers");
+    await page.locator('[data-builder-library-tab="components"]').click();
+
+    await page.locator('[data-builder-add="card_grid"]').click();
+    let cardGrid = canvas.locator('.builder-canvas-section:has(.experience-card_grid)').last();
+    await page.locator('#builder-inspector [data-builder-add-card="true"]').click();
+    await expect(page.locator("#builder-inspector-title")).toHaveText("Card");
+    await page.locator('#builder-inspector [data-builder-field="title"]').fill("Sample preview card");
+    await page.locator('#builder-inspector [data-builder-field="title"]').press("Tab");
+    await cardGrid.locator('.builder-custom-card').last().click();
+    await expect(page.locator('#builder-inspector [data-builder-field="action"]')).toHaveCount(0);
+    await screenshot("card-item-selected");
+
+    await page.locator('[data-builder-add="bottom_navigation"]').click();
+    let bottomNavigation = canvas.locator('.builder-canvas-section:has(.builder-live-bottom-nav)').last();
+    await expect(page.locator("#builder-inspector-title")).toHaveText("Bottom Navigation");
+    await page.locator('[data-builder-tab="style"]').click();
+    await expect(page.locator('#builder-inspector [data-builder-field="active_color"]')).toBeVisible();
+    await page.locator('[data-builder-tab="layout"]').click();
+    await expect(page.locator('#builder-inspector [data-builder-field="position"]')).toBeVisible();
+    await page.locator('[data-builder-tab="content"]').click();
+    await screenshot("bottom-navigation-selected");
+    await page.once("dialog", (dialog) => dialog.accept());
+    await bottomNavigation.locator('[data-builder-action="delete"]').click();
+    await expect(canvas.locator('.builder-canvas-section:has(.builder-live-bottom-nav)')).toHaveCount(await existingNavigation.count());
+    if (await existingNavigation.count()) {
+      await page.once("dialog", (dialog) => dialog.accept());
+      await existingNavigation.locator('[data-builder-action="delete"]').click();
+    }
+    await page.locator('[data-builder-device="mobile"]').click();
+    await expect(canvas.locator(".builder-live-bottom-nav")).toHaveCount(0);
+    await screenshot("mobile-without-footer");
+    await page.locator('[data-builder-device="desktop"]').click();
+    await page.locator('[data-builder-add="bottom_navigation"]').click();
+    bottomNavigation = canvas.locator('.builder-canvas-section:has(.builder-live-bottom-nav)').last();
+    await expect(bottomNavigation.locator(".builder-empty-state")).toContainText("No navigation items yet.");
+    await screenshot("bottom-navigation-empty");
+    await bottomNavigation.locator('[data-builder-add-navigation-item="true"]').click();
+    await expect(page.locator("#builder-inspector-title")).toHaveText("Navigation Item");
+    await page.locator('#builder-inspector [data-builder-field="label"]').fill("Dining");
+    await page.locator('#builder-inspector [data-builder-field="label"]').press("Tab");
+    await page.locator('#builder-inspector [data-builder-field="type"]').selectOption("external_url");
+    await page.locator('#builder-inspector [data-builder-field="url"]').fill("javascript:alert(1)");
+    await expect(page.locator('#builder-inspector [data-builder-field="url"]')).toHaveAttribute("aria-invalid", "true");
+    await page.locator('#builder-inspector [data-builder-field="url"]').fill("https://example.org/dining");
+    await page.locator('#builder-inspector [data-builder-field="open_in"]').selectOption("new_tab");
+    await screenshot("navigation-item-action-inspector");
+    await page.locator('[data-builder-library-tab="layers"]').click();
+    const navigationSectionId = await bottomNavigation.getAttribute("data-builder-section");
+    await expect(page.locator(`#builder-section-layers .builder-layer-child-select[data-builder-parent-section="${navigationSectionId}"]`).filter({ hasText: "Dining" })).toBeVisible();
+    await screenshot("navigation-nested-layers");
+    await page.locator('[data-builder-device="mobile"]').click();
+    await expect(canvas.locator('.builder-live-bottom-nav button').filter({ hasText: "Dining" })).toBeVisible();
+    await screenshot("mobile-with-custom-footer");
+    await page.locator('[data-builder-device="desktop"]').click();
+    await page.locator('[data-builder-library-tab="components"]').click();
+
+    await page.locator("#builder-save-button").click();
+    await expect(page.getByText("Draft saved.")).toBeVisible();
+    const persisted = await (await request.get(`/api/admin/properties/${propertyId}/design`)).json();
+    const savedHome = persisted.draft.pages.find((item) => item.id === "home");
+    const savedQuickActions = savedHome.sections.find((item) => item.type === "quick_actions");
+    const savedImage = savedHome.sections.find((item) => item.type === "image");
+    const savedHero = savedHome.sections.find((item) => item.type === "hero");
+    const savedNavigation = savedHome.sections.find((item) => item.type === "bottom_navigation");
+    expect(savedQuickActions.properties.items.map((item) => item.label)).toEqual(["Wellness", "Dining"]);
+    expect(savedImage.properties.url).toMatch(/^data:image\/png;base64,/);
+    expect(savedHero.properties.buttons[0].action).toMatchObject({ type: "external_url", url: "https://example.org/guest", open_in: "new_tab" });
+    expect(savedNavigation.properties.items[0]).toMatchObject({ label: "Dining", action: { type: "external_url", url: "https://example.org/dining", open_in: "new_tab" } });
+  } finally {
+    const latest = await request.get(`/api/admin/properties/${propertyId}/design`);
+    const current = await latest.json();
+    await request.put(`/api/admin/properties/${propertyId}/design/draft`, {
+      headers: csrfHeaders(request),
+      data: { config: initial.draft, expected_revision: current.revision },
+    });
+  }
+});
+
 test("admin: page help uses an accessible question-mark icon", async ({ page }) => {
   await page.goto("/admin");
   await page.locator('body[data-admin-ready="true"]').waitFor();
@@ -1242,6 +1718,34 @@ test("admin: page help uses an accessible question-mark icon", async ({ page }) 
   await expect(summary).toHaveAttribute("aria-label", "Help for Operations overview");
   await summary.click();
   await expect(guide).toHaveAttribute("open", "");
+});
+
+test("admin: local property recommendations can be given home-card images", async ({ page, request }) => {
+  const propertyId = await getFirstPropertyId(request);
+  const recommendationName = "Home image QA " + Date.now();
+  const imageUrl = "/property-home-image-qa.webp";
+  let recommendationId = "";
+
+  try {
+    await page.goto("/admin");
+    await openPanel(page, "Recommendations");
+    await page.locator("#recommendation-name").fill(recommendationName);
+    await page.locator("#recommendation-category").fill("Dining");
+    await page.locator("#recommendation-description").fill("Property-configured suggestion content.");
+    await page.locator("#recommendation-images").fill(imageUrl);
+    await page.locator("#save-recommendation").click();
+    await expect(page.getByText("Recommendation saved.")).toBeVisible();
+
+    const response = await request.get(`/api/admin/properties/${propertyId}/recommendations`);
+    expect(response.ok()).toBeTruthy();
+    const saved = (await response.json()).recommendations.find((item) => item.name === recommendationName);
+    expect(saved?.images).toEqual([imageUrl]);
+    recommendationId = saved.recommendation_id;
+  } finally {
+    if (recommendationId) {
+      await request.delete(`/api/admin/properties/${propertyId}/recommendations/${recommendationId}`, { headers: csrfHeaders(request) });
+    }
+  }
 });
 
 test("admin: long workflow guidance is collapsed until requested", async ({ page }) => {
@@ -1566,19 +2070,27 @@ test.describe("config workflow (serial)", () => {
     const qaHeadline = `Stabilize QA ${Date.now()}`;
     const qaHotelName = `QA Hotel ${Date.now()}`;
     const qaAccent = "#6b21a8";
+    const qaActionLabel = "Dining " + Date.now();
+    const qaActionDescription = "Menus, opening hours, and reservations";
+    const qaGreeting = "Welcome back";
 
     try {
       await page.goto("/admin");
-      await openPanel(page, "Design");
+      await openLegacyDesignControls(page);
 
-      await page.locator('[data-design-inspector="brand"]').click();
+      await openDesignGroup(page, "brand");
       await page.locator("#design-hotel-name").fill(qaHotelName);
-      await page.locator('[data-design-inspector="content"]').click();
+      await openDesignGroup(page, "content");
+      await page.locator("#greeting-input").fill(qaGreeting);
       await page.locator("#welcome-input").fill(qaHeadline);
-      await page.locator('[data-design-inspector="theme"]').click();
+      await openDesignGroup(page, "theme");
       await page.locator("#accent-input").fill(qaAccent);
-      await page.locator('[data-design-inspector="prompts"]').click();
+      await openDesignGroup(page, "prompts");
       await page.locator("#add-prompt").click();
+      const actionRow = page.locator(".prompt-row").last();
+      await actionRow.locator(".prompt-label").fill(qaActionLabel);
+      await actionRow.locator(".prompt-text").fill("Show available dining options");
+      await actionRow.locator(".prompt-description").fill(qaActionDescription);
 
       await page.getByRole("button", { name: "Save Draft", exact: true }).click();
       await expect(page.getByText("Draft saved.")).toBeVisible();
@@ -1590,11 +2102,12 @@ test.describe("config workflow (serial)", () => {
       expect(hotelData.design?.welcome?.headline).not.toBe(qaHeadline);
 
       // Preview shows draft changes
-      await expect(page.locator("#preview-hotel")).toHaveText(qaHotelName);
-      await expect(page.locator("#preview-welcome")).toHaveText(qaHeadline);
+      await expect(page.locator(".builder-live-header-identity strong")).toHaveText(qaHotelName);
+      await expect(page.locator(".builder-canvas .experience-hero h1")).toHaveText(qaHeadline);
 
       // Publish
-      await page.getByRole("button", { name: "Publish" }).click();
+      page.once("dialog", (dialog) => dialog.accept());
+      await page.locator("#builder-publish-button").click();
       await expect(page.getByText(/Published guest chat/)).toBeVisible();
 
       // Guest now shows published config
@@ -1602,10 +2115,19 @@ test.describe("config workflow (serial)", () => {
       expect(hotelApiAfter.ok()).toBeTruthy();
       const hotelAfter = await hotelApiAfter.json();
       expect(hotelAfter.design?.welcome?.headline).toBe(qaHeadline);
+      expect(hotelAfter.design?.welcome?.greeting).toBe(qaGreeting);
+      expect(hotelAfter.design?.suggestions).toContainEqual(expect.objectContaining({
+        label: qaActionLabel,
+        prompt: "Show available dining options",
+        description: qaActionDescription,
+      }));
 
       // Reload persists
       await page.goto("/");
-      await expect(page.locator("#welcome-headline")).toHaveText(qaHeadline);
+      await expect(page.locator(".experience-hero h1")).toHaveText(qaHeadline);
+      await expect(page.locator(".experience-hero .experience-eyebrow")).toHaveText(qaGreeting);
+      const actionButton = page.locator(".experience-quick_actions .experience-action-card").filter({ hasText: qaActionLabel });
+      await expect(actionButton.locator("small")).toHaveText(qaActionDescription);
     } finally {
       await request.put(`/api/admin/properties/${propertyId}/design/draft`, {
         headers: csrfHeaders(request),
@@ -1624,14 +2146,15 @@ test.describe("config workflow (serial)", () => {
 
     try {
       await page.goto("/admin");
-      await openPanel(page, "Design");
+      await openLegacyDesignControls(page);
 
-      await page.locator('[data-design-inspector="content"]').click();
+      await openDesignGroup(page, "content");
       await page.locator("#welcome-input").fill(discardHeadline);
       await page.getByRole("button", { name: "Save Draft", exact: true }).click();
       await expect(page.getByText("Draft saved.")).toBeVisible();
 
-      await page.getByRole("button", { name: "Discard" }).click();
+      await page.locator(".builder-more-menu summary").click();
+      await page.locator("#builder-discard-button").click();
       await expect(page.getByText("Draft reset to the published design.")).toBeVisible();
 
       const design = await request.get(`/api/admin/properties/${propertyId}/design`);
@@ -1658,23 +2181,25 @@ test.describe("config workflow (serial)", () => {
     try {
       // Publish version A
       await page.goto("/admin");
-      await openPanel(page, "Design");
-      await page.locator('[data-design-inspector="content"]').click();
+      await openLegacyDesignControls(page);
+      await openDesignGroup(page, "content");
       await page.locator("#welcome-input").fill("Version A headline");
       await page.getByRole("button", { name: "Save Draft", exact: true }).click();
       await expect(page.getByText("Draft saved.")).toBeVisible();
-      await page.getByRole("button", { name: "Publish" }).click();
+      page.once("dialog", (dialog) => dialog.accept());
+      await page.locator("#builder-publish-button").click();
       await expect(page.locator("#publish-state")).toContainText("Published");
 
       // Publish version B
       await page.locator("#welcome-input").fill("Version B headline");
       await page.getByRole("button", { name: "Save Draft", exact: true }).click();
       await expect(page.getByText("Draft saved.")).toBeVisible();
-      await page.getByRole("button", { name: "Publish" }).click();
+      page.once("dialog", (dialog) => dialog.accept());
+      await page.locator("#builder-publish-button").click();
       await expect(page.locator("#publish-state")).toContainText("Published");
 
       // Verify version list has entries
-      await page.locator('[data-design-inspector="versions"]').click();
+      await openDesignGroup(page, "versions");
       const versionRows = page.locator(".version-row");
       await expect(versionRows.first()).toBeVisible();
       const count = await versionRows.count();

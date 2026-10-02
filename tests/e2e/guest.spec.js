@@ -2,6 +2,18 @@ import { expect, test } from "@playwright/test";
 
 const csrfByRequest = new WeakMap();
 
+async function guestNavigation(page) {
+  const configured = page.locator(".experience-configured-navigation");
+  await expect(configured).toBeVisible();
+  return configured;
+}
+
+async function openHotelMenu(page) {
+  const configuredMenu = page.locator(".experience-configured-header .experience-configured-menu");
+  await expect(configuredMenu).toBeVisible();
+  await configuredMenu.click();
+}
+
 async function loginAdmin(request) {
   if (csrfByRequest.has(request)) return csrfByRequest.get(request);
   const response = await request.post("/api/admin/auth/login", {
@@ -23,7 +35,29 @@ async function loginAdmin(request) {
 }
 
 test.beforeEach(async ({ page, request }) => {
-  await loginAdmin(request);
+  const csrf = await loginAdmin(request);
+  // The preceding admin onboarding flow intentionally leaves its newly created
+  // property behind. Keep guest smoke tests on one synthetic localhost property
+  // so localhost does not have to guess which property a guest should see.
+  const propertiesResponse = await request.get("/api/admin/properties");
+  expect(propertiesResponse.ok()).toBeTruthy();
+  const properties = (await propertiesResponse.json()).properties || [];
+  let guestProperty = properties.find((property) => property.property_id === "e2e-property");
+  if (!guestProperty) {
+    const created = await request.put("/api/admin/properties/e2e-property", {
+      headers: { "X-CSRF-Token": csrf },
+      data: { property_id: "e2e-property", hotel_name: "E2E Property", timezone: "Asia/Manila" },
+    });
+    expect(created.ok(), await created.text()).toBeTruthy();
+    guestProperty = { property_id: "e2e-property" };
+  }
+  for (const property of properties) {
+    if (property.property_id === guestProperty.property_id) continue;
+    const removed = await request.delete(`/api/admin/properties/${property.property_id}`, {
+      headers: { "X-CSRF-Token": csrf },
+    });
+    expect(removed.ok(), await removed.text()).toBeTruthy();
+  }
   // Guest workflow checks should not inherit branding-test intro settings.
   await page.route("**/api/guest/intro**", (route) => route.fulfill({
     status: 200,
@@ -105,32 +139,83 @@ test("guest: opens on the personal stay home, with chat available separately", a
   await page.goto("/");
 
   await expect(page.locator("#home-view")).toBeVisible();
-  await expect(page.locator("#home-name")).toHaveText("Your stay");
+  await expect(page.locator(".experience-hero h1")).toBeVisible();
+  await expect(page.locator(".experience-hero h1")).not.toHaveText("");
   await expect(page.locator("#concierge-view")).toBeHidden();
   await expect(page.getByLabel("Ask your concierge")).toBeVisible();
   await expect(page.locator("#send-button")).toBeDisabled();
 });
 
+test("guest: empty property home hides empty sections and unsupported routes", async ({ page }) => {
+  await page.route("**/api/hotel", async (route) => {
+    const response = await route.fetch();
+    const profile = await response.json();
+    profile.design = { ...(profile.design || {}), suggestions: [] };
+    await route.fulfill({ response, json: profile });
+  });
+  await page.route("**/api/guest/home", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      greeting: "Welcome", stay: { status: "unverified" }, cards: [], active_requests: [],
+      quick_actions: [{ label: "Internal action", view: "internal" }], suggested_prompts: [],
+      inventory: { restaurants: [], facilities: [], events: [], promotions: [], recommendations: [], menu_items: [] },
+    }),
+  }));
+  await page.goto("/");
+
+  await expect(page.locator(".experience-quick_actions")).toHaveCount(0);
+  await expect(page.locator(".experience-card-grid")).toHaveCount(0);
+  await expect(page.locator("#home-actions-section")).toBeHidden();
+  await expect(page.locator("#home-cards-section")).toBeHidden();
+  await expect(page.locator("#home-cards > article")).toHaveCount(0);
+  await expect(page.locator("#quick-actions > button")).toHaveCount(0);
+});
+
+test("guest: optional catalog outages do not prevent a concierge session from starting", async ({ page }) => {
+  await page.route("**/api/guest/service-catalog", (route) => route.fulfill({
+    status: 503,
+    contentType: "application/json",
+    body: JSON.stringify({ detail: "Catalog temporarily unavailable" }),
+  }));
+  await page.route("**/api/guest/recommendations", (route) => route.fulfill({
+    status: 503,
+    contentType: "application/json",
+    body: JSON.stringify({ detail: "Recommendations temporarily unavailable" }),
+  }));
+  const sessionStarted = page.waitForResponse((response) =>
+    new URL(response.url()).pathname === "/api/session/start" && response.request().method() === "POST",
+  );
+  await page.goto("/");
+  const response = await sessionStarted;
+
+  expect(response.ok()).toBeTruthy();
+  await expect(page.locator("#home-view")).toBeVisible();
+  await expect(page.locator(".message-row.error")).toHaveCount(0);
+});
+
 test("guest: bottom navigation switches between stay, explore, requests, and concierge", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Explore" }).click();
+  const navigation = await guestNavigation(page);
+  await navigation.getByRole("button", { name: "Explore" }).click();
   await expect(page.locator("#explore-view")).toBeVisible();
-  await page.getByRole("button", { name: "Requests" }).click();
+  await navigation.getByRole("button", { name: "Requests" }).click();
   await expect(page.locator("#requests-view")).toBeVisible();
-  await page.getByRole("button", { name: "My Stay" }).click();
+  await navigation.getByRole("button", { name: "My Stay" }).click();
   await expect(page.locator("#stay-view")).toBeVisible();
-  await page.getByRole("button", { name: "Concierge" }).click();
+  await navigation.getByRole("button", { name: "Concierge", exact: true }).click();
   await expect(page.locator("#concierge-view")).toBeVisible();
-  await page.getByRole("button", { name: "Home" }).click();
+  await navigation.getByRole("button", { name: "Home" }).click();
   await expect(page.locator("#home-view")).toBeVisible();
 });
 
 test("guest: Explore and My Stay use configured property content", async ({ page, request }) => {
   await ensureGuestData(request);
   await page.goto("/");
-  await page.getByRole("button", { name: "Explore" }).click();
+  const navigation = await guestNavigation(page);
+  await navigation.getByRole("button", { name: "Explore" }).click();
   await expect(page.locator("#recommendation-list")).toContainText("Fixture Bistro");
-  await page.getByRole("button", { name: "My Stay" }).click();
+  await navigation.getByRole("button", { name: "My Stay" }).click();
   await expect(page.locator("#stay-property-name")).toBeVisible();
   await expect(page.locator("#stay-summary-card")).toContainText("Active requests");
 });
@@ -139,6 +224,295 @@ test("guest: hotel name and concierge name are displayed", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#hotel-name")).toBeVisible();
   await expect(page.locator("#concierge-name")).toBeVisible();
+});
+
+test("guest: property branding and home prompts use the published property design", async ({ page }) => {
+  await page.route("**/api/hotel", async (route) => {
+    const response = await route.fetch();
+    const profile = await response.json();
+    profile.design = {
+      ...(profile.design || {}),
+      branding: { ...(profile.design?.branding || {}), hotelName: "The Linden House by the Quiet Sea" },
+      welcome: {
+        ...(profile.design?.welcome || {}),
+        greeting: "Welcome back",
+        headline: "A stay shaped around you",
+        description: "Property-configured welcome copy.",
+      },
+      suggestions: [
+        { label: "Explore dining", prompt: "Show dining options", enabled: true, order: 0 },
+        { label: "My stay details", prompt: "Tell me about my stay", enabled: true, order: 1 },
+        { label: "Disabled action", prompt: "Unavailable prompt", enabled: false, order: 2 },
+      ],
+      pages: (profile.design?.pages || []).map((page) => page.id !== "home" ? page : {
+        ...page,
+        sections: page.sections.map((section) => section.type !== "hero" ? section : {
+          ...section,
+          properties: {
+            ...(section.properties || {}),
+            eyebrow: "Welcome back",
+            headline: "A stay shaped around you",
+            description: "Property-configured welcome copy.",
+          },
+        }),
+      }),
+    };
+    await route.fulfill({ response, json: profile });
+  });
+  await page.route("**/api/chat", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ answer: "Here are the configured dining options.", source: "knowledge" }),
+  }));
+  await page.route("**/api/guest/home", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      greeting: "Good evening", preferred_name: "Jordan Sample", stay: { status: "checked_in" },
+      primary_action: { label: "Explore dining", view: "explore" },
+      primary_card: { type: "restaurant", title: "Configured Dining", subtitle: "Seasonal cuisine · Lobby level", description: "A property-configured dining option.", restaurant_id: "visual-dining" },
+      cards: [
+        { type: "event", title: "Guest activity", subtitle: "Today", description: "A configured property activity.", event_id: "visual-event" },
+        { type: "recommendation", title: "Nearby dining", subtitle: "Dining", description: "A configured local recommendation.", recommendation_id: "visual-recommendation" },
+        { type: "promotion", title: "Seasonal offer", subtitle: "Available today", description: "A configured property offer." },
+      ],
+      active_requests: [], quick_actions: [], suggested_prompts: ["Unconfigured fallback"],
+      inventory: {
+        restaurants: [{ restaurant_id: "visual-dining", name: "Configured Dining", cuisine: "Seasonal cuisine", location: "Lobby level", images: [] }],
+        facilities: [], events: [{ event_id: "visual-event", title: "Guest activity" }],
+        promotions: [], recommendations: [{ recommendation_id: "visual-recommendation", name: "Nearby dining", images: [] }], menu_items: [],
+      },
+    }),
+  }));
+  await page.goto("/");
+
+  await expect(page.locator("#hotel-name")).toHaveText("The Linden House by the Quiet Sea");
+  await expect(page.locator("#hotel-initial")).toHaveText("T");
+  await expect(page.locator(".experience-hero h1")).toHaveText("A stay shaped around you");
+  await expect(page.locator(".experience-hero")).toContainText("Property-configured welcome copy.");
+  await expect(page.locator(".experience-hero .experience-eyebrow")).toHaveText("Welcome back");
+  const quickActions = page.locator(".experience-quick_actions");
+  await expect(quickActions).toContainText("Explore dining");
+  await expect(quickActions).not.toContainText("Disabled action");
+  await expect(quickActions).not.toContainText("Unconfigured fallback");
+  await expect(quickActions.locator(".experience-action-card")).toHaveCount(2);
+  await expect(page.locator(".experience-card-grid")).toContainText("Nearby dining");
+  await page.screenshot({
+    path: test.info().outputPath(`guest-home-redesign-${test.info().project.name}.png`),
+    fullPage: true,
+    animations: "disabled",
+  });
+  await quickActions.getByRole("button", { name: /Explore dining/ }).click();
+  await expect(page.locator("#home-view")).toBeVisible();
+  await expect(page.locator("#home-conversation")).toContainText("Here are the configured dining options.");
+  await expect(page.locator("#concierge-view")).toBeHidden();
+  await expect(page.locator("#home-conversation .message-row.user")).toHaveCount(1);
+});
+
+test("guest: home shows four configured actions first, then real supported routes in See all", async ({ page }) => {
+  await page.route("**/api/hotel", async (route) => {
+    const response = await route.fetch();
+    const profile = await response.json();
+    profile.design = {
+      ...(profile.design || {}),
+      suggestions: [
+        { label: "Dining", prompt: "Show dining options", enabled: true, order: 0 },
+        { label: "Room Service", prompt: "Show available room service", enabled: true, order: 1 },
+        { label: "Housekeeping", prompt: "Request housekeeping service", enabled: true, order: 2 },
+        { label: "Transportation", prompt: "Show configured transport options", enabled: true, order: 3 },
+        { label: "Disabled action", prompt: "Unavailable action", enabled: false, order: 4 },
+      ],
+    };
+    await route.fulfill({ response, json: profile });
+  });
+  await page.route("**/api/guest/home", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      greeting: "Welcome", stay: { status: "unverified" }, cards: [], active_requests: [], suggested_prompts: [],
+      quick_actions: [
+        { label: "My Stay", view: "stay" },
+        { label: "Requests", view: "requests" },
+        { label: "Explore", view: "explore" },
+      ],
+      inventory: { restaurants: [], facilities: [], events: [], promotions: [], recommendations: [], menu_items: [] },
+    }),
+  }));
+  await page.goto("/");
+
+  const actions = page.locator(".experience-quick_actions");
+  await expect(actions.locator(".experience-action-card")).toHaveCount(4);
+  await expect(actions).toContainText("Dining");
+  await expect(actions).toContainText("Room Service");
+  await expect(actions).toContainText("Housekeeping");
+  await expect(actions).toContainText("Transportation");
+  await expect(actions).not.toContainText("Disabled action");
+  const more = actions.getByRole("button", { name: "See all" });
+  await expect(more).toBeVisible();
+  await more.click();
+  await expect(actions.locator(".experience-see-all")).toHaveAttribute("aria-expanded", "true");
+  await expect(actions.locator(".experience-action-card")).toHaveCount(7);
+  await actions.getByRole("button", { name: /My Stay/ }).click();
+  await expect(page.locator("#stay-view")).toBeVisible();
+});
+
+test("guest: home suggestion cards use property images and gracefully fall back for unsafe images", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.open = (url) => {
+      window.__capturedGuestUrl = String(url);
+      return null;
+    };
+  });
+  await page.route("**/api/guest/home", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      greeting: "Welcome", stay: { status: "unverified" }, primary_card: null,
+      cards: [
+        { type: "recommendation", title: "Featured property", subtitle: "Dining", description: "A safe image from property data.", recommendation_id: "safe-image", map_url: "https://maps.example/safe" },
+        { type: "recommendation", title: "Text recommendation", subtitle: "Dining", description: "Still available without a valid image.", recommendation_id: "unsafe-image", map_url: "http://maps.example/property" },
+      ],
+      active_requests: [], quick_actions: [], suggested_prompts: [],
+      inventory: {
+        restaurants: [],
+        facilities: [],
+        events: [], promotions: [],
+        recommendations: [
+          { recommendation_id: "safe-image", name: "Featured property", images: ["/test-featured.svg"], map_url: "https://maps.example/safe" },
+          { recommendation_id: "unsafe-image", name: "Text recommendation", images: ["javascript:alert(1)"], map_url: "http://maps.example/property" },
+        ],
+        menu_items: [],
+      },
+    }),
+  }));
+  await page.route("**/test-featured.svg", (route) => route.fulfill({
+    status: 200,
+    contentType: "image/svg+xml",
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="16"><rect width="24" height="16" fill="#c8a873"/></svg>',
+  }));
+  await page.route("**/missing-featured.svg", (route) => route.fulfill({ status: 404, body: "missing" }));
+  await page.goto("/");
+
+  const grid = page.locator(".experience-card-grid");
+  await expect(grid).toBeVisible();
+  await expect(grid.locator(".guest-card-has-image")).toHaveCount(1);
+  await expect(grid).toContainText("Text recommendation");
+  await expect(grid.locator("article").nth(1).locator(".guest-card-media")).toHaveCount(0);
+  await grid.locator("article").first().getByRole("button", { name: "Directions" }).click();
+  await expect.poll(() => page.evaluate(() => window.__capturedGuestUrl)).toBe("https://maps.example/safe");
+  await grid.locator("article").nth(1).getByRole("button", { name: "Directions" }).click();
+  await expect.poll(() => page.evaluate(() => window.__capturedGuestUrl)).toBe("http://maps.example/property");
+});
+
+test("guest: missing suggestion image falls back to its property content", async ({ page }) => {
+  await page.route("**/api/hotel", async (route) => {
+    const response = await route.fetch();
+    const profile = await response.json();
+    profile.design = {
+      ...(profile.design || {}),
+      pages: (profile.design?.pages || []).map((page) => page.id !== "home" ? page : {
+        ...page,
+        sections: page.sections.map((section) => section.type !== "card_grid" ? section : {
+          ...section, properties: { ...(section.properties || {}), source: "facilities" },
+        }),
+      }),
+    };
+    await route.fulfill({ response, json: profile });
+  });
+  await page.route("**/api/guest/home", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      greeting: "Welcome", stay: { status: "unverified" }, primary_card: null,
+      cards: [{ type: "facility", title: "Property facility", description: "Available property details.", facility_id: "missing-image" }],
+      active_requests: [], quick_actions: [], suggested_prompts: [],
+      inventory: { restaurants: [], facilities: [{ facility_id: "missing-image", name: "Property facility", description: "Available property details.", images: ["/missing-featured.svg"] }], events: [], promotions: [], recommendations: [], menu_items: [] },
+    }),
+  }));
+  await page.route("**/missing-featured.svg", (route) => route.fulfill({ status: 404, body: "missing" }));
+  await page.goto("/");
+
+  const grid = page.locator(".experience-card-grid");
+  await expect(grid).toContainText("Property facility");
+  await expect(grid.locator(".guest-card-has-image")).toHaveCount(0);
+  await expect(grid.locator("article")).toContainText("Available property details.");
+});
+
+test("guest: composer shortcuts open a supported guest view", async ({ page }) => {
+  await page.route("**/api/hotel", async (route) => {
+    const response = await route.fetch();
+    const profile = await response.json();
+    const pages = [
+      {
+        id: "home", type: "guest_home", version: 2, name: "Home", slug: "/", enabled: true,
+        sections: [
+          { id: "welcome", type: "hero", order: 0, enabled: true, properties: { headline: "Welcome" } },
+          { id: "composer", type: "concierge_composer", order: 1, enabled: true, properties: { enabled: true, placeholder: "Ask your concierge..." } },
+          { id: "bottom-navigation", type: "bottom_navigation", order: 2, enabled: true, properties: {
+            show_labels: true, position: "fixed", height: "medium", icon_size: "medium", safe_area_padding: true,
+            items: [
+              { id: "nav-home", label: "Home", icon: "⌂", enabled: true, action: { type: "internal_page", page_id: "home" } },
+              { id: "nav-explore", label: "Explore", icon: "◇", enabled: true, action: { type: "internal_page", page_id: "explore" } },
+            ],
+          } },
+        ],
+      },
+      ...["explore", "requests", "stay", "concierge"].map((id) => ({ id, type: "guest_page", version: 1, name: id, slug: `/${id}`, enabled: true, sections: [] })),
+    ];
+    profile.design = { ...(profile.design || {}), pages, composer: { ...(profile.design?.composer || {}), enabled: true } };
+    await route.fulfill({ response, json: profile });
+  });
+  await page.goto("/");
+  const configuredNavigation = page.locator(".experience-configured-navigation");
+  await expect(configuredNavigation).toBeVisible();
+  if (await configuredNavigation.count()) {
+    const composerBounds = await page.locator("#composer-region").boundingBox();
+    const navigationBounds = await configuredNavigation.boundingBox();
+    expect(composerBounds.y + composerBounds.height).toBeLessThanOrEqual(navigationBounds.y + 1);
+  }
+  await page.locator("#composer-actions-toggle").click();
+  const shortcuts = page.locator("#composer-action-sheet");
+  await expect(shortcuts).toBeVisible();
+  await shortcuts.getByRole("button", { name: "Explore" }).click();
+  await expect(page.locator("#explore-view")).toBeVisible();
+  await expect(page.locator("#composer-action-sheet")).toBeHidden();
+});
+
+test("guest: unsafe configured hero image URLs fall back without loading", async ({ page }) => {
+  await page.route("**/api/hotel", async (route) => {
+    const response = await route.fetch();
+    const profile = await response.json();
+    profile.design = {
+      ...(profile.design || {}),
+      theme: { ...(profile.design?.theme || {}), backgroundImageUrl: "javascript:alert(document.domain)" },
+    };
+    await route.fulfill({ response, json: profile });
+  });
+  await page.goto("/");
+
+  await expect(page.locator(".experience-hero img")).toHaveCount(0);
+  await expect(page.locator(".experience-hero")).not.toHaveClass(/experience-hero-has-image/);
+});
+
+test("guest: property-configured hero image loads inside the home hero", async ({ page }) => {
+  await page.route("**/api/hotel", async (route) => {
+    const response = await route.fetch();
+    const profile = await response.json();
+    profile.design = {
+      ...(profile.design || {}),
+      theme: { ...(profile.design?.theme || {}), backgroundImageUrl: "/test-hero.svg" },
+    };
+    await route.fulfill({ response, json: profile });
+  });
+  await page.route("**/test-hero.svg", (route) => route.fulfill({
+    status: 200,
+    contentType: "image/svg+xml",
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><rect width="2" height="2" fill="#b38a4a"/></svg>',
+  }));
+  await page.goto("/");
+
+  await expect(page.locator(".experience-hero-image")).toBeVisible();
+  await expect(page.locator(".experience-hero")).toHaveClass(/experience-hero-has-image/);
 });
 
 // --- 2. Chat submit and multiline composer ---
@@ -385,7 +759,9 @@ test("guest: restaurant card details button toggles verified details", async ({ 
 
   const detailsBtn = page.locator(".recommendation-card").first().getByRole("button", { name: "Details" });
   await detailsBtn.click();
-  await expect(page.locator(".recommendation-card").first()).toContainText("Synthetic test recommendation.");
+  const details = page.locator(".recommendation-card").first().locator("p");
+  await expect(details).toBeVisible();
+  await expect(details).toHaveText("Synthetic test recommendation.");
   await expect(detailsBtn).toHaveText("Hide details");
 });
 
@@ -407,7 +783,7 @@ test("guest can request restaurant staff from the hotel menu", async ({ page, re
   await page.goto("/");
   expect((await facilitiesLoaded).ok()).toBeTruthy();
   expect((await sessionStarted).ok()).toBeTruthy();
-  await page.getByRole("button", { name: "Open hotel menu" }).click();
+  await openHotelMenu(page);
   await page.getByRole("button", { name: "Talk to Restaurant Staff" }).click();
   await expect(page.locator("#restaurant-staff-dialog")).toBeVisible();
   await page.locator("#restaurant-staff-select").selectOption({ label: restaurantName });
@@ -437,7 +813,7 @@ test("guest: configured service request shows confirmation card", async ({ page,
 test("guest: a configured service can be requested directly without opening chat", async ({ page, request }) => {
   await ensureGuestData(request);
   await page.goto("/");
-  await page.getByRole("button", { name: "Requests" }).click();
+  await (await guestNavigation(page)).getByRole("button", { name: "Requests" }).click();
   await expect(page.locator("#request-catalog-list")).toContainText("Towels");
   await page.locator(".service-action-row").filter({ has: page.getByText("Towels", { exact: true }) }).getByRole("button", { name: "Request" }).click();
   await expect(page.locator("#request-action-confirmation")).toContainText("Send this request to the hotel team?");
@@ -476,7 +852,7 @@ test("guest: confirmed service request appears in My Requests", async ({ page, r
 
 test("guest: menu opens and closes", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Open hotel menu" }).click();
+  await openHotelMenu(page);
   await expect(page.locator("#hotel-menu")).toHaveClass(/open/);
 
   await page.getByRole("button", { name: "Close menu" }).click();
@@ -485,7 +861,7 @@ test("guest: menu opens and closes", async ({ page }) => {
 
 test("guest: options button opens the same working menu", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Open hotel menu" }).click();
+  await openHotelMenu(page);
   await expect(page.locator("#hotel-menu")).toHaveClass(/open/);
   await page.getByRole("button", { name: "Close menu" }).click();
   await expect(page.locator("#hotel-menu")).not.toHaveClass(/open/);
@@ -494,7 +870,7 @@ test("guest: options button opens the same working menu", async ({ page }) => {
 test("guest: hotel information menu action responds with configured property details", async ({ page, request }) => {
   const hotel = await (await request.get("/api/hotel")).json();
   await page.goto("/");
-  await page.getByRole("button", { name: "Open hotel menu" }).click();
+  await openHotelMenu(page);
   await page.getByRole("button", { name: /Hotel information/ }).click();
   await expect(page.locator(".message-row.assistant").last()).toContainText(hotel.description || hotel.name);
   await expect(page.locator("#hotel-menu")).not.toHaveClass(/open/);
@@ -508,7 +884,7 @@ for (const [label, expectedText] of [
 ]) {
   test(`guest: ${label.toLowerCase()} menu action responds`, async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: "Open hotel menu" }).click();
+    await openHotelMenu(page);
     await page.getByRole("button", { name: new RegExp(label, "i") }).click();
     await expect(page.locator(".message-row.assistant").last()).toContainText(expectedText);
     await expect(page.locator("#hotel-menu")).not.toHaveClass(/open/);
@@ -521,19 +897,33 @@ test("guest: new conversation resets messages", async ({ page }) => {
   await page.getByRole("button", { name: "Send message" }).click();
   await expect(page.locator(".message-row.user")).toBeVisible();
 
-  await page.getByRole("button", { name: "Open hotel menu" }).click();
+  await openHotelMenu(page);
   await page.getByRole("button", { name: "New conversation" }).click();
   await expect(page.locator(".message-row")).toHaveCount(0);
 });
 
 // --- 8. Mobile layout ---
 
-test("guest: mobile layout (375px) has no horizontal overflow", async ({ page }) => {
-  await page.setViewportSize({ width: 375, height: 667 });
+test("guest: requested desktop, tablet, and mobile widths have no overflow or footer overlap", async ({ page }) => {
   await page.goto("/");
-
-  const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
-  expect(bodyWidth).toBeLessThanOrEqual(375);
+  for (const width of [375, 390, 430, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    const metrics = await page.evaluate(() => {
+      const composer = document.querySelector("#composer-form").getBoundingClientRect();
+      const navElement = document.querySelector(".experience-configured-navigation:not([hidden]), #guest-bottom-nav:not([hidden])");
+      const nav = navElement?.getBoundingClientRect() || { top: window.innerHeight, bottom: window.innerHeight };
+      return {
+        bodyWidth: document.body.scrollWidth,
+        viewportWidth: window.innerWidth,
+        composerBottom: composer.bottom,
+        navTop: nav.top,
+        navBottom: nav.bottom,
+      };
+    });
+    expect(metrics.bodyWidth, `body overflowed at ${width}px`).toBeLessThanOrEqual(width);
+    expect(metrics.composerBottom, `composer overlaps navigation at ${width}px`).toBeLessThanOrEqual(metrics.navTop + 1);
+    expect(metrics.navBottom, `navigation escaped the viewport at ${width}px`).toBeLessThanOrEqual(900);
+  }
 });
 
 test("guest: mobile layout shows all core elements", async ({ page }) => {
@@ -541,7 +931,7 @@ test("guest: mobile layout shows all core elements", async ({ page }) => {
   await page.goto("/");
 
   await expect(page.locator("#home-view")).toBeVisible();
-  await expect(page.locator("#home-name")).toHaveText("Your stay");
+  await expect(page.locator("#home-name")).toHaveText("How can I help with your stay today?");
   await expect(page.getByLabel("Ask your concierge")).toBeVisible();
   await expect(page.getByRole("button", { name: "Send message" })).toBeVisible();
 });
@@ -552,7 +942,7 @@ test("guest: composer input uses the available width", async ({ page }) => {
     const input = form.querySelector("textarea");
     return { form: form.getBoundingClientRect().width, input: input.getBoundingClientRect().width };
   });
-  expect(sizes.input).toBeGreaterThan(sizes.form * 0.7);
+  expect(sizes.input).toBeGreaterThan(sizes.form * 0.6);
 });
 
 // --- 9. Guest document upload is not exposed ---

@@ -13,7 +13,8 @@ from app.hospitality import HospitalityStore
 from app.main import app
 from app.operations import OperationsStore
 from app.guardrails import GuestHostnameConflict
-from app.properties import PropertyRecord, PropertyStore, default_design_config
+from app.guest_experience import COMPONENT_REGISTRY
+from app.properties import PropertyRecord, PropertyStore, default_design_config, validate_design_config
 from app.zones import ZoneStore
 
 
@@ -70,6 +71,209 @@ def test_property_round_trip_rich_configuration(tmp_path: Path):
     assert loaded.contact_details["phone"] == "+63 2 555 0100"
     assert loaded.languages == ["en", "fil"]
     assert loaded.public_profile["quick_actions"][0]["label"] == "Checkout"
+
+
+def test_guest_home_design_welcome_copy_has_a_generic_default_and_bounded_description():
+    defaults = default_design_config()
+    assert defaults["welcome"]["headline"] == "How can I help with your stay today?"
+    assert defaults["welcome"]["description"]
+
+    configured = validate_design_config({"welcome": {
+        "headline": "A property-specific headline",
+        "description": "x" * 400,
+    }})
+    assert configured["welcome"]["headline"] == "A property-specific headline"
+    assert len(configured["welcome"]["description"]) == 280
+
+
+def test_guest_home_quick_action_descriptions_are_property_configured_and_bounded():
+    configured = validate_design_config({"suggestions": [{
+        "label": "Explore dining",
+        "prompt": "Show restaurants",
+        "description": "x" * 180,
+    }]})
+
+    assert configured["suggestions"][0]["label"] == "Explore dining"
+    assert configured["suggestions"][0]["prompt"] == "Show restaurants"
+    assert configured["suggestions"][0]["description"] == "x" * 140
+
+
+def test_guest_experience_visual_builder_schema_and_component_registry():
+    assert set(COMPONENT_REGISTRY) == {
+        "hero", "heading", "text", "image", "button", "quick_actions", "card_grid", "banner", "concierge_composer",
+        "divider", "spacer", "carousel", "container", "columns", "restaurant", "room_service", "housekeeping",
+        "transportation", "amenities", "promotions", "events", "ai_suggestion", "header", "bottom_navigation",
+    }
+    config = default_design_config()
+    home = next(page for page in config["pages"] if page["id"] == "home")
+    home["sections"] = [
+        {"id": "copy", "type": "text", "enabled": True, "order": 2, "properties": {"content": "Guest details"}},
+        {"id": "welcome", "type": "hero", "enabled": True, "order": 0, "properties": {"headline": "Welcome"}},
+    ]
+
+    validated = validate_design_config(config)
+    sections = validated["pages"][0]["sections"]
+    assert validated["schema_version"] == 1
+    assert [(section["id"], section["order"]) for section in sections] == [("welcome", 0), ("copy", 1)]
+    assert sections[1]["properties"]["content"] == "Guest details"
+
+
+def test_guest_experience_persists_controlled_layout_animation_and_appearance():
+    config = default_design_config()
+    home = next(page for page in config["pages"] if page["id"] == "home")
+    home["sections"] = [{
+        "id": "hero", "type": "hero", "order": 0, "properties": {"headline": "Welcome"},
+        "responsive": {"phone": True, "columns": 2, "mobile_behavior": "stack"},
+        "layout": {"width": "wide", "height": "large", "spacing": "medium", "alignment": "left"},
+        "appearance": {"background_color": "#f6f3ec", "overlay_color": "#1f2933", "overlay_opacity": 35, "radius": "large", "shadow": "subtle"},
+        "animation": {"entrance": "fade_up", "duration": "slow", "delay": 300, "trigger": "enter_viewport", "repeat": "each"},
+    }]
+    section = validate_design_config(config)["pages"][0]["sections"][0]
+    assert section["responsive"]["mobile_behavior"] == "stack"
+    assert section["layout"]["width"] == "wide"
+    assert section["appearance"]["overlay_opacity"] == 35
+    assert section["animation"]["entrance"] == "fade_up"
+    assert section["animation"]["repeat"] == "each"
+
+
+@pytest.mark.parametrize("section", [
+    {"id": "bad-animation", "type": "hero", "animation": {"entrance": "run-script"}},
+    {"id": "bad-layout", "type": "hero", "layout": {"width": "javascript:alert(1)"}},
+    {"id": "bad-color", "type": "hero", "appearance": {"background_color": "url(javascript:alert(1))"}},
+    {"id": "bad-responsive", "type": "hero", "responsive": {"mobile_behavior": "execute"}},
+])
+def test_guest_experience_rejects_unsupported_editor_controls(section):
+    config = default_design_config()
+    next(page for page in config["pages"] if page["id"] == "home")["sections"] = [{"type": "hero", "order": 0, "properties": {}, **section}]
+    with pytest.raises(ValueError):
+        validate_design_config(config)
+
+
+def test_guest_button_actions_validate_external_urls_and_preserve_open_behavior():
+    config = default_design_config()
+    home = next(page for page in config["pages"] if page["id"] == "home")
+    home["sections"] = [{
+        "id": "link", "type": "button", "order": 0,
+        "properties": {"label": "Visit", "action": {"type": "external_url", "url": "https://example.org/visit", "open_in": "new_tab"}},
+    }]
+    action = validate_design_config(config)["pages"][0]["sections"][0]["properties"]["action"]
+    assert action["open_in"] == "new_tab"
+    for unsafe in ("javascript:alert(1)", "data:text/html,hi", "ftp://example.org", "https://user:password@example.org", "https://example.org:bad"):
+        config = default_design_config()
+        next(page for page in config["pages"] if page["id"] == "home")["sections"] = [{
+            "id": "link", "type": "button", "order": 0,
+            "properties": {"label": "Visit", "action": {"type": "external_url", "url": unsafe}},
+        }]
+        with pytest.raises(ValueError):
+            validate_design_config(config)
+
+
+def test_guest_quick_action_ids_are_unique_and_internal_destinations_must_be_enabled():
+    config = default_design_config()
+    home = next(page for page in config["pages"] if page["id"] == "home")
+    home["sections"] = [{
+        "id": "actions", "type": "quick_actions", "order": 0,
+        "properties": {"items": [
+            {"id": "same", "label": "First", "action": {"type": "prompt", "prompt": "First"}},
+            {"id": "same", "label": "Second", "action": {"type": "prompt", "prompt": "Second"}},
+        ]},
+    }]
+    with pytest.raises(ValueError, match="Quick action IDs"):
+        validate_design_config(config)
+
+    config = default_design_config()
+    home = next(page for page in config["pages"] if page["id"] == "home")
+    home["sections"] = [{
+        "id": "link", "type": "button", "order": 0,
+        "properties": {"label": "Go", "action": {"type": "internal_page", "page_id": "explore"}},
+    }]
+    next(page for page in config["pages"] if page["id"] == "explore")["enabled"] = False
+    with pytest.raises(ValueError, match="enabled page"):
+        validate_design_config(config)
+
+
+def test_guest_nested_navigation_cards_and_ctas_persist_as_schema_items():
+    config = default_design_config()
+    home = next(page for page in config["pages"] if page["id"] == "home")
+    home["version"] = 2
+    home["sections"] = [
+        {"id": "guest-header", "type": "header", "order": 0, "properties": {"show_menu": True, "menu_action": {"type": "internal_page", "page_id": "explore"}}},
+        {"id": "hero", "type": "hero", "order": 1, "properties": {"buttons": [{"id": "primary-cta", "label": "Explore", "enabled": True, "action": {"type": "external_url", "url": "https://example.org/stay", "open_in": "same_tab"}}]}},
+        {"id": "actions", "type": "quick_actions", "order": 2, "properties": {"items": [{"id": "spa", "label": "Spa", "icon": "✦", "enabled": True, "action": {"type": "internal_page", "page_id": "explore"}, "style_mode": "custom", "appearance": {"background_color": "#faf8f4", "radius": "large"}}]}},
+        {"id": "cards", "type": "card_grid", "order": 3, "properties": {"source": "recommendations", "items": [{"id": "special", "title": "Sample card", "description": "Schema-owned content", "cta": "View", "enabled": True, "action": {"type": "external_url", "url": "https://example.org/card", "open_in": "new_tab"}, "style_mode": "custom", "appearance": {"border_color": "#dedbd4"}}]}},
+        {"id": "guest-nav", "type": "bottom_navigation", "order": 4, "properties": {"position": "inline", "items": [{"id": "dining-link", "label": "Dining", "icon": "♨", "enabled": True, "action": {"type": "internal_page", "page_id": "explore"}}, {"id": "spa-link", "label": "Spa", "icon": "✦", "enabled": False, "action": {"type": "concierge"}}]}},
+    ]
+
+    sections = validate_design_config(config)["pages"][0]["sections"]
+    header, hero, actions, cards, navigation = sections
+    assert header["properties"]["menu_action"] == {"type": "internal_page", "page_id": "explore"}
+    assert hero["properties"]["buttons"][0]["id"] == "primary-cta"
+    assert actions["properties"]["items"][0]["style_mode"] == "custom"
+    assert cards["properties"]["items"][0]["action"]["url"] == "https://example.org/card"
+    assert [item["label"] for item in navigation["properties"]["items"]] == ["Dining", "Spa"]
+    assert navigation["properties"]["items"][1]["enabled"] is False
+
+
+def test_guest_nested_items_reject_unsafe_images_and_external_schemes():
+    config = default_design_config()
+    home = next(page for page in config["pages"] if page["id"] == "home")
+    home["sections"] = [{"id": "cards", "type": "card_grid", "order": 0, "properties": {"items": [{"id": "unsafe-image", "title": "Card", "image_url": "data:text/html,not-an-image"}]}}]
+    with pytest.raises(ValueError, match="Card image"):
+        validate_design_config(config)
+
+    config = default_design_config()
+    home = next(page for page in config["pages"] if page["id"] == "home")
+    home["sections"] = [{"id": "navigation", "type": "bottom_navigation", "order": 0, "properties": {"items": [{"id": "unsafe-link", "label": "Bad", "action": {"type": "external_url", "url": "javascript:alert(1)"}}]}}]
+    with pytest.raises(ValueError, match="valid HTTP or HTTPS"):
+        validate_design_config(config)
+
+
+@pytest.mark.parametrize("bad_section", [
+    {"id": "script", "type": "script", "enabled": True, "order": 0, "properties": {}},
+    {"id": "markup", "type": "text", "enabled": True, "order": 0, "properties": {"content": "Hi", "html": "<script>alert(1)</script>"}},
+    {"id": "css", "type": "text", "enabled": True, "order": 0, "properties": {"content": "Hi"}, "custom_css": "body{}"},
+])
+def test_guest_experience_rejects_unsupported_blocks_and_injection_fields(bad_section):
+    config = default_design_config()
+    next(page for page in config["pages"] if page["id"] == "home")["sections"] = [bad_section]
+
+    with pytest.raises(ValueError):
+        validate_design_config(config)
+
+
+@pytest.mark.parametrize("config", [
+    {"branding": {"logoUrl": "javascript:alert(1)"}},
+    {"branding": {"conciergeAvatarUrl": "//attacker.example/image.png"}},
+    {"theme": {"backgroundImageUrl": "data:text/html,<script>"}},
+    {"theme": []},
+])
+def test_guest_experience_rejects_unsafe_brand_images_and_malformed_sections(config):
+    with pytest.raises(ValueError):
+        validate_design_config(config)
+
+
+def test_design_revision_conflict_and_property_isolation(tmp_path: Path):
+    store = PropertyStore(tmp_path / "design-isolation.db")
+    store.upsert(PropertyRecord(property_id="property-a", hotel_name="A"))
+    store.upsert(PropertyRecord(property_id="property-b", hotel_name="B"))
+    a = store.get("property-a")
+    b = store.get("property-b")
+    assert a and b
+    changed = copy.deepcopy(a.design_draft)
+    hero = next(section for section in changed["pages"][0]["sections"] if section["type"] == "hero")
+    hero["properties"]["headline"] = "Draft A"
+
+    saved = store.save_design_draft("property-a", changed, expected_revision=a.design_revision)
+    saved_hero = next(section for section in saved.design_draft["pages"][0]["sections"] if section["type"] == "hero")
+    assert saved_hero["properties"]["headline"] == "Draft A"
+    assert store.get("property-b").design_draft == b.design_draft
+    with pytest.raises(ValueError, match="another session"):
+        store.save_design_draft("property-a", changed, expected_revision=a.design_revision)
+
+    published = store.publish_design("property-a", expected_revision=saved.design_revision)
+    published_hero = next(section for section in published.design_published["pages"][0]["sections"] if section["type"] == "hero")
+    assert published_hero["properties"]["headline"] == "Draft A"
+    assert store.get("property-b").design_published == b.design_published
 
 
 def test_property_store_centrally_rejects_normalized_hostname_and_ip_collisions(tmp_path: Path):
@@ -368,3 +572,30 @@ def test_guest_hotel_api_uses_published_design(admin_client: TestClient):
             json={"config": original_published},
         )
         client.post(f"/api/admin/properties/{property_id}/design/publish")
+
+
+def test_basic_property_update_preserves_design_revision(admin_client: TestClient):
+    client = admin_client
+    property_id = client.get("/api/admin/properties").json()["properties"][0]["property_id"]
+    original = copy.deepcopy(main_module.properties.get(property_id))
+    design = client.get(f"/api/admin/properties/{property_id}/design").json()
+    config = copy.deepcopy(design["draft"])
+    config["welcome"]["headline"] = "Revision persistence check"
+
+    try:
+        saved = client.put(
+            f"/api/admin/properties/{property_id}/design/draft",
+            json={"config": config, "expected_revision": design["revision"]},
+        )
+        assert saved.status_code == 200, saved.text
+        saved_revision = saved.json()["revision"]
+        current = client.get(f"/api/admin/properties/{property_id}").json()
+        updated = client.put(f"/api/admin/properties/{property_id}", json={
+            "property_id": property_id,
+            "hotel_name": current["hotel_name"],
+            "timezone": current.get("timezone", "UTC"),
+        })
+        assert updated.status_code == 200, updated.text
+        assert client.get(f"/api/admin/properties/{property_id}/design").json()["revision"] == saved_revision
+    finally:
+        main_module.properties.upsert(original)
