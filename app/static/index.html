@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Concierge.Ai</title>
-  <link rel="stylesheet" href="/static/styles.css?v=18">
+  <link rel="stylesheet" href="/static/styles.css?v=33">
 </head>
 <body>
   <section class="intro-overlay" id="intro-overlay" hidden>
@@ -26,7 +26,7 @@
         <span>Menu</span>
       </button>
       <div class="hotel-identity" aria-live="polite">
-        <div class="hotel-mark" id="hotel-mark">C</div>
+        <div class="hotel-mark" id="hotel-mark" aria-hidden="true"><span id="hotel-initial">C</span><img id="hotel-logo" alt="" hidden></div>
         <div>
           <strong id="hotel-name">Concierge</strong>
           <span class="concierge-presence"><i aria-hidden="true"></i><span id="concierge-name">AI concierge</span></span>
@@ -36,26 +36,49 @@
     <div class="maintenance-banner" id="maintenance-banner" role="status" hidden></div>
 
     <section class="guest-view personal-home" id="home-view" aria-label="Your stay">
-      <div class="guest-view-inner">
-        <header class="stay-welcome">
-          <p id="home-greeting">Welcome</p>
-          <h1 id="home-name">Your stay</h1>
-          <span id="home-stay-phase"></span>
+      <div class="guest-view-inner home-view-inner">
+        <div class="guest-experience-page" id="guest-experience-page"></div>
+        <section class="home-conversation" id="home-conversation" aria-label="Concierge replies" hidden>
+          <div class="home-section-heading"><span>Your concierge</span><button type="button" data-open-view="concierge">Open conversation</button></div>
+          <div class="home-message-list" id="home-message-list" aria-live="polite" aria-label="Concierge replies"></div>
+        </section>
+        <div class="legacy-home-content" id="legacy-home-content">
+        <header class="home-hero" id="home-hero" aria-labelledby="home-name">
+          <div class="home-hero-media" id="home-hero-media" aria-hidden="true" hidden>
+            <img id="home-hero-image" alt="" loading="lazy" decoding="async">
+          </div>
+          <div class="home-hero-copy">
+            <p class="home-hero-greeting" id="home-greeting">Welcome</p>
+            <h1 id="home-name">How can I help with your stay today?</h1>
+            <p class="home-hero-description" id="home-description">Your personal concierge is here to make your stay more comfortable.</p>
+            <span class="home-stay-phase" id="home-stay-phase" hidden></span>
+          </div>
         </header>
+        <section class="home-section home-actions-section" id="home-actions-section" aria-labelledby="home-actions-heading" hidden>
+          <div class="home-section-heading">
+            <span id="home-actions-heading">Quick actions</span>
+            <button type="button" id="home-actions-toggle" aria-expanded="false" hidden>See all <span aria-hidden="true">›</span></button>
+          </div>
+          <div class="quick-action-list" id="quick-actions"></div>
+        </section>
         <section class="home-primary" id="home-primary" aria-label="A helpful next step" hidden></section>
         <section class="home-section" id="home-requests-section" hidden>
           <div class="home-section-heading"><span>Your requests</span><button type="button" data-open-view="requests">View all</button></div>
           <div class="home-request-list" id="home-requests"></div>
         </section>
         <section class="home-section" id="home-cards-section" hidden>
-          <div class="home-section-heading"><span>For you</span></div>
-          <div class="home-card-list" id="home-cards"></div>
+          <div class="home-section-heading">
+            <span>Suggested for you</span>
+            <button type="button" id="home-suggestions-more" aria-expanded="false" hidden>See all</button>
+          </div>
+          <div class="home-suggestion-list" id="home-cards"></div>
         </section>
-        <section class="home-section">
-          <div class="home-section-heading"><span>Quick actions</span></div>
-          <div class="quick-action-list" id="quick-actions"></div>
-        </section>
+        </div>
       </div>
+    </section>
+
+    <section class="guest-view guest-custom-page" id="custom-page-view" aria-label="Guest page" hidden>
+      <div class="guest-view-inner"><div class="guest-experience-page" id="custom-experience-page"></div></div>
     </section>
 
     <section class="guest-view" id="explore-view" aria-label="Explore" hidden>
@@ -119,8 +142,13 @@
       </div>
     </section>
 
-    <footer class="composer-region">
+    <footer class="composer-region" id="composer-region">
+      <div class="composer-stack">
+      <div class="composer-action-sheet" id="composer-action-sheet" role="group" aria-label="Concierge shortcuts" hidden></div>
       <form class="composer" id="composer-form">
+        <button class="composer-tool-button composer-plus-button" id="composer-actions-toggle" type="button" aria-label="Open concierge shortcuts" aria-controls="composer-action-sheet" aria-expanded="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
         <textarea
           id="composer-input"
           rows="1"
@@ -131,17 +159,22 @@
           placeholder="Ask Concierge anything..."
           aria-label="Ask your concierge"
         ></textarea>
+        <button class="composer-tool-button composer-voice-button" id="composer-voice-button" type="button" aria-label="Start voice input" aria-pressed="false" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M9 21h6"/></svg>
+        </button>
         <button class="send-button" id="send-button" type="submit" aria-label="Send message" disabled>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4.8 14-2.7-5.5L5 12Z"/><path d="m11.5 13.5 3.6-3.6"/></svg>
         </button>
       </form>
+      </div>
+      <p class="composer-status" id="composer-status" role="status" hidden></p>
       <p class="composer-note" id="composer-note">Enter to send <span aria-hidden="true">·</span> Shift+Enter for a new line</p>
       <nav class="guest-bottom-nav" id="guest-bottom-nav" aria-label="Guest navigation">
-        <button type="button" data-view="home" aria-current="page"><span aria-hidden="true">⌂</span><small>Home</small></button>
-        <button type="button" data-view="explore"><span aria-hidden="true">◇</span><small>Explore</small></button>
-        <button type="button" data-view="requests"><span aria-hidden="true">✓</span><small>Requests</small></button>
-        <button type="button" data-view="stay"><span aria-hidden="true">▤</span><small>My Stay</small></button>
-        <button type="button" data-view="concierge"><span aria-hidden="true">○</span><small>Concierge</small></button>
+        <button type="button" data-view="home" aria-current="page"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m3.5 10 8.5-7 8.5 7v10.5h-6v-6h-5v6h-6V10Z"/></svg></span><small>Home</small></button>
+        <button type="button" data-view="explore"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3.5 20.5 12 12 20.5 3.5 12 12 3.5Z"/><path d="M12 8.5v7M8.5 12h7"/></svg></span><small>Explore</small></button>
+        <button type="button" data-view="requests"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 6.5h14M5 12h14M5 17.5h14"/><circle cx="3.5" cy="6.5" r=".6"/><circle cx="3.5" cy="12" r=".6"/><circle cx="3.5" cy="17.5" r=".6"/></svg></span><small>Requests</small></button>
+        <button type="button" data-view="stay"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 20V6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5V20M2.5 20h19"/><path d="M8 8h3v3H8zM14 8.5h2M14 12h2M8 15h8"/></svg></span><small>My Stay</small></button>
+        <button type="button" data-view="concierge"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 18.5h16M6 18.5a6 6 0 0 1 12 0M12 8V4.5M10 4.5h4"/><path d="M8 13.5c2-1.7 6-1.7 8 0"/></svg></span><small>Concierge</small></button>
       </nav>
     </footer>
 
@@ -268,6 +301,7 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </main>
-  <script src="/static/app.js?v=21"></script>
+  <div id="guest-configured-navigation-slot" hidden></div>
+  <script src="/static/app.js?v=35"></script>
 </body>
 </html>

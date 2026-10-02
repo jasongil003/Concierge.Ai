@@ -93,13 +93,13 @@ The two-property regression test configures a department, service, facility, res
 
 The fresh-property SQLite checks found no unexpected property-scoped content rows in the tables listed in **New Property State**. Required internal schema and system metadata are not treated as hotel content. One guest session was deliberately added only after the initial empty-state assertions for the guest experience check.
 
-The new Alembic head is `20260930_0001`. The legacy-upgrade regression builds an older catalog state, applies the old and new revision operations, and verifies that the seed-state table is gone while its department, both services (including an administrator-created service), facility profile, and FAQ remain. It then opens the application against that database and verifies the API does not reseed content. Live PostgreSQL migration integration was not available because `DATABASE_URL` was not configured; PostgreSQL-specific tests were skipped.
+The Alembic head is `20260930_0007`. The legacy-upgrade regression builds an older catalog state, applies the old and new revision operations, and verifies that the seed-state table is gone while its department, both services (including an administrator-created service), facility profile, and FAQ remain. It then opens the application against that database and verifies the API does not reseed content. Live PostgreSQL migration integration was not available because `DATABASE_URL` was not configured; PostgreSQL-specific tests were skipped.
 
 ## Automated Test Results
 
 - `.venv/bin/python -m pytest -q`: **768 passed, 16 skipped**, 2 dependency deprecation warnings, 22.99 seconds.
 - Skips are integration checks guarded by missing PostgreSQL (`DATABASE_URL`) or Redis (`REDIS_TEST_URL`) services.
-- Migration graph: one head, `20260930_0001`, following `20260929_0006`.
+- Migration graph: one head, `20260930_0007`, following `20260929_0006`.
 - `git diff --check` and Python `compileall` passed.
 
 ## Browser Test Results
@@ -118,7 +118,7 @@ The new Alembic head is `20260930_0001`. The legacy-upgrade regression builds an
 ## Fixes Made
 
 - Removed the application-start and property-create calls to starter-catalog seeding and removed the production seeding method/table creation.
-- Added migration `20260930_0001` to remove only obsolete seed-state metadata; existing departments and services are preserved.
+- Migration `20260930_0007` removes only obsolete seed-state metadata; existing departments and services are preserved.
 - Expanded fresh-install, new-property, process/lifespan restart, database-row, guest-empty-state, property-isolation, legacy-upgrade, source-scan, and browser onboarding coverage.
 - Updated test fixtures to create their own service records, and made onboarding use a unique property ID so old test rows cannot contaminate a newly created property.
 - Updated `docs/DEPLOYMENT.md` with clean onboarding and legacy-record review guidance.

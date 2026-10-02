@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Concierge.Ai Platform</title>
-  <link rel="stylesheet" href="/static/admin.css?v=86">
+  <link rel="stylesheet" href="/static/admin.css?v=99">
 </head>
 <body>
   <div class="platform-shell" id="platform-shell">
@@ -151,109 +151,43 @@
       </section>
 
       <section class="panel" id="appearance">
-        <div class="page-title">
-          <div><p>Guest experience · Visual editor</p><h1>Guest chat design</h1><span>Choose a starting style, refine the guest experience, and review it across screen sizes.</span></div>
-        </div>
-        <div class="design-workspace">
-          <nav class="design-tool-dock" aria-label="Design tools">
-            <button class="design-tool active" type="button" data-design-inspector="templates" aria-label="Templates" title="Templates"><span>▧</span><small>Templates</small></button>
-            <button class="design-tool" type="button" data-design-inspector="brand" aria-label="Brand" title="Brand"><span>◉</span><small>Brand</small></button>
-            <button class="design-tool" type="button" data-design-inspector="content" aria-label="Welcome content" title="Welcome content"><span>T</span><small>Content</small></button>
-            <button class="design-tool" type="button" data-design-inspector="theme" aria-label="Colors and background" title="Colors and background"><span>◐</span><small>Style</small></button>
-            <button class="design-tool" type="button" data-design-inspector="layout" aria-label="Layout" title="Layout"><span>▤</span><small>Layout</small></button>
-            <button class="design-tool" type="button" data-design-inspector="prompts" aria-label="Suggested prompts" title="Suggested prompts"><span>☷</span><small>Prompts</small></button>
-            <button class="design-tool" type="button" data-design-inspector="versions" aria-label="Design versions" title="Design versions"><span>◷</span><small>Versions</small></button>
-          </nav>
-
-          <aside class="design-library" aria-label="Design templates">
-            <header><div><p>STARTING POINTS</p><h2>Templates</h2></div><span class="design-library-count">10</span></header>
-            <p class="design-library-help">Choose a starting palette. Your property name and logo stay in place.</p>
-            <div class="design-template-list" role="group" aria-label="Choose a design template">
-              <button class="design-template" type="button" data-design-preset="elegant">
-                <span class="template-art elegant-art"><i></i><i></i><i></i></span><span class="template-copy"><strong>Elegant</strong><small>Logo-led · Refined · Monochrome</small></span><span class="template-check" aria-hidden="true">✓</span>
-              </button>
-              <button class="design-template" type="button" data-design-preset="minimal">
-                <span class="template-art minimal-art"><i></i><i></i><i></i></span><span class="template-copy"><strong>Minimal</strong><small>Light · Quiet · Neutral</small></span><span class="template-check" aria-hidden="true">✓</span>
-              </button>
-              <button class="design-template" type="button" data-design-preset="soft-gray">
-                <span class="template-art soft-gray-art"><i></i><i></i><i></i></span><span class="template-copy"><strong>Soft gray</strong><small>Airy · Gentle contrast</small></span><span class="template-check" aria-hidden="true">✓</span>
-              </button>
-              <button class="design-template" type="button" data-design-preset="high-contrast">
-                <span class="template-art high-contrast-art"><i></i><i></i><i></i></span><span class="template-copy"><strong>High contrast</strong><small>Clear · Crisp · Accessible</small></span><span class="template-check" aria-hidden="true">✓</span>
-              </button>
-              <button class="design-template" type="button" data-design-preset="graphite">
-                <span class="template-art graphite-art"><i></i><i></i><i></i></span><span class="template-copy"><strong>Graphite</strong><small>Dark · Neutral · Focused</small></span><span class="template-check" aria-hidden="true">✓</span>
-              </button>
+        <div class="page-title"><div><p>Guest experience · Visual editor</p><h1>Guest Experience Builder</h1><span>Build property-scoped guest pages from reusable sections. Guests see changes only after you publish.</span></div></div>
+        <section class="experience-builder" aria-label="Guest experience builder">
+          <div class="experience-builder-toolbar">
+            <label class="builder-page-picker">Page<select id="builder-page-select" aria-label="Select guest page"><option value="home">Home</option></select></label>
+            <div class="builder-device-switch" role="group" aria-label="Builder preview size">
+              <button type="button" data-builder-device="desktop" aria-pressed="false">Desktop</button><button type="button" data-builder-device="tablet" aria-pressed="false">Tablet</button><button type="button" data-builder-device="mobile" aria-pressed="false">Mobile</button>
             </div>
-            <details class="design-palette-group">
-              <summary><span>More color palettes</span><span>05</span></summary>
-              <div class="design-template-list color-palette-list" role="group" aria-label="Choose a color palette">
-                <button class="design-template" type="button" data-design-preset="ocean">
-                  <span class="template-art ocean-art"><i></i><i></i><i></i></span><span class="template-copy"><strong>Ocean</strong><small>Calm · Clear · Coastal</small></span><span class="template-check" aria-hidden="true">✓</span>
-                </button>
-                <button class="design-template" type="button" data-design-preset="botanical">
-                  <span class="template-art botanical-art"><i></i><i></i><i></i></span><span class="template-copy"><strong>Botanical</strong><small>Natural · Fresh · Grounded</small></span><span class="template-check" aria-hidden="true">✓</span>
-                </button>
-                <button class="design-template" type="button" data-design-preset="rose">
-                  <span class="template-art rose-art"><i></i><i></i><i></i></span><span class="template-copy"><strong>Rose</strong><small>Soft · Warm · Considered</small></span><span class="template-check" aria-hidden="true">✓</span>
-                </button>
-                <button class="design-template" type="button" data-design-preset="coral">
-                  <span class="template-art coral-art"><i></i><i></i><i></i></span><span class="template-copy"><strong>Coral</strong><small>Bright · Welcoming · Modern</small></span><span class="template-check" aria-hidden="true">✓</span>
-                </button>
-                <button class="design-template" type="button" data-design-preset="modern-elegance">
-                  <span class="template-art modern-elegance-art"><i></i><i></i><i></i></span><span class="template-copy"><strong>Modern Elegance</strong><small>Forest · Soft gold · Serif</small></span><span class="template-check" aria-hidden="true">✓</span>
-                </button>
-              </div>
-            </details>
-            <div class="template-tip"><span>✦</span><p><strong>Make it yours</strong>Templates change appearance settings only. Your property details and guest prompts stay in place.</p></div>
-            <button class="secondary template-reset" id="reset-design-template" type="button">Reset to saved draft</button>
-          </aside>
-
-          <section class="design-stage" aria-label="Live guest chat preview">
-            <div class="design-stage-toolbar">
-              <div class="design-stage-label"><span class="design-live-dot"></span><div><strong>Live preview</strong><small id="preview-viewport-label">Mobile · 390 px</small></div></div>
-              <div class="preview-size-switch" role="group" aria-label="Preview device size">
-                <button class="preview-size active" data-size="mobile" aria-pressed="true" type="button"><span>▯</span> Mobile</button>
-                <button class="preview-size" data-size="tablet" aria-pressed="false" type="button"><span>▭</span> Tablet</button>
-                <button class="preview-size" data-size="desktop" aria-pressed="false" type="button"><span>▱</span> Desktop</button>
-              </div>
-              <div class="preview-zoom-controls" aria-label="Preview zoom">
-                <button type="button" data-preview-zoom="out" aria-label="Zoom out" title="Zoom out">−</button><span id="preview-zoom-level">100%</span><button type="button" data-preview-zoom="in" aria-label="Zoom in" title="Zoom in">+</button><button type="button" data-preview-zoom="fit" aria-label="Fit preview" title="Fit preview">⌗</button>
-              </div>
-            </div>
-            <div class="preview-stage" id="preview-stage">
-              <div class="preview-stage-note"><span>PREVIEW ONLY</span><span>Changes appear instantly</span></div>
-              <div class="preview-device-wrap" id="preview-device-wrap">
-                <div class="phone-preview mobile" id="chat-preview">
-                  <header>
-                    <button type="button" disabled title="Preview only">☰</button>
-                    <div class="preview-brand"><span class="preview-logo" id="preview-logo"></span><div><strong id="preview-hotel">Property not configured</strong><span id="preview-concierge">Concierge</span></div></div>
-                    <button type="button" disabled title="Preview only">⋯</button>
-                  </header>
-                  <main>
-                    <div class="preview-scene-overlay" aria-hidden="true"></div>
-                    <div class="preview-content">
-                      <section class="preview-welcome">
-                        <p id="preview-greeting">Good evening.</p>
-                        <h2 id="preview-welcome">How can I help with your stay?</h2>
-                        <div id="preview-prompts"></div>
-                      </section>
-                      <section class="preview-chat">
-                        <div class="guest-bubble">What can you help me with?</div>
-                        <div class="assistant-copy">I can answer questions using information configured for guests.</div>
-                      </section>
-                    </div>
-                  </main>
-                  <footer><span id="preview-placeholder">Ask your concierge...</span><button type="button" disabled title="Preview only">↑</button></footer>
-                </div>
-              </div>
-              <div class="preview-stage-footer"><span>Guest experience preview</span><span>Review on mobile, tablet, and desktop before publishing.</span></div>
-            </div>
-          </section>
-
-          <aside class="design-inspector" aria-label="Design properties">
-            <header class="design-inspector-heading"><div><p>PROPERTIES</p><h2>Inspector</h2></div><span class="inspector-active-tool" id="inspector-active-tool">Templates</span></header>
-            <div class="design-inspector-scroll">
+            <div class="builder-history-actions" role="group" aria-label="Draft history"><button type="button" class="secondary" id="builder-undo-button" aria-label="Undo">↶ Undo</button><button type="button" class="secondary" id="builder-redo-button" aria-label="Redo">↷ Redo</button></div>
+            <span class="builder-toolbar-spacer"></span><span id="builder-save-status" class="builder-save-status" role="status" aria-live="polite">Draft loaded</span>
+            <button type="button" class="secondary" id="builder-focus-button" aria-pressed="false">Focus mode</button>
+            <button type="button" class="secondary" id="builder-templates-button" aria-expanded="false" aria-controls="builder-template-menu">Templates</button>
+            <button type="button" class="secondary" id="builder-preview-button">Preview</button>
+            <details class="builder-more-menu"><summary>More</summary><button type="button" id="builder-discard-button" data-permission="concierge.edit" data-requires-property>Discard draft</button></details>
+            <button type="button" class="secondary" id="builder-save-button" data-permission="concierge.edit" data-requires-property>Save Draft</button>
+            <button type="button" class="builder-publish-button" id="builder-publish-button" data-permission="concierge.edit" data-requires-property>Publish</button>
+          </div>
+          <div id="builder-template-menu" class="builder-template-menu" hidden aria-label="Templates">
+            <section class="builder-template-group" aria-label="Page layouts"><div><strong>Page layouts</strong><small>Replace this page’s draft sections. Property content stays in place.</small></div><div class="builder-template-options">
+              <button type="button" data-builder-template="luxury">Luxury</button><button type="button" data-builder-template="elegant">Elegant</button><button type="button" data-builder-template="minimal">Minimal</button><button type="button" data-builder-template="business">Business</button><button type="button" data-builder-template="resort">Resort</button><button type="button" data-builder-template="restaurant">Restaurant Focused</button><button type="button" data-builder-template="blank">Blank</button>
+            </div></section>
+            <section class="builder-template-group" aria-label="Theme palettes"><div><strong>Theme palettes</strong><small>Set the page-wide colors and typography in this draft.</small></div><div class="builder-template-options">
+              <button type="button" data-design-preset="elegant">Elegant</button><button type="button" data-design-preset="minimal">Minimal</button><button type="button" data-design-preset="soft-gray">Soft gray</button><button type="button" data-design-preset="high-contrast">High contrast</button><button type="button" data-design-preset="graphite">Graphite</button><button type="button" data-design-preset="ocean">Ocean</button><button type="button" data-design-preset="botanical">Botanical</button><button type="button" data-design-preset="rose">Rose</button><button type="button" data-design-preset="coral">Coral</button><button type="button" data-design-preset="modern-elegance">Modern Elegance</button>
+            </div><button class="builder-template-reset" id="reset-design-template" type="button">Reset page settings to saved draft</button></section>
+          </div>
+          <div class="experience-builder-content">
+            <aside class="builder-library-panel" aria-label="Page structure" data-permission="concierge.edit">
+              <div class="builder-panel-heading"><div><p>PAGE STRUCTURE</p><h2 id="builder-library-title">Components</h2></div></div>
+              <div class="builder-side-tabs" role="tablist" aria-label="Page structure"><button type="button" role="tab" id="builder-library-tab-components" data-builder-library-tab="components" aria-controls="builder-components-panel" aria-selected="true" tabindex="0">Components</button><button type="button" role="tab" id="builder-library-tab-layers" data-builder-library-tab="layers" aria-controls="builder-layers-panel" aria-selected="false" tabindex="-1">Layers <span id="builder-layer-count">0</span></button></div>
+              <div id="builder-components-panel" role="tabpanel" aria-labelledby="builder-library-tab-components" data-builder-library-panel="components"><label class="builder-library-search"><span class="sr-only">Search components</span><input id="builder-component-search" type="search" placeholder="Search components…" autocomplete="off"></label><div class="builder-component-groups" id="builder-component-library"></div></div>
+              <div id="builder-layers-panel" class="builder-layers" role="tabpanel" aria-labelledby="builder-library-tab-layers" data-builder-library-panel="layers" hidden><p class="builder-panel-hint">Select a section to edit. Reorder or manage visibility from its compact menu.</p><ol id="builder-section-layers" aria-label="Page sections"></ol></div>
+            </aside>
+            <main class="builder-canvas-panel" aria-label="Live canvas"><div class="builder-canvas-toolbar"><div><span class="builder-live-indicator"></span><strong>Live Canvas</strong><small>Changes stay in draft until published.</small></div><span id="builder-page-size-label">Desktop · Full width</span></div><div class="builder-canvas-scroll"><div id="builder-canvas" class="builder-canvas" aria-label="Guest page canvas" tabindex="0"></div></div></main>
+            <aside class="builder-inspector-panel" aria-label="Page and section inspector" data-permission="concierge.edit">
+              <div class="builder-panel-heading"><div><p>INSPECTOR</p><h2 id="builder-inspector-title">Page Settings</h2></div></div>
+              <div class="builder-inspector-tabs" id="builder-inspector-tabs" role="tablist" aria-label="Component settings"><button type="button" role="tab" id="builder-tab-content" aria-selected="true" aria-controls="builder-inspector" data-builder-tab="content">Content</button><button type="button" role="tab" id="builder-tab-style" aria-selected="false" aria-controls="builder-inspector" data-builder-tab="style">Style</button><button type="button" role="tab" id="builder-tab-layout" aria-selected="false" aria-controls="builder-inspector" data-builder-tab="layout">Layout</button><button type="button" role="tab" id="builder-tab-animation" aria-selected="false" aria-controls="builder-inspector" data-builder-tab="animation">Animation</button></div>
+              <div id="builder-inspector" class="builder-inspector-content" role="tabpanel" aria-labelledby="builder-tab-content" hidden></div>
+              <div class="design-inspector-scroll builder-page-settings" id="builder-page-settings" hidden>
               <details class="design-inspector-section" id="inspector-brand" data-inspector-panel="brand">
                 <summary><span><strong>Brand identity</strong><small>Names, logo, and header</small></span><span class="inspector-chevron">⌄</span></summary>
                 <div class="design-inspector-fields">
@@ -280,10 +214,12 @@
                 </div>
               </details>
               <details class="design-inspector-section" id="inspector-content" data-inspector-panel="content">
-                <summary><span><strong>Welcome content</strong><small>Guest-facing introduction and composer</small></span><span class="inspector-chevron">⌄</span></summary>
+                <summary><span><strong>Guest home content</strong><small>Welcome copy and composer placeholder</small></span><span class="inspector-chevron">⌄</span></summary>
                 <div class="design-inspector-fields">
+                  <p class="field-note">These property-specific fields appear on the guest home after you publish this design.</p>
                   <label>Greeting<input id="greeting-input" placeholder="Good evening."></label>
                   <label>Welcome headline<textarea id="welcome-input" rows="3" placeholder="How can I help with your stay?"></textarea></label>
+                  <label>Welcome description<textarea id="welcome-description-input" rows="2" maxlength="280" placeholder="A short note to welcome guests to the property."></textarea></label>
                   <label>Composer placeholder<input id="composer-placeholder-input" placeholder="Ask your concierge..."></label>
                 </div>
               </details>
@@ -300,8 +236,8 @@
                     <label>Action button<input id="button-color-input" type="color" value="#18181b"></label>
                     <label>Message composer<input id="composer-background-input" type="color" value="#ffffff"></label>
                   </div>
-                  <label class="upload-field">Background picture<input id="background-image-input" type="file" accept="image/png,image/jpeg,image/webp"></label>
-                  <p class="field-note">JPG or WebP · Portrait works best on mobile · Under 1.5 MB</p>
+                  <label class="upload-field">Guest home hero image<input id="background-image-input" type="file" accept="image/png,image/jpeg,image/webp"></label>
+                  <p class="field-note">Shown in the split welcome hero and concierge backdrop · Portrait or landscape · Under 1.5 MB</p>
                   <input id="background-image-url-input" type="hidden">
                   <label class="range-field">Image tint <span><input id="background-overlay-input" type="range" min="0" max="70" step="5"><output id="background-overlay-value">0%</output></span></label>
                 </div>
@@ -324,25 +260,22 @@
                   </div>
                 </div>
               </details>
+              <details class="design-inspector-section" id="inspector-navigation" data-inspector-panel="navigation">
+                <summary><span><strong>Page navigation</strong><small>Labels and visible destinations</small></span><span class="inspector-chevron">⌄</span></summary>
+                <div class="design-inspector-fields"><p class="field-note">Choose which configured guest pages appear in the page navigation. Page destinations remain property-scoped.</p><div id="builder-navigation-settings"></div></div>
+              </details>
               <details class="design-inspector-section" id="inspector-prompts" data-inspector-panel="prompts">
-                <summary><span><strong>Suggested prompts</strong><small>Quick questions shown to guests</small></span><span class="inspector-chevron">⌄</span></summary>
-                <div class="design-inspector-fields"><p class="field-note">Shortcuts help guests start a conversation. Keep labels brief and prompts specific.</p><div class="prompt-list" id="prompt-list"></div><button class="secondary" id="add-prompt" type="button">＋ Add suggested prompt</button></div>
+                <summary><span><strong>Home quick actions</strong><small>Labels, descriptions, and concierge prompts</small></span><span class="inspector-chevron">⌄</span></summary>
+                <div class="design-inspector-fields"><p class="field-note">Enabled items appear as guest home cards. Edit the short card description and the message sent to the concierge. Property-supported navigation actions are added automatically. Dining and nearby suggestions use the property content managed in Restaurants and Recommendations.</p><div class="prompt-list" id="prompt-list"></div><button class="secondary" id="add-prompt" type="button">＋ Add quick action</button></div>
               </details>
               <details class="design-inspector-section" id="inspector-versions" data-inspector-panel="versions">
                 <summary><span><strong>Published versions</strong><small>Restore a previous guest experience</small></span><span class="inspector-chevron">⌄</span></summary>
                 <div class="design-inspector-fields"><div class="version-list" id="version-list"></div></div>
               </details>
             </div>
-            <footer class="design-inspector-footer">
-              <span><i></i> Preview updates as you edit</span>
-              <div class="design-footer-actions">
-                <button class="secondary" type="button" id="design-discard-shortcut" data-permission="concierge.edit" data-requires-property>Discard</button>
-                <button class="secondary" type="button" id="design-save-shortcut" data-permission="concierge.edit" data-requires-property>Save draft</button>
-                <button type="button" id="design-publish-shortcut" data-permission="concierge.edit" data-requires-property>Publish</button>
-              </div>
-            </footer>
-          </aside>
-        </div>
+            </aside>
+          </div>
+        </section>
       </section>
 
       <section class="panel" id="guest">
@@ -761,7 +694,7 @@
       <section class="panel" id="knowledge">
         <div class="page-title"><div><p>Knowledge</p><h1>Hotel source library</h1><span>Approved property facts are retrieved as verified context for guest answers.</span></div></div>
         <section class="card"><h2>Knowledge Health</h2><div id="knowledge-health" class="knowledge-health">Loading measured coverage…</div><p class="field-note">Coverage uses eight required categories and six core facts found in published, active items.</p></section>
-        <section class="card"><div class="card-heading"><div><span>Review queue</span><h2>Extracted knowledge</h2></div></div><label>Search knowledge<input id="managed-knowledge-search" type="search" placeholder="Search titles and content"></label><div id="managed-knowledge-list" class="compact-list"></div></section>
+        <section class="card knowledge-review-queue"><div class="card-heading"><div><span>Review queue</span><h2>Extracted knowledge</h2></div></div><label>Search knowledge<input id="managed-knowledge-search" type="search" placeholder="Search titles and content"></label><div id="managed-knowledge-list" class="compact-list"></div></section>
         <div class="two-col"><section class="card"><h2>Knowledge entry</h2><input id="knowledge-id" type="hidden"><label>Title<input id="knowledge-title" maxlength="200"></label><label>Approved content<textarea id="knowledge-body" rows="8" maxlength="50000"></textarea></label><label class="check-row"><input id="knowledge-enabled" type="checkbox" checked> Available to Concierge AI</label><button id="save-knowledge" type="button">Save Knowledge</button></section><section class="card"><h2>Managed entries</h2><div id="knowledge-list" class="compact-list"></div></section></div>
       </section>
 
@@ -1083,6 +1016,8 @@
             <label>Address<input id="recommendation-address" maxlength="300"></label>
             <label>Map link<input id="recommendation-map-url" type="url" maxlength="500"></label>
             <label>Description<textarea id="recommendation-description" rows="4"></textarea></label>
+            <label>Images<input id="recommendation-images" maxlength="6000" placeholder="https://… , https://…" aria-describedby="recommendation-images-help"></label>
+            <p class="field-note" id="recommendation-images-help">Add HTTPS or property-local image URLs. The first URL is used on guest suggestion cards; invalid images fall back to text.</p>
             <label>Source<input id="recommendation-source" value="property" maxlength="160"></label>
             <label class="check-row"><input id="recommendation-enabled" type="checkbox" checked> Visible to guests</label>
             <button id="save-recommendation" type="button">Save Recommendation</button>
@@ -1090,7 +1025,7 @@
           <section class="card"><h2>Managed recommendations</h2><div id="recommendation-list" class="compact-list"></div></section>
         </div>
       </section>
-      <section class="panel" id="documents"><div class="page-title"><div><p>Knowledge</p><h1>Documents</h1><span>Source files are processed into reviewable knowledge. Nothing uploads directly to Guest AI.</span></div></div><section class="card"><label>Documents<input id="knowledge-document-upload" type="file" multiple accept=".pdf,.docx,.xlsx,.csv,.txt,.md,.json,.pptx,.png,.jpg,.jpeg,.webp"></label><p class="field-note">PDF, DOCX, XLSX, CSV, TXT, Markdown, JSON, PPTX, PNG, JPEG, WEBP. Limits are configurable. Images require Tesseract OCR.</p><div id="document-list" class="compact-list"></div></section></section>
+      <section class="panel" id="documents"><div class="page-title"><div><p>Knowledge</p><h1>Documents</h1><span>Source files are processed into reviewable knowledge. Nothing uploads directly to Guest AI.</span></div></div><section class="card"><label class="document-upload-label">Documents<span class="document-upload-control"><span class="document-upload-icon" aria-hidden="true">↑</span><span class="document-upload-copy" aria-hidden="true"><strong>Choose source files</strong><small>Files enter the review queue before any guest can see them.</small></span><span class="document-upload-action" aria-hidden="true">Browse files</span><input id="knowledge-document-upload" class="document-upload-input" type="file" multiple accept=".pdf,.docx,.xlsx,.csv,.txt,.md,.json,.pptx,.png,.jpg,.jpeg,.webp" aria-describedby="knowledge-upload-help"></span></label><p class="field-note" id="knowledge-upload-help">PDF, DOCX, XLSX, CSV, TXT, Markdown, JSON, PPTX, PNG, JPEG, WEBP. Limits are configurable. Images require Tesseract OCR.</p><div id="document-list" class="compact-list"></div></section></section>
       <section class="panel" id="faqs"><div class="page-title"><div><p>Knowledge</p><h1>FAQs</h1><span>Approved questions and answers available to the concierge retrieval layer.</span></div></div><div class="two-col"><section class="card"><h2>FAQ</h2><input id="faq-id" type="hidden"><label>Question<input id="faq-question" maxlength="500"></label><label>Approved answer<textarea id="faq-answer" rows="6" maxlength="12000"></textarea></label><label class="check-row"><input id="faq-enabled" type="checkbox" checked> Available to Concierge AI</label><button id="save-faq" type="button">Save FAQ</button></section><section class="card"><h2>Managed FAQs</h2><div id="faq-list" class="compact-list"></div></section></div></section>
       <section class="panel" id="ai-personality"><div class="page-title"><div><p>AI</p><h1>AI personality</h1><span>Property-specific response style. System safety rules always take precedence.</span></div></div><section class="card settings-form"><div class="form-grid"><label>Concierge identity<input id="personality-name" maxlength="80"></label><label>Tone<select id="personality-tone"><option value="warm">Warm</option><option value="professional">Professional</option><option value="friendly">Friendly</option><option value="luxury">Luxury</option></select></label><label>Formality<select id="personality-formality"><option value="balanced">Balanced</option><option value="formal">Formal</option><option value="casual">Casual</option></select></label><label>Response length<select id="personality-length"><option value="concise">Concise</option><option value="balanced">Balanced</option><option value="detailed">Detailed</option></select></label><label>Greeting behavior<select id="personality-greeting"><option value="first_message">First message only</option><option value="when_helpful">When helpful</option><option value="never">Never</option></select></label></div><label>Property-specific instructions<textarea id="personality-instructions" rows="5" maxlength="4000"></textarea></label><button id="save-personality" type="button">Save Personality</button></section></section>
       <section class="panel placeholder-panel" id="system-prompt"><div class="page-title"><div><p>AI</p><h1>System prompt</h1><span>Controlled prompt policy and approved hotel context.</span></div></div><div class="empty-state"><strong>System prompts are server-managed</strong><p>This prevents accidental exposure or unsafe browser-side prompt editing.</p></div></section>
@@ -1289,6 +1224,6 @@
     </footer>
   </aside>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="/static/admin.js?v=73"></script>
+  <script src="/static/admin.js?v=86"></script>
 </body>
 </html>

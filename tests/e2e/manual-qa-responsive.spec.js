@@ -93,8 +93,10 @@ test(`manual QA responsive matrix covers every admin destination at ${viewport.w
   await page.goto("/");
   await expect(page.locator("#home-view")).toBeVisible();
   await expectNoHorizontalOverflow(page, `Guest home at ${viewport.width}x${viewport.height}`);
+  const guestNavigation = page.locator(".experience-configured-navigation");
+  await expect(guestNavigation).toBeVisible();
   for (const [label, panel] of [["Explore", "#explore-view"], ["Requests", "#requests-view"], ["My Stay", "#stay-view"], ["Concierge", "#concierge-view"], ["Home", "#home-view"]]) {
-    await page.getByRole("button", { name: label, exact: true }).click();
+    await guestNavigation.getByRole("button", { name: label, exact: true }).click();
     await expect(page.locator(panel)).toBeVisible();
     await expectNoHorizontalOverflow(page, `Guest ${label} at ${viewport.width}x${viewport.height}`);
   }

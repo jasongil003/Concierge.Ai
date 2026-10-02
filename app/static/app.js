@@ -18,6 +18,10 @@ const state = {
   hasPropertyMap: false,
   activeView: "home",
   homeData: null,
+  homeActionsExpanded: false,
+  homeSuggestionsExpanded: false,
+  experiencePage: null,
+  fixedNavigationResizeObserver: null,
 };
 
 let startupPromise = null;
@@ -112,13 +116,27 @@ const guestViewIds = {
 };
 
 function setupViews() {
-  for (const button of document.querySelectorAll(".guest-bottom-nav [data-view]")) {
-    button.addEventListener("click", () => setActiveView(button.dataset.view));
-  }
+  $("guest-bottom-nav").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-view]");
+    if (button) setActiveView(button.dataset.view);
+  });
   document.querySelectorAll("[data-open-view]").forEach((button) => {
     button.addEventListener("click", () => setActiveView(button.dataset.openView));
   });
+  $("home-actions-toggle").addEventListener("click", () => {
+    state.homeActionsExpanded = !state.homeActionsExpanded;
+    if (state.homeData) renderHome(state.homeData);
+  });
+  $("home-suggestions-more").addEventListener("click", () => {
+    state.homeSuggestionsExpanded = !state.homeSuggestionsExpanded;
+    if (state.homeData) renderHome(state.homeData);
+  });
   $("manage-preferences").addEventListener("click", () => openMemoryPanel().catch((error) => showToast(error.message, "warning")));
+  window.addEventListener("popstate", () => {
+    const path = window.location.pathname.replace(/\/$/, "") || "/";
+    const page = (state.hotel?.design?.pages || []).find((item) => item.slug === path && item.enabled !== false);
+    setActiveView(page?.id || "home", false);
+  });
   $("close-menu-view").addEventListener("click", () => {
     state.selectedRestaurantMenu = null;
     $("menu-section").hidden = true;
@@ -127,19 +145,45 @@ function setupViews() {
   setActiveView("home");
 }
 
-function setActiveView(view) {
-  if (!guestViewIds[view]) return;
+function setActiveView(view, focusComposer = true) {
+  const configuredPages = state.hotel?.design?.pages || [];
+  const page = configuredPages.find((item) => item.id === view && item.enabled !== false);
+  if (!guestViewIds[view] && !page) return;
   state.activeView = view;
+  state.experiencePage = page || null;
+  const dynamicRoute = Boolean(page && view !== "home" && (page.id.startsWith("page-") || page.sections?.length));
   for (const [name, id] of Object.entries(guestViewIds)) {
     const element = $(id);
-    element.hidden = name !== view;
-    element.setAttribute("aria-hidden", name === view ? "false" : "true");
+    const visible = !dynamicRoute && name === view;
+    element.hidden = !visible;
+    element.setAttribute("aria-hidden", visible ? "false" : "true");
   }
+  $("custom-page-view").hidden = !dynamicRoute;
+  $("custom-page-view").setAttribute("aria-hidden", dynamicRoute ? "false" : "true");
   for (const button of document.querySelectorAll(".guest-bottom-nav [data-view]")) {
     if (button.dataset.view === view) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
   }
+  for (const button of document.querySelectorAll(".experience-configured-navigation [data-page-id]")) {
+    if (button.dataset.pageId === view) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  }
   document.body.dataset.guestView = view;
+  if (page && (page.id.startsWith("page-") || page.id.startsWith("custom-"))) {
+    const nextPath = page.slug || "/";
+    if (window.location.pathname !== nextPath) history.pushState({ guestPage: page.id }, "", nextPath);
+  } else if (view === "home" && !["/", ""].includes(window.location.pathname)) {
+    history.pushState({ guestPage: "home" }, "", "/");
+  }
+  if (view === "home" && page && state.homeData) {
+    renderHome(state.homeData);
+  } else if (dynamicRoute && page) {
+    renderConfiguredExperience(page, $("custom-experience-page"));
+    renderComposerForPage(page, $("custom-experience-page"), state.hotel?.design || {});
+  } else if (page) {
+    renderComposerForPage(page, $("custom-experience-page"), state.hotel?.design || {});
+  }
+  renderMessages();
   if (view === "requests") {
     renderRequestCatalog();
     ensureStarted().then(() => {
@@ -148,7 +192,7 @@ function setActiveView(view) {
   }
   if (view === "explore") renderExplore();
   if (view === "stay") renderStay();
-  if (view === "concierge") requestAnimationFrame(() => $("composer-input").focus({ preventScroll: true }));
+  if (view === "concierge" && focusComposer) requestAnimationFrame(() => $("composer-input").focus({ preventScroll: true }));
 }
 
 async function refreshHome() {
@@ -160,9 +204,66 @@ async function refreshHome() {
   if (state.activeView === "stay") renderStay();
 }
 
+function safeGuestUrl(value, { allowDataImage = false, allowExternalHttp = false } = {}) {
+  const raw = String(value || "").trim();
+  if (!raw || /[\u0000-\u001f\\]/.test(raw)) return "";
+  if (allowDataImage && /^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i.test(raw)) return raw;
+  if (raw.startsWith("/") && !raw.startsWith("//")) return raw;
+  try {
+    const parsed = new URL(raw, window.location.href);
+    if (!['https:', 'http:'].includes(parsed.protocol) || parsed.username || parsed.password) return "";
+    if (parsed.protocol === "http:" && parsed.origin !== window.location.origin && !allowExternalHttp) return "";
+    return parsed.href;
+  } catch {
+    return "";
+  }
+}
+
+function openGuestUrl(value) {
+  const url = safeGuestUrl(value, { allowExternalHttp: true });
+  if (url) window.open(url, "_blank", "noopener,noreferrer");
+}
+
+function cardInventoryItem(card) {
+  const inventory = state.homeData?.inventory || state.inventory || {};
+  const collections = {
+    restaurant: inventory.restaurants || [],
+    facility: inventory.facilities || [],
+    event: inventory.events || [],
+    recommendation: inventory.recommendations || [],
+  };
+  const idFields = {
+    restaurant: "restaurant_id", facility: "facility_id", event: "event_id", recommendation: "recommendation_id",
+  };
+  const idField = idFields[card.type];
+  const id = card[idField];
+  if (idField && id) return collections[card.type].find((item) => String(item[idField]) === String(id)) || null;
+  return collections[card.type]?.find((item) => item.name === card.title || item.title === card.title) || null;
+}
+
 function createGuestCard(card) {
   const article = document.createElement("article");
-  article.className = `guest-content-card guest-card-${card.type || "general"}`;
+  const knownTypes = new Set(["restaurant", "request", "recommendation", "event", "facility", "promotion", "general"]);
+  const type = knownTypes.has(card.type) ? card.type : "general";
+  article.className = `guest-content-card guest-card-${type}`;
+  const inventoryItem = cardInventoryItem(card);
+  const imageUrl = safeGuestUrl(inventoryItem?.images?.[0], { allowDataImage: true });
+  if (imageUrl) {
+    article.classList.add("guest-card-has-image");
+    const media = document.createElement("div");
+    media.className = "guest-card-media";
+    const image = document.createElement("img");
+    image.src = imageUrl;
+    image.alt = card.title ? `${card.title} image` : "Property suggestion image";
+    image.loading = "lazy";
+    image.decoding = "async";
+    image.addEventListener("error", () => {
+      media.remove();
+      article.classList.remove("guest-card-has-image");
+    }, { once: true });
+    media.appendChild(image);
+    article.appendChild(media);
+  }
   const heading = document.createElement("strong");
   heading.textContent = card.title || "Hotel information";
   article.appendChild(heading);
@@ -190,17 +291,19 @@ function createGuestCard(card) {
   }
   const actions = document.createElement("div");
   actions.className = "guest-card-actions";
-  if (card.type === "restaurant" && card.restaurant_id) {
+  if (type === "restaurant" && card.restaurant_id) {
     actions.appendChild(guestButton("View menu", () => showRestaurantMenu(card.restaurant_id, card.title)));
+    const reservationUrl = inventoryItem?.reservation_available ? safeGuestUrl(inventoryItem.external_reservation_url) : "";
+    if (reservationUrl) actions.appendChild(guestButton("Reserve", () => openGuestUrl(reservationUrl), "secondary"));
   }
-  if (card.type === "request" && card.request_id) {
+  if (type === "request" && card.request_id) {
     actions.appendChild(guestButton("Track request", () => setActiveView("requests"), "secondary"));
     if (card.cancellable) actions.appendChild(guestButton("Cancel", () => cancelRequest(card.request_id, card.title), "text"));
   }
-  if (card.type === "recommendation" && card.map_url) {
-    actions.appendChild(guestButton("Directions", () => window.open(card.map_url, "_blank", "noopener,noreferrer")));
+  if (type === "recommendation" && safeGuestUrl(card.map_url, { allowExternalHttp: true })) {
+    actions.appendChild(guestButton("Directions", () => openGuestUrl(card.map_url)));
   }
-  if (card.type === "event") {
+  if (type === "event") {
     actions.appendChild(guestButton(card.cta || "View event", () => setActiveView("explore")));
   }
   if (actions.childElementCount) article.appendChild(actions);
@@ -216,11 +319,519 @@ function guestButton(label, action, style = "") {
   return button;
 }
 
+function experienceInventory(source) {
+  const inventory = state.homeData?.inventory || state.inventory || {};
+  if (source === "services") return (state.services || []).filter((item) => item.enabled !== false && !item.archived);
+  return Array.isArray(inventory[source]) ? inventory[source] : [];
+}
+
+function experienceAction(action) {
+  if (!action || typeof action !== "object") return false;
+  switch (action.type) {
+    case "prompt":
+      if (!action.prompt) return false;
+      handleGuestInput(action.prompt);
+      return true;
+    case "internal_page":
+      setActiveView(action.page_id);
+      return true;
+    case "concierge":
+      setActiveView("concierge");
+      return true;
+    case "external_url": {
+      const url = safeGuestUrl(action.url, { allowExternalHttp: true });
+      if (!url) return false;
+      if (action.open_in === "same_tab") window.location.assign(url);
+      else window.open(url, "_blank", "noopener,noreferrer");
+      return true;
+    }
+    case "phone":
+      window.location.assign(`tel:${action.phone}`);
+      return true;
+    case "email": {
+      const subject = action.subject ? `?subject=${encodeURIComponent(action.subject)}` : "";
+      window.location.assign(`mailto:${action.email}${subject}`);
+      return true;
+    }
+    case "map": {
+      let url = safeGuestUrl(action.url, { allowExternalHttp: true });
+      const location = state.hotel?.location || {};
+      if (!url && Number.isFinite(Number(location.latitude)) && Number.isFinite(Number(location.longitude))) {
+        url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${location.latitude},${location.longitude}`)}`;
+      }
+      if (!url) return false;
+      window.open(url, "_blank", "noopener,noreferrer");
+      return true;
+    }
+    case "service_request":
+    case "room_service":
+    case "housekeeping":
+    case "transportation": {
+      const service = (state.services || []).find((item) => String(item.service_id) === String(action.service_id) && item.enabled !== false && !item.archived);
+      if (!service) return false;
+      proposeConfiguredService(service);
+      return true;
+    }
+    case "restaurant":
+    case "restaurant_menu":
+    case "resource":
+      if (["restaurant", "restaurant_menu"].includes(action.type) || action.resource_type === "restaurant") {
+        const item = experienceInventory("restaurants").find((entry) => String(entry.restaurant_id) === String(action.resource_id || action.restaurant_id));
+        if (!item) return false;
+        showRestaurantMenu(item.restaurant_id, item.name || "Restaurant");
+        return true;
+      }
+      if (["promotion", "event", "facility"].includes(action.resource_type) || ["promotion", "event"].includes(action.type)) {
+        setActiveView("explore");
+        return true;
+      }
+      return false;
+    default:
+      return false;
+  }
+}
+
+function experienceActionConfigured(action) {
+  if (!action || typeof action !== "object") return false;
+  switch (action.type) {
+    case "none": return false;
+    case "prompt": return Boolean(String(action.prompt || "").trim());
+    case "external_url": return Boolean(safeGuestUrl(action.url, { allowExternalHttp: true }));
+    case "internal_page": return Boolean((state.hotel?.design?.pages || []).some((page) => page.id === action.page_id && page.enabled !== false) || guestViewIds[action.page_id]);
+    case "concierge": return true;
+    case "phone": return Boolean(String(action.phone || "").trim());
+    case "email": return Boolean(String(action.email || "").trim());
+    case "map": {
+      const location = state.hotel?.location || {};
+      return Boolean(safeGuestUrl(action.url, { allowExternalHttp: true }) || (Number.isFinite(Number(location.latitude)) && Number.isFinite(Number(location.longitude))));
+    }
+    case "service_request": case "room_service": case "housekeeping": case "transportation":
+      return Boolean((state.services || []).some((item) => String(item.service_id) === String(action.service_id) && item.enabled !== false && !item.archived));
+    case "restaurant": case "restaurant_menu":
+      return Boolean(experienceInventory("restaurants").some((item) => String(item.restaurant_id) === String(action.resource_id || action.restaurant_id)));
+    case "resource": {
+      const source = ({ restaurant: "restaurants", promotion: "promotions", event: "events", facility: "facilities" })[action.resource_type];
+      return Boolean(source && experienceInventory(source).some((item) => String(item.restaurant_id || item.promotion_id || item.event_id || item.facility_id) === String(action.resource_id)));
+    }
+    case "promotion": return Boolean(experienceInventory("promotions").some((item) => String(item.promotion_id) === String(action.resource_id)));
+    case "event": return Boolean(experienceInventory("events").some((item) => String(item.event_id) === String(action.resource_id)));
+    default: return false;
+  }
+}
+
+function createExperienceButton(config) {
+  if (!config?.label || !experienceActionConfigured(config.action)) return null;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `experience-button experience-button-${config.style || "primary"} experience-button-${config.size || "medium"}`;
+  button.textContent = [config.icon, config.label].filter(Boolean).join(" ");
+  button.addEventListener("click", () => experienceAction(config.action));
+  return button;
+}
+
+function experienceCard(item, source) {
+  if (source === "services") {
+    if (!item.service_id || !item.name) return null;
+    const card = document.createElement("article");
+    card.className = "guest-content-card guest-card-general";
+    const title = document.createElement("strong");
+    title.textContent = item.name;
+    card.appendChild(title);
+    const description = document.createElement("p");
+    description.textContent = item.guest_description || item.description || "";
+    if (description.textContent) card.appendChild(description);
+    card.appendChild(guestButton("Request", () => proposeConfiguredService(item)));
+    return card;
+  }
+  const typeBySource = {
+    restaurants: "restaurant", facilities: "facility", events: "event",
+    promotions: "promotion", recommendations: "recommendation",
+  };
+  const type = typeBySource[source] || "general";
+  const title = item.name || item.title || "";
+  if (!title) return null;
+  const card = createGuestCard({
+    type, title, description: item.description || item.address || "",
+    subtitle: item.cuisine || item.category || item.facility_type || "",
+    restaurant_id: item.restaurant_id, facility_id: item.facility_id,
+    event_id: item.event_id, recommendation_id: item.recommendation_id,
+    map_url: item.map_url, cta: item.cta || "View details",
+  });
+  if (item.images?.length && !card.classList.contains("guest-card-has-image")) {
+    const imageUrl = safeGuestUrl(item.images[0], { allowDataImage: true });
+    if (imageUrl) {
+      const image = document.createElement("img");
+      image.className = "experience-card-image";
+      image.src = imageUrl;
+      image.alt = `${title} image`;
+      image.loading = "lazy";
+      image.decoding = "async";
+      image.addEventListener("error", () => image.remove(), { once: true });
+      card.prepend(image);
+    }
+  }
+  return card;
+}
+
+function attachExperienceAnimation(element, section) {
+  const motion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const animation = section.animation || {};
+  const entrance = motion ? "none" : (animation.entrance || "none");
+  const interaction = motion ? "none" : (animation.interaction || "none");
+  element.dataset.animation = entrance;
+  element.dataset.interaction = interaction;
+  element.style.setProperty("--experience-duration", ({ fast: "180ms", normal: "320ms", slow: "520ms" })[animation.duration] || "320ms");
+  element.style.setProperty("--experience-delay", `${Math.min(500, Number(animation.delay) || 0)}ms`);
+  const device = window.matchMedia("(max-width: 640px)").matches ? "phone" : (window.matchMedia("(max-width: 900px)").matches ? "tablet" : "desktop");
+  if (section.responsive?.[device] === false) element.hidden = true;
+  if (device === "phone" && (section.responsive?.mobile === "hide" || section.responsive?.mobile_behavior === "hide")) element.hidden = true;
+  const columns = Math.max(1, Math.min(4, Number(section.responsive?.columns) || 2));
+  element.style.setProperty("--experience-columns", columns);
+  if (device === "phone" && (section.responsive?.mobile === "scroll" || section.responsive?.mobile_behavior === "scroll")) element.classList.add("experience-scroll-mobile");
+  if (entrance === "none") return;
+  const show = () => element.classList.add("experience-visible");
+  if (animation.trigger === "page_load" || !("IntersectionObserver" in window)) {
+    requestAnimationFrame(show);
+    return;
+  }
+  const observer = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) {
+        if (animation.repeat === "each") element.classList.remove("experience-visible");
+        continue;
+      }
+      show();
+      if (animation.repeat !== "each") observer.unobserve(element);
+    }
+  }, { threshold: 0.12 });
+  observer.observe(element);
+}
+
+function renderExperienceSection(section, design) {
+  if (!section || section.enabled === false) return null;
+  const type = section.type;
+  const supportedTypes = ["hero", "heading", "text", "image", "button", "divider", "spacer", "container", "columns", "quick_actions", "card_grid", "carousel", "restaurant", "room_service", "housekeeping", "transportation", "amenities", "promotions", "events", "banner", "concierge_composer", "ai_suggestion", "header", "bottom_navigation"];
+  if (!supportedTypes.includes(type)) return null;
+  const p = section.properties || {};
+  const outer = document.createElement("section");
+  outer.className = `experience-section experience-${type}`;
+  outer.dataset.sectionId = section.id;
+  if (section.title) outer.setAttribute("aria-label", section.title);
+
+  const addSectionTitle = () => {
+    if (!p.title || ["hero", "button", "image", "text", "heading", "spacer", "divider", "concierge_composer"].includes(type)) return;
+    const title = document.createElement("h2");
+    title.className = "experience-section-title";
+    title.textContent = p.title;
+    outer.appendChild(title);
+  };
+
+  if (type === "hero") {
+    outer.classList.add(`experience-hero-${p.height || "large"}`, `experience-align-${p.alignment || "left"}`);
+    if (p.background) outer.style.backgroundColor = p.background;
+    if (p.text_color) outer.style.color = p.text_color;
+    const imageUrl = safeGuestUrl(p.image_url || design.theme?.backgroundImageUrl, { allowDataImage: true });
+    if (imageUrl) {
+      const image = document.createElement("img");
+      image.className = "experience-hero-image";
+      image.src = imageUrl;
+      image.alt = p.alt || "";
+      image.loading = "eager";
+      image.decoding = "async";
+      image.addEventListener("error", () => { image.remove(); outer.classList.remove("experience-hero-has-image"); }, { once: true });
+      outer.classList.add("experience-hero-has-image");
+      outer.prepend(image);
+    }
+    if (p.eyebrow) { const eyebrow = document.createElement("p"); eyebrow.className = "experience-eyebrow"; eyebrow.textContent = p.eyebrow; outer.appendChild(eyebrow); }
+    const heading = document.createElement("h1");
+    heading.textContent = p.headline || design.welcome?.headline || state.hotel?.name || "";
+    if (heading.textContent) outer.appendChild(heading);
+    const description = document.createElement("p");
+    description.textContent = p.description || design.welcome?.description || "";
+    if (description.textContent) outer.appendChild(description);
+    for (const buttonConfig of p.buttons || []) {
+      const button = createExperienceButton(buttonConfig);
+      if (button) outer.appendChild(button);
+    }
+  } else if (type === "heading") {
+    const heading = document.createElement(`h${Math.max(1, Math.min(6, Number(p.level) || 2))}`); heading.textContent = p.text || p.headline || section.title; outer.appendChild(heading);
+    outer.classList.add(`experience-align-${p.alignment || "left"}`);
+  } else if (type === "text") {
+    const text = document.createElement("p"); text.textContent = p.content || p.body || p.description || ""; if (text.textContent) outer.appendChild(text);
+    outer.classList.add(`experience-align-${p.alignment || "left"}`);
+  } else if (type === "image") {
+    const url = safeGuestUrl(p.url, { allowDataImage: true });
+    if (!url) return null;
+    const image = document.createElement("img"); image.src = url; image.alt = p.alt || ""; image.loading = "lazy"; image.decoding = "async"; image.className = `experience-image experience-image-${p.fit || "cover"}`;
+    image.addEventListener("error", () => outer.remove(), { once: true }); outer.appendChild(image);
+  } else if (type === "button") {
+    const button = createExperienceButton(p); if (button) outer.appendChild(button);
+  } else if (type === "divider") {
+    outer.setAttribute("role", "separator");
+  } else if (type === "spacer") {
+    outer.dataset.spacer = p.size || "medium";
+  } else if (type === "container") {
+    outer.dataset.width = p.width || "contained";
+    const copy = document.createElement("p"); copy.textContent = p.content || ""; if (copy.textContent) outer.appendChild(copy);
+  } else if (type === "columns") {
+    const columns = document.createElement("div"); columns.className = "experience-columns";
+    for (const content of [p.primary, p.secondary]) { const column = document.createElement("div"); column.textContent = content || ""; if (column.textContent) columns.appendChild(column); }
+    if (columns.childElementCount) outer.appendChild(columns);
+  } else if (["header", "bottom_navigation"].includes(type)) {
+    if (type === "header") {
+      outer.classList.add("experience-configured-header");
+      if (p.show_menu !== false) { const menu = document.createElement("button"); menu.type = "button"; menu.className = "experience-configured-menu"; menu.textContent = "Menu"; menu.setAttribute("aria-label", "Open hotel menu"); menu.addEventListener("click", () => p.menu_action && p.menu_action.type !== "none" ? experienceAction(p.menu_action) : $("menu-button")?.click()); outer.appendChild(menu); }
+      const identity = document.createElement("span"); identity.className = "experience-configured-identity";
+      if (p.show_logo !== false && design.branding?.logoUrl) { const logoUrl = safeGuestUrl(design.branding.logoUrl, { allowDataImage: true }); if (logoUrl) { const logo = document.createElement("img"); logo.className = "experience-configured-logo"; logo.src = logoUrl; logo.alt = `${design.branding.hotelName || state.hotel?.name || "Property"} logo`; outer.appendChild(logo); } }
+      if (p.show_hotel_name !== false) { const title = document.createElement("strong"); title.textContent = design.branding?.hotelName || state.hotel?.name || ""; identity.appendChild(title); }
+      if (p.show_concierge_label !== false) { const concierge = document.createElement("small"); concierge.textContent = design.branding?.conciergeName || "Concierge"; identity.appendChild(concierge); }
+      if (identity.childElementCount) outer.appendChild(identity);
+    } else {
+      outer.classList.add("experience-configured-navigation");
+      outer.setAttribute("role", "navigation");
+      outer.setAttribute("aria-label", "Guest navigation");
+      const items = (p.items || []).filter((item) => item.enabled !== false && item.label && experienceActionConfigured(item.action));
+      if (!items.length) return null;
+      outer.style.setProperty("--navigation-count", String(items.length));
+      outer.dataset.position = p.position || "fixed"; outer.dataset.height = p.height || "medium"; outer.dataset.iconSize = p.icon_size || "medium"; outer.dataset.safeArea = String(p.safe_area_padding !== false);
+      const appearance = section.appearance || {};
+      outer.style.setProperty("--experience-active-color", appearance.active_color || design.theme?.accent || "#9b7337");
+      outer.style.setProperty("--experience-border-color", appearance.border_color || "#e8e4dc");
+      const iconMarks = { home: "⌂", explore: "◇", requests: "✓", stay: "▤", concierge: "○", dining: "♨", restaurant: "♨", spa: "✦", events: "▣", event: "▣", transport: "↗", transportation: "↗", help: "?" };
+      for (const item of items) { const button = document.createElement("button"); button.type = "button"; if (item.action?.type === "internal_page") button.dataset.pageId = item.action.page_id; else if (item.action?.type === "concierge") button.dataset.pageId = "concierge"; if (button.dataset.pageId === state.activeView) button.setAttribute("aria-current", "page"); if (item.icon) { const icon = document.createElement("span"); icon.setAttribute("aria-hidden", "true"); const key = String(item.icon).trim().toLowerCase(); icon.textContent = iconMarks[key] || item.icon; button.appendChild(icon); } if (p.show_labels !== false) { const label = document.createElement("small"); label.textContent = item.label; button.appendChild(label); } button.addEventListener("click", () => experienceAction(item.action)); outer.appendChild(button); }
+    }
+  } else if (type === "quick_actions") {
+    addSectionTitle();
+    const sourceItems = Array.isArray(p.items) ? p.items : (design.suggestions || []).map((item, index) => ({
+      id: `prompt-${index}`, label: item.label, description: item.description, icon: item.icon,
+      enabled: item.enabled !== false,
+      action: item.action || { type: "prompt", prompt: item.prompt },
+    }));
+    const items = sourceItems.filter((item) => item.enabled !== false && item.label && experienceActionConfigured(item.action));
+    const seenLabels = new Set(items.map((item) => String(item.label).trim().toLocaleLowerCase()));
+    for (const route of state.homeData?.quick_actions || []) {
+      const label = String(route?.label || "").trim();
+      if (!label || !guestViewIds[route.view] || route.view === "home" || seenLabels.has(label.toLocaleLowerCase())) continue;
+      seenLabels.add(label.toLocaleLowerCase());
+      items.push({ id: `route-${route.view}`, label, description: "", enabled: true, route: route.view });
+    }
+    const grid = document.createElement("div"); grid.className = "experience-action-grid";
+    const visible = state.homeActionsExpanded ? items : items.slice(0, 4);
+    for (const item of visible) {
+      const actionButton = document.createElement("button"); actionButton.type = "button"; actionButton.className = "experience-action-card";
+      if (item.style_mode === "custom") { const appearance = item.appearance || {}; if (appearance.text_color) actionButton.style.color = appearance.text_color; if (appearance.background_color) actionButton.style.backgroundColor = appearance.background_color; if (appearance.border_color) actionButton.style.borderColor = appearance.border_color; if (appearance.radius) actionButton.style.borderRadius = ({ none: "0", small: "4px", medium: "9px", large: "16px", pill: "999px" })[appearance.radius] || ""; if (appearance.shadow) actionButton.style.boxShadow = ({ none: "none", subtle: "0 4px 15px rgba(25,25,25,.06)", raised: "0 12px 28px rgba(25,25,25,.12)" })[appearance.shadow] || ""; }
+      if (item.icon) { const icon = document.createElement("span"); icon.className = "experience-action-icon"; icon.textContent = item.icon; actionButton.appendChild(icon); }
+      const copy = document.createElement("span"); copy.className = "experience-action-copy";
+      const label = document.createElement("strong"); label.textContent = item.label; copy.appendChild(label);
+      if (item.description) { const desc = document.createElement("small"); desc.textContent = item.description; copy.appendChild(desc); }
+      actionButton.appendChild(copy);
+      actionButton.dataset.actionType = item.route ? "route" : "configured";
+      actionButton.addEventListener("click", () => item.route ? setActiveView(item.route) : experienceAction(item.action));
+      grid.appendChild(actionButton);
+    }
+    outer.appendChild(grid);
+    if (items.length > 4) {
+      const toggle = guestButton(state.homeActionsExpanded ? "Show less" : "See all", () => {
+        state.homeActionsExpanded = !state.homeActionsExpanded;
+        const home = state.hotel?.design?.pages?.find((page) => page.id === "home" && page.enabled !== false);
+        if (state.activeView === "home" && home) renderConfiguredExperience(home, $("guest-experience-page"));
+        else refreshHome().catch(() => {});
+      }, "experience-see-all");
+      toggle.setAttribute("aria-expanded", String(state.homeActionsExpanded)); outer.appendChild(toggle);
+    }
+  } else if (["card_grid", "carousel", "restaurant", "room_service", "housekeeping", "transportation", "amenities", "promotions", "events"].includes(type)) {
+    addSectionTitle();
+    const source = p.source || ({ restaurant: "restaurants", room_service: "services", housekeeping: "services", transportation: "services", amenities: "facilities", promotions: "promotions", events: "events" })[type] || "recommendations";
+    if (type === "card_grid" && Array.isArray(p.items)) {
+      const grid = document.createElement("div"); grid.className = "experience-card-grid"; grid.style.setProperty("--experience-columns", Number(section.responsive?.columns) || Number(p.columns) || 2);
+      for (const item of p.items.filter((card) => card.enabled !== false && String(card.title || "").trim())) {
+        const card = document.createElement("article"); card.className = "guest-content-card guest-card-custom";
+        if (item.style_mode === "custom") { const itemStyle = item.appearance || {}; if (itemStyle.text_color) card.style.color = itemStyle.text_color; if (itemStyle.background_color) card.style.backgroundColor = itemStyle.background_color; if (itemStyle.border_color) card.style.borderColor = itemStyle.border_color; if (itemStyle.radius) card.style.borderRadius = ({ none: "0", small: "4px", medium: "9px", large: "16px", pill: "999px" })[itemStyle.radius] || ""; if (itemStyle.shadow) card.style.boxShadow = ({ none: "none", subtle: "0 4px 15px rgba(25,25,25,.06)", raised: "0 12px 28px rgba(25,25,25,.12)" })[itemStyle.shadow] || ""; }
+        const imageUrl = safeGuestUrl(item.image_url, { allowDataImage: true });
+        if (imageUrl) { const image = document.createElement("img"); image.className = "experience-card-image"; image.src = imageUrl; image.alt = item.title || ""; image.loading = "lazy"; card.appendChild(image); }
+        const content = document.createElement("div");
+        if (item.badge) { const badge = document.createElement("small"); badge.className = "experience-card-badge"; badge.textContent = item.badge; content.appendChild(badge); }
+        if (item.icon) { const icon = document.createElement("span"); icon.className = "experience-action-icon"; icon.textContent = item.icon; content.appendChild(icon); }
+        const title = document.createElement("strong"); title.textContent = item.title; content.appendChild(title);
+        if (item.description) { const description = document.createElement("p"); description.textContent = item.description; content.appendChild(description); }
+        if (item.cta && experienceActionConfigured(item.action)) { const cta = guestButton(item.cta, () => experienceAction(item.action)); content.appendChild(cta); }
+        else if (experienceActionConfigured(item.action)) { card.tabIndex = 0; card.setAttribute("role", "link"); card.setAttribute("aria-label", `${item.title} action`); card.addEventListener("click", () => experienceAction(item.action)); card.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); experienceAction(item.action); } }); }
+        card.appendChild(content); grid.appendChild(card);
+      }
+      if (!grid.childElementCount) return null;
+      outer.appendChild(grid);
+      // Custom cards are schema-owned, so the property inventory is not also rendered.
+      const appearance = section.appearance || {};
+      if (appearance.text_color) outer.style.color = appearance.text_color;
+      if (appearance.background_color) outer.style.backgroundColor = appearance.background_color;
+      if (appearance.active_color) outer.style.setProperty("--experience-active-color", appearance.active_color);
+      if (appearance.border_color) outer.style.setProperty("--experience-border-color", appearance.border_color);
+      if (appearance.radius) outer.style.borderRadius = ({ none: "0", small: "4px", medium: "9px", large: "16px", pill: "999px" })[appearance.radius] || "";
+      if (appearance.shadow) outer.style.boxShadow = ({ none: "none", subtle: "0 4px 15px rgba(25,25,25,.06)", raised: "0 12px 28px rgba(25,25,25,.12)" })[appearance.shadow] || "";
+      attachExperienceAnimation(outer, section);
+      return outer;
+    }
+    let items = experienceInventory(source);
+    if (p.resource_id) items = items.filter((item) => [item.restaurant_id, item.facility_id, item.promotion_id, item.event_id, item.recommendation_id].some((id) => String(id) === String(p.resource_id)));
+    items = items.slice(0, Number(p.limit) || 4);
+    if (!items.length) return null;
+    const grid = document.createElement("div"); grid.className = `experience-card-grid${type === "carousel" ? " experience-carousel" : ""}`;
+    grid.style.setProperty("--experience-columns", Number(p.columns) || Number(section.responsive?.columns) || 2);
+    for (const item of items) { const card = experienceCard(item, source); if (card) grid.appendChild(card); }
+    if (!grid.childElementCount) return null;
+    outer.appendChild(grid);
+  } else if (type === "banner") {
+    const imageUrl = safeGuestUrl(p.image_url, { allowDataImage: true });
+    if (imageUrl) { const image = document.createElement("img"); image.src = imageUrl; image.alt = p.alt || ""; image.loading = "lazy"; image.decoding = "async"; image.className = "experience-banner-image"; image.addEventListener("error", () => image.remove(), { once: true }); outer.appendChild(image); }
+    const heading = document.createElement("h2"); heading.textContent = p.headline || p.title || section.title; if (heading.textContent) outer.appendChild(heading);
+    const desc = document.createElement("p"); desc.textContent = p.description || ""; if (desc.textContent) outer.appendChild(desc);
+    if (p.action) { const button = createExperienceButton(p.action); if (button) outer.appendChild(button); }
+    if (!heading.textContent && !desc.textContent && !imageUrl) return null;
+  } else if (type === "concierge_composer") {
+    if (p.enabled === false) return null;
+    return null;
+  } else if (type === "ai_suggestion") {
+    const heading = document.createElement("h2"); heading.textContent = p.title || ""; if (heading.textContent) outer.appendChild(heading);
+    const content = document.createElement("p"); content.textContent = p.content || ""; if (content.textContent) outer.appendChild(content);
+  }
+
+  if (!outer.childElementCount && !["divider", "spacer", "container"].includes(type)) return null;
+  const appearance = section.appearance || {};
+  if (appearance.text_color) outer.style.color = appearance.text_color;
+  if (appearance.background_color) outer.style.backgroundColor = appearance.background_color;
+  if (appearance.radius) outer.style.borderRadius = ({ none: "0", small: "4px", medium: "9px", large: "16px", pill: "999px" })[appearance.radius] || "";
+  if (appearance.shadow) outer.style.boxShadow = ({ none: "none", subtle: "0 4px 15px rgba(25,25,25,.06)", raised: "0 12px 28px rgba(25,25,25,.12)" })[appearance.shadow] || "";
+  if (appearance.overlay_color && ["hero", "banner"].includes(type)) outer.style.setProperty("--experience-overlay", `${appearance.overlay_color}${Math.round((appearance.overlay_opacity ?? 30) * 2.55).toString(16).padStart(2, "0")}`);
+  if (section.layout?.width && type === "container") outer.dataset.width = section.layout.width;
+  if (section.layout?.height && ["hero", "banner"].includes(type)) outer.classList.add(`experience-${type}-${section.layout.height}`);
+  if (section.layout?.spacing) outer.dataset.spacing = section.layout.spacing;
+  if (section.layout?.alignment && ["hero", "heading", "text", "container"].includes(type)) outer.classList.add(`experience-align-${section.layout.alignment}`);
+  attachExperienceAnimation(outer, section);
+  return outer;
+}
+
+function renderConfiguredExperience(page, target) {
+  if (!page || !target) return;
+  const design = state.hotel?.design || {};
+  const sections = [...(page.sections || [])].sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+  const hasHeader = sections.some((section) => section.enabled !== false && section.type === "header");
+  const hasNavigation = sections.some((section) => section.enabled !== false && section.type === "bottom_navigation");
+  const schemaOwnsHeader = Number(page.version || 1) >= 2 || hasHeader;
+  const globalHeader = document.querySelector(".concierge-header");
+  if (globalHeader) globalHeader.hidden = schemaOwnsHeader;
+  document.body.classList.toggle("header-hidden", schemaOwnsHeader || state.hotel?.design?.header?.enabled === false);
+  const globalNavigation = $("guest-bottom-nav");
+  if (globalNavigation) globalNavigation.hidden = Number(page.version || 1) >= 2 || hasNavigation;
+  const navigationSlot = $("guest-configured-navigation-slot");
+  const fixedNavigationSection = sections.find((section) => section.type === "bottom_navigation" && section.enabled !== false && section.properties?.position !== "inline");
+  if (navigationSlot && (page.id === "home" || fixedNavigationSection)) {
+    navigationSlot.replaceChildren();
+    navigationSlot.hidden = true;
+    if (fixedNavigationSection) {
+      const navigation = renderExperienceSection(fixedNavigationSection, state.hotel?.design || {});
+      if (navigation) { navigationSlot.appendChild(navigation); navigationSlot.hidden = false; }
+    }
+  }
+  const activeFixedNavigation = navigationSlot?.querySelector(".experience-configured-navigation") || null;
+  const composerSection = sections.find((section) => section.type === "concierge_composer");
+  const pageHasBuilderSections = Array.isArray(page.sections) && page.sections.length > 0;
+  const composerEnabled = design.composer?.enabled !== false && (composerSection
+    ? composerSection.enabled !== false && composerSection.properties?.enabled !== false
+    : !pageHasBuilderSections);
+  const composerRegion = $("composer-region");
+  composerRegion?.classList.toggle("has-fixed-navigation", Boolean(activeFixedNavigation) && composerEnabled);
+  document.body.classList.toggle("has-configured-fixed-navigation", Boolean(activeFixedNavigation));
+  document.body.classList.toggle("has-fixed-navigation-composer", Boolean(activeFixedNavigation) && composerEnabled);
+  state.fixedNavigationResizeObserver?.disconnect();
+  if (activeFixedNavigation) {
+    const updateFixedNavigationSpacing = () => {
+      const navigationHeight = Math.ceil(activeFixedNavigation.getBoundingClientRect().height);
+      const composerHeight = composerEnabled ? Math.ceil(composerRegion?.getBoundingClientRect().height || 0) : 0;
+      document.body.style.setProperty("--experience-navigation-height", `${navigationHeight}px`);
+      document.body.style.setProperty("--experience-footer-clearance", `${navigationHeight + composerHeight + 12}px`);
+    };
+    updateFixedNavigationSpacing();
+    if ("ResizeObserver" in window) {
+      state.fixedNavigationResizeObserver = new ResizeObserver(updateFixedNavigationSpacing);
+      state.fixedNavigationResizeObserver.observe(activeFixedNavigation);
+      if (composerEnabled && composerRegion) state.fixedNavigationResizeObserver.observe(composerRegion);
+    }
+  }
+  target.replaceChildren();
+  target.dataset.pageId = page.id;
+  target.style.paddingBottom = "";
+  for (const section of sections) {
+    if (section.type === "bottom_navigation" && section.properties?.position !== "inline") {
+      if (section === fixedNavigationSection) target.style.paddingBottom = "var(--experience-footer-clearance, 180px)";
+      continue;
+    }
+    const element = renderExperienceSection(section, state.hotel?.design || {});
+    if (element && !element.hidden) {
+      target.appendChild(element);
+    }
+  }
+  if (activeFixedNavigation) target.style.paddingBottom = "var(--experience-footer-clearance, 180px)";
+  const empty = target.childElementCount === 0;
+  target.hidden = empty;
+}
+
+function renderGuestNavigation(design) {
+  const nav = $("guest-bottom-nav");
+  if (!nav) return;
+  const pages = design.pages || [];
+  const pageNames = new Map(pages.filter((page) => page.enabled !== false).map((page) => [page.id, page]));
+  const items = (design.navigation || []).filter((item) => item.enabled !== false && pageNames.has(item.page_id));
+  const homePage = pages.find((page) => page.id === "home" && page.enabled !== false);
+  const schemaOwnsNavigation = Boolean(homePage && (
+    Number(homePage.version || 1) >= 2
+    || (homePage.sections || []).some((section) => section.enabled !== false && section.type === "bottom_navigation")
+  ));
+  const iconMarks = { home: "⌂", explore: "◇", requests: "✓", stay: "▤", concierge: "○" };
+  nav.replaceChildren();
+  nav.hidden = schemaOwnsNavigation || items.length === 0;
+  nav.style.setProperty("--navigation-count", Math.max(1, items.length));
+  for (const item of items) {
+    const button = document.createElement("button"); button.type = "button"; button.dataset.view = item.page_id;
+    const icon = document.createElement("span"); icon.setAttribute("aria-hidden", "true");
+    const iconKey = ["home", "explore", "requests", "stay", "concierge"].includes(item.icon) ? item.icon : item.page_id;
+    icon.textContent = iconMarks[iconKey] || item.icon || item.label.slice(0, 1).toUpperCase();
+    const label = document.createElement("small"); label.textContent = item.label || pageNames.get(item.page_id)?.name || "Page";
+    button.append(icon, label); nav.appendChild(button);
+  }
+}
+
 function renderHome(data) {
-  const name = data.preferred_name ? `, ${data.preferred_name}` : "";
-  setText("home-greeting", `${data.greeting || "Welcome"}${name}`);
-  setText("home-name", "Your stay");
-  setText("home-stay-phase", data.stay?.status === "checked_in" ? "Stay in progress" : data.stay?.status === "unverified" ? "Guest services" : "");
+  const design = state.hotel?.design || {};
+  const homePage = (design.pages || []).find((page) => page.id === "home" && page.enabled !== false);
+  if (homePage) {
+    state.inventory = data.inventory || state.inventory;
+    $("legacy-home-content").hidden = true;
+    $("home-view").setAttribute("aria-label", homePage.name || "Home");
+    renderConfiguredExperience(homePage, $("guest-experience-page"));
+    renderComposerForPage(homePage, $("guest-experience-page"), design);
+    renderGuestNavigation(design);
+    if (state.activeView !== "home") {
+      const page = (design.pages || []).find((item) => item.id === state.activeView && item.enabled !== false);
+      if (page && (page.id.startsWith("page-") || page.sections?.length)) {
+        renderConfiguredExperience(page, $("custom-experience-page"));
+        renderComposerForPage(page, $("custom-experience-page"), design);
+      }
+    }
+    return;
+  }
+  $("legacy-home-content").hidden = false;
+  const firstName = String(data.preferred_name || "").trim().split(/\s+/)[0];
+  const name = firstName ? `, ${firstName}` : "";
+  const designWelcome = state.hotel?.design?.welcome || {};
+  const greeting = String(designWelcome.greeting || data.greeting || "Welcome").trim().replace(/[.,!]+$/, "");
+  setText("home-greeting", greeting + name);
+  setText("home-name", designWelcome.headline || "How can I help with your stay today?");
+  setText("home-description", designWelcome.description || "Your personal concierge is here to make your stay more comfortable.");
+  const stayPhase = $("home-stay-phase");
+  const phaseLabels = { checked_in: "Stay in progress", unverified: "Guest services", checked_out: "Thank you for staying with us" };
+  const phase = phaseLabels[data.stay?.status] || "";
+  stayPhase.textContent = phase;
+  stayPhase.hidden = !phase;
   const primary = $("home-primary");
   primary.replaceChildren();
   const primaryCard = data.primary_card;
@@ -250,15 +861,123 @@ function renderHome(data) {
     requestList.appendChild(row);
   }
   const cards = (data.cards || []).filter((card) => !(primaryCard && card.type === primaryCard.type && card.title === primaryCard.title));
-  $("home-cards-section").hidden = cards.length === 0;
-  $("home-cards").replaceChildren(...cards.slice(0, 4).map(createGuestCard));
+  const visibleCards = state.homeSuggestionsExpanded ? cards : cards.slice(0, 2);
+  $("home-cards-section").hidden = visibleCards.length === 0;
+  const suggestionsToggle = $("home-suggestions-more");
+  suggestionsToggle.hidden = cards.length <= 2;
+  suggestionsToggle.setAttribute("aria-expanded", String(state.homeSuggestionsExpanded));
+  suggestionsToggle.replaceChildren(document.createTextNode(state.homeSuggestionsExpanded ? "Show less" : "See all"));
+  if (!state.homeSuggestionsExpanded && cards.length > 2) {
+    const arrow = document.createElement("span");
+    arrow.setAttribute("aria-hidden", "true");
+    arrow.textContent = " ›";
+    suggestionsToggle.appendChild(arrow);
+  }
+  $("home-cards").replaceChildren(...visibleCards.map(createGuestCard));
   const quickActions = $("quick-actions");
   quickActions.replaceChildren();
-  for (const action of data.quick_actions || []) {
-    quickActions.appendChild(guestButton(action.label, () => setActiveView(action.view), "quick-action"));
+  const hasConfiguredSuggestions = Array.isArray(state.hotel?.design?.suggestions);
+  const configured = (hasConfiguredSuggestions ? state.hotel.design.suggestions : [])
+    .filter((item) => item.enabled !== false && item.label && item.prompt)
+    .sort((a, b) => Number(a.order || 0) - Number(b.order || 0))
+    .map((item) => ({ label: item.label, prompt: item.prompt, description: item.description || "" }));
+  const promptActions = hasConfiguredSuggestions
+    ? configured
+    : (Array.isArray(data.suggested_prompts) ? data.suggested_prompts : []).map((prompt) => ({ label: prompt, prompt }));
+  const actions = promptActions.map((action) => ({ ...action, actionType: "prompt" }));
+  const routeActions = Array.isArray(data.quick_actions) ? data.quick_actions : [];
+  const seenLabels = new Set(actions.map((action) => String(action.label || "").trim().toLocaleLowerCase()));
+  for (const action of routeActions) {
+    const label = String(action?.label || "").trim();
+    if (!label || !guestViewIds[action.view] || action.view === "home" || seenLabels.has(label.toLocaleLowerCase())) continue;
+    seenLabels.add(label.toLocaleLowerCase());
+    actions.push({ label, view: action.view, actionType: "route" });
+  }
+  $("home-actions-section").hidden = actions.length === 0;
+  const actionToggle = $("home-actions-toggle");
+  actionToggle.hidden = actions.length <= 4;
+  actionToggle.setAttribute("aria-expanded", String(state.homeActionsExpanded));
+  actionToggle.replaceChildren(document.createTextNode(state.homeActionsExpanded ? "Show less" : "See all"));
+  if (!state.homeActionsExpanded && actions.length > 4) {
+    const arrow = document.createElement("span");
+    arrow.setAttribute("aria-hidden", "true");
+    arrow.textContent = " ›";
+    actionToggle.appendChild(arrow);
+  }
+  const visibleActions = state.homeActionsExpanded ? actions : actions.slice(0, 4);
+  for (const [index, action] of visibleActions.entries()) {
+    const activate = action.actionType === "route"
+      ? () => setActiveView(action.view)
+      : () => handleGuestInput(action.prompt);
+    const button = guestButton(action.label, activate, "quick-action");
+    button.dataset.actionType = action.actionType;
+    button.dataset.kind = suggestionKind(action.prompt || action.label, index);
+    const icon = document.createElement("span");
+    icon.className = "quick-action-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.innerHTML = suggestionIcon(button.dataset.kind);
+    const label = document.createElement("span");
+    label.className = "quick-action-label";
+    label.textContent = action.label;
+    const copy = document.createElement("span");
+    copy.className = "quick-action-copy";
+    const description = document.createElement("small");
+    const copyByKind = {
+      dining: "Restaurants, menus and reservations",
+      wifi: "Get connected during your stay",
+      wellness: "Explore hotel facilities",
+      stay: "Guest services and stay details",
+      concierge: "Ask about your stay",
+      room_service: "Request available in-room services",
+      housekeeping: "Request available housekeeping services",
+      transportation: "Explore configured transport options",
+    };
+    const routeCopy = { explore: "Browse property dining and facilities", requests: "Request and track hotel services", stay: "See details for your stay", concierge: "Continue with your concierge" };
+    description.textContent = action.description || (action.actionType === "route" && routeCopy[action.view]) || copyByKind[button.dataset.kind] || "Ask your concierge";
+    copy.append(label, description);
+    const arrow = document.createElement("span");
+    arrow.className = "quick-action-arrow";
+    arrow.setAttribute("aria-hidden", "true");
+    arrow.textContent = "›";
+    button.replaceChildren(icon, copy, arrow);
+    quickActions.appendChild(button);
   }
   if (data.inventory) state.inventory = data.inventory;
+  renderComposerShortcuts(data.quick_actions || []);
   if (state.activeView === "stay") renderStay();
+}
+
+function renderComposerShortcuts(configuredActions = []) {
+  const sheet = $("composer-action-sheet");
+  const toggle = $("composer-actions-toggle");
+  if (!sheet || !toggle) return;
+  const actions = [
+    { label: "Explore", view: "explore" },
+    { label: "Requests", view: "requests" },
+    ...configuredActions.filter((action) => guestViewIds[action.view] && action.view !== "explore"),
+    { label: "My Stay", view: "stay" },
+    { label: "Concierge", view: "concierge" },
+  ];
+  const seen = new Set();
+  sheet.replaceChildren();
+  for (const action of actions) {
+    if (!guestViewIds[action.view] || seen.has(action.view)) continue;
+    seen.add(action.view);
+    const button = guestButton(action.label, () => {
+      closeComposerShortcuts();
+      setActiveView(action.view);
+    }, "composer-shortcut");
+    sheet.appendChild(button);
+  }
+}
+
+function closeComposerShortcuts() {
+  const sheet = $("composer-action-sheet");
+  const toggle = $("composer-actions-toggle");
+  if (!sheet || !toggle) return;
+  sheet.hidden = true;
+  toggle.setAttribute("aria-expanded", "false");
+  toggle.setAttribute("aria-label", "Open concierge shortcuts");
 }
 
 function propertyDateTime(timestamp, options = { dateStyle: "medium", timeStyle: "short" }) {
@@ -338,6 +1057,7 @@ async function proposeConfiguredService(service) {
   confirmation.replaceChildren();
   confirmation.hidden = true;
   try {
+    await ensureStarted();
     const proposal = await jsonFetch("/api/guest/actions/propose", {
       method: "POST", body: JSON.stringify({ session_id: state.sessionId, message: service.name }),
     });
@@ -521,10 +1241,14 @@ function renderStay() {
 
 function suggestionKind(value, index) {
   const prompt = String(value || "").toLowerCase();
+  if (prompt.includes("transport") || prompt.includes("airport transfer") || prompt.includes("car service")) return "transportation";
+  if (prompt.includes("housekeeping") || prompt.includes("cleaning") || prompt.includes("towel")) return "housekeeping";
+  if (prompt.includes("room service") || prompt.includes("in-room dining")) return "room_service";
   if (prompt.includes("breakfast") || prompt.includes("eat") || prompt.includes("restaurant") || prompt.includes("dining")) return "dining";
   if (prompt.includes("wi-fi") || prompt.includes("wifi") || prompt.includes("internet")) return "wifi";
   if (prompt.includes("pool") || prompt.includes("spa") || prompt.includes("gym")) return "wellness";
-  if (prompt.includes("checkout") || prompt.includes("check-out") || prompt.includes("room")) return "stay";
+  if (prompt.includes("checkout") || prompt.includes("check-out") || prompt.includes("room") || prompt.includes("stay") || prompt.includes("service") || prompt.includes("request")) return "stay";
+  if (prompt.includes("explore")) return "concierge";
   return ["concierge", "dining", "wellness", "stay"][index % 4];
 }
 
@@ -535,6 +1259,9 @@ function suggestionIcon(kind) {
     wellness: '<svg viewBox="0 0 24 24"><path d="M3 15.5c1.5-1.3 3-1.3 4.5 0s3 1.3 4.5 0 3-1.3 4.5 0 3 1.3 4.5 0M3 19c1.5-1.3 3-1.3 4.5 0s3 1.3 4.5 0 3-1.3 4.5 0 3 1.3 4.5 0"/><path d="M5 12h14l-1.2-5H6.2L5 12Z"/></svg>',
     stay: '<svg viewBox="0 0 24 24"><path d="M4 20V7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v13M8 9h3v3H8zM15.5 10.5h.01M8 16h8"/></svg>',
     concierge: '<svg viewBox="0 0 24 24"><path d="M4 18h16M6 18a6 6 0 0 1 12 0M12 8V5M10 5h4"/><path d="M8.5 13.5c1.8-1.4 5.2-1.4 7 0"/></svg>',
+    room_service: '<svg viewBox="0 0 24 24"><path d="M3.5 18h17M5.5 18a6.5 6.5 0 0 1 13 0M12 7.5v-3M10.5 4.5h3M7 12.5h.01M17 12.5h.01"/><path d="M8 7.5c1.1-.8 2.4-1.2 4-1.2s2.9.4 4 1.2"/></svg>',
+    housekeeping: '<svg viewBox="0 0 24 24"><path d="m14.5 4-8 8M13 5.5l2.5 2.5M6 12l3 3M4 17l3-3 3 3-3 3-3-3ZM15.5 12.5l4.5 4.5M18 10l2 2M14 15l-2 2"/></svg>',
+    transportation: '<svg viewBox="0 0 24 24"><path d="m5 11 1.5-5h11L19 11v8h-2v-2H7v2H5v-8ZM5 11h14M8 14h.01M16 14h.01M8 19v2M16 19v2"/><circle cx="8" cy="14" r="1"/><circle cx="16" cy="14" r="1"/></svg>',
   };
   return icons[kind] || icons.concierge;
 }
@@ -559,17 +1286,25 @@ function addMessage(message) {
 }
 
 function renderMessages() {
+  const isConversation = state.activeView === "concierge";
+  const isHome = state.activeView === "home";
   $("welcome-state").classList.toggle("hidden", state.messages.length > 0);
   const list = $("message-list");
-  list.innerHTML = "";
-  for (const message of state.messages) {
-    list.appendChild(renderMessage(message));
+  const homeList = $("home-message-list");
+  list.replaceChildren();
+  homeList.replaceChildren();
+  const destination = isHome ? homeList : isConversation ? list : null;
+  $("home-conversation").hidden = !isHome || state.messages.length === 0;
+  if (destination) {
+    for (const message of state.messages) destination.appendChild(renderMessage(message));
   }
   requestAnimationFrame(() => {
-    const region = document.querySelector(".conversation-region");
-    const nearBottom = region.scrollHeight - region.scrollTop - region.clientHeight < 160;
-    if (nearBottom || state.messages.length <= 2) {
+    const region = isConversation ? document.querySelector(".conversation-region") : null;
+    if (region && !region.hidden) {
+      const nearBottom = region.scrollHeight - region.scrollTop - region.clientHeight < 160;
+      if (nearBottom || state.messages.length <= 2) {
       region.scrollTop = region.scrollHeight;
+      }
     }
   });
 }
@@ -1012,7 +1747,7 @@ function submitGatewayHandoff(handoff) {
 async function handleGuestInput(rawMessage) {
   const message = rawMessage.trim();
   if (!message || state.inputPending) return;
-  setActiveView("concierge");
+  const keepHome = state.activeView === "home";
   state.inputPending = true;
   updateComposerState();
   try {
@@ -1066,7 +1801,7 @@ async function handleGuestInput(rawMessage) {
       }
     }
 
-    if (await sendChat(message, conversationHistory)) clearSubmittedComposer(message);
+    if (await sendChat(message, conversationHistory, false, keepHome)) clearSubmittedComposer(message);
   } finally {
     state.inputPending = false;
     updateComposerState();
@@ -1082,8 +1817,8 @@ function clearSubmittedComposer(message) {
   if (input.value.trim() === message) setDraft("");
 }
 
-async function sendChat(message, conversationHistory = []) {
-  setActiveView("concierge");
+async function sendChat(message, conversationHistory = [], focusComposer = true, keepHome = false) {
+  if (!keepHome) setActiveView("concierge", focusComposer);
   const initialRecommendations = isRestaurantRequest(message) ? state.recommendations : [];
   const thinking = {
     role: "assistant",
@@ -1211,6 +1946,8 @@ function updateComposerState() {
 
 function setupComposer() {
   const input = $("composer-input");
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+    || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const savedDraft = localStorage.getItem(state.draftKey);
   if (savedDraft) input.value = savedDraft;
   updateComposerState();
@@ -1229,9 +1966,89 @@ function setupComposer() {
 
   $("composer-form").addEventListener("submit", (event) => {
     event.preventDefault();
+    if (!input.value.trim() || state.inputPending) return;
     handleGuestInput(input.value);
+    if (isIOS) input.blur();
   });
+  const shortcutsToggle = $("composer-actions-toggle");
+  shortcutsToggle.addEventListener("click", () => {
+    const sheet = $("composer-action-sheet");
+    const open = sheet.hidden;
+    sheet.hidden = !open;
+    shortcutsToggle.setAttribute("aria-expanded", String(open));
+    shortcutsToggle.setAttribute("aria-label", open ? "Close concierge shortcuts" : "Open concierge shortcuts");
+    if (open) sheet.querySelector("button")?.focus();
+  });
+  document.addEventListener("pointerdown", (event) => {
+    if (!$("composer-action-sheet").hidden && !$("composer-stack").contains(event.target)) closeComposerShortcuts();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !$("composer-action-sheet").hidden) {
+      closeComposerShortcuts();
+      shortcutsToggle.focus();
+    }
+  });
+  setupVoiceInput();
+}
 
+function setupVoiceInput() {
+  const button = $("composer-voice-button");
+  const status = $("composer-status");
+  const SpeechRecognitionApi = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognitionApi || !window.isSecureContext) {
+    button.hidden = true;
+    return;
+  }
+  button.hidden = false;
+  let recognition = null;
+  const announce = (message, hideAfter = 0) => {
+    status.textContent = message;
+    status.hidden = !message;
+    window.clearTimeout(announce.timer);
+    if (hideAfter) announce.timer = window.setTimeout(() => { status.hidden = true; }, hideAfter);
+  };
+  button.addEventListener("click", () => {
+    if (recognition) {
+      recognition.stop();
+      return;
+    }
+    try {
+      recognition = new SpeechRecognitionApi();
+      recognition.lang = document.documentElement.lang || navigator.language || "en-US";
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+      recognition.addEventListener("start", () => {
+        button.setAttribute("aria-pressed", "true");
+        button.setAttribute("aria-label", "Stop voice input");
+        announce("Listening. Speak now.");
+      });
+      recognition.addEventListener("result", (event) => {
+        const transcript = String(event.results?.[0]?.[0]?.transcript || "").trim();
+        if (!transcript) return;
+        const prefix = input.value.trim() ? `${input.value.trim()} ` : "";
+        setDraft(`${prefix}${transcript}`);
+        announce("Voice input added.", 2200);
+      });
+      recognition.addEventListener("error", (event) => {
+        const message = event.error === "not-allowed" || event.error === "service-not-allowed"
+          ? "Microphone access is blocked. Check your browser permissions."
+          : event.error === "no-speech" ? "No speech was detected. Try again."
+            : "Voice input is unavailable right now.";
+        announce(message, 3200);
+      });
+      recognition.addEventListener("end", () => {
+        recognition = null;
+        button.setAttribute("aria-pressed", "false");
+        button.setAttribute("aria-label", "Start voice input");
+        if (status.textContent === "Listening. Speak now.") announce("Voice input ended.", 1800);
+      });
+      recognition.start();
+    } catch {
+      recognition = null;
+      button.setAttribute("aria-pressed", "false");
+      announce("Voice input could not start. Check your browser permissions.", 3200);
+    }
+  });
 }
 
 function setupMenu() {
@@ -1577,22 +2394,71 @@ function applyHotelProfile(profile) {
   const welcome = design.welcome || {};
   const composer = design.composer || {};
   const hotelName = profile.name || "Property not configured";
+  const displayHotelName = branding.hotelName || hotelName;
   const conciergeName = profile.concierge_name || "AI concierge";
-  setText("hotel-name", branding.hotelName || hotelName);
+  setText("hotel-name", displayHotelName);
   setText("concierge-name", branding.conciergeName || conciergeName);
-  setText("hotel-mark", hotelName.slice(0, 1).toUpperCase());
-  $("hotel-mark").style.backgroundImage = branding.logoUrl ? `url("${branding.logoUrl}")` : "";
-  $("hotel-mark").classList.toggle("has-image", Boolean(branding.logoUrl));
+  const initial = $("hotel-initial");
+  const logo = $("hotel-logo");
+  const logoUrl = safeGuestUrl(branding.logoUrl || profile.logo_url, { allowDataImage: true });
+  initial.textContent = Array.from(displayHotelName.trim())[0]?.toLocaleUpperCase() || "H";
+  logo.hidden = !logoUrl;
+  logo.onload = () => { initial.hidden = true; };
+  logo.onerror = () => {
+    logo.hidden = true;
+    logo.removeAttribute("src");
+    initial.hidden = false;
+  };
+  if (logoUrl) logo.src = logoUrl;
+  else { logo.removeAttribute("src"); initial.hidden = false; }
+  $("hotel-mark").classList.toggle("has-image", Boolean(logoUrl));
   setText("welcome-greeting", welcome.greeting || "Good evening.");
   setText("welcome-headline", welcome.headline || "How can I help?");
+  const heroUrl = safeGuestUrl(design.theme?.backgroundImageUrl, { allowDataImage: true });
+  const heroMedia = $("home-hero-media");
+  const heroImage = $("home-hero-image");
+  heroImage.onload = () => { heroMedia.hidden = false; $("home-hero").classList.add("has-hero-image"); };
+  heroImage.onerror = () => { heroMedia.hidden = true; $("home-hero").classList.remove("has-hero-image"); heroImage.removeAttribute("src"); };
+  if (heroUrl) { heroMedia.hidden = false; heroImage.src = heroUrl; }
+  else { heroImage.removeAttribute("src"); heroMedia.hidden = true; $("home-hero").classList.remove("has-hero-image"); }
+  renderComposerShortcuts(state.homeData?.quick_actions || []);
   $("composer-input").placeholder = composer.placeholder || "Ask a question...";
   applyDesignTokens(design);
+  renderGuestNavigation(design);
+  const headerSection = (design.pages || []).flatMap((page) => page.sections || []).find((section) => section.type === "header");
+  document.body.classList.toggle("header-hidden", design.header?.enabled === false || headerSection?.properties?.enabled === false);
   renderConfiguredModules(profile.guest_modules || []);
   const maintenance = $("maintenance-banner");
   const application = profile.application || {};
   maintenance.hidden = !application.maintenance_enabled;
   maintenance.textContent = application.maintenance_message || "Concierge maintenance is in progress. Some requests may take longer than usual.";
   renderWelcomeState();
+}
+
+function renderComposerForPage(page, target, design) {
+  const region = $("composer-region");
+  const stack = region.querySelector(".composer-stack");
+  const status = $("composer-status");
+  const note = $("composer-note");
+  const nav = $("guest-bottom-nav");
+  const block = (page.sections || []).find((section) => section.type === "concierge_composer");
+  const rootEnabled = design.composer?.enabled !== false;
+  const props = block?.properties || {};
+  const hasBuilderSections = Array.isArray(page.sections) && page.sections.length > 0;
+  const enabled = rootEnabled && (block ? block.enabled !== false && props.enabled !== false : !hasBuilderSections);
+  region.dataset.position = "sticky_bottom";
+  const placeholder = props.placeholder || design.composer?.placeholder || "Ask your concierge...";
+  $("composer-input").placeholder = placeholder;
+  $("composer-input").hidden = !enabled;
+  $("send-button").hidden = !enabled;
+  $("composer-actions-toggle").hidden = !enabled || design.composer?.attachments !== true;
+  $("composer-voice-button").hidden = !enabled || design.composer?.voice !== true;
+  stack.hidden = !enabled;
+  status.hidden = !enabled || status.textContent.trim() === "";
+  note.hidden = !enabled;
+  region.insertBefore(stack, nav);
+  region.insertBefore(status, nav);
+  region.insertBefore(note, nav);
 }
 
 function renderConfiguredModules(modules) {
@@ -1692,22 +2558,26 @@ function applyDesignTokens(design) {
   const composer = design.composer || {};
 
   const root = document.documentElement;
-  root.style.setProperty("--background", theme.background || "#fbfbfa");
-  root.style.setProperty("--background-image", theme.backgroundImageUrl ? `url("${theme.backgroundImageUrl}")` : "none");
+  root.style.setProperty("--background", theme.background || "#faf8f4");
+  const backgroundImageUrl = safeGuestUrl(theme.backgroundImageUrl, { allowDataImage: true });
+  const cssBackgroundImage = backgroundImageUrl
+    ? `url("${backgroundImageUrl.replaceAll("\\", "%5C").replaceAll('"', "%22").replaceAll(")", "%29")}")`
+    : "none";
+  root.style.setProperty("--background-image", cssBackgroundImage);
   root.style.setProperty("--background-overlay", (theme.backgroundOverlay || 0) / 100);
   root.style.setProperty("--surface", theme.surface || "#ffffff");
   root.style.setProperty("--surface-elevated", composer.background || theme.composerBackground || "#ffffff");
-  root.style.setProperty("--text-primary", theme.textPrimary || "#18181b");
-  root.style.setProperty("--text-secondary", theme.textSecondary || "#71717a");
-  root.style.setProperty("--accent", theme.accent || "#18181b");
-  root.style.setProperty("--button-color", theme.buttonColor || theme.accent || "#18181b");
-  root.style.setProperty("--accent-text", theme.accentText || "#ffffff");
-  root.style.setProperty("--border", theme.border || "#e4e4e7");
-  root.style.setProperty("--user-message-bg", theme.userMessageBackground || "#eeeeee");
-  root.style.setProperty("--user-message-text", theme.userMessageText || "#18181b");
-  root.style.setProperty("--assistant-text", theme.assistantText || theme.textPrimary || "#18181b");
+  root.style.setProperty("--text-primary", theme.textPrimary || "#1c1c1c");
+  root.style.setProperty("--text-secondary", theme.textSecondary || "#6e6a64");
+  root.style.setProperty("--accent", theme.accent || "#b38a4a");
+  root.style.setProperty("--button-color", theme.buttonColor || theme.accent || "#b38a4a");
+  root.style.setProperty("--accent-text", theme.accentText || "#1c1c1c");
+  root.style.setProperty("--border", theme.border || "#e8e3da");
+  root.style.setProperty("--user-message-bg", theme.userMessageBackground || "#f0ede7");
+  root.style.setProperty("--user-message-text", theme.userMessageText || "#1c1c1c");
+  root.style.setProperty("--assistant-text", theme.assistantText || theme.textPrimary || "#1c1c1c");
   root.style.setProperty("--column-width", (layout.contentWidth || 840) + "px");
-  root.style.setProperty("--composer-max", (layout.composerWidth || 840) + "px");
+  root.style.setProperty("--composer-max", (layout.composerWidth || 720) + "px");
   root.style.setProperty("--message-width", (layout.messageWidth || 680) + "px");
   root.style.setProperty("--message-spacing", (messages.messageSpacing || layout.messageSpacing || 24) + "px");
   root.style.setProperty("--message-radius", (messages.radius || theme.radius || 18) + "px");
@@ -1717,6 +2587,10 @@ function applyDesignTokens(design) {
   root.style.setProperty("--body-weight", typography.bodyWeight || 400);
   root.style.setProperty("--letter-spacing", (typography.letterSpacing || 0) + "em");
   root.style.setProperty("--font-family", fontStack(typography.fontFamily || theme.font || "Geist"));
+  root.style.setProperty("--guest-radius", `${theme.radius ?? 14}px`);
+  root.style.setProperty("--guest-card-radius", `${design.card?.radius ?? theme.radius ?? 14}px`);
+  root.style.setProperty("--guest-shadow", design.card?.shadow === "none" ? "none" : design.card?.shadow === "strong" ? "0 14px 38px rgba(25, 25, 25, .14)" : "0 7px 24px rgba(25, 25, 25, .07)");
+  root.style.setProperty("--guest-density", theme.density === "compact" ? ".78" : "1");
 
   document.body.dataset.userMessageStyle = messages.userStyle || "bubble";
   document.body.dataset.assistantMessageStyle = messages.assistantStyle || "minimal";
@@ -1747,6 +2621,7 @@ function fontStack(font) {
 
 async function start() {
   setupComposer();
+  document.body.appendChild($("hotel-menu"));
   setupMenu();
   setupViews();
   let profile;
@@ -1762,8 +2637,8 @@ async function start() {
     throw error;
   }
   const [catalog, recommendations, zones, hospitality] = await Promise.all([
-    jsonFetch("/api/guest/service-catalog"),
-    jsonFetch("/api/guest/recommendations"),
+    jsonFetch("/api/guest/service-catalog").catch(() => ({ services: [] })),
+    jsonFetch("/api/guest/recommendations").catch(() => ({ recommendations: [] })),
     jsonFetch("/api/guest/zones").catch(() => ({ maps: [] })),
     jsonFetch("/api/guest/facilities").catch(() => ({ restaurants: [] })),
   ]);
@@ -1774,6 +2649,9 @@ async function start() {
   document.querySelector('[data-menu-action="restaurant-staff"]').hidden = !state.restaurants.some((item) => item.status !== "disabled" && item.status !== "archived" && !item.archived);
   document.querySelector('[data-menu-action="property-map"]').hidden = !state.hasPropertyMap;
   applyHotelProfile(profile);
+  const currentPath = window.location.pathname.replace(/\/$/, "") || "/";
+  const directPage = (profile.design?.pages || []).find((page) => page.slug === currentPath && page.enabled !== false);
+  if (directPage && directPage.id !== "home") setActiveView(directPage.id, false);
   await maybeShowIntro();
 
   state.clientId = localStorage.getItem("concierge-client-id") || createClientId();

@@ -21,7 +21,7 @@ Concierge.AI is designed to sit alongside the hotel network and existing systems
 
 | Area | Current capability |
 | --- | --- |
-| Guest experience | Mobile-first personal stay dashboard, Explore, Requests, My Stay, Concierge, Wi-Fi authentication flow, recommendations, dining, service requests, accessibility and error states |
+| Guest experience | Mobile-first personal stay dashboard, Explore, Requests, My Stay, Concierge, Wi-Fi authentication flow, recommendations, dining, service requests, accessibility and error states; property-scoped visual editor for configurable pages, sections, components, navigation, headers, footers and button actions |
 | Admin platform | Property management, operational dashboard, guest requests/sessions, reports, health, network access, users/roles, restaurant workflows, design/branding and AI administration |
 | AI | Provider abstraction for OpenAI, Gemini, Groq, Claude, OpenRouter and local OpenAI-compatible/Ollama services; routing, fallback, health, latency and usage controls |
 | Property isolation | Backend-enforced property scope, restaurant assignments, host/domain collision protection and cross-property regression tests |

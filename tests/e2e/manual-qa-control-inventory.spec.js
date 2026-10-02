@@ -442,8 +442,10 @@ test("manual QA inventories visible controls on every admin destination and gues
   let inventory = await inventoryVisibleControls(page, "guest:home");
   records.push(...inventory.controls);
   compositeWidgets.push(...inventory.compositeWidgets);
+  const guestNavigation = page.locator(".experience-configured-navigation");
+  await expect(guestNavigation).toBeVisible();
   for (const [label, panel] of [["Explore", "#explore-view"], ["Requests", "#requests-view"], ["My Stay", "#stay-view"], ["Concierge", "#concierge-view"], ["Home", "#home-view"]]) {
-    await page.getByRole("button", { name: label, exact: true }).click();
+    await guestNavigation.getByRole("button", { name: label, exact: true }).click();
     await expect(page.locator(panel)).toBeVisible();
     inventory = await inventoryVisibleControls(page, "guest:" + label.toLowerCase().replaceAll(" ", "-"));
     records.push(...inventory.controls);
