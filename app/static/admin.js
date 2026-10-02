@@ -739,6 +739,29 @@ async function loadCurrentAdmin() {
     activatePanel("security");
     showToast("Change your temporary password to continue.");
   }
+  renderDefaultPasswordSecurity();
+}
+
+function renderDefaultPasswordSecurity() {
+  const warning = $("default-password-warning");
+  if (!warning) return;
+  const usingDefault = Boolean(state.auth?.using_default_password);
+  warning.hidden = !usingDefault;
+  if (!usingDefault || !state.auth?.show_default_password_prompt) return;
+  const seenKey = `concierge.default-password-prompt.${state.auth.id}`;
+  if (sessionStorage.getItem(seenKey)) return;
+  sessionStorage.setItem(seenKey, "shown");
+  $("default-password-prompt").hidden = false;
+  $("default-password-change-form").hidden = true;
+  $("default-password-dialog").showModal();
+}
+
+function openDefaultPasswordChange() {
+  $("default-password-prompt").hidden = true;
+  $("default-password-change-form").hidden = false;
+  $("default-password-message").textContent = "";
+  $("default-password-dialog").showModal();
+  requestAnimationFrame(() => $("default-current-password").focus());
 }
 
 function activatePanel(panelId, navId = null) {
@@ -7597,7 +7620,36 @@ async function changePassword(event) {
   });
   form.reset();
   state.auth.force_password_change = false;
+  state.auth.using_default_password = false;
+  state.auth.show_default_password_prompt = false;
+  $("default-password-warning").hidden = true;
   showToast("Password changed. Other sessions were revoked.");
+}
+
+async function changeDefaultPassword(event) {
+  event.preventDefault();
+  const message = $("default-password-message");
+  message.textContent = "";
+  const newPassword = $("default-new-password").value;
+  if (newPassword !== $("default-confirm-password").value) {
+    message.textContent = "New passwords do not match.";
+    return;
+  }
+  try {
+    await jsonFetch("/api/admin/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ current_password: $("default-current-password").value, new_password: newPassword }),
+    });
+    state.auth.force_password_change = false;
+    state.auth.using_default_password = false;
+    state.auth.show_default_password_prompt = false;
+    $("default-password-warning").hidden = true;
+    $("default-password-change-form").reset();
+    $("default-password-dialog").close();
+    showToast("Password changed. The default-password warning has been removed.");
+  } catch (error) {
+    message.textContent = error.message;
+  }
 }
 
 async function logout() {
@@ -8418,6 +8470,23 @@ function setup() {
   $("role-form").addEventListener("submit", saveRole);
   $("password-reset-form").addEventListener("submit", resetUserPassword);
   $("change-password-form").addEventListener("submit", (event) => changePassword(event).catch((error) => showToast(error.message, "error")));
+  $("default-password-banner-change").addEventListener("click", openDefaultPasswordChange);
+  $("default-password-change-start").addEventListener("click", openDefaultPasswordChange);
+  $("default-password-back").addEventListener("click", () => {
+    $("default-password-change-form").reset();
+    $("default-password-change-form").hidden = true;
+    $("default-password-prompt").hidden = false;
+  });
+  $("default-password-skip").addEventListener("click", async () => {
+    try {
+      await jsonFetch("/api/admin/auth/default-password-prompt/dismiss", { method: "POST", body: "{}" });
+      state.auth.show_default_password_prompt = false;
+      $("default-password-dialog").close();
+    } catch (error) {
+      showToast(error.message, "error");
+    }
+  });
+  $("default-password-change-form").addEventListener("submit", (event) => changeDefaultPassword(event));
   $("refresh-audit").addEventListener("click", () => loadAudit().catch((error) => showToast(error.message, "error")));
   $("apply-audit-filters").addEventListener("click", () => loadAudit().catch((error) => showToast(error.message, "error")));
   for (const button of document.querySelectorAll("[data-close-dialog]")) {

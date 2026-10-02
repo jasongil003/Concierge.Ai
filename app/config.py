@@ -74,8 +74,8 @@ class Settings:
     admin_session_ttl_minutes: int = int(os.getenv("ADMIN_SESSION_TTL_MINUTES", "480"))
     admin_lockout_attempts: int = int(os.getenv("ADMIN_LOCKOUT_ATTEMPTS", "5"))
     admin_lockout_minutes: int = int(os.getenv("ADMIN_LOCKOUT_MINUTES", "15"))
-    admin_bootstrap_username: str = os.getenv("ADMIN_BOOTSTRAP_USERNAME", "admin").strip()
-    admin_bootstrap_password: str = os.getenv("ADMIN_BOOTSTRAP_PASSWORD", "")
+    admin_bootstrap_username: str = os.getenv("ADMIN_BOOTSTRAP_USERNAME", "root").strip()
+    admin_bootstrap_password: str = os.getenv("ADMIN_BOOTSTRAP_PASSWORD", "admin")
     admin_cookie_secure: bool = _bool("ADMIN_COOKIE_SECURE", False)
     canonical_hosts: tuple[str, ...] = tuple(
         item.strip().casefold().rstrip(".")
@@ -161,7 +161,11 @@ DEFAULT_ENCRYPTION_SECRETS = {
 
 def validate_production_settings(value: Settings, *, check_filesystem: bool = True) -> None:
     """Fail closed before any production database or account initialization occurs."""
-    if (
+    initial_default_admin = (
+        value.admin_bootstrap_username.casefold() == "root"
+        and value.admin_bootstrap_password == "admin"
+    )
+    if not initial_default_admin and (
         not value.admin_bootstrap_password
         or value.admin_bootstrap_password == "ChangeMe123!"
         or len(value.admin_bootstrap_password) < 12

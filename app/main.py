@@ -1734,6 +1734,12 @@ async def change_admin_password(payload: AdminPasswordChangePayload, request: Re
     return {"status": "password_changed"}
 
 
+@app.post("/api/admin/auth/default-password-prompt/dismiss")
+async def dismiss_default_password_prompt(request: Request) -> dict[str, str]:
+    admin_auth.dismiss_default_password_prompt(_admin_principal(request))
+    return {"status": "prompt_dismissed"}
+
+
 @app.get("/api/admin/permissions")
 async def list_admin_permissions() -> dict[str, Any]:
     return {"permissions": [{"key": key, "name": value} for key, value in PERMISSIONS.items()]}

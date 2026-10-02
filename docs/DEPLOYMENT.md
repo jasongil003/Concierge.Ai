@@ -15,7 +15,7 @@ You need:
 - ANTlabs lab gateway or guest network
 - one computer for Concierge.Ai
 - Ollama installed on the AI host
-- Python 3.12+ or Docker
+- Python 3.11–3.14 (3.12+ preferred) or Docker
 - a local 4B-class model
 
 A domain and SSL certificate are not required for the first LAN test.
@@ -32,8 +32,8 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 cp .env.example .env
-# Set a unique ADMIN_BOOTSTRAP_PASSWORD and generate CREDENTIAL_ENCRYPTION_SECRET
-# with `openssl rand -hex 32` before the first run.
+# For a manual run, set CREDENTIAL_ENCRYPTION_SECRET to a random value of at
+# least 32 characters. The source installer generates and persists it for you.
 ollama pull qwen3:4b
 ollama serve
 
@@ -60,12 +60,14 @@ cp .env.example .env
 docker compose up --build
 ```
 
-The production Compose profile fails closed until `.env` contains a unique
-`ADMIN_BOOTSTRAP_PASSWORD`, `CREDENTIAL_ENCRYPTION_SECRET`, `METRICS_TOKEN`,
+On a fresh database, the default administrator is `root` / `admin`; after
+first sign-in the Admin UI offers to change that password or skip for now.
+Change it before exposing the management interface to an untrusted network.
+The production Compose profile fails closed until `.env` contains a valid
+`CREDENTIAL_ENCRYPTION_SECRET`, `METRICS_TOKEN`,
 `CANONICAL_HOSTS`, `PUBLIC_BASE_URL`, and a restrictive `ADMIN_ALLOWED_CIDRS`.
-The application also refuses to start in development if
-`ADMIN_BOOTSTRAP_PASSWORD` is blank or uses the former `ChangeMe123!` default.
-Generate a unique password for each installation.
+The Compose profile preserves an explicitly configured bootstrap account; on
+a new installation it uses the built-in root/admin credentials.
 Set `ANTLABS_MODE=browser_handoff` and configure `ANTLABS_AUTH_URL` as
 `https://<sg5-host>/login/main.ant?c=proc` before starting it. The live adapter
 uses the SG5 built-in processor; its connection check verifies reachability, not

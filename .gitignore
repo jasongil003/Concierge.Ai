@@ -1,5 +1,7 @@
 .env
 .venv/
+.concierge.pid
+logs/
 __pycache__/
 *.py[cod]
 .pytest_cache/

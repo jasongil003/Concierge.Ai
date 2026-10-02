@@ -116,53 +116,74 @@ Likewise, simulated PMS tests do not replace validation against the hotel's real
 
 See [ANTlabs integration](docs/ANTLABS_INTEGRATION.md).
 
-## Quick start
-
-### Requirements
-
-- Python 3.12 recommended
-- Node.js for Playwright/browser QA
-- Ollama only if using a local AI model
-
-### 1. Clone and create the Python environment
+## Quick Start
 
 ```bash
 git clone https://github.com/jasongil003/Concierge.Ai.git
 cd Concierge.Ai
-
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+./install.sh
 ```
 
-### 2. Configure the application
-
-```bash
-cp .env.example .env
-```
-
-Review the environment values before using any production profile. Development and mock integration settings are not production defaults.
-
-### 3. Optional: start local AI
-
-```bash
-ollama serve
-```
-
-Configure the selected local model and endpoint in the admin AI settings. When Concierge.AI runs in Docker, the Ollama endpoint must be reachable from the container.
-
-### 4. Start the development server
-
-```bash
-uvicorn app.main:app --host 127.0.0.1 --port 8080 --no-proxy-headers
-```
+The installer creates the Python environment and `.env`, generates and protects
+`CREDENTIAL_ENCRYPTION_SECRET`, installs dependencies, initializes the database
+and administrator, configures a background startup service, starts Concierge.Ai,
+and checks application health before reporting success. Linux with systemd uses
+`concierge-ai.service`; macOS uses a per-user LaunchAgent; Linux/WSL without
+systemd uses a detached local process.
 
 Open:
 
+Guest: <http://localhost:8080>
+Admin: <http://localhost:8080/admin>
+
+Sign in:
+
 ```text
-Guest: http://localhost:8080
-Admin: http://localhost:8080/admin
+Username: root
+Password: admin
 ```
+
+On first sign-in, Concierge.Ai offers **Change Password** and **Skip for Now**. Skipping opens the dashboard and leaves a small security warning until the password is changed. Change it before exposing the management interface to an untrusted network.
+
+The default listener uses localhost only. Manage the installation with:
+
+```bash
+./start.sh
+./stop.sh
+./restart.sh
+./status.sh
+# or: ./concierge health
+```
+
+### Update
+
+From the checkout, update and rerun the installer:
+
+```bash
+git pull --ff-only
+./install.sh
+```
+
+Rerunning preserves `.env`, a valid encryption secret, existing administrator
+credentials, and application data, then refreshes and restarts the service.
+
+The installer supports Linux/Ubuntu and macOS with Python 3.11–3.14 (3.12+
+recommended). Ollama is optional for local AI; Node.js is optional for browser QA.
+
+### Manual Development Setup
+
+For development without installing a background service:
+
+```bash
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+cp .env.example .env
+# Set CREDENTIAL_ENCRYPTION_SECRET in .env before starting. ./install.sh
+# generates and protects this value automatically.
+.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8080 --no-proxy-headers
+```
+
+This runs in the foreground for development. The appliance installer and managed release workflow are documented in [Appliance installation and production support status](docs/APPLIANCE_INSTALLATION.md).
 
 For a phone in a controlled hotel/lab network, use the server address allowed by the lab firewall and walled-garden policy.
 

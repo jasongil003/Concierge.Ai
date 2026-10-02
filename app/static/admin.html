@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Concierge.Ai Platform</title>
-  <link rel="stylesheet" href="/static/admin.css?v=99">
+  <link rel="stylesheet" href="/static/admin.css?v=100">
 </head>
 <body>
   <div class="platform-shell" id="platform-shell">
@@ -64,6 +64,10 @@
     </aside>
 
     <main class="platform-main">
+      <section class="health-banner warning default-password-warning" id="default-password-warning" role="status" hidden>
+        <div><span class="health-dot warning" aria-hidden="true">!</span><div><strong>⚠ Default Administrator Password</strong><p>This installation is still using the default administrator credentials. Change the password to improve security.</p></div></div>
+        <button class="secondary" id="default-password-banner-change" type="button">Change Password</button>
+      </section>
       <section class="panel onboarding-screen" id="property-onboarding">
         <div class="onboarding-card">
           <p class="eyebrow">Workspace setup</p>
@@ -1182,6 +1186,23 @@
       <div class="dialog-actions"><button class="secondary" type="button" data-close-dialog="password-reset-dialog">Cancel</button><button type="submit">Reset Password</button></div>
     </form>
   </dialog>
+  <dialog class="admin-dialog compact-dialog default-password-dialog" id="default-password-dialog" aria-labelledby="default-password-dialog-title">
+    <section class="default-password-prompt" id="default-password-prompt">
+      <div class="dialog-heading"><div><span>Welcome to Concierge.Ai</span><h2 id="default-password-dialog-title">Secure your administrator account</h2></div></div>
+      <p>You're currently using the default Concierge.Ai administrator password.</p>
+      <p>We recommend changing it now, especially before exposing the management interface to an untrusted network.</p>
+      <div class="dialog-actions"><button class="secondary" id="default-password-skip" type="button">Skip for Now</button><button id="default-password-change-start" type="button">Change Password</button></div>
+    </section>
+    <form id="default-password-change-form" hidden>
+      <div class="dialog-heading"><div><span>Account security</span><h2>Change Password</h2></div></div>
+      <label>Current Password<input id="default-current-password" type="password" autocomplete="current-password" required></label>
+      <label>New Password<input id="default-new-password" type="password" autocomplete="new-password" minlength="12" required></label>
+      <label>Confirm New Password<input id="default-confirm-password" type="password" autocomplete="new-password" minlength="12" required></label>
+      <p class="field-note">Use at least 12 characters with upper- and lowercase letters, a number, and a symbol.</p>
+      <p class="dialog-message" id="default-password-message" role="alert" aria-live="polite"></p>
+      <div class="dialog-actions"><button class="secondary" id="default-password-back" type="button">Back</button><button id="default-password-change-submit" type="submit">Change Password</button></div>
+    </form>
+  </dialog>
   <div class="context-menu" id="user-action-menu" hidden></div>
 
   <div class="drawer-backdrop" id="provider-drawer-backdrop" hidden></div>
@@ -1224,6 +1245,6 @@
     </footer>
   </aside>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="/static/admin.js?v=86"></script>
+  <script src="/static/admin.js?v=87"></script>
 </body>
 </html>

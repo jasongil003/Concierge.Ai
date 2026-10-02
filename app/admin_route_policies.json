@@ -295,6 +295,10 @@
     "authentication": "required",
     "permission": null
   },
+  "POST /api/admin/auth/default-password-prompt/dismiss": {
+    "authentication": "required",
+    "permission": null
+  },
   "POST /api/admin/auth/login": {
     "authentication": "public",
     "permission": null

@@ -783,6 +783,12 @@ td button { min-height: 29px; padding: 5px 9px; border: 1px solid var(--line); b
 .admin-dialog::backdrop { background: rgba(0, 0, 0, .38); }
 .admin-dialog form { max-height: calc(100dvh - 42px); padding: 20px; overflow: auto; }
 .compact-dialog { width: min(calc(100vw - 32px), 470px); }
+.default-password-warning { width: min(100%, 1500px); margin: 0 auto 16px; }
+.default-password-warning .health-dot { display: grid; width: 23px; height: 23px; place-items: center; border-radius: 50%; color: #fff; background: var(--warning); font-size: 12px; font-weight: 800; }
+.default-password-dialog > section { padding: 20px; }
+.default-password-dialog p { color: var(--mid); font-size: 12px; line-height: 1.6; }
+.default-password-dialog .dialog-heading { margin-bottom: 14px; }
+.default-password-dialog .dialog-actions { margin-top: 20px; }
 .dialog-heading { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
 .dialog-heading span { color: var(--muted); font-size: 9px; font-weight: 700; text-transform: uppercase; }
 .dialog-heading h2 { margin: 3px 0 0; font-size: 18px; }

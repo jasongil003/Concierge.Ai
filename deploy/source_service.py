@@ -1,0 +1,482 @@
+#!/usr/bin/env python3
+"""Manage the non-root local service created by the source installer."""
+
+from __future__ import annotations
+
+import argparse
+import os
+import pwd
+import signal
+import socket
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+
+SERVICE_NAME = "concierge-ai.service"
+LAUNCHD_LABEL = "com.conciergeai.source"
+BASE_URL = "http://127.0.0.1:8080"
+
+
+class ServiceError(RuntimeError):
+    pass
+
+
+def _quote_unit(value: str) -> str:
+    escaped = value.replace("%", "%%").replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def _sudo_command(args: list[str], unattended: bool = False) -> list[str]:
+    if os.geteuid() == 0:
+        return args
+    sudo = shutil_which("sudo")
+    if not sudo:
+        raise ServiceError("sudo is required to configure a system-wide Concierge.AI service on Linux.")
+    return [sudo, *( ["-n"] if unattended else []), *args]
+
+
+def shutil_which(program: str) -> str | None:
+    from shutil import which
+
+    return which(program)
+
+
+def _run(args: list[str], *, sudo: bool = False, unattended: bool = False, check: bool = True) -> subprocess.CompletedProcess:
+    command = _sudo_command(args, unattended) if sudo else args
+    result = subprocess.run(command, check=False)
+    if check and result.returncode:
+        raise ServiceError(f"Command failed ({result.returncode}): {' '.join(args)}")
+    return result
+
+
+def _systemd_available() -> bool:
+    return Path("/run/systemd/system").is_dir() and shutil_which("systemctl") is not None
+
+
+def _launchctl_available() -> bool:
+    return sys.platform == "darwin" and shutil_which("launchctl") is not None
+
+
+def _unit_path(root: Path) -> Path:
+    return Path("/etc/systemd/system") / SERVICE_NAME
+
+
+def _unit_text(root: Path, user: str, group: str) -> str:
+    python = root / ".venv" / "bin" / "python"
+    return "\n".join(
+        [
+            "[Unit]",
+            "Description=Concierge.AI source installation",
+            "After=network.target",
+            "StartLimitIntervalSec=0",
+            "",
+            "[Service]",
+            "Type=simple",
+            f"User={user}",
+            f"Group={group}",
+            f"WorkingDirectory={_quote_unit(str(root))}",
+            f"EnvironmentFile={_quote_unit(str(root / '.env'))}",
+            "Environment=PYTHONUNBUFFERED=1",
+            f"ExecStart={_quote_unit(str(python))} -m uvicorn app.main:app --host 127.0.0.1 --port 8080 --no-proxy-headers",
+            "Restart=always",
+            "RestartSec=5",
+            "TimeoutStopSec=45",
+            "UMask=0077",
+            "NoNewPrivileges=true",
+            "",
+            "[Install]",
+            "WantedBy=multi-user.target",
+            "",
+        ]
+    )
+
+
+def _install_systemd(root: Path, user: str, group: str, start: bool, unattended: bool) -> None:
+    path = _unit_path(root)
+    if path.exists():
+        prior = path.read_text(encoding="utf-8", errors="replace")
+        expected = f"WorkingDirectory={_quote_unit(str(root))}"
+        if expected not in prior:
+            raise ServiceError(f"{path} already configures a different Concierge.AI checkout; refusing to replace it.")
+    import tempfile
+
+    fd, temporary = tempfile.mkstemp(prefix="concierge-ai.", suffix=".service")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as unit_file:
+            unit_file.write(_unit_text(root, user, group))
+        _run(["install", "-o", "root", "-g", "root", "-m", "0644", temporary, str(path)], sudo=True, unattended=unattended)
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+    _run(["systemctl", "daemon-reload"], sudo=True, unattended=unattended)
+    _run(["systemctl", "enable", SERVICE_NAME], sudo=True, unattended=unattended)
+    if start:
+        _run(["systemctl", "restart", SERVICE_NAME], sudo=True, unattended=unattended)
+
+
+def _user_home(user: str) -> Path:
+    try:
+        return Path(pwd.getpwnam(user).pw_dir)
+    except KeyError as exc:
+        raise ServiceError(f"Could not find the home directory for service user {user}.") from exc
+
+
+def _launch_agent_path(user: str) -> Path:
+    return _user_home(user) / "Library" / "LaunchAgents" / f"{LAUNCHD_LABEL}.plist"
+
+
+def _launchd_loaded(target: str) -> bool:
+    result = subprocess.run(
+        ["launchctl", "print", target],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def _launch_agent(root: Path, user: str) -> tuple[Path, dict]:
+    import plistlib
+
+    home = _user_home(user)
+    log_dir = root / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    os.chmod(log_dir, 0o700)
+    path = _launch_agent_path(user)
+    data = {
+        "Label": LAUNCHD_LABEL,
+        "ProgramArguments": [
+            str(root / ".venv" / "bin" / "python"),
+            "-m",
+            "uvicorn",
+            "app.main:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "8080",
+            "--no-proxy-headers",
+        ],
+        "WorkingDirectory": str(root),
+        "EnvironmentVariables": {"PYTHONUNBUFFERED": "1"},
+        "RunAtLoad": True,
+        "KeepAlive": True,
+        "ThrottleInterval": 10,
+        "Umask": 0o077,
+        "StandardOutPath": str(log_dir / "concierge.out.log"),
+        "StandardErrorPath": str(log_dir / "concierge.err.log"),
+    }
+    return path, data
+
+
+def _install_launch_agent(root: Path, user: str, start: bool) -> None:
+    import plistlib
+
+    path, data = _launch_agent(root, user)
+    if path.exists():
+        try:
+            previous = plistlib.loads(path.read_bytes())
+        except Exception as exc:
+            raise ServiceError(f"Existing LaunchAgent at {path} is not readable; refusing to replace it.") from exc
+        if previous.get("WorkingDirectory") != str(root):
+            raise ServiceError(f"{path} already configures a different Concierge.AI checkout; refusing to replace it.")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(plistlib.dumps(data, fmt=plistlib.FMT_XML, sort_keys=False))
+    os.chmod(path, 0o600)
+    target = f"gui/{os.getuid()}/{LAUNCHD_LABEL}"
+    if start:
+        if not _launchd_loaded(target):
+            _run(["launchctl", "bootstrap", f"gui/{os.getuid()}", str(path)])
+        _run(["launchctl", "kickstart", "-k", target])
+    elif _launchd_loaded(target):
+        _run(["launchctl", "bootout", target], check=False)
+
+
+def _pid_file(root: Path) -> Path:
+    return root / ".concierge.pid"
+
+
+def _fallback_running(root: Path) -> int | None:
+    try:
+        pid = int(_pid_file(root).read_text(encoding="ascii").strip())
+        os.kill(pid, 0)
+    except (OSError, ValueError):
+        return None
+    cmdline = Path(f"/proc/{pid}/cmdline")
+    if cmdline.exists():
+        try:
+            stat = Path(f"/proc/{pid}/stat").read_text(encoding="ascii")
+            if stat.split()[2] == "Z":
+                return None
+            raw = cmdline.read_bytes().replace(b"\0", b" ").decode(errors="replace")
+            if str(root / ".venv" / "bin" / "python") in raw:
+                return pid
+        except OSError:
+            pass
+        return None
+    return pid
+
+
+def _fallback_start(root: Path) -> None:
+    import subprocess
+
+    if _fallback_running(root):
+        return
+    log_dir = root / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    os.chmod(log_dir, 0o700)
+    log_path = log_dir / "concierge.log"
+    log_fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    os.chmod(log_path, 0o600)
+    with os.fdopen(log_fd, "ab", buffering=0) as log_file:
+        process = subprocess.Popen(
+            [
+                str(root / ".venv" / "bin" / "python"),
+                "-m",
+                "uvicorn",
+                "app.main:app",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "8080",
+                "--no-proxy-headers",
+            ],
+            cwd=root,
+            stdin=subprocess.DEVNULL,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            env={**os.environ, "PYTHONUNBUFFERED": "1"},
+        )
+    _pid_file(root).write_text(f"{process.pid}\n", encoding="ascii")
+    os.chmod(_pid_file(root), 0o600)
+
+
+def _fallback_stop(root: Path) -> None:
+    pid = _fallback_running(root)
+    if pid is None:
+        _pid_file(root).unlink(missing_ok=True)
+        return
+    os.kill(pid, signal.SIGTERM)
+    for _ in range(300):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.1)
+    else:
+        os.kill(pid, signal.SIGKILL)
+    _pid_file(root).unlink(missing_ok=True)
+
+
+def _platform_mode(platform: str) -> str:
+    if platform == "macos" and _launchctl_available():
+        return "launchd"
+    if platform == "linux" and _systemd_available():
+        return "systemd"
+    return "fallback"
+
+
+def install_service(root: Path, platform: str, user: str, start: bool, unattended: bool) -> str:
+    root = root.resolve()
+    if user == "root":
+        raise ServiceError("The application service must run as a non-root user. Run ./install.sh as your normal account.")
+    account = pwd.getpwnam(user)
+    group = __import__("grp").getgrgid(account.pw_gid).gr_name
+    mode = _platform_mode(platform)
+    if mode == "systemd":
+        _install_systemd(root, user, group, start, unattended)
+    elif mode == "launchd":
+        if user != __import__("getpass").getuser():
+            raise ServiceError("macOS source installs must run as the logged-in user to configure a LaunchAgent.")
+        _install_launch_agent(root, user, start)
+    else:
+        if start:
+            # Re-running the installer after a source update must replace the
+            # detached process so it loads the checked-out code on disk.
+            if _fallback_running(root) is not None:
+                _fallback_stop(root)
+            _fallback_start(root)
+    return mode
+
+
+def start_service(root: Path, platform: str, unattended: bool) -> None:
+    root = root.resolve()
+    mode = _platform_mode(platform)
+    if mode == "systemd" and service_owned(root, platform):
+        _run(["systemctl", "start", SERVICE_NAME], sudo=True, unattended=unattended)
+    elif mode == "launchd" and service_owned(root, platform):
+        path = _launch_agent_path(__import__("getpass").getuser())
+        target = f"gui/{os.getuid()}/{LAUNCHD_LABEL}"
+        if not _launchd_loaded(target):
+            _run(["launchctl", "bootstrap", f"gui/{os.getuid()}", str(path)])
+        _run(["launchctl", "kickstart", target])
+    else:
+        _fallback_start(root)
+
+
+def stop_service(root: Path, platform: str, unattended: bool) -> None:
+    mode = _platform_mode(platform)
+    if mode == "systemd" and service_owned(root, platform):
+        _run(["systemctl", "stop", SERVICE_NAME], sudo=True, unattended=unattended)
+    elif mode == "launchd" and service_owned(root, platform):
+        target = f"gui/{os.getuid()}/{LAUNCHD_LABEL}"
+        _run(["launchctl", "bootout", target], check=False)
+    else:
+        _fallback_stop(root.resolve())
+
+
+def restart_service(root: Path, platform: str, unattended: bool) -> None:
+    root = root.resolve()
+    mode = _platform_mode(platform)
+    if mode == "systemd" and service_owned(root, platform):
+        _run(["systemctl", "restart", SERVICE_NAME], sudo=True, unattended=unattended)
+    elif mode == "launchd" and service_owned(root, platform):
+        target = f"gui/{os.getuid()}/{LAUNCHD_LABEL}"
+        if _launchd_loaded(target):
+            _run(["launchctl", "kickstart", "-k", target])
+        else:
+            start_service(root, platform, unattended)
+    else:
+        stop_service(root, platform, unattended)
+        start_service(root, platform, unattended)
+
+
+def service_status(root: Path, platform: str, unattended: bool) -> int:
+    mode = _platform_mode(platform)
+    if mode == "systemd" and service_owned(root, platform):
+        result = _run(["systemctl", "--no-pager", "--full", "status", SERVICE_NAME], sudo=False, check=False)
+        if result.returncode and os.geteuid() != 0 and shutil_which("sudo"):
+            result = _run(["systemctl", "--no-pager", "--full", "status", SERVICE_NAME], sudo=True, unattended=True, check=False)
+        return result.returncode
+    if mode == "launchd" and service_owned(root, platform):
+        result = _run(["launchctl", "print", f"gui/{os.getuid()}/{LAUNCHD_LABEL}"], check=False)
+        return result.returncode
+    pid = _fallback_running(root.resolve())
+    print(f"Concierge.AI {'running (pid ' + str(pid) + ')' if pid else 'stopped'}; log: {root / 'logs' / 'concierge.log'}")
+    return 0 if pid else 3
+
+
+def service_owned(root: Path, platform: str) -> bool:
+    root = root.resolve()
+    mode = _platform_mode(platform)
+    if mode == "systemd":
+        path = _unit_path(root)
+        if not path.is_file():
+            return False
+        return f"WorkingDirectory={_quote_unit(str(root))}" in path.read_text(encoding="utf-8", errors="replace")
+    if mode == "launchd":
+        path = _launch_agent_path(__import__("getpass").getuser())
+        if not path.is_file():
+            return False
+        import plistlib
+
+        try:
+            return plistlib.loads(path.read_bytes()).get("WorkingDirectory") == str(root)
+        except Exception:
+            return False
+    return _fallback_running(root) is not None
+
+
+def check_health(base_url: str = BASE_URL, timeout: int = 3) -> tuple[bool, str]:
+    for endpoint in ("/health/live", "/health/ready", "/admin/login"):
+        try:
+            request = urllib.request.Request(base_url.rstrip("/") + endpoint, method="GET")
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                if response.status != 200:
+                    return False, f"{endpoint} returned HTTP {response.status}"
+        except (OSError, urllib.error.URLError) as exc:
+            return False, f"{endpoint} is unavailable ({exc})"
+    return True, "live, ready, and Admin login endpoints passed"
+
+
+def wait_for_health(base_url: str = BASE_URL, timeout: int = 120) -> tuple[bool, str]:
+    deadline = time.monotonic() + timeout
+    reason = "application did not respond"
+    while time.monotonic() < deadline:
+        healthy, reason = check_health(base_url)
+        if healthy:
+            return True, reason
+        time.sleep(1)
+    return False, reason
+
+
+def port_in_use(host: str = "127.0.0.1", port: int = 8080) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        return sock.connect_ex((host, port)) == 0
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", type=Path, required=True)
+    parser.add_argument("--platform", choices=("linux", "macos"), required=True)
+    parser.add_argument("--unattended", action="store_true")
+    commands = parser.add_subparsers(dest="command", required=True)
+    install = commands.add_parser("install")
+    install.add_argument("--user", required=True)
+    install.add_argument("--no-start", action="store_true")
+    commands.add_parser("start")
+    commands.add_parser("stop")
+    commands.add_parser("restart")
+    commands.add_parser("status")
+    commands.add_parser("health")
+    wait_health = commands.add_parser("wait-health")
+    wait_health.add_argument("--timeout", type=int, default=120)
+    commands.add_parser("logs")
+    commands.add_parser("port-check")
+    commands.add_parser("owns")
+    return parser
+
+
+def main() -> int:
+    args = _parser().parse_args()
+    root = args.root.resolve()
+    try:
+        if args.command == "install":
+            mode = install_service(root, args.platform, args.user, not args.no_start, args.unattended)
+            print(f"service={mode}")
+        elif args.command == "start":
+            start_service(root, args.platform, args.unattended)
+        elif args.command == "stop":
+            stop_service(root, args.platform, args.unattended)
+        elif args.command == "restart":
+            restart_service(root, args.platform, args.unattended)
+        elif args.command == "status":
+            return service_status(root, args.platform, args.unattended)
+        elif args.command == "health":
+            healthy, message = check_health()
+            print(f"{'healthy' if healthy else 'unhealthy'}: {message}")
+            return 0 if healthy else 1
+        elif args.command == "wait-health":
+            healthy, message = wait_for_health(timeout=args.timeout)
+            print(f"{'healthy' if healthy else 'unhealthy'}: {message}")
+            return 0 if healthy else 1
+        elif args.command == "logs":
+            if _platform_mode(args.platform) == "systemd":
+                return _run(["journalctl", "-u", SERVICE_NAME, "-n", "100", "--no-pager"], check=False).returncode
+            for path in (
+                root / "logs" / "concierge.err.log",
+                root / "logs" / "concierge.out.log",
+                root / "logs" / "concierge.log",
+            ):
+                if path.exists():
+                    print(f"--- {path} ---")
+                    sys.stdout.write("\n".join(path.read_text(encoding="utf-8", errors="replace").splitlines()[-100:]) + "\n")
+            return 0
+        elif args.command == "port-check":
+            return 1 if port_in_use() else 0
+        elif args.command == "owns":
+            return 0 if service_owned(root, args.platform) else 1
+        return 0
+    except (ServiceError, OSError, subprocess.SubprocessError) as exc:
+        print(f"Service error: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

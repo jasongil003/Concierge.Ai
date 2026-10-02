@@ -46,8 +46,10 @@ GPU availability, and whether local AI is advisable. It installs Ubuntu's
 Docker Engine and Compose packages, creates the locked `concierge` system user,
 generates production secrets, and installs the selected stable release under
 `/opt/concierge`. It prompts for the hotel's canonical hostname, SG5 processor
-URL, and trusted administrator source CIDRs. It prints the one-time Admin
-bootstrap password once; store it in the hotel's password manager.
+URL, and trusted administrator source CIDRs. A fresh appliance uses the
+bootstrap login `root` / `admin` and offers to change that password after the
+first sign-in. Change it before exposing the management interface to an
+untrusted network.
 
 Concierge runs in a single Docker Compose project. SQLite and uploaded files
 persist in the `concierge-state` Docker volume; verified backup archives live in

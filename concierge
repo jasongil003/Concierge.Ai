@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+[[ -x "$ROOT_DIR/.venv/bin/python" ]] || { printf 'Run ./install.sh first.\n' >&2; exit 1; }
+case "$(uname -s)" in
+    Linux) PLATFORM=linux ;;
+    Darwin) PLATFORM=macos ;;
+    *) printf 'Unsupported operating system.\n' >&2; exit 1 ;;
+esac
+command_name=${1:-}
+if [[ -z "$command_name" ]]; then
+    printf 'Usage: ./concierge {start|stop|restart|status|health|logs}\n' >&2
+    exit 2
+fi
+shift
+case "$command_name" in
+    start|restart)
+        "$ROOT_DIR/.venv/bin/python" "$ROOT_DIR/deploy/source_install.py" \
+            validate --root "$ROOT_DIR" --python "$ROOT_DIR/.venv/bin/python" >/dev/null
+        "$ROOT_DIR/.venv/bin/python" "$ROOT_DIR/deploy/source_service.py" \
+            --root "$ROOT_DIR" --platform "$PLATFORM" "$command_name" "$@"
+        exec "$ROOT_DIR/.venv/bin/python" "$ROOT_DIR/deploy/source_service.py" \
+            --root "$ROOT_DIR" --platform "$PLATFORM" wait-health --timeout 120
+        ;;
+esac
+exec "$ROOT_DIR/.venv/bin/python" "$ROOT_DIR/deploy/source_service.py" \
+    --root "$ROOT_DIR" --platform "$PLATFORM" "$command_name" "$@"
