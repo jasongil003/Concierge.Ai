@@ -178,9 +178,9 @@
           <div class="experience-builder-content">
             <aside class="builder-library-panel" aria-label="Page structure" data-permission="concierge.edit">
               <div class="builder-panel-heading"><div><p>PAGE STRUCTURE</p><h2 id="builder-library-title">Components</h2></div></div>
-              <div class="builder-side-tabs" role="tablist" aria-label="Page structure"><button type="button" role="tab" data-builder-library-tab="components" aria-selected="true">Components</button><button type="button" role="tab" data-builder-library-tab="layers" aria-selected="false">Layers <span id="builder-layer-count">0</span></button></div>
-              <div id="builder-components-panel" data-builder-library-panel="components"><label class="builder-library-search"><span class="sr-only">Search components</span><input id="builder-component-search" type="search" placeholder="Search components…" autocomplete="off"></label><div class="builder-component-groups" id="builder-component-library"></div></div>
-              <div id="builder-layers-panel" class="builder-layers" data-builder-library-panel="layers" hidden><p class="builder-panel-hint">Select a section to edit. Reorder or manage visibility from its compact menu.</p><ol id="builder-section-layers" aria-label="Page sections"></ol></div>
+              <div class="builder-side-tabs" role="tablist" aria-label="Page structure"><button type="button" role="tab" id="builder-library-tab-components" data-builder-library-tab="components" aria-controls="builder-components-panel" aria-selected="true" tabindex="0">Components</button><button type="button" role="tab" id="builder-library-tab-layers" data-builder-library-tab="layers" aria-controls="builder-layers-panel" aria-selected="false" tabindex="-1">Layers <span id="builder-layer-count">0</span></button></div>
+              <div id="builder-components-panel" role="tabpanel" aria-labelledby="builder-library-tab-components" data-builder-library-panel="components"><label class="builder-library-search"><span class="sr-only">Search components</span><input id="builder-component-search" type="search" placeholder="Search components…" autocomplete="off"></label><div class="builder-component-groups" id="builder-component-library"></div></div>
+              <div id="builder-layers-panel" class="builder-layers" role="tabpanel" aria-labelledby="builder-library-tab-layers" data-builder-library-panel="layers" hidden><p class="builder-panel-hint">Select a section to edit. Reorder or manage visibility from its compact menu.</p><ol id="builder-section-layers" aria-label="Page sections"></ol></div>
             </aside>
             <main class="builder-canvas-panel" aria-label="Live canvas"><div class="builder-canvas-toolbar"><div><span class="builder-live-indicator"></span><strong>Live Canvas</strong><small>Changes stay in draft until published.</small></div><span id="builder-page-size-label">Desktop · Full width</span></div><div class="builder-canvas-scroll"><div id="builder-canvas" class="builder-canvas" aria-label="Guest page canvas" tabindex="0"></div></div></main>
             <aside class="builder-inspector-panel" aria-label="Page and section inspector" data-permission="concierge.edit">
@@ -850,10 +850,10 @@
       <section class="panel" id="audit">
         <div class="page-title"><div><p>System</p><h1>Audit logs</h1><span>Administrative activity across users, properties, configuration, and security.</span></div><button class="secondary" id="refresh-audit" type="button">Refresh</button></div>
         <div class="filter-bar">
-          <input id="audit-username" placeholder="Username">
+          <input id="audit-username" placeholder="Username" aria-label="Filter audit logs by username">
           <select id="audit-property"><option value="">All properties</option></select>
-          <input id="audit-action" placeholder="Action">
-          <input id="audit-resource" placeholder="Resource">
+          <input id="audit-action" placeholder="Action" aria-label="Filter audit logs by action">
+          <input id="audit-resource" placeholder="Resource" aria-label="Filter audit logs by resource">
           <input id="audit-date" type="date" aria-label="Audit date">
           <button id="apply-audit-filters" type="button">Apply</button>
         </div>

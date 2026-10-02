@@ -2,11 +2,7 @@
 
 PLATFORM_NAME=linux-systemd
 APP_ROOT=/opt/concierge
-<<<<<<< HEAD
-STATE_ROOT=/var/lib/concierge
-=======
 export STATE_ROOT=/var/lib/concierge
->>>>>>> 5d859961eeb7f8c9936b9bdae7721805f21afae9
 BACKUP_ROOT=/var/backups/concierge
 CONFIG_FILE=/etc/concierge/concierge.env
 EVENT_LOG=/var/lib/concierge/recovery-events.jsonl
