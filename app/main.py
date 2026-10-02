@@ -1166,12 +1166,6 @@ async def hotel(request: Request) -> dict[str, Any]:
             item for item in profile["authentication"]["enabled_types"]
             if item["id"] in supported_authentication_types
         ]
-    if not profile.get("ai"):
-        profile["ai"] = {
-            "guest_mode_switch": settings.ai_guest_mode_switch,
-            "default_mode": settings.ai_default_mode,
-            "modes": [],
-        }
     profile["property_id"] = property_record.property_id
     return profile
 

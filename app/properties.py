@@ -515,7 +515,6 @@ class PropertyRecord:
                 "maintenance_message": (self.app_settings.get("application") or {}).get("maintenance_message", ""),
             },
             "welcome": self.welcome,
-            "ai": self.ai_settings,
             "authentication": {
                 "enabled": authentication_enabled,
                 "enabled_types": enabled_authentication_types,
