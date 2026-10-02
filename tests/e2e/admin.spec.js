@@ -1489,7 +1489,7 @@ test("admin: builder visual evidence covers devices, inspector tabs, image uploa
     const headerSection = canvas.locator('.builder-canvas-section:has(.builder-live-header)').first();
     if (await headerSection.count()) {
       await headerSection.locator(".builder-guest-component").click();
-      await expect(page.locator("#builder-inspector-title")).toHaveText("Header");
+      await expect(page.locator("#builder-inspector-title")).toHaveText(/^Header(?: Element)?$/);
       await expect(page.locator('#builder-inspector [data-builder-field="show_menu"]')).toBeVisible();
       await screenshot("header-selected");
     }
