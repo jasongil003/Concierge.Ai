@@ -826,8 +826,9 @@ class PropertyStore:
             ])
         params.extend([record.property_id, expected_revision])
         with self._connect() as db:
+            # B608 rationale: assignment fragments are fixed literals; design and property values are bound.
             cursor = db.execute(
-                f"UPDATE properties SET {', '.join(assignments)} WHERE property_id = ? AND design_revision = ?",
+                f"UPDATE properties SET {', '.join(assignments)} WHERE property_id = ? AND design_revision = ?",  # nosec B608
                 params,
             )
             if cursor.rowcount != 1:

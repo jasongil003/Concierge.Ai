@@ -9,7 +9,9 @@ async function guestNavigation(page) {
 }
 
 async function openHotelMenu(page) {
-  await page.locator('button[aria-label="Open hotel menu"]:visible').first().click();
+  const configuredMenu = page.locator(".experience-configured-header .experience-configured-menu");
+  await expect(configuredMenu).toBeVisible();
+  await configuredMenu.click();
 }
 
 async function loginAdmin(request) {

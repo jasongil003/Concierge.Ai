@@ -7,12 +7,15 @@ import http.cookiejar
 import json
 import ipaddress
 import os
+import secrets
 import urllib.request
 import urllib.error
 
 
 BASE_URL = os.getenv("CONCIERGE_SMOKE_URL", "http://127.0.0.1:8080")
 PASSWORD = os.environ["ADMIN_BOOTSTRAP_PASSWORD"]
+PROPERTY_ID = os.getenv("PROPERTY_ID", "ci-property")
+PROPERTY_HOST = f"{PROPERTY_ID}.ci.example"
 COOKIE_JAR = http.cookiejar.CookieJar()
 HTTP_CLIENT = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(COOKIE_JAR))
 
@@ -47,14 +50,14 @@ def login() -> tuple[dict[str, str], dict]:
 def write_phase() -> None:
     headers, _ = login()
     properties = request("/api/admin/properties", headers=headers)["properties"]
-    property_id = "hotel-a"
+    property_id = PROPERTY_ID
     existing = next((item for item in properties if item["property_id"] == property_id), None)
     if existing:
         record = request(f"/api/admin/properties/{property_id}", headers=headers)
     else:
-        record = {"property_id": property_id, "hotel_name": "Docker Persistence Hotel"}
-    record["domain"] = "hotel-a.test"
-    record["hotel_name"] = "Docker Persistence Hotel"
+        record = {"property_id": property_id, "hotel_name": "CI Persistence Property"}
+    record["domain"] = PROPERTY_HOST
+    record["hotel_name"] = "CI Persistence Property"
     request(f"/api/admin/properties/{property_id}", "PUT", record, headers)
     # The production default allows loopback guest traffic. CI reaches the
     # container through Docker's bridge, so permit only this exact smoke-runner
@@ -67,7 +70,7 @@ def write_phase() -> None:
     if smoke_network not in allowed:
         allowed.append(smoke_network)
     guardrails["allowed_cidrs"] = allowed
-    guardrails["guest_access_hosts"] = ["guest.hotel-a.test"]
+    guardrails["guest_access_hosts"] = [f"guest.{PROPERTY_HOST}"]
     request(f"/api/admin/properties/{property_id}/guardrails", "PUT", {"config": guardrails}, headers)
     request(
         f"/api/admin/properties/{property_id}/knowledge",
@@ -131,7 +134,7 @@ def write_phase() -> None:
         {
             "username": "docker.persistence.manager",
             "display_name": "Docker Persistence Manager",
-            "password": "DockerPersistenceManagerPass123!",
+            "password": f"{secrets.token_urlsafe(32)}A!9",
             "property_id": property_id,
             "role_id": "role-property-administrator",
             "status": "active",
@@ -139,7 +142,7 @@ def write_phase() -> None:
         },
         headers,
     )
-    guest_headers = {"Host": "hotel-a.test"}
+    guest_headers = {"Host": PROPERTY_HOST}
     session = request("/api/session/start", "POST", {"client_id": "docker-smoke"}, guest_headers)
     request(
         "/api/guest/service-requests",
@@ -158,32 +161,32 @@ def write_phase() -> None:
 def verify_phase() -> None:
     headers, _ = login()
     properties = request("/api/admin/properties", headers=headers)["properties"]
-    record = next(item for item in properties if item["property_id"] == "hotel-a")
-    if record["hotel_name"] != "Docker Persistence Hotel":
+    record = next(item for item in properties if item["property_id"] == PROPERTY_ID)
+    if record["hotel_name"] != "CI Persistence Property":
         raise RuntimeError("Property database state did not persist across container recreation.")
-    knowledge = request("/api/admin/properties/hotel-a/knowledge", headers=headers)
+    knowledge = request(f"/api/admin/properties/{PROPERTY_ID}/knowledge", headers=headers)
     if "Persisted knowledge" not in json.dumps(knowledge):
         raise RuntimeError("Knowledge state did not persist.")
-    ai = request("/api/admin/properties/hotel-a/ai", headers=headers)
+    ai = request(f"/api/admin/properties/{PROPERTY_ID}/ai", headers=headers)
     if ai["settings"]["limits"].get("requests_per_minute") != 10:
         raise RuntimeError("AI configuration did not persist.")
-    guardrails = request("/api/admin/properties/hotel-a/guardrails", headers=headers)["config"]
-    if guardrails.get("guest_access_hosts") != ["guest.hotel-a.test"]:
+    guardrails = request(f"/api/admin/properties/{PROPERTY_ID}/guardrails", headers=headers)["config"]
+    if guardrails.get("guest_access_hosts") != [f"guest.{PROPERTY_HOST}"]:
         raise RuntimeError("Guest host configuration did not persist.")
-    design = request("/api/admin/properties/hotel-a/design", headers=headers)
+    design = request(f"/api/admin/properties/{PROPERTY_ID}/design", headers=headers)
     if design["published"]["theme"].get("accent") != "#125D8A":
         raise RuntimeError("Published guest interface configuration did not persist.")
-    restaurants = request("/api/admin/properties/hotel-a/restaurants", headers=headers)["restaurants"]
+    restaurants = request(f"/api/admin/properties/{PROPERTY_ID}/restaurants", headers=headers)["restaurants"]
     restaurant = next((item for item in restaurants if item["name"] == "Docker Persistence Dining"), None)
     if not restaurant:
         raise RuntimeError("Restaurant configuration did not persist.")
     menus = request(
-        f"/api/admin/properties/hotel-a/restaurants/{restaurant['restaurant_id']}/menus", headers=headers
+        f"/api/admin/properties/{PROPERTY_ID}/restaurants/{restaurant['restaurant_id']}/menus", headers=headers
     )["menus"]
     if not any(menu["name"] == "Docker Persistence Dinner" and menu["workflow_status"] == "published" for menu in menus):
         raise RuntimeError("Menu configuration did not persist.")
     promotions = request(
-        f"/api/admin/properties/hotel-a/restaurants/{restaurant['restaurant_id']}/promotions", headers=headers
+        f"/api/admin/properties/{PROPERTY_ID}/restaurants/{restaurant['restaurant_id']}/promotions", headers=headers
     )["promotions"]
     if not any(item["title"] == "Docker Persistence Promotion" and item["status"] == "published" for item in promotions):
         raise RuntimeError("Promotion configuration did not persist.")

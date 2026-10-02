@@ -792,23 +792,55 @@ test("hotel check-in and checkout are time pickers and persist their values", as
 });
 
 test("Alerts show their evaluated timeframe and refresh the current view", async ({ page }) => {
-  let latestDashboardUrl = "";
-  let dashboardLoads = 0;
-  page.on("request", (request) => {
-    if (request.url().includes("/operations/dashboard?")) {
-      latestDashboardUrl = request.url();
-      dashboardLoads += 1;
-    }
-  });
   await page.goto("/admin");
   await openPanel(page, "Alerts");
   await expect(page.locator("#alerts-summary")).toContainText("24h timeframe");
+
+  const dashboardResponseFor = (period) => page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname.endsWith("/operations/dashboard") && url.searchParams.get("period") === period;
+  });
+  let holdNext24HourResponse = false;
+  let releaseStaleResponse;
+  let resolveStaleResponseReady;
+  let resolveStaleResponseFulfilled;
+  const staleResponseReady = new Promise((resolve) => { resolveStaleResponseReady = resolve; });
+  const staleResponseFulfilled = new Promise((resolve) => { resolveStaleResponseFulfilled = resolve; });
+  await page.route("**/operations/dashboard**", async (route) => {
+    const url = new URL(route.request().url());
+    if (!holdNext24HourResponse || url.searchParams.get("period") !== "24h") {
+      await route.continue();
+      return;
+    }
+
+    holdNext24HourResponse = false;
+    const response = await route.fetch();
+    resolveStaleResponseReady();
+    await new Promise((resolve) => { releaseStaleResponse = resolve; });
+    await route.fulfill({ response });
+    resolveStaleResponseFulfilled();
+  });
+
+  const firstOneHourResponse = dashboardResponseFor("1h");
   await page.getByRole("combobox", { name: "Alerts timeframe" }).selectOption("1h");
-  await expect.poll(() => latestDashboardUrl).toContain("period=1h");
+  expect((await firstOneHourResponse).ok()).toBeTruthy();
   await expect(page.locator("#alerts-summary")).toContainText("1h timeframe");
-  const loadsBeforeRefresh = dashboardLoads;
+
+  // A slow earlier request must not replace a newer timeframe after it finishes.
+  holdNext24HourResponse = true;
+  await page.getByRole("combobox", { name: "Alerts timeframe" }).selectOption("24h");
+  await staleResponseReady;
+  const latestOneHourResponse = dashboardResponseFor("1h");
+  await page.getByRole("combobox", { name: "Alerts timeframe" }).selectOption("1h");
+  expect((await latestOneHourResponse).ok()).toBeTruthy();
+  await expect(page.locator("#alerts-summary")).toContainText("1h timeframe");
+  releaseStaleResponse();
+  await staleResponseFulfilled;
+  await expect(page.locator("#alerts-summary")).toContainText("1h timeframe");
+
+  const refreshResponse = dashboardResponseFor("1h");
   await page.getByRole("button", { name: "Refresh alerts" }).click();
-  await expect.poll(() => dashboardLoads).toBeGreaterThan(loadsBeforeRefresh);
+  expect((await refreshResponse).ok()).toBeTruthy();
   await expect(page.getByRole("button", { name: "Refresh alerts" })).toBeEnabled();
 });
 
@@ -860,7 +892,20 @@ test("appearance panel: one editor switches between components, layers, page set
   await expect(page.locator('[data-builder-library-panel="components"]')).toBeVisible();
   await expect(page.locator('[data-builder-library-panel="layers"]')).toBeHidden();
 
-  await page.locator('[data-builder-library-tab="layers"]').click();
+  const componentsTab = page.locator('[data-builder-library-tab="components"]');
+  const layersTab = page.locator('[data-builder-library-tab="layers"]');
+  await expect(componentsTab).toHaveAttribute("tabindex", "0");
+  await expect(layersTab).toHaveAttribute("tabindex", "-1");
+  await componentsTab.focus();
+  await componentsTab.press("ArrowRight");
+  await expect(layersTab).toBeFocused();
+  await expect(layersTab).toHaveAttribute("aria-selected", "true");
+  await expect(layersTab).toHaveAttribute("tabindex", "0");
+  await layersTab.press("ArrowLeft");
+  await expect(componentsTab).toBeFocused();
+  await expect(componentsTab).toHaveAttribute("tabindex", "0");
+
+  await layersTab.click();
   await expect(page.locator('[data-builder-library-panel="components"]')).toBeHidden();
   await expect(page.locator('[data-builder-library-panel="layers"]')).toBeVisible();
   const sectionCount = await page.locator("#builder-canvas .builder-canvas-section").count();
@@ -871,7 +916,7 @@ test("appearance panel: one editor switches between components, layers, page set
   await expect(page.locator("#builder-inspector-tabs")).toBeVisible();
   await expect(page.locator("#builder-inspector-title")).not.toHaveText("Page Settings");
 
-  await page.locator('[data-builder-library-tab="components"]').click();
+  await componentsTab.click();
   await expect(page.locator('[data-builder-library-panel="components"]')).toBeVisible();
   await expect(page.locator('[data-builder-library-panel="layers"]')).toBeHidden();
   await page.locator("#builder-templates-button").click();

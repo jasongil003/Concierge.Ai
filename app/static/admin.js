@@ -94,6 +94,7 @@ const INTRO_TEMPLATES = {
   coastal_retreat: { mode: "generate_from_logo", preset: "logo_to_chat_header", duration_ms: 1900, background: "#eff8f7", brand_color: "#1e5d61", welcome_message: "Take a breath. You're right where you need to be." },
 };
 let restaurantAssignmentRequestId = 0;
+let dashboardRequestId = 0;
 
 const $ = (id) => document.getElementById(id);
 
@@ -858,10 +859,13 @@ async function savePersonalizationPolicy() {
 }
 
 async function loadDashboard() {
+  const requestId = ++dashboardRequestId;
   const period = state.operationsPeriod || "24h";
   const range = period === "custom" && state.operationsStart && state.operationsEnd
     ? `&start_at=${encodeURIComponent(state.operationsStart)}&end_at=${encodeURIComponent(state.operationsEnd)}` : "";
-  state.operations = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/operations/dashboard?period=${encodeURIComponent(period)}${range}`);
+  const operations = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/operations/dashboard?period=${encodeURIComponent(period)}${range}`);
+  if (requestId !== dashboardRequestId) return;
+  state.operations = operations;
   renderOperationsDashboard();
 }
 
@@ -3851,7 +3855,11 @@ function renderBuilder() {
 
 function renderBuilderLibraryMode() {
   const tab = state.builderLibraryTab || "components";
-  document.querySelectorAll("[data-builder-library-tab]").forEach((button) => button.setAttribute("aria-selected", String(button.dataset.builderLibraryTab === tab)));
+  document.querySelectorAll("[data-builder-library-tab]").forEach((button) => {
+    const active = button.dataset.builderLibraryTab === tab;
+    button.setAttribute("aria-selected", String(active));
+    button.tabIndex = active ? 0 : -1;
+  });
   document.querySelectorAll("[data-builder-library-panel]").forEach((panel) => { panel.hidden = panel.dataset.builderLibraryPanel !== tab; });
   const title = $("builder-library-title");
   if (title) title.textContent = tab === "layers" ? "Layers" : "Components";
@@ -3899,7 +3907,24 @@ function bindBuilderEvents() {
   });
   document.querySelectorAll("[data-builder-device]").forEach((button) => button.addEventListener("click", () => setBuilderDevice(button.dataset.builderDevice)));
   $("builder-page-select")?.addEventListener("change", () => { state.builderPageId = $("builder-page-select").value; state.builderSelectedSectionId = null; state.builderSelection = null; renderBuilder(); });
-  document.querySelectorAll("[data-builder-library-tab]").forEach((button) => button.addEventListener("click", () => { state.builderLibraryTab = button.dataset.builderLibraryTab; renderBuilderLibraryMode(); }));
+  document.querySelectorAll("[data-builder-library-tab]").forEach((button) => {
+    button.addEventListener("click", () => { state.builderLibraryTab = button.dataset.builderLibraryTab; renderBuilderLibraryMode(); });
+    button.addEventListener("keydown", (event) => {
+      const tabs = [...document.querySelectorAll("[data-builder-library-tab]")];
+      const currentIndex = tabs.indexOf(button);
+      let nextIndex = -1;
+      if (event.key === "ArrowRight") nextIndex = (currentIndex + 1) % tabs.length;
+      else if (event.key === "ArrowLeft") nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+      else if (event.key === "Home") nextIndex = 0;
+      else if (event.key === "End") nextIndex = tabs.length - 1;
+      if (nextIndex < 0) return;
+      event.preventDefault();
+      const nextTab = tabs[nextIndex];
+      state.builderLibraryTab = nextTab.dataset.builderLibraryTab;
+      renderBuilderLibraryMode();
+      nextTab.focus();
+    });
+  });
   $("builder-preview-button")?.addEventListener("click", () => {
     showToast("The center canvas is the live preview of this draft.");
   });

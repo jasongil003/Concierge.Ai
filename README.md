@@ -1,6 +1,6 @@
 # Concierge.AI
 
-[![CI](https://github.com/jasongil003/Concierge.Ai/actions/workflows/ci.yml/badge.svg)](https://github.com/jasongil003/Concierge.Ai/actions/workflows/ci.yml)
+[![CI](https://github.com/jasongil003/Concierge.Ai/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jasongil003/Concierge.Ai/actions/workflows/ci.yml?query=branch%3Amain)
 
 **On-prem, AI-powered hotel concierge and operations platform designed for guest Wi-Fi environments, property teams, and ANTlabs integrations.**
 
@@ -8,30 +8,6 @@ Concierge.AI turns the hotel Wi-Fi entry point into a temporary digital concierg
 
 > **Release stage:** v1.0-RC1 production hardening. The repository has extensive automated security, backend, integration, container, and browser coverage, but a real hotel deployment still requires property-specific network, TLS, ANTlabs/PMS, physical-device, recovery, and capacity validation.
 
-<<<<<<< HEAD
-- mobile-first guest concierge UI
-- temporary guest session lifecycle
-- hotel-specific configuration
-- zero-LLM fast paths for common questions
-- local AI through Ollama
-- Qwen3 8B default local model configuration
-- admin-managed AI provider selection: Gemini / Groq / OpenAI / Claude / Copilot placeholder / Local AI
-- property-level AI settings with Local-Only Mode and encrypted server-side credentials
-- Fast / Auto / Advanced guest AI mode switcher
-- live nearby-place recommendation adapter
-- ANTlabs integration adapter
-- mock gateway authentication
-- browser-based ANTlabs authentication handoff scaffold
-- admin zone/facility/floor-map foundation with AP-to-zone mapping and deterministic route graph
-- privacy-first guest stay memory with property-scoped pseudonymous device identity
-- location analytics foundation for live zone occupancy, dwell time, movement, and aggregate reports
-- configurable intro experience with logo-generated presets and validated web animation uploads
-- structured facilities, restaurants, menus, hotel events, service requests, notification guardrails, and guest journey events
-- SQLite prototype state
-- Docker deployment
-- unattended Ubuntu Server and Apple Silicon Mac appliance deployment paths
-- phased architecture/security documentation
-=======
 ## What Concierge.AI is
 
 Concierge.AI is designed to sit alongside the hotel network and existing systems rather than replace them.
@@ -45,7 +21,7 @@ Concierge.AI is designed to sit alongside the hotel network and existing systems
 
 | Area | Current capability |
 | --- | --- |
-| Guest experience | Mobile-first personal stay dashboard, Explore, Requests, My Stay, Concierge, Wi-Fi authentication flow, recommendations, dining, service requests, accessibility and error states |
+| Guest experience | Mobile-first personal stay dashboard, Explore, Requests, My Stay, Concierge, Wi-Fi authentication flow, recommendations, dining, service requests, accessibility and error states; property-scoped visual editor for configurable pages, sections, components, navigation, headers, footers and button actions |
 | Admin platform | Property management, operational dashboard, guest requests/sessions, reports, health, network access, users/roles, restaurant workflows, design/branding and AI administration |
 | AI | Provider abstraction for OpenAI, Gemini, Groq, Claude, OpenRouter and local OpenAI-compatible/Ollama services; routing, fallback, health, latency and usage controls |
 | Property isolation | Backend-enforced property scope, restaurant assignments, host/domain collision protection and cross-property regression tests |
@@ -95,12 +71,6 @@ ANTlabs / captive network
       |
       +--> PMS / ANTlabs / approved external integrations
 ```
->>>>>>> 5d859961eeb7f8c9936b9bdae7721805f21afae9
-
-The appliance paths are implemented but are **not yet production-verified**.
-Run and record `sudo concierge boot-test prepare`, a real reboot, and
-`sudo concierge boot-test verify` on both Ubuntu and an Apple Silicon Mac mini
-before claiming support. See [Appliance installation](docs/APPLIANCE_INSTALLATION.md).
 
 ## Guest journey
 
