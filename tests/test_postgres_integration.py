@@ -43,6 +43,19 @@ def _configure() -> None:
     )
 
 
+def _postgres_bootstrap_principal(auth):
+    """Log in as the bootstrap admin created when the app is imported."""
+    from app.config import settings
+
+    _, principal = auth.login(
+        settings.admin_bootstrap_username,
+        settings.admin_bootstrap_password,
+        "127.0.0.1",
+        "postgres integration bootstrap",
+    )
+    return principal
+
+
 def test_current_alembic_revision_and_bounded_connection_pool():
     _configure()
     verify_schema_current()
@@ -68,7 +81,7 @@ def test_current_alembic_revision_and_bounded_connection_pool():
         assert dict(conflict_types) == {"created_at": "bigint", "created_at_us": "bigint"}
 
 
-def test_postgres_schema_inspection_bootstrap_and_assignment_validation(tmp_path):
+def test_postgres_schema_inspection_admin_creation_and_assignment_validation(tmp_path):
     _configure()
     from app.admin_auth import AdminAuthStore
     from app.hospitality import HospitalityStore
@@ -81,11 +94,21 @@ def test_postgres_schema_inspection_bootstrap_and_assignment_validation(tmp_path
     property_store.upsert(PropertyRecord(property_id=property_id, hotel_name="Postgres Auth Fixture", domain=f"{property_id}.example.test"))
     department = hospitality.upsert_department(property_id, {"name": "Integration Department"})
     restaurant = hospitality.create_restaurant(property_id, {"name": "Integration Restaurant"})
-    username = f"pg-bootstrap-{uuid.uuid4().hex[:10]}"
+    username = f"pg-admin-{uuid.uuid4().hex[:10]}"
     password = f"Postgres-Test-{uuid.uuid4().hex[:12]}A!"
+    bootstrap_principal = None
 
     try:
-        auth.ensure_bootstrap_admin(username, password, "Postgres Bootstrap Test")
+        bootstrap_principal = _postgres_bootstrap_principal(auth)
+        auth.create_user(
+            {
+                "username": username,
+                "display_name": "Postgres Admin Test",
+                "password": password,
+                "role_id": "role-super-admin",
+            },
+            bootstrap_principal,
+        )
         _, principal = auth.login(username, password, "127.0.0.1", "postgres integration")
         assert principal.role_slug == "super-admin"
 
@@ -121,8 +144,15 @@ def test_postgres_schema_inspection_bootstrap_and_assignment_validation(tmp_path
                 principal,
             )
     finally:
+        if bootstrap_principal is not None:
+            auth.logout(bootstrap_principal)
         with connect_database(tmp_path / "postgres-path-is-ignored.db") as db:
             db.execute("DELETE FROM admin_users WHERE username LIKE ?", (f"pg-restaurant-%",))
+            db.execute(
+                "DELETE FROM admin_sessions WHERE user_id IN "
+                "(SELECT user_id FROM admin_users WHERE username=?)",
+                (username,),
+            )
             db.execute("DELETE FROM admin_users WHERE username=?", (username,))
             db.execute("DELETE FROM restaurants WHERE property_id=?", (property_id,))
             db.execute("DELETE FROM departments WHERE property_id=?", (property_id,))
@@ -169,22 +199,33 @@ def test_postgres_password_reset_token_is_claimed_once_under_concurrency(tmp_pat
     username = f"pg-reset-{uuid.uuid4().hex[:12]}"
     initial_password = "Postgres-Reset-Initial-123!"
     token = f"pg-reset-token-{uuid.uuid4().hex}"
-    auth.ensure_bootstrap_admin(username, initial_password, "Postgres Reset Race")
-
-    with auth._connect() as db:
-        user = db.execute(
-            "SELECT user_id FROM admin_users WHERE normalized_username = ?",
-            (username.casefold(),),
-        ).fetchone()
-        user_id = user["user_id"]
-        db.execute(
-            "INSERT INTO admin_password_resets "
-            "(reset_id,user_id,token_hash,expires_at,used_at,created_at) "
-            "VALUES (?,?,?,?,NULL,?)",
-            (str(uuid.uuid4()), user_id, auth._token_hash(token), int(time.time()) + 300, int(time.time())),
-        )
+    bootstrap_principal = None
 
     try:
+        bootstrap_principal = _postgres_bootstrap_principal(auth)
+        auth.create_user(
+            {
+                "username": username,
+                "display_name": "Postgres Reset Race",
+                "password": initial_password,
+                "role_id": "role-super-admin",
+            },
+            bootstrap_principal,
+        )
+        with auth._connect() as db:
+            user = db.execute(
+                "SELECT user_id FROM admin_users WHERE normalized_username = ?",
+                (username.casefold(),),
+            ).fetchone()
+            assert user is not None, "PostgreSQL test admin was not created."
+            user_id = user["user_id"]
+            db.execute(
+                "INSERT INTO admin_password_resets "
+                "(reset_id,user_id,token_hash,expires_at,used_at,created_at) "
+                "VALUES (?,?,?,?,NULL,?)",
+                (str(uuid.uuid4()), user_id, auth._token_hash(token), int(time.time()) + 300, int(time.time())),
+            )
+
         barrier = threading.Barrier(2)
 
         def consume(password: str) -> str:
@@ -205,9 +246,17 @@ def test_postgres_password_reset_token_is_claimed_once_under_concurrency(tmp_pat
         assert principal.username == username
     finally:
         with auth._connect() as db:
-            db.execute("DELETE FROM admin_password_resets WHERE user_id = ?", (user_id,))
-            db.execute("DELETE FROM admin_sessions WHERE user_id = ?", (user_id,))
-            db.execute("DELETE FROM admin_users WHERE user_id = ?", (user_id,))
+            user = db.execute(
+                "SELECT user_id FROM admin_users WHERE normalized_username = ?",
+                (username.casefold(),),
+            ).fetchone()
+            if user is not None:
+                user_id = user["user_id"]
+                db.execute("DELETE FROM admin_password_resets WHERE user_id = ?", (user_id,))
+                db.execute("DELETE FROM admin_sessions WHERE user_id = ?", (user_id,))
+                db.execute("DELETE FROM admin_users WHERE user_id = ?", (user_id,))
+        if bootstrap_principal is not None:
+            auth.logout(bootstrap_principal)
 
 
 

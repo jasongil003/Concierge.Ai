@@ -38,7 +38,11 @@ def login() -> tuple[dict[str, str], dict]:
     response, content = request(
         "/api/admin/auth/login",
         "POST",
-        {"username": "admin", "password": PASSWORD, "remember_me": False},
+        {
+            "username": os.getenv("ADMIN_BOOTSTRAP_USERNAME", "root"),
+            "password": PASSWORD,
+            "remember_me": False,
+        },
         raw=True,
     )
     payload = json.loads(content)
