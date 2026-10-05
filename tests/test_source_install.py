@@ -273,10 +273,14 @@ def test_systemd_and_launchd_service_definitions_run_as_user(tmp_path: Path, mon
     unit = source_service._unit_text(root, "concierge-user", "staff")
     assert 'User=concierge-user' in unit
     assert 'Group=staff' in unit
-    assert f'WorkingDirectory="{root}"' in unit
-    assert 'EnvironmentFile=' in unit
+    assert f"WorkingDirectory={root}" in unit
+    assert f"EnvironmentFile={root}/.env" in unit
+    assert f'ExecStart="{root}/.venv/bin/python" -m uvicorn app.main:app --host 127.0.0.1 --port 8080 --no-proxy-headers' in unit
     assert 'Restart=always' in unit
-    assert 'ExecStart=' in unit and '127.0.0.1' in unit
+    assert 'RestartSec=5' in unit
+    assert 'TimeoutStopSec=45' in unit
+    assert 'UMask=0077' in unit
+    assert 'NoNewPrivileges=true' in unit
 
     monkeypatch.setattr(source_service, "_user_home", lambda user: tmp_path / "home")
     path, launch_agent = source_service._launch_agent(root, "concierge-user")
@@ -284,6 +288,96 @@ def test_systemd_and_launchd_service_definitions_run_as_user(tmp_path: Path, mon
     assert launch_agent["KeepAlive"] is True
     assert launch_agent["WorkingDirectory"] == str(root)
     assert "UserName" not in launch_agent
+
+
+def test_systemd_path_directives_are_unquoted_and_escape_specifiers(tmp_path: Path):
+    plain_root = tmp_path / "Concierge.Ai"
+    plain_unit = source_service._unit_text(plain_root, "concierge-user", "staff")
+    assert f"WorkingDirectory={plain_root}" in plain_unit
+    assert f"EnvironmentFile={plain_root}/.env" in plain_unit
+
+    spaced_root = tmp_path / "Concierge 100% ready"
+    spaced_unit = source_service._unit_text(spaced_root, "concierge-user", "staff")
+    assert f"WorkingDirectory={str(spaced_root).replace('%', '%%')}" in spaced_unit
+    assert f"EnvironmentFile={str(spaced_root).replace('%', '%%')}/.env" in spaced_unit
+    assert f'ExecStart="{str(spaced_root).replace("%", "%%")}/.venv/bin/python"' in spaced_unit
+
+
+def test_systemd_environment_file_escapes_glob_characters(tmp_path: Path):
+    root = tmp_path / r"Concierge [blue]*? 100% ready\checkout"
+    unit = source_service._unit_text(root, "concierge-user", "staff")
+    expected_path = str(root / ".env").replace("%", "%%")
+    expected_path = "".join(f"\\{character}" if character in "\\*?[]" else character for character in expected_path)
+
+    assert f"EnvironmentFile={expected_path}" in unit
+    assert 'EnvironmentFile="' not in unit
+
+
+@pytest.mark.parametrize("legacy_format", [False, True])
+def test_systemd_service_ownership_and_reinstall_are_idempotent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, legacy_format: bool
+):
+    root = tmp_path / "Concierge source tree"
+    root.mkdir()
+    root = root.resolve()
+    unit_path = tmp_path / "etc" / source_service.SERVICE_NAME
+    unit_path.parent.mkdir()
+    unit_text = source_service._unit_text(root, "concierge-user", "staff")
+    if legacy_format:
+        unit_text = unit_text.replace(
+            f"WorkingDirectory={source_service._systemd_path_value(str(root))}",
+            f"WorkingDirectory={source_service._quote_unit(str(root))}",
+        )
+    unit_path.write_text(unit_text, encoding="utf-8")
+    monkeypatch.setattr(source_service, "_platform_mode", lambda _platform: "systemd")
+    monkeypatch.setattr(source_service, "_unit_path", lambda _root: unit_path)
+
+    assert source_service.service_owned(root, "linux") is True
+
+    calls: list[list[str]] = []
+
+    def fake_run(args, **_kwargs):
+        calls.append(args)
+        if args[0] == "install":
+            Path(args[-1]).write_text(Path(args[-2]).read_text(encoding="utf-8"), encoding="utf-8")
+
+    monkeypatch.setattr(source_service, "_run", fake_run)
+    for _ in range(2):
+        source_service._install_systemd(root, "concierge-user", "staff", start=True, unattended=True)
+
+    assert unit_path.read_text(encoding="utf-8") == source_service._unit_text(root, "concierge-user", "staff")
+    assert [args[0] for args in calls] == ["install", "systemctl", "systemctl", "systemctl"] * 2
+    assert source_service.service_owned(root, "linux") is True
+
+    other_root = tmp_path / "another checkout"
+    other_unit = source_service._unit_text(other_root, "concierge-user", "staff")
+    unit_path.write_text(other_unit, encoding="utf-8")
+    with pytest.raises(source_service.ServiceError, match="different Concierge.AI checkout"):
+        source_service._install_systemd(root, "concierge-user", "staff", start=False, unattended=True)
+
+
+def test_systemd_analyze_verifies_generated_unit_when_available(tmp_path: Path):
+    import getpass
+    import grp
+    import shutil
+
+    systemd_analyze = shutil.which("systemd-analyze")
+    if not systemd_analyze:
+        pytest.skip("systemd-analyze is not installed on this host")
+
+    root = tmp_path / "Concierge 100% ready"
+    python = root / ".venv" / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    python.chmod(0o755)
+    (root / ".env").write_text("APP_ENVIRONMENT=development\n", encoding="utf-8")
+    group = grp.getgrgid(os.getgid()).gr_name
+    unit_path = tmp_path / source_service.SERVICE_NAME
+    unit_path.write_text(source_service._unit_text(root, getpass.getuser(), group), encoding="utf-8")
+
+    result = subprocess.run([systemd_analyze, "verify", str(unit_path)], text=True, capture_output=True, check=False)
+
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_fallback_service_install_and_health_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
