@@ -25,6 +25,7 @@ export default defineConfig({
     command: serverCommand,
     env: {
       ...process.env,
+      ADMIN_BOOTSTRAP_USERNAME: process.env.ADMIN_BOOTSTRAP_USERNAME || "admin",
       ADMIN_BOOTSTRAP_PASSWORD: process.env.ADMIN_BOOTSTRAP_PASSWORD || "PlaywrightOnly-Admin-123!",
       CREDENTIAL_ENCRYPTION_SECRET: process.env.CREDENTIAL_ENCRYPTION_SECRET || "PlaywrightOnly-Encryption-Secret-1234567890",
       DB_PATH: e2eDatabase,
