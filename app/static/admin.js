@@ -194,15 +194,25 @@ const NAV_SECTIONS = [
 ];
 
 async function jsonFetch(url, options = {}) {
-  const method = (options.method || "GET").toUpperCase();
+  const { timeoutMs = null, allowPropertyCreation = false, ...fetchOptions } = options;
+  const method = (fetchOptions.method || "GET").toUpperCase();
+  assertPropertyRequest(url, method, allowPropertyCreation);
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
   if (!["GET", "HEAD", "OPTIONS"].includes(method) && state.auth?.csrf_token) {
     headers["X-CSRF-Token"] = state.auth.csrf_token;
   }
-  const response = await fetch(url, {
-    headers,
-    ...options,
-  });
+  const controller = timeoutMs ? new AbortController() : null;
+  const timeout = controller ? window.setTimeout(() => controller.abort(), timeoutMs) : null;
+  let response;
+  try {
+    response = await fetch(url, {
+      headers,
+      ...fetchOptions,
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+  } finally {
+    if (timeout !== null) window.clearTimeout(timeout);
+  }
   if (response.status === 401) {
     window.location.assign("/admin/login");
     throw new Error("Administrator session expired.");
@@ -223,6 +233,27 @@ async function jsonFetch(url, options = {}) {
     throw error;
   }
   return data;
+}
+
+function assertPropertyRequest(url, method = "GET", allowPropertyCreation = false) {
+  const pathname = new URL(url, window.location.href).pathname;
+  const collectionPrefix = "/api/admin/properties/";
+  if (!pathname.startsWith(collectionPrefix)) return;
+
+  const encodedId = pathname.slice(collectionPrefix.length).split("/")[0];
+  let propertyId = "";
+  try { propertyId = decodeURIComponent(encodedId); } catch { /* invalid paths fail the context check below */ }
+  if (!propertyId.trim() || /^(?:null|undefined)$/i.test(propertyId.trim())) {
+    throw new Error("Select a property before using this feature.");
+  }
+  const isPropertyRoot = pathname === `${collectionPrefix}${encodedId}`;
+  if (allowPropertyCreation && method === "PUT" && isPropertyRoot) return;
+
+  const selectedId = currentPropertyId();
+  const knownProperty = state.properties.some((property) => property.property_id === propertyId);
+  if (!selectedId || selectedId !== propertyId || !knownProperty) {
+    throw new Error("Select a valid property before using this feature.");
+  }
 }
 
 function showToast(message, tone = "default") {
@@ -246,6 +277,29 @@ function escapeHTML(value) {
 
 function can(permission) {
   return Boolean(state.auth?.permissions?.includes(permission));
+}
+
+const PROPERTY_SCOPED_PANELS = new Set([
+  "overview", "requests", "sessions", "system-health", "alerts", "conversations",
+  "personalization-settings", "guest", "recommendations", "location", "hotel-information",
+  "rooms", "facilities", "restaurants", "service-catalog", "zones", "appearance", "intro",
+  "analytics", "reports", "ai-assistant", "knowledge", "documents", "faqs", "ai-personality",
+  "guardrails", "ai-usage", "questions", "request-analytics", "ai", "third-party", "wifi",
+  "auth-types", "webhooks", "network-access", "improvement-loop",
+]);
+
+function showPropertyOnboarding(message = "Create a property to start configuring its guest experience. Rooms, facilities, dining, services, knowledge, and maps remain empty until you add them.") {
+  const shell = $("platform-shell");
+  const onboarding = $("property-onboarding");
+  if (!shell || !onboarding) return;
+  shell.classList.add("no-property");
+  const description = onboarding.querySelector(".onboarding-card > p:not(.eyebrow)");
+  if (description) description.textContent = message;
+  for (const panel of document.querySelectorAll(".platform-main > .panel")) panel.classList.remove("active");
+  onboarding.classList.add("active");
+  const canCreate = can("properties.all");
+  $("onboarding-create-property").hidden = !canCreate;
+  $("onboarding-permission-note").hidden = canCreate;
 }
 
 function isSuperAdmin() {
@@ -772,6 +826,12 @@ function activatePanel(panelId, navId = null) {
     showToast("This area is not available for your account.", "error");
     return;
   }
+  if (state.auth && PROPERTY_SCOPED_PANELS.has(panelId) && !hasValidPropertyContext()) {
+    state.operations = null;
+    renderHealthUnavailable("No property is selected. Create or select a property to run these checks.");
+    showPropertyOnboarding(`Create or select a property to view ${requestedItem?.label || "this page"}.`);
+    return;
+  }
   const panel = ensurePanel(panelId);
   document.querySelector(".platform-shell")?.classList.toggle("is-design-panel", panelId === "appearance");
   if (panel) addPageComment(panel);
@@ -833,7 +893,15 @@ function activatePanel(panelId, navId = null) {
 }
 
 function currentPropertyId() {
-  return state.property?.property_id || $("property-id").value;
+  const value = state.property?.property_id || $("property-id")?.value || "";
+  if (typeof value !== "string") return "";
+  const propertyId = value.trim();
+  return propertyId && !/^(?:null|undefined)$/i.test(propertyId) ? propertyId : "";
+}
+
+function hasValidPropertyContext() {
+  const propertyId = currentPropertyId();
+  return Boolean(propertyId && state.properties.some((property) => property.property_id === propertyId));
 }
 
 async function loadPersonalizationPolicy() {
@@ -883,13 +951,94 @@ async function savePersonalizationPolicy() {
 
 async function loadDashboard() {
   const requestId = ++dashboardRequestId;
+  const propertyId = currentPropertyId();
+  if (!hasValidPropertyContext()) {
+    state.operations = null;
+    renderHealthUnavailable("No property is selected. Create or select a property to run these checks.");
+    return;
+  }
+  state.operations = null;
+  renderHealthUnavailable("System health checks are running.", "Checking system health");
   const period = state.operationsPeriod || "24h";
   const range = period === "custom" && state.operationsStart && state.operationsEnd
     ? `&start_at=${encodeURIComponent(state.operationsStart)}&end_at=${encodeURIComponent(state.operationsEnd)}` : "";
-  const operations = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/operations/dashboard?period=${encodeURIComponent(period)}${range}`);
-  if (requestId !== dashboardRequestId) return;
-  state.operations = operations;
-  renderOperationsDashboard();
+  try {
+    const operations = await jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}/operations/dashboard?period=${encodeURIComponent(period)}${range}`, { timeoutMs: 15000 });
+    if (requestId !== dashboardRequestId) return;
+    if (!hasCompletedHealthChecks(operations)) throw new Error("The API did not return completed health checks.");
+    state.operations = operations;
+    renderOperationsDashboard();
+  } catch (error) {
+    if (requestId === dashboardRequestId) {
+      state.operations = null;
+      const reason = error.name === "AbortError" ? "The system health request timed out." : `System health is unavailable: ${error.message}`;
+      renderHealthUnavailable(reason);
+    }
+    throw error;
+  }
+}
+
+function hasCompletedHealthChecks(data) {
+  const components = data?.health?.components;
+  const validStates = new Set(["healthy", "simulation", "warning", "critical", "unavailable", "restricted"]);
+  return Array.isArray(components) && components.length > 0
+    && typeof data.health.state === "string"
+    && components.every((item) => item && validStates.has(item.state));
+}
+
+function effectiveHealthState(health) {
+  if (!health || !Array.isArray(health.components) || !health.components.length) return "unavailable";
+  const states = health.components.map((item) => item?.state);
+  if (states.some((value) => value === "critical")) return "critical";
+  if (states.some((value) => value === "warning")) return "warning";
+  if (states.some((value) => value === "unavailable" || value === "restricted")) return "unavailable";
+  if (health.state === "critical") return "critical";
+  if (health.state === "warning") return "warning";
+  if (health.state === "unavailable" || health.state === "restricted") return "unavailable";
+  if (states.every((value) => value === "healthy" || value === "simulation")) {
+    return states.includes("simulation") || health.state === "simulation" ? "simulation" : "healthy";
+  }
+  return "unavailable";
+}
+
+function setSidebarHealth(status, detail = "") {
+  const sidebar = document.querySelector(".sidebar-health");
+  if (!sidebar) return;
+  const effective = ["healthy", "simulation", "warning", "critical"].includes(status) ? status : "unavailable";
+  const labels = {
+    healthy: "System operational",
+    simulation: "System simulation",
+    warning: "System needs attention",
+    critical: "System critical",
+    unavailable: "System status unavailable",
+  };
+  sidebar.dataset.state = effective;
+  sidebar.querySelector("strong").textContent = labels[effective];
+  sidebar.querySelector("span").textContent = detail || (effective === "healthy" ? "Health checks completed" : "Health checks are not available");
+  sidebar.querySelector("i").className = `health-dot ${effective}`;
+}
+
+function renderHealthUnavailable(reason, heading = "System health unavailable") {
+  setSidebarHealth("unavailable", reason);
+  for (const [id, title, detail] of [
+    ["operations-health-banner", heading, reason],
+    ["system-health-summary", heading, reason],
+    ["alerts-summary", "Alert status unavailable", "Alerts cannot be evaluated until health checks complete."],
+  ]) {
+    const banner = $(id);
+    if (!banner) continue;
+    banner.className = "health-banner unavailable";
+    const dot = banner.querySelector(".health-dot");
+    if (dot) dot.className = "health-dot unavailable";
+    const strong = banner.querySelector("strong");
+    if (strong) strong.textContent = title;
+    const paragraph = banner.querySelector("p");
+    if (paragraph) paragraph.textContent = detail;
+  }
+  const components = $("health-components");
+  if (components) components.innerHTML = `<div class="empty-state"><strong>Health checks unavailable</strong><p>${escapeHTML(reason)}</p></div>`;
+  const alerts = $("alerts-list");
+  if (alerts) alerts.innerHTML = `<div class="empty-state"><strong>Alerts unavailable</strong><p>Alert status will appear after the system health request succeeds.</p></div>`;
 }
 
 function metricCard(label, value, detail, stateName = "") {
@@ -925,6 +1074,11 @@ function listRows(items, emptyText) {
 function renderOperationsDashboard() {
   const data = state.operations;
   if (!data) return;
+  if (!hasCompletedHealthChecks(data)) {
+    state.operations = null;
+    renderHealthUnavailable("The API did not return completed health checks.");
+    return;
+  }
   const summary = data.analytics.summary;
   const profileCopy = {
     platform: "Platform-wide technical health and operational signals for this property.",
@@ -938,15 +1092,17 @@ function renderOperationsDashboard() {
   $("operations-profile-label").textContent = `${data.role.name} workspace`;
   $("operations-role-copy").textContent = profileCopy[data.profile] || profileCopy.read_only;
   const banner = $("operations-health-banner");
+  const healthState = effectiveHealthState(data.health);
+  setSidebarHealth(healthState, `Updated ${new Date(data.generated_at * 1000).toLocaleTimeString()}`);
   const attention = data.health.components.filter((item) => !["healthy", "simulation"].includes(item.state)).length;
   const infrastructureView = can("infrastructure.view");
   const requestAttention = Number(summary.overdue_requests || 0);
   const unresolved = Number(summary.open_requests || 0);
-  const bannerState = infrastructureView ? data.health.state : requestAttention ? "warning" : "healthy";
+  const bannerState = infrastructureView ? healthState : requestAttention ? "warning" : "healthy";
   banner.className = `health-banner ${bannerState}`;
   banner.querySelector(".health-dot").className = `health-dot ${bannerState}`;
   if (infrastructureView) {
-    banner.querySelector("strong").textContent = data.health.state === "healthy" ? "All monitored components healthy" : `${attention} component${attention === 1 ? "" : "s"} need review`;
+    banner.querySelector("strong").textContent = healthState === "healthy" ? "All monitored components healthy" : healthState === "unavailable" ? "System health unavailable" : `${attention} component${attention === 1 ? "" : "s"} need review`;
     banner.querySelector("p").textContent = `Updated ${new Date(data.generated_at * 1000).toLocaleTimeString()} · ${data.period} view · no synthetic telemetry`;
   } else {
     banner.querySelector("strong").textContent = requestAttention ? `${requestAttention} request${requestAttention === 1 ? "" : "s"} need attention` : unresolved ? "Guest request queue is on track" : "No open guest requests";
@@ -1008,15 +1164,16 @@ function renderHealthPanel() {
   if (!data || !$("health-components")) return;
   const summary = $("system-health-summary");
   if (summary) {
+    const healthState = effectiveHealthState(data.health);
     const states = data.health.components.map((item) => item.state);
     const needsReview = states.filter((value) => ["warning", "critical"].includes(value)).length;
     const unavailable = states.filter((value) => value === "unavailable").length;
     const restricted = states.filter((value) => value === "restricted").length;
     const normal = states.filter((value) => ["healthy", "simulation"].includes(value)).length;
-    const heading = needsReview ? `${needsReview} check${needsReview === 1 ? "" : "s"} need review` : unavailable ? `${unavailable} check${unavailable === 1 ? " is" : "s are"} unavailable` : "No active health warnings";
+    const heading = needsReview ? `${needsReview} check${needsReview === 1 ? "" : "s"} need review` : unavailable || healthState === "unavailable" ? `${Math.max(unavailable, 1)} check${unavailable === 1 ? " is" : "s are"} unavailable` : restricted ? "Health details are restricted" : "No active health warnings";
     const counts = [`${normal} healthy or simulated`, ...(needsReview ? [`${needsReview} need review`] : []), ...(unavailable ? [`${unavailable} unavailable`] : []), ...(restricted ? [`${restricted} restricted`] : [])];
-    summary.className = `health-banner ${data.health.state}`;
-    summary.querySelector(".health-dot").className = `health-dot ${data.health.state}`;
+    summary.className = `health-banner ${healthState}`;
+    summary.querySelector(".health-dot").className = `health-dot ${healthState}`;
     summary.querySelector("strong").textContent = heading;
     summary.querySelector("p").textContent = `Updated ${new Date(data.generated_at * 1000).toLocaleTimeString()} · ${data.period} timeframe · ${counts.join(" · ")}.`;
   }
@@ -1648,7 +1805,11 @@ function renderKnowledge() {
       showToast(history.versions.map((version) => `v${version.version} ${version.filename} (${version.status})`).join(" → "));
     }, true));
     if (can("knowledge.edit")) {
-      row.append(makeActionButton("Download original", () => window.location.assign(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge/sources/${source.source_id}/download`), true));
+      row.append(makeActionButton("Download original", () => {
+        const url = `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge/sources/${source.source_id}/download`;
+        assertPropertyRequest(url, "GET");
+        window.location.assign(url);
+      }, true));
       if (source.status === "processing_failed") row.append(makeActionButton("Retry", async () => { await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge/sources/${source.source_id}/retry`, { method: "POST" }); await loadKnowledge(); }, true));
       row.append(makeActionButton("Replace", async () => {
         if (!window.confirm(`Upload a new version of ${source.filename}? The previous version remains active until you supersede it.`)) return;
@@ -1736,9 +1897,11 @@ async function uploadKnowledgeDocument(file, onProgress = () => {}, endpoint = n
   const content = new Uint8Array(await file.arrayBuffer()); let binary = "";
   for (let offset = 0; offset < content.length; offset += 8192) binary += String.fromCharCode(...content.subarray(offset, offset + 8192));
   const body = JSON.stringify({ filename: file.name, content_type: file.type || "application/octet-stream", content_base64: btoa(binary) });
+  const uploadEndpoint = endpoint || `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge/sources`;
+  assertPropertyRequest(uploadEndpoint, "POST");
   const item = await new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", endpoint || `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge/sources`);
+    xhr.open("POST", uploadEndpoint);
     xhr.setRequestHeader("Content-Type", "application/json");
     xhr.setRequestHeader("X-CSRF-Token", state.auth?.csrf_token || "");
     xhr.upload.onprogress = (event) => { if (event.lengthComputable) onProgress(Math.round(100 * event.loaded / event.total)); };
@@ -2151,15 +2314,43 @@ async function verifyDeployment() {
 }
 
 async function loadSystemSettings() {
-  const application = state.property.app_settings?.application || {};
-  const timezone = application.timezone || state.property.timezone || "UTC";
-  const language = application.default_language || state.property.languages?.[0] || "en";
+  const property = state.property && typeof state.property === "object" ? state.property : null;
+  const appSettings = property?.app_settings && typeof property.app_settings === "object" && !Array.isArray(property.app_settings)
+    ? property.app_settings : {};
+  const storedApplication = appSettings.application;
+  const application = storedApplication && typeof storedApplication === "object" && !Array.isArray(storedApplication)
+    ? storedApplication : {};
+  const hasProperty = Boolean(property && hasValidPropertyContext());
+  const propertyDefaultsCard = document.querySelector("#system-settings .card");
+  if (propertyDefaultsCard) {
+    let notice = $("app-settings-property-note");
+    if (!notice) {
+      notice = document.createElement("p");
+      notice.id = "app-settings-property-note";
+      notice.className = "field-note";
+      notice.setAttribute("role", "status");
+      propertyDefaultsCard.querySelector("h2")?.after(notice);
+    }
+    notice.hidden = hasProperty;
+    notice.textContent = hasProperty ? "" : "Create or select a property to view and save property defaults.";
+    for (const control of propertyDefaultsCard.querySelectorAll("input, select, textarea, button")) control.disabled = !hasProperty;
+  }
+  const timezone = application.timezone || property?.timezone || "UTC";
+  const language = application.default_language || property?.languages?.[0] || "en";
   if (![...$("setting-timezone").options].some((option) => option.value === timezone)) $("setting-timezone").add(new Option(`${timezone} (saved value)`, timezone));
   if (![...$("setting-language").options].some((option) => option.value === language)) $("setting-language").add(new Option(`${language} (saved value)`, language));
   $("setting-language").value = language; $("setting-timezone").value = timezone; $("setting-maintenance").checked = Boolean(application.maintenance_enabled); $("setting-maintenance-message").value = application.maintenance_message || "";
   const smtp = await jsonFetch("/api/admin/system/email"); $("smtp-enabled").checked = smtp.enabled; $("smtp-host").value = smtp.host; $("smtp-port").value = smtp.port; $("smtp-security").value = smtp.security; $("smtp-username").value = smtp.username; $("smtp-from").value = smtp.from_address; $("smtp-password").value = ""; $("smtp-password").placeholder = smtp.password_configured ? `Saved securely (${smtp.password_masked})` : "Not configured"; $("smtp-status").textContent = smtp.enabled ? "SMTP enabled. Use Test Connection to verify reachability." : "SMTP is disabled; password-reset requests remain generic and do not send email.";
 }
-async function saveApplicationSettings() { const application = { default_language: $("setting-language").value.trim() || "en", timezone: $("setting-timezone").value.trim() || "UTC", maintenance_enabled: $("setting-maintenance").checked, maintenance_message: $("setting-maintenance-message").value.trim() }; state.property.languages = [...new Set([...(state.property.languages || []), application.default_language])]; state.property.timezone = application.timezone; state.property.app_settings = { ...(state.property.app_settings || {}), application }; await savePropertyBasics(); showToast("Application settings saved."); }
+async function saveApplicationSettings() {
+  if (!hasValidPropertyContext() || !state.property) throw new Error("Select a property before saving property defaults.");
+  const application = { default_language: $("setting-language").value.trim() || "en", timezone: $("setting-timezone").value.trim() || "UTC", maintenance_enabled: $("setting-maintenance").checked, maintenance_message: $("setting-maintenance-message").value.trim() };
+  state.property.languages = [...new Set([...(state.property.languages || []), application.default_language])];
+  state.property.timezone = application.timezone;
+  state.property.app_settings = { ...(state.property.app_settings || {}), application };
+  await savePropertyBasics();
+  showToast("Application settings saved.");
+}
 async function saveSMTPSettings() { await jsonFetch("/api/admin/system/email", { method: "PUT", body: JSON.stringify({ enabled: $("smtp-enabled").checked, host: $("smtp-host").value.trim(), port: Number($("smtp-port").value || 587), security: $("smtp-security").value, username: $("smtp-username").value.trim(), password: $("smtp-password").value, from_address: $("smtp-from").value.trim() }) }); await loadSystemSettings(); showToast("Email settings saved securely."); }
 async function testSMTP() { const result = await jsonFetch("/api/admin/system/email/test", { method: "POST" }); $("smtp-status").textContent = result.detail; showToast(result.detail, result.status === "connected" ? "default" : "error"); }
 
@@ -5070,12 +5261,9 @@ async function loadProperty() {
     switcher.appendChild(new Option("Property not configured", ""));
     switcher.disabled = true;
     $("publish-state").textContent = "Property not configured";
-    $("platform-shell").classList.add("no-property");
-    document.querySelectorAll(".platform-main > .panel").forEach((panel) => panel.classList.remove("active"));
-    $("property-onboarding").classList.add("active");
-    const canCreate = can("properties.edit") || can("properties.all");
-    $("onboarding-create-property").hidden = !canCreate;
-    $("onboarding-permission-note").hidden = canCreate;
+    state.operations = null;
+    renderHealthUnavailable("No property is selected. Create or select a property to run these checks.");
+    showPropertyOnboarding();
     return;
   }
   $("platform-shell").classList.remove("no-property");
@@ -5089,9 +5277,14 @@ async function loadProperty() {
   switcher.value = selected.property_id;
   hydrateProperty(selected);
   hydratePropertyOptions();
+  // A navigation event can arrive while the property list is still loading.
+  // If that showed onboarding, restore a usable panel once context is valid.
+  if ($("property-onboarding").classList.contains("active") || !document.querySelector(".platform-main > .panel.active")) {
+    activatePanel("overview");
+  }
   if (can("concierge.view")) await loadDesign();
   if (can("ai.view")) await loadAI();
-  if (can("dashboard.view")) await loadDashboard();
+  if (can("dashboard.view")) await loadDashboard().catch((error) => showToast(error.message, "error"));
   if (document.querySelector(".platform-main > .panel.active")?.id === "ai-assistant" && can("assistant.use")) {
     state.assistantConversationId = null;
     await loadAssistantConversations();
@@ -5159,6 +5352,7 @@ async function createProperty(event) {
     await jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}`, {
       method: "PUT",
       body: JSON.stringify({ property_id: propertyId, hotel_name: hotelName, timezone, address: $("property-create-address").value.trim() }),
+      allowPropertyCreation: true,
     });
     $("property-create-dialog").close();
     window.location.reload();
@@ -7994,6 +8188,7 @@ function renderAssistantAnswer(container, payload, existingQuestion = null) {
   }
   for (const item of payload.downloads || []) {
     if (!item.url || !item.url.startsWith("/") || item.url.startsWith("//")) continue;
+    if (item.url.startsWith("/api/admin/properties/")) assertPropertyRequest(item.url, "GET");
     const link = document.createElement("a");
     link.className = "secondary assistant-download";
     link.href = item.url;
@@ -8133,6 +8328,7 @@ function renderKnowledgeAssistantAnswer(container, payload, uploadedCount = 0) {
       const link = document.createElement("a");
       link.className = "secondary assistant-download";
       link.href = `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge/sources/${encodeURIComponent(source.source_id)}/download`;
+      assertPropertyRequest(link.href, "GET");
       link.textContent = `Open source: ${source.title || source.source || "document"}`;
       answer.append(link);
     }
@@ -8263,6 +8459,7 @@ async function submitUnifiedAssistant(event) {
 function downloadReport(format, selectedPeriod = null) {
   const period = selectedPeriod || $("reports-period")?.value || state.operationsPeriod || "7d";
   const url = `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/reports/export.${format}?period=${encodeURIComponent(period)}`;
+  assertPropertyRequest(url, "GET");
   window.location.assign(url);
 }
 

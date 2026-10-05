@@ -1,14 +1,20 @@
 import base64
 import copy
+import importlib
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
+from sqlalchemy import create_engine, text
 
 import app.antlabs as antlabs_module
 import app.main as main_module
+from app.database import _CompatRow
 from app.hospitality import HospitalityStore
 from app.main import app
 from app.operations import OperationsStore
@@ -38,6 +44,181 @@ def test_clean_database_has_no_property_or_operational_seed_data(tmp_path: Path)
     assert zone_data["maps"] == []
     assert zone_data["zones"] == []
     assert operations.list_knowledge("property-a") == []
+
+
+def test_admin_property_list_returns_200_for_properties_with_additive_schema_columns(
+    admin_client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    properties = PropertyStore(tmp_path / "properties-with-extension.db")
+    properties.upsert(PropertyRecord(property_id="schema-safe", hotel_name="Schema Safe"))
+    with properties._connect() as db:
+        db.execute("ALTER TABLE properties ADD COLUMN deployment_extension TEXT")
+        db.execute("UPDATE properties SET deployment_extension='future-schema-field'")
+    monkeypatch.setattr(main_module, "properties", properties)
+
+    response = admin_client.get("/api/admin/properties")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["properties"][0]["property_id"] == "schema-safe"
+
+
+def test_admin_property_list_returns_200_with_an_empty_collection(
+    admin_client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(main_module, "properties", PropertyStore(tmp_path / "empty-properties.db"))
+
+    response = admin_client.get("/api/admin/properties")
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"properties": []}
+
+
+def test_admin_property_list_repairs_legacy_null_names_and_missing_brand_assets(
+    admin_client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    database = tmp_path / "legacy-property-schema.db"
+    with sqlite3.connect(database) as db:
+        db.execute(
+            """CREATE TABLE properties (
+                property_id TEXT PRIMARY KEY,
+                hotel_name TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            )"""
+        )
+        db.executemany(
+            "INSERT INTO properties(property_id, hotel_name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+            [("legacy-null", None, 101, 201), ("legacy-empty", "  ", 102, 202)],
+        )
+
+    properties = PropertyStore(database)
+    monkeypatch.setattr(main_module, "properties", properties)
+
+    response = admin_client.get("/api/admin/properties")
+
+    assert response.status_code == 200, response.text
+    assert [item["hotel_name"] for item in response.json()["properties"]] == ["legacy-empty", "legacy-null"]
+    with sqlite3.connect(database) as db:
+        rows = db.execute(
+            "SELECT property_id, hotel_name, created_at, updated_at, brand_assets FROM properties ORDER BY property_id"
+        ).fetchall()
+    assert rows == [
+        ("legacy-empty", "legacy-empty", 102, 202, "{}"),
+        ("legacy-null", "legacy-null", 101, 201, "{}"),
+    ]
+
+
+def test_property_integrity_migration_repairs_rows_and_preserves_existing_data(tmp_path: Path):
+    migration = importlib.import_module(
+        "migrations.versions.20261005_0001_property_context_integrity"
+    )
+    engine = create_engine(f"sqlite:///{tmp_path / 'property-integrity.db'}")
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """CREATE TABLE properties (
+                    property_id TEXT PRIMARY KEY,
+                    hotel_name TEXT,
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL
+                )"""
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO properties(property_id, hotel_name, created_at, updated_at) "
+                "VALUES ('legacy-null', NULL, 101, 201), ('legacy-named', 'Existing Hotel', 102, 202)"
+            )
+        )
+        with Operations.context(MigrationContext.configure(connection)):
+            migration.upgrade()
+            migration.upgrade()
+
+        rows = connection.execute(
+            text("SELECT property_id, hotel_name, created_at, updated_at, brand_assets FROM properties ORDER BY property_id")
+        ).all()
+        assert [tuple(row) for row in rows] == [
+            ("legacy-named", "Existing Hotel", 102, 202, "{}"),
+            ("legacy-null", "legacy-null", 101, 201, "{}"),
+        ]
+    engine.dispose()
+
+
+def test_super_admin_can_create_the_first_property(admin_client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    properties = PropertyStore(tmp_path / "first-property.db")
+    monkeypatch.setattr(main_module, "properties", properties)
+
+    response = admin_client.put(
+        "/api/admin/properties/first-hotel",
+        json={"property_id": "first-hotel", "hotel_name": "First Hotel", "timezone": "UTC"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert properties.get("first-hotel").hotel_name == "First Hotel"
+    accessible = admin_client.get("/api/admin/properties/first-hotel")
+    assert accessible.status_code == 200, accessible.text
+
+
+def test_unscoped_property_manager_cannot_create_a_property(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    database = tmp_path / "first-property-rbac.db"
+    properties = PropertyStore(database)
+    auth = main_module.AdminAuthStore(database)
+    auth.ensure_bootstrap_admin("root", "FirstPropertyRoot123!")
+    _, root = auth.login("root", "FirstPropertyRoot123!", "127.0.0.1", "first-property")
+    auth.create_user(
+        {
+            "username": "orphan.manager",
+            "display_name": "Orphan Manager",
+            "password": "OrphanManager123!",
+            "role_id": "role-property-manager",
+            "property_id": "first-hotel",
+            "status": "active",
+        },
+        root,
+    )
+    monkeypatch.setattr(main_module, "properties", properties)
+    monkeypatch.setattr(main_module, "admin_auth", auth)
+
+    with TestClient(app) as client:
+        login = client.post(
+            "/api/admin/auth/login",
+            json={"username": "orphan.manager", "password": "OrphanManager123!", "remember_me": False},
+        )
+        assert login.status_code == 200, login.text
+        client.headers["X-CSRF-Token"] = login.json()["user"]["csrf_token"]
+        response = client.put(
+            "/api/admin/properties/first-hotel",
+            json={"property_id": "first-hotel", "hotel_name": "First Hotel", "timezone": "UTC"},
+        )
+
+    assert response.status_code == 403, response.text
+    assert response.json()["detail"] == "Permission required: properties.all"
+    assert properties.list() == []
+
+
+def test_invalid_property_id_fails_safely(admin_client: TestClient):
+    response = admin_client.get("/api/admin/properties/does-not-exist")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Property not found."
+
+
+def test_property_row_decoder_accepts_postgres_compat_rows_native_json_and_unknown_columns(tmp_path: Path):
+    properties = PropertyStore(tmp_path / "native-json-properties.db")
+    properties.upsert(PropertyRecord(property_id="native-json", hotel_name="Native JSON"))
+    with properties._connect() as db:
+        row = db.execute("SELECT * FROM properties WHERE property_id=?", ("native-json",)).fetchone()
+    values = {key: row[key] for key in row.keys()}
+    values["app_settings"] = {"application": {"default_language": "fil"}}
+    values["deployment_extension"] = "future-schema-field"
+
+    # PostgreSQL's compatibility row iterates values rather than key/value
+    # pairs, so dict(row) raises even though keyed column access is supported.
+    row = _CompatRow(tuple(values), tuple(values.values()))
+    record = properties._record_from_row(row)
+
+    assert record.app_settings == {"application": {"default_language": "fil"}}
+    assert record.property_id == "native-json"
 
 
 def test_property_round_trip_rich_configuration(tmp_path: Path):

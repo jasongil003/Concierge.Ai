@@ -665,11 +665,20 @@ class PropertyStore:
             self._ensure_column(db, "design_published", "TEXT NOT NULL DEFAULT '{}'")
             self._ensure_column(db, "design_versions", "TEXT NOT NULL DEFAULT '[]'")
             self._ensure_column(db, "design_revision", "INTEGER NOT NULL DEFAULT 1")
+            self._ensure_column(db, "brand_assets", "TEXT NOT NULL DEFAULT '{}'")
             self._ensure_column(db, "rooms", "TEXT NOT NULL DEFAULT '[]'")
             self._ensure_column(db, "guest_modules", "TEXT NOT NULL DEFAULT '[]'")
             self._ensure_column(db, "personality", "TEXT NOT NULL DEFAULT '{}'")
             self._ensure_column(db, "guardrails", "TEXT NOT NULL DEFAULT '{}'")
             self._ensure_column(db, "app_settings", "TEXT NOT NULL DEFAULT '{}'")
+            # Legacy SQLite databases may predate the NOT NULL property-name
+            # constraint. Give unnamed records a stable, data-preserving name.
+            # PostgreSQL performs the same backfill in its Alembic migration.
+            if not database_url_configured():
+                db.execute(
+                    "UPDATE properties SET hotel_name = property_id "
+                    "WHERE hotel_name IS NULL OR TRIM(hotel_name) = ''"
+                )
 
     def list(self) -> list[PropertyRecord]:
         with self._connect() as db:
@@ -846,8 +855,37 @@ class PropertyStore:
             data[column] = json.dumps(data[column], separators=(",", ":"))
         return data
 
-    def _record_from_row(self, row: sqlite3.Row) -> PropertyRecord:
-        data = dict(row)
+    def _record_from_row(self, row: Any) -> PropertyRecord:
+        # Database schemas can contain additive columns unknown to this version
+        # of the application, and PostgreSQL JSON/JSONB adapters may already
+        # decode JSON values. Start from model defaults, then copy only fields
+        # understood by this PropertyRecord version.
+        row_keys = set(row.keys())
+        if "property_id" not in row_keys or "hotel_name" not in row_keys:
+            raise ValueError("Stored property record is missing its identity fields.")
+        property_id = row["property_id"]
+        hotel_name = row["hotel_name"]
+        defaults = PropertyRecord(
+            property_id=str(property_id),
+            hotel_name=str(hotel_name or ""),
+        ).to_dict(include_secrets=True)
+        missing_columns = set(self.COLUMNS) - row_keys
+        if missing_columns:
+            logger.warning(
+                "Stored property schema is missing model columns; using safe model defaults",
+                extra={
+                    "property_id": str(property_id),
+                    "missing_columns": sorted(missing_columns),
+                },
+            )
+        data = {
+            **defaults,
+            **{column: row[column] for column in self.COLUMNS if column in row_keys},
+        }
+        # Be defensive even if a legacy PostgreSQL row reaches the application
+        # before its forward migration has completed.
+        stored_name = str(data.get("hotel_name") or "").strip()
+        data["hotel_name"] = stored_name or str(property_id)
         malformed_guest_configuration = False
         expected_types = {
             "contact_details": dict,
@@ -875,7 +913,13 @@ class PropertyStore:
         }
         for column in self.JSON_COLUMNS:
             try:
-                decoded = json.loads(data[column] or ("{}" if expected_types[column] is dict else "[]"))
+                raw_value = data[column]
+                if raw_value is None or raw_value == "":
+                    decoded = {} if expected_types[column] is dict else []
+                elif isinstance(raw_value, (str, bytes, bytearray)):
+                    decoded = json.loads(raw_value)
+                else:
+                    decoded = raw_value
             except (TypeError, ValueError):
                 decoded = {} if expected_types[column] is dict else []
                 logger.warning(
@@ -946,6 +990,7 @@ class PropertyStore:
 
     def _ensure_column(self, db: sqlite3.Connection, name: str, definition: str) -> None:
         allowed_definitions = {
+            "brand_assets": "TEXT NOT NULL DEFAULT '{}'",
             "design_draft": "TEXT NOT NULL DEFAULT '{}'",
             "design_published": "TEXT NOT NULL DEFAULT '{}'",
             "design_versions": "TEXT NOT NULL DEFAULT '[]'",

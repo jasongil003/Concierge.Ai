@@ -1883,7 +1883,7 @@ async def list_properties(request: Request) -> dict[str, Any]:
     if not principal.can("properties.all"):
         records = [record for record in records if record.property_id == principal.property_id]
     else:
-        records.sort(key=lambda record: record.hotel_name.lower())
+        records.sort(key=lambda record: str(record.hotel_name or record.property_id or "").casefold())
     return {"properties": [_property_admin_payload(record, principal) for record in records]}
 
 
@@ -3765,6 +3765,8 @@ async def upsert_property(property_id: str, payload: PropertyPayload, request: R
         raise HTTPException(status_code=422, detail="Timezone is required.")
     existing = properties.get(property_id)
     principal = _admin_principal(request)
+    if existing is None and not principal.can("properties.all"):
+        raise HTTPException(status_code=403, detail="Permission required: properties.all")
     _require_property_payload_permissions(updates, principal)
 
     # Treat this serializer as a partial update. Merge explicitly supplied
