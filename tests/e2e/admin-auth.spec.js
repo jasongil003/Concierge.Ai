@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { ensureTestProperty } from "./support.js";
 
 test("unauthenticated admin access redirects to username login", async ({ page }) => {
   await page.goto("/admin");
@@ -61,12 +62,20 @@ test("password recovery buttons open, submit, and close the dialog", async ({ pa
   await expect(dialog).not.toBeVisible();
 });
 
-test("username login opens admin and logout revokes the session", async ({ page }) => {
+test("username login opens admin and logout revokes the session", async ({ page, request }) => {
+  const bootstrap = await request.post("/api/admin/auth/login", {
+    data: { username: "admin", password: "PlaywrightOnly-Admin-123!", remember_me: false },
+  });
+  expect(bootstrap.ok(), await bootstrap.text()).toBeTruthy();
+  const csrf = (await bootstrap.json()).user.csrf_token;
+  await ensureTestProperty(request, csrf);
+
   await page.goto("/admin/login");
   await page.locator("#username").fill("admin");
   await page.getByLabel("Password", { exact: true }).fill("PlaywrightOnly-Admin-123!");
   await page.getByRole("button", { name: "Sign In" }).click();
   await expect(page).toHaveURL(/\/admin$/);
+  await page.locator('body[data-admin-ready="true"]').waitFor();
   await expect(page.locator("#overview-title")).toBeVisible();
   await page.locator("#profile-button").click();
   await page.getByRole("button", { name: "Logout" }).click();
