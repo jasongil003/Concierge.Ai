@@ -82,6 +82,7 @@ fetch_release() {
     artifact=$(awk -F= '$1 == "ARTIFACT" {print $2; exit}' "$metadata")
     expected_sha=$(awk -F= '$1 == "SHA256" {print $2; exit}' "$metadata")
     commit=$(awk -F= '$1 == "COMMIT" {print $2; exit}' "$metadata")
+    build_date=$(awk -F= '$1 == "BUILD_DATE" {print $2; exit}' "$metadata")
     printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || die "Release metadata has an invalid VERSION."
     [ "$artifact" = "concierge-ai-${version}.tar.gz" ] || die "Release metadata has an invalid ARTIFACT."
     printf '%s' "$expected_sha" | grep -Eq '^[0-9a-fA-F]{64}$' || die "Release metadata has an invalid SHA256."
@@ -101,6 +102,10 @@ fetch_release() {
     tar -xzf "$archive" -C "$release_dir/unpacked"
     [ -f "$release_dir/unpacked/deploy/install.sh" ] || die "Release archive is missing deploy/install.sh."
     printf '%s\n' "$version" > "$release_dir/unpacked/RELEASE_VERSION"
+    printf '%s\n' "$commit" > "$release_dir/unpacked/RELEASE_COMMIT"
+    if printf '%s' "$build_date" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'; then
+        printf '%s\n' "$build_date" > "$release_dir/unpacked/RELEASE_BUILD_DATE"
+    fi
     info "release: v${version} (${commit:0:12}), SHA-256 verified"
 }
 

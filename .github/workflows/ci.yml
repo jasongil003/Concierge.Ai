@@ -401,8 +401,8 @@ jobs:
           python -m pip install --requirement requirements.txt
       - name: Validate shared and macOS installer shell
         run: |
-          for script in deploy/install.sh deploy/macos/install.sh deploy/macos/platform.sh deploy/macos/concierge-restart deploy/common/*.sh; do bash -n "$script"; done
-          shellcheck --severity=warning -x deploy/install.sh deploy/macos/install.sh deploy/macos/platform.sh deploy/macos/concierge-restart deploy/common/*.sh
+          for script in deploy/install.sh deploy/macos/install.sh deploy/macos/platform.sh deploy/macos/run-proxy.sh deploy/macos/concierge-restart deploy/common/*.sh; do bash -n "$script"; done
+          shellcheck --severity=warning -x deploy/install.sh deploy/macos/install.sh deploy/macos/platform.sh deploy/macos/run-proxy.sh deploy/macos/concierge-restart deploy/common/*.sh
       - name: Validate LaunchDaemon property lists
         run: |
           python - <<'PY'

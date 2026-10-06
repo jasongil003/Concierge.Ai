@@ -42,7 +42,16 @@ from .admin_auth import (
 from .ai_providers import AIModelService, AIProviderStore
 from .antlabs import AntlabsAdapter
 from .config import settings
-from .database import configure_database, database_ready, dispose_database, verify_schema_current
+from .database import (
+    CURRENT_SCHEMA_REVISION,
+    configure_database,
+    database_ready,
+    dispose_database,
+    persisted_schema_revision,
+    stamp_sqlite_schema_current,
+    verify_schema_current,
+)
+from .build_info import BUILD_IDENTITY
 from .improvement_loop import ImprovementLoopManager, ImprovementLoopStore
 from .guest_identity import GuestIdentityStore
 from .guest_context import build_guest_context
@@ -123,6 +132,16 @@ from . import metrics
 logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
+SAFE_DATABASE_READINESS_DETAILS = {
+    "PostgreSQL schema is not migrated; run `alembic upgrade head` before starting the API.",
+    "PostgreSQL schema revision is unknown; refusing to serve traffic against unrecognized persisted state.",
+    "Database schema is newer than this application build; install a compatible application release.",
+    "Database migration required; run `alembic upgrade head` before starting the API.",
+    "SQLite schema revision is not recognized; refusing to start against unknown persisted state.",
+    "SQLite schema revision is older than this application build; refusing to mark it current without a supported migration.",
+    "SQLite schema metadata could not be read safely.",
+    "Database migration required; restart with the current application to apply supported SQLite upgrades.",
+}
 
 configure_database(
     settings.database_url,
@@ -137,7 +156,7 @@ configure_database(
         "options": f"-c statement_timeout={settings.db_statement_timeout_ms} -c idle_in_transaction_session_timeout=10000",
     },
 )
-verify_schema_current()
+verify_schema_current(settings.db_path)
 
 store = SessionStore(settings.db_path, settings.session_ttl_minutes)
 properties = PropertyStore(settings.db_path)
@@ -182,6 +201,9 @@ if isinstance(rate_limiter, RedisRateLimiter):
     ai_models.set_distributed_redis(rate_limiter.client)
 security_audit = SecurityAuditLogger(settings.db_path)
 management_access_guard = ManagementAccessGuard()
+
+if not settings.database_url:
+    stamp_sqlite_schema_current(settings.db_path)
 
 
 @asynccontextmanager
@@ -1184,6 +1206,15 @@ async def health_live() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/health/version")
+async def health_version() -> dict[str, str]:
+    try:
+        schema_revision = persisted_schema_revision(settings.db_path)
+    except Exception:
+        schema_revision = "unavailable"
+    return {**BUILD_IDENTITY, "schema_revision": schema_revision or "unavailable"}
+
+
 @app.get("/health/ready")
 async def health_ready() -> dict[str, Any]:
     checks: dict[str, str] = {
@@ -1193,11 +1224,7 @@ async def health_ready() -> dict[str, Any]:
         "storage": "healthy",
     }
     try:
-        if settings.database_url:
-            await asyncio.to_thread(database_ready)
-        else:
-            with sqlite3.connect(settings.db_path, timeout=2) as db:
-                db.execute("SELECT 1").fetchone()
+        await asyncio.to_thread(database_ready, settings.db_path)
     except Exception as exc:
         metrics.DATABASE_ERRORS.labels("readiness").inc()
         checks["database"] = "unavailable"
@@ -1205,7 +1232,8 @@ async def health_ready() -> dict[str, Any]:
             "Database readiness probe failed",
             extra={"error_type": exc.__class__.__name__},
         )
-        raise HTTPException(status_code=503, detail="Database is not ready.") from exc
+        detail = str(exc) if str(exc) in SAFE_DATABASE_READINESS_DETAILS else "Database is not ready."
+        raise HTTPException(status_code=503, detail=detail) from exc
     if isinstance(rate_limiter, RedisRateLimiter):
         try:
             if not await rate_limiter.ping():
@@ -3375,7 +3403,7 @@ async def enforce_guest_origin(request: Request, call_next):
             normalized_host = ""
         local_loopback_origin = _trusted_loopback_origin(request, normalized_host)
         loopback_health_probe = False
-        if path in {"/health", "/health/live", "/health/ready"}:
+        if path in {"/health", "/health/live", "/health/ready", "/health/version"}:
             try:
                 loopback_health_probe = bool(request.client and ipaddress.ip_address(request.client.host).is_loopback)
             except ValueError:
@@ -3389,7 +3417,7 @@ async def enforce_guest_origin(request: Request, call_next):
         if not loopback_health_probe and normalized_host not in recognized_hosts:
             response = JSONResponse({"detail": "Unrecognized host."}, status_code=400)
             return _apply_security_headers(request, response)
-        if request.url.scheme != "https" and not local_loopback_origin and path not in {"/health", "/health/live", "/health/ready"}:
+        if request.url.scheme != "https" and not local_loopback_origin and path not in {"/health", "/health/live", "/health/ready", "/health/version"}:
             response = JSONResponse({"detail": "HTTPS is required."}, status_code=426)
             return _apply_security_headers(request, response)
 
@@ -3632,7 +3660,7 @@ def _trusted_loopback_origin(request: Request, hostname: str) -> bool:
         or path.startswith("/admin/")
         or path == "/api/admin"
         or path.startswith("/api/admin/")
-        or path in {"/metrics", "/health", "/health/live", "/health/ready", "/health/details"}
+        or path in {"/metrics", "/health", "/health/live", "/health/ready", "/health/version", "/health/details"}
     )
     if management_path:
         ranges = _effective_management_access_settings().get("management_trusted_proxy_ranges", [])

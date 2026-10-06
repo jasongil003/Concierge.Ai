@@ -25,6 +25,10 @@ class ServiceError(RuntimeError):
     pass
 
 
+class PortConflictError(ServiceError):
+    pass
+
+
 def _quote_unit(value: str) -> str:
     escaped = value.replace("%", "%%").replace("\\", "\\\\").replace('"', '\\"')
     return f'"{escaped}"'
@@ -113,8 +117,10 @@ def _unit_text(root: Path, user: str, group: str) -> str:
             f"WorkingDirectory={_systemd_path_value(str(root))}",
             f"EnvironmentFile={_systemd_environment_file_value(root / '.env')}",
             "Environment=PYTHONUNBUFFERED=1",
-            f"ExecStart={_quote_unit(str(python))} -m uvicorn app.main:app --host 127.0.0.1 --port 8080 --no-proxy-headers",
+            "Environment=CONCIERGE_DEPLOYMENT_MODE=source",
+            f"ExecStart={_quote_unit(str(python))} {_quote_unit(str(root / 'deploy' / 'source_service.py'))} --root {_quote_unit(str(root))} --platform linux serve",
             "Restart=always",
+            "RestartPreventExitStatus=78",
             "RestartSec=5",
             "TimeoutStopSec=45",
             "UMask=0077",
@@ -184,19 +190,21 @@ def _launch_agent(root: Path, user: str) -> tuple[Path, dict]:
         "Label": LAUNCHD_LABEL,
         "ProgramArguments": [
             str(root / ".venv" / "bin" / "python"),
-            "-m",
-            "uvicorn",
-            "app.main:app",
-            "--host",
-            "127.0.0.1",
-            "--port",
-            "8080",
-            "--no-proxy-headers",
+            str(root / "deploy" / "source_service.py"),
+            "--root",
+            str(root),
+            "--platform",
+            "macos",
+            "serve",
         ],
         "WorkingDirectory": str(root),
-        "EnvironmentVariables": {"PYTHONUNBUFFERED": "1"},
+        "EnvironmentVariables": {
+            "PYTHONUNBUFFERED": "1",
+            "CONCIERGE_DEPLOYMENT_MODE": "source",
+            "CONCIERGE_SOURCE_LAUNCHD": "1",
+        },
         "RunAtLoad": True,
-        "KeepAlive": True,
+        "KeepAlive": {"SuccessfulExit": False},
         "ThrottleInterval": 10,
         "Umask": 0o077,
         "StandardOutPath": str(log_dir / "concierge.out.log"),
@@ -268,21 +276,19 @@ def _fallback_start(root: Path) -> None:
         process = subprocess.Popen(
             [
                 str(root / ".venv" / "bin" / "python"),
-                "-m",
-                "uvicorn",
-                "app.main:app",
-                "--host",
-                "127.0.0.1",
-                "--port",
-                "8080",
-                "--no-proxy-headers",
+                str(Path(__file__).resolve()),
+                "--root",
+                str(root),
+                "--platform",
+                "linux" if sys.platform.startswith("linux") else "macos",
+                "serve",
             ],
             cwd=root,
             stdin=subprocess.DEVNULL,
             stdout=log_file,
             stderr=subprocess.STDOUT,
             start_new_session=True,
-            env={**os.environ, "PYTHONUNBUFFERED": "1"},
+            env={**os.environ, "PYTHONUNBUFFERED": "1", "CONCIERGE_DEPLOYMENT_MODE": "source"},
         )
     _pid_file(root).write_text(f"{process.pid}\n", encoding="ascii")
     os.chmod(_pid_file(root), 0o600)
@@ -315,6 +321,7 @@ def _platform_mode(platform: str) -> str:
 
 def install_service(root: Path, platform: str, user: str, start: bool, unattended: bool) -> str:
     root = root.resolve()
+    assert_source_port_available(root, platform)
     if user == "root":
         raise ServiceError("The application service must run as a non-root user. Run ./install.sh as your normal account.")
     account = pwd.getpwnam(user)
@@ -338,6 +345,7 @@ def install_service(root: Path, platform: str, user: str, start: bool, unattende
 
 def start_service(root: Path, platform: str, unattended: bool) -> None:
     root = root.resolve()
+    assert_source_port_available(root, platform)
     mode = _platform_mode(platform)
     if mode == "systemd" and service_owned(root, platform):
         _run(["systemctl", "start", SERVICE_NAME], sudo=True, unattended=unattended)
@@ -364,6 +372,7 @@ def stop_service(root: Path, platform: str, unattended: bool) -> None:
 
 def restart_service(root: Path, platform: str, unattended: bool) -> None:
     root = root.resolve()
+    assert_source_port_available(root, platform)
     mode = _platform_mode(platform)
     if mode == "systemd" and service_owned(root, platform):
         _run(["systemctl", "restart", SERVICE_NAME], sudo=True, unattended=unattended)
@@ -438,8 +447,97 @@ def wait_for_health(base_url: str = BASE_URL, timeout: int = 120) -> tuple[bool,
 
 
 def port_in_use(host: str = "127.0.0.1", port: int = 8080) -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        return sock.connect_ex((host, port)) == 0
+    candidates = [(socket.AF_INET, host)]
+    if host == "127.0.0.1":
+        candidates.append((socket.AF_INET6, "::1"))
+    for family, address in candidates:
+        try:
+            with socket.socket(family, socket.SOCK_STREAM) as sock:
+                if sock.connect_ex((address, port)) == 0:
+                    return True
+        except OSError:
+            continue
+    return False
+
+
+def _listening_pids(port: int = 8080) -> list[str]:
+    try:
+        result = subprocess.run(
+            ["lsof", "-nP", "-t", f"-iTCP:{port}", "-sTCP:LISTEN"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        result = None
+    if result is None or result.returncode:
+        try:
+            result = subprocess.run(
+                ["ss", "-ltnp", f"sport = :{port}"], check=False, capture_output=True, text=True
+            )
+        except OSError:
+            return []
+        import re
+        if result.returncode:
+            return []
+        return re.findall(r"pid=(\d+)", result.stdout)
+    return [line.strip() for line in result.stdout.splitlines() if line.strip().isdigit()]
+
+
+def _pid_runs_this_checkout(pid: str, root: Path) -> bool:
+    result = subprocess.run(
+        ["ps", "-p", pid, "-o", "args="], check=False, capture_output=True, text=True
+    )
+    command = result.stdout.strip()
+    # The command line is inspected in memory only; it is never included in errors.
+    return bool(
+        result.returncode == 0
+        and "app.main:app" in command
+        and str(root / ".venv" / "bin" / "python") in command
+    )
+
+
+def _expected_service_pids(root: Path, platform: str) -> set[str]:
+    mode = _platform_mode(platform)
+    if mode == "systemd" and service_owned(root, platform):
+        result = subprocess.run(
+            ["systemctl", "show", "--property=MainPID", "--value", SERVICE_NAME],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        pid = result.stdout.strip()
+        return {pid} if pid.isdigit() and pid != "0" and _pid_runs_this_checkout(pid, root) else set()
+    if mode == "launchd" and service_owned(root, platform):
+        result = subprocess.run(
+            ["launchctl", "list", LAUNCHD_LABEL], check=False, capture_output=True, text=True
+        )
+        fields = result.stdout.split()
+        pid = fields[0] if fields else ""
+        return {pid} if pid.isdigit() and _pid_runs_this_checkout(pid, root) else set()
+    try:
+        pid = _pid_file(root).read_text(encoding="ascii").strip()
+    except OSError:
+        return set()
+    return {pid} if pid.isdigit() and _pid_runs_this_checkout(pid, root) else set()
+
+
+def assert_source_port_available(root: Path, platform: str, *, allow_current_service: bool = True) -> None:
+    """Reject another runtime on the source-mode port; never stop its owner."""
+    if not port_in_use():
+        return
+    pids = _listening_pids()
+    expected_pids = _expected_service_pids(root.resolve(), platform)
+    if allow_current_service and pids and set(pids) <= expected_pids:
+        return
+    if pids:
+        owner = f"process id {', '.join(pids)}"
+    else:
+        owner = "an unidentified process (install lsof to identify the owner)"
+    raise PortConflictError(
+        f"Port 8080 is already occupied by {owner}, identified as another runtime. "
+        "The source runtime was not started or changed. Inspect the owner and resolve the runtime conflict before continuing."
+    )
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -455,6 +553,8 @@ def _parser() -> argparse.ArgumentParser:
     commands.add_parser("stop")
     commands.add_parser("restart")
     commands.add_parser("status")
+    commands.add_parser("doctor")
+    commands.add_parser("serve")
     commands.add_parser("health")
     wait_health = commands.add_parser("wait-health")
     wait_health.add_argument("--timeout", type=int, default=120)
@@ -477,8 +577,27 @@ def main() -> int:
             stop_service(root, args.platform, args.unattended)
         elif args.command == "restart":
             restart_service(root, args.platform, args.unattended)
+        elif args.command == "serve":
+            assert_source_port_available(root, args.platform, allow_current_service=False)
+            os.execv(
+                str(root / ".venv" / "bin" / "python"),
+                [
+                    str(root / ".venv" / "bin" / "python"), "-m", "uvicorn", "app.main:app",
+                    "--host", "127.0.0.1", "--port", "8080", "--no-proxy-headers",
+                ],
+            )
         elif args.command == "status":
-            return service_status(root, args.platform, args.unattended)
+            diagnostics = root / "deploy" / "common" / "diagnostics.py"
+            return subprocess.run(
+                [sys.executable, str(diagnostics), "status", "--mode", "source", "--root", str(root), "--config", str(root / ".env")],
+                check=False,
+            ).returncode
+        elif args.command == "doctor":
+            diagnostics = root / "deploy" / "common" / "diagnostics.py"
+            return subprocess.run(
+                [sys.executable, str(diagnostics), "doctor", "--mode", "source", "--root", str(root), "--config", str(root / ".env")],
+                check=False,
+            ).returncode
         elif args.command == "health":
             healthy, message = check_health()
             print(f"{'healthy' if healthy else 'unhealthy'}: {message}")
@@ -500,10 +619,22 @@ def main() -> int:
                     sys.stdout.write("\n".join(path.read_text(encoding="utf-8", errors="replace").splitlines()[-100:]) + "\n")
             return 0
         elif args.command == "port-check":
-            return 1 if port_in_use() else 0
+            try:
+                assert_source_port_available(root, args.platform)
+            except ServiceError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            return 0
         elif args.command == "owns":
             return 0 if service_owned(root, args.platform) else 1
         return 0
+    except PortConflictError as exc:
+        print(f"Service error: {exc}", file=sys.stderr)
+        if args.command == "serve" and os.getenv("CONCIERGE_SOURCE_LAUNCHD") == "1":
+            # An intentional preflight refusal exits successfully so launchd's
+            # KeepAlive.SuccessfulExit=false does not retry against the owner.
+            return 0
+        return 78
     except (ServiceError, OSError, subprocess.SubprocessError) as exc:
         print(f"Service error: {exc}", file=sys.stderr)
         return 1

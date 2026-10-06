@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+ORIGINAL_ARGS=("$@")
 # shellcheck source=../common/runtime.sh
 . "$SCRIPT_DIR/../common/runtime.sh"
 # shellcheck source=../common/configure.sh
@@ -17,6 +18,20 @@ while [ "$#" -gt 0 ]; do
 done
 [ -n "$release_dir" ] && [ -f "$release_dir/RELEASE_VERSION" ] || die "A verified release directory is required."
 [ "$(id -u)" -eq 0 ] || die "Run with sudo."
+
+python3 "$release_dir/deploy/common/preflight.py" appliance --port 8080
+
+if [ "${CONCIERGE_OPERATION_LOCK_HELD:-}" != 1 ]; then
+    python3 "$release_dir/deploy/common/operation_lock.py" run \
+        --lock /opt/concierge/.deployment.lock -- "$0" "${ORIGINAL_ARGS[@]}"
+    exit $?
+fi
+
+python3 "$release_dir/deploy/common/preflight.py" appliance --port 8080
+
+if [ -e /opt/concierge/current ] || [ -L /opt/concierge/current ]; then
+    die "An appliance release already exists at /opt/concierge/current. Use 'sudo concierge update' to upgrade; no installed release or persisted state was changed."
+fi
 
 [ -r /etc/os-release ] || die "This installer supports Ubuntu Server 24.04 LTS and 26.04 LTS only."
 . /etc/os-release
@@ -55,11 +70,15 @@ systemctl enable concierge.service concierge-health.timer concierge-backup.timer
 systemctl start concierge.service concierge-health.timer concierge-backup.timer concierge-maintenance.timer
 
 if ! wait_for_health http://127.0.0.1:8080 180; then
-    platform_compose logs --tail=100 || true
-    die "Concierge did not become healthy. Inspect 'journalctl -u concierge.service' and /etc/concierge/concierge.env."
+    die "Installation reached service startup but health validation failed; installed files and persisted state were retained. Run 'sudo concierge doctor' and inspect 'sudo journalctl -u concierge.service'."
 fi
 admin_status=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 5 \
     -H 'Host: 127.0.0.1' http://127.0.0.1:8080/admin/login || true)
 [ "$admin_status" = 200 ] || die "The localhost Admin endpoint returned HTTP $admin_status."
-info "installed v${release_version}; systemd service and recovery, backup, and maintenance timers are enabled."
-info "localhost: http://127.0.0.1:8080  Admin: http://127.0.0.1:8080/admin/login"
+platform_record_manifest
+release_commit=$(cat /opt/concierge/current/RELEASE_COMMIT 2>/dev/null || printf unknown)
+info "installation completed; health validation passed."
+info "deployment mode: appliance  version: v${release_version}  commit: ${release_commit}"
+info "Admin URL: http://127.0.0.1:8080/admin/login  internal URL: http://127.0.0.1:8080"
+info "service: concierge.service  state: /var/lib/concierge  health: READY"
+info "diagnostics: sudo concierge status  |  sudo concierge doctor"

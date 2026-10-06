@@ -28,9 +28,9 @@ jobs:
           python -m compileall -q app deploy/common
       - name: Validate shared and macOS installer shell
         run: |
-          for script in deploy/install.sh deploy/macos/install.sh deploy/macos/platform.sh deploy/macos/concierge-restart deploy/common/*.sh; do bash -n "$script"; done
+          for script in deploy/install.sh deploy/macos/install.sh deploy/macos/platform.sh deploy/macos/run-proxy.sh deploy/macos/concierge-restart deploy/common/*.sh; do bash -n "$script"; done
           brew install shellcheck
-          shellcheck --severity=warning -x deploy/install.sh deploy/macos/install.sh deploy/macos/platform.sh deploy/macos/concierge-restart deploy/common/*.sh
+          shellcheck --severity=warning -x deploy/install.sh deploy/macos/install.sh deploy/macos/platform.sh deploy/macos/run-proxy.sh deploy/macos/concierge-restart deploy/common/*.sh
       - name: Validate LaunchDaemon property lists
         run: plutil -lint deploy/macos/*.plist
       - name: Compile local proxy and recovery tooling

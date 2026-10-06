@@ -275,8 +275,9 @@ def test_systemd_and_launchd_service_definitions_run_as_user(tmp_path: Path, mon
     assert 'Group=staff' in unit
     assert f"WorkingDirectory={root}" in unit
     assert f"EnvironmentFile={root}/.env" in unit
-    assert f'ExecStart="{root}/.venv/bin/python" -m uvicorn app.main:app --host 127.0.0.1 --port 8080 --no-proxy-headers' in unit
+    assert f'ExecStart="{root}/.venv/bin/python" "{root}/deploy/source_service.py" --root "{root}" --platform linux serve' in unit
     assert 'Restart=always' in unit
+    assert 'RestartPreventExitStatus=78' in unit
     assert 'RestartSec=5' in unit
     assert 'TimeoutStopSec=45' in unit
     assert 'UMask=0077' in unit
@@ -285,8 +286,11 @@ def test_systemd_and_launchd_service_definitions_run_as_user(tmp_path: Path, mon
     monkeypatch.setattr(source_service, "_user_home", lambda user: tmp_path / "home")
     path, launch_agent = source_service._launch_agent(root, "concierge-user")
     assert path.parent == tmp_path / "home" / "Library" / "LaunchAgents"
-    assert launch_agent["KeepAlive"] is True
+    assert launch_agent["KeepAlive"] == {"SuccessfulExit": False}
+    assert launch_agent["EnvironmentVariables"]["CONCIERGE_SOURCE_LAUNCHD"] == "1"
     assert launch_agent["WorkingDirectory"] == str(root)
+    assert launch_agent["ProgramArguments"][-1] == "serve"
+    assert str(root / "deploy" / "source_service.py") in launch_agent["ProgramArguments"]
     assert "UserName" not in launch_agent
 
 

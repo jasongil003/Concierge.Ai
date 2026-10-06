@@ -1,10 +1,16 @@
 services:
   concierge:
-    build: .
+    build:
+      context: .
+      args:
+        CONCIERGE_VERSION: ${CONCIERGE_VERSION:-local}
+        CONCIERGE_COMMIT: ${CONCIERGE_COMMIT:-unknown}
+        CONCIERGE_BUILD_DATE: ${CONCIERGE_BUILD_DATE:-unknown}
     env_file:
       - .env
     environment:
       APP_ENVIRONMENT: development
+      CONCIERGE_DEPLOYMENT_MODE: docker-dev
       ADMIN_COOKIE_SECURE: "false"
       ALLOW_BODY_PROPERTY_SELECTION: "true"
       ALLOW_DEMO_SETTINGS: "true"
@@ -16,7 +22,7 @@ services:
       - concierge-dev-state:/state
     ports:
       # Development profile is for same-machine use only; it has no TLS layer.
-      - "127.0.0.1:8080:8080"
+      - "${CONCIERGE_DEV_BIND_HOST:-127.0.0.1}:${CONCIERGE_DEV_PORT:-8081}:8080"
     restart: unless-stopped
 
 volumes:

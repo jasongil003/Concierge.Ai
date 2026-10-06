@@ -1,7 +1,14 @@
 FROM python:3.12-slim
 
+ARG CONCIERGE_VERSION=unknown
+ARG CONCIERGE_COMMIT=unknown
+ARG CONCIERGE_BUILD_DATE=unknown
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    CONCIERGE_VERSION=${CONCIERGE_VERSION} \
+    CONCIERGE_COMMIT=${CONCIERGE_COMMIT} \
+    CONCIERGE_BUILD_DATE=${CONCIERGE_BUILD_DATE}
 
 RUN groupadd --system --gid 10001 concierge && useradd --system --uid 10001 --gid concierge --home-dir /app --shell /usr/sbin/nologin concierge
 

@@ -9,15 +9,21 @@ EVENT_LOG=/var/lib/concierge/recovery-events.jsonl
 RECOVERY_STATE=/var/lib/concierge/recovery-state.json
 RECOVERY_RESTART_COMMAND=(systemctl restart concierge.service)
 
-platform_service_start() { systemctl start concierge.service; }
-platform_service_restart() { systemctl restart concierge.service; }
-platform_service_stop() { systemctl stop concierge.service; }
+platform_service_start() { platform_runtime_preflight && systemctl start concierge.service; }
+platform_service_restart() { platform_runtime_preflight && systemctl restart concierge.service; }
+platform_service_stop() {
+    systemctl stop concierge.service && \
+        python3 /opt/concierge/current/deploy/common/preflight.py port-free --port 8080 --timeout 60
+}
 platform_service_status() { systemctl --no-pager --full status concierge.service; }
 platform_active() { systemctl is-active --quiet concierge.service; }
 
 platform_compose() {
     version=$(cat /opt/concierge/current/RELEASE_VERSION)
+    commit=$(cat /opt/concierge/current/RELEASE_COMMIT 2>/dev/null || printf unknown)
+    build_date=$(cat /opt/concierge/current/RELEASE_BUILD_DATE 2>/dev/null || printf unknown)
     CONCIERGE_CONFIG_FILE="$CONFIG_FILE" CONCIERGE_VERSION="$version" \
+        CONCIERGE_COMMIT="$commit" CONCIERGE_BUILD_DATE="$build_date" \
         docker compose --project-name concierge --project-directory /opt/concierge/current \
         --env-file "$CONFIG_FILE" -f /opt/concierge/current/docker-compose.yml "$@"
 }
@@ -47,6 +53,15 @@ platform_backup_verify() {
     platform_compose exec -T concierge python -m app.backup verify "/backups/$(basename "$archive_path")" >/dev/null
 }
 
+platform_runtime_preflight() {
+    python3 /opt/concierge/current/deploy/common/preflight.py appliance --port 8080
+}
+
+platform_record_manifest() {
+    python3 /opt/concierge/current/deploy/common/deployment_manifest.py \
+        --path "$STATE_ROOT/deployment.json" --root /opt/concierge/current --mode appliance >/dev/null
+}
+
 platform_retention() {
     find "$BACKUP_ROOT" -type f -name 'concierge-*.zip' -mtime +30 -delete
     current=$(readlink "$APP_ROOT/current")
@@ -59,6 +74,7 @@ platform_retention() {
 platform_restart_command() { systemctl restart concierge.service; }
 
 platform_internal_serve() {
+    platform_runtime_preflight
     platform_compose up --build --remove-orphans
 }
 
@@ -68,6 +84,10 @@ platform_internal_stop() {
 
 platform_migrate() {
     platform_compose build concierge
+    if platform_compose run --rm --no-deps concierge python -c \
+        'import os,sys; sys.exit(0 if os.getenv("DATABASE_URL", "").strip() else 1)'; then
+        platform_compose run --rm --no-deps concierge alembic upgrade head
+    fi
     platform_compose run --rm --no-deps concierge python -c 'import app.main'
 }
 

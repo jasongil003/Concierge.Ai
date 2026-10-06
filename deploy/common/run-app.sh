@@ -11,5 +11,13 @@ set -a
 . "$CONFIG_FILE"
 set +a
 cd /opt/concierge/current
+export CONCIERGE_DEPLOYMENT_MODE=appliance
+CONCIERGE_VERSION=$(cat /opt/concierge/current/RELEASE_VERSION 2>/dev/null || printf unknown)
+CONCIERGE_COMMIT=$(cat /opt/concierge/current/RELEASE_COMMIT 2>/dev/null || printf unknown)
+CONCIERGE_BUILD_DATE=$(cat /opt/concierge/current/RELEASE_BUILD_DATE 2>/dev/null || printf unknown)
+export CONCIERGE_VERSION CONCIERGE_COMMIT CONCIERGE_BUILD_DATE
+"/Library/Frameworks/Python.framework/Versions/3.14/bin/python3.14" \
+    /opt/concierge/current/deploy/common/preflight.py appliance \
+    --port "${CONCIERGE_INTERNAL_PORT:-8081}"
 exec /opt/concierge/current/.venv/bin/python -m uvicorn app.main:app \
     --host 127.0.0.1 --port "${CONCIERGE_INTERNAL_PORT:-8080}" --workers 1 --no-proxy-headers

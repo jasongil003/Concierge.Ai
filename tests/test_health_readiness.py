@@ -43,6 +43,19 @@ def test_readiness_reports_database_failure_without_sensitive_details(tmp_path: 
     assert captured.value.detail == "Database is not ready."
 
 
+def test_readiness_reports_allowlisted_schema_compatibility_failure(monkeypatch: pytest.MonkeyPatch):
+    def newer_schema(_path=None):
+        raise RuntimeError("Database schema is newer than this application build; install a compatible application release.")
+
+    monkeypatch.setattr(main_module, "database_ready", newer_schema)
+
+    with pytest.raises(HTTPException) as captured:
+        asyncio.run(main_module.health_ready())
+
+    assert captured.value.status_code == 503
+    assert captured.value.detail == "Database schema is newer than this application build; install a compatible application release."
+
+
 def test_production_localhost_admin_login_is_available_over_loopback(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(
         main_module,

@@ -21,9 +21,30 @@ prompt_required() {
 
 validate_single_line() {
     case "$1" in
-        *"'"*|*"\""*|*"\n"*|*"\r"*) return 1 ;;
+        *"'"*|*'"'*|*$'\n'*|*$'\r'*) return 1 ;;
         *) return 0 ;;
     esac
+}
+
+prompt_admin_password() {
+    while :; do
+        printf 'Initial administrator password (at least 12 characters; input hidden): ' >&2
+        IFS= read -r -s password || exit 1
+        printf '\n' >&2
+        if [ "${#password}" -lt 12 ] || ! validate_single_line "$password" || [[ "$password" =~ [[:space:]] ]]; then
+            printf 'Use at least 12 characters without whitespace or quote characters.\n' >&2
+            continue
+        fi
+        printf 'Confirm initial administrator password: ' >&2
+        IFS= read -r -s confirmation || exit 1
+        printf '\n' >&2
+        if [ "$password" != "$confirmation" ]; then
+            printf 'The passwords did not match; try again.\n' >&2
+            continue
+        fi
+        printf '%s' "$password"
+        return
+    done
 }
 
 generate_config() {
@@ -63,6 +84,7 @@ generate_config() {
             *) break ;;
         esac
     done
+    admin_bootstrap_password=$(prompt_admin_password)
     if ! validate_single_line "$canonical_host" || ! validate_single_line "$antlabs_url" || ! validate_single_line "$admin_cidrs"; then
         die "Configuration values may not contain quotes or newlines."
     fi
@@ -77,7 +99,7 @@ generate_config() {
         printf "UPLOAD_ROOT='%s/uploads'\n" "$state_path"
         printf "CONCIERGE_BACKUP_DIR='%s'\n" "$backup_path"
         printf "DATABASE_URL=''\nREDIS_URL=''\n"
-        printf "ADMIN_BOOTSTRAP_USERNAME='root'\nADMIN_BOOTSTRAP_PASSWORD='admin'\n"
+        printf "ADMIN_BOOTSTRAP_USERNAME='root'\nADMIN_BOOTSTRAP_PASSWORD='%s'\n" "$admin_bootstrap_password"
         printf "METRICS_TOKEN='%s'\n" "$metrics_token"
         printf "CANONICAL_HOSTS='%s'\nPUBLIC_BASE_URL='%s'\n" "$canonical_host" "$public_url"
         printf "ADMIN_ALLOWED_CIDRS='%s,127.0.0.1/32,::1/128'\n" "$admin_cidrs"
@@ -98,6 +120,5 @@ generate_config() {
     if [ "$CONCIERGE_OS" = macos ]; then
         chown root:_concierge "$backup_path"
     fi
-    printf '\nDefault administrator login: root / admin\n'
-    printf 'Concierge.Ai will offer to change the default password after first sign-in.\n\n'
+    printf '\nThe initial administrator password was saved in the protected configuration and was not displayed.\n\n'
 }
