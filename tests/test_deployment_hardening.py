@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import io
 import os
 from pathlib import Path
+import re
 import sqlite3
 import subprocess
 import sys
@@ -73,6 +75,63 @@ def test_build_identity_rejects_untrusted_values(monkeypatch: pytest.MonkeyPatch
     assert identity["commit"] == "unknown"
     assert identity["build_date"] == "unknown"
     assert "password" not in json.dumps(identity)
+
+
+@pytest.mark.parametrize(
+    ("filename", "value", "expected"),
+    [
+        ("RELEASE_BUILD_DATE", "2026-10-06T03:15:32Z", "2026-10-06T03:15:32Z"),
+        ("RELEASE_BUILD_DATE", "2026-02-30T03:15:32Z", None),
+        ("RELEASE_BUILD_DATE", "a1b2c3d4", None),
+        ("RELEASE_COMMIT", "2026-10-06T03:15:32Z", None),
+        ("RELEASE_VERSION", "2026-10-06T03:15:32Z", None),
+    ],
+)
+def test_release_file_uses_field_specific_validation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, filename, value, expected):
+    app_dir = tmp_path / "release" / "app"
+    app_dir.mkdir(parents=True)
+    (app_dir / filename).write_text(value, encoding="utf-8")
+    monkeypatch.setattr(build_info, "__file__", str(app_dir / "build_info.py"))
+
+    assert build_info._release_file(filename) == expected
+
+    if filename == "RELEASE_BUILD_DATE":
+        monkeypatch.setattr(build_info, "_git_timestamp", lambda: None)
+        monkeypatch.delenv("CONCIERGE_BUILD_DATE", raising=False)
+        identity = build_info.build_identity()
+        assert identity["build_date"] == (expected or "unknown")
+
+
+def test_release_file_uses_commit_validator_for_commit_hash(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    app_dir = tmp_path / "release" / "app"
+    app_dir.mkdir(parents=True)
+    (app_dir / "RELEASE_COMMIT").write_text("a1b2c3d4", encoding="utf-8")
+    monkeypatch.setattr(build_info, "__file__", str(app_dir / "build_info.py"))
+    assert build_info._release_file("RELEASE_COMMIT") == "a1b2c3d4"
+
+
+def test_guest_chat_rate_limit_cannot_be_multiplied_by_new_sessions(monkeypatch: pytest.MonkeyPatch):
+    network_counts: dict[str, int] = {}
+    seen_keys: list[str] = []
+
+    async def allow(key: str, limit: int, seconds: int) -> bool:
+        seen_keys.append(key)
+        if key.startswith("guest-chat:"):
+            return True
+        network_counts[key] = network_counts.get(key, 0) + 1
+        return network_counts[key] <= limit
+
+    import app.main as main_module
+
+    monkeypatch.setattr(main_module, "_rate_limit_allowed", allow)
+    results = [
+        asyncio.run(main_module._guest_chat_rate_limited(f"session-{index}", "property-a", "192.0.2.15"))
+        for index in range(121)
+    ]
+
+    assert results[:120] == [False] * 120
+    assert results[120] is True
+    assert all("192.0.2.15" not in key for key in seen_keys)
 
 
 def test_sqlite_legacy_schema_upgrade_preserves_rows_and_records_revision(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -256,6 +315,10 @@ def test_deployment_manifest_is_atomic_sanitized_and_preserves_install_time(tmp_
     (root / "app" / "database.py").write_text('CURRENT_SCHEMA_REVISION = "20261005_0001"\n', encoding="utf-8")
     (root / "RELEASE_VERSION").write_text("1.2.3\n", encoding="utf-8")
     (root / "RELEASE_COMMIT").write_text("a1b2c3d4\n", encoding="utf-8")
+    (root / "RELEASE_BUILD_DATE").write_text("2026-10-06T03:15:32Z\n", encoding="utf-8")
+    (root / "RELEASE_MINIMUM_SCHEMA_REVISION").write_text("20260926_0001\n", encoding="utf-8")
+    (root / "RELEASE_MAXIMUM_SCHEMA_REVISION").write_text("20261005_0001\n", encoding="utf-8")
+    monkeypatch.delenv("CONCIERGE_BUILD_DATE", raising=False)
     monkeypatch.setenv("CREDENTIAL_ENCRYPTION_SECRET", "manifest-must-not-have-this")
     manifest_path = tmp_path / "state" / "deployment.json"
 
@@ -266,6 +329,9 @@ def test_deployment_manifest_is_atomic_sanitized_and_preserves_install_time(tmp_
     assert second["version"] == "1.2.3"
     assert second["commit"] == "a1b2c3d4"
     assert second["schema_revision"] == "20261005_0001"
+    assert second["minimum_schema_revision"] == "20260926_0001"
+    assert second["maximum_schema_revision"] == "20261005_0001"
+    assert second["build_date"] == "2026-10-06T03:15:32Z"
     assert manifest_path.stat().st_mode & 0o777 == 0o600
     assert "manifest-must-not-have-this" not in manifest_path.read_text(encoding="utf-8")
     assert list(manifest_path.parent.glob("*.tmp")) == []
@@ -419,6 +485,47 @@ def test_docker_compose_wrapper_passes_mode_project_and_build_identity(tmp_path:
     assert "version=0.9.2 commit=a1b2c3d4 date=2026-10-06T01:02:03Z" in output
 
 
+def test_docker_compose_wrapper_sanitizes_dirty_describe_version(tmp_path: Path):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    captured = tmp_path / "build-identity.txt"
+    docker = fake_bin / "docker"
+    docker.write_text(
+        "#!/bin/sh\n"
+        "printf '%s %s %s\\n' \"$CONCIERGE_VERSION\" \"$CONCIERGE_COMMIT\" \"$CONCIERGE_BUILD_DATE\" > \"$CAPTURE_BUILD_IDENTITY\"\n",
+        encoding="utf-8",
+    )
+    docker.chmod(0o755)
+    git = fake_bin / "git"
+    git.write_text(
+        "#!/bin/sh\n"
+        "case \"$*\" in *describe*) printf '94b2cbd-dirty\\n' ;; *rev-parse*) printf '94b2cbd32260\\n' ;; *) exit 2 ;; esac\n",
+        encoding="utf-8",
+    )
+    git.chmod(0o755)
+    environment = {
+        **os.environ,
+        "PATH": f"{fake_bin}:{os.environ.get('PATH', '')}",
+        "CAPTURE_BUILD_IDENTITY": str(captured),
+    }
+    for key in ("CONCIERGE_VERSION", "CONCIERGE_COMMIT", "CONCIERGE_BUILD_DATE"):
+        environment.pop(key, None)
+
+    result = subprocess.run(
+        ["bash", str(ROOT / "deploy/docker-compose.sh"), "dev", "config", "--quiet"],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    version, commit, build_date = captured.read_text(encoding="utf-8").split()
+    assert version == "local"
+    assert commit == "94b2cbd32260"
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", build_date)
+
+
 def test_source_port_preflight_refuses_docker_owned_port_and_allows_own_service(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setattr(source_service, "port_in_use", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(source_service, "_listening_pids", lambda *_args: ["4321"])
@@ -447,6 +554,25 @@ def test_appliance_update_and_maintenance_operations_share_one_lock():
     assert 'update|backup|internal-backup|internal-health|internal-maintenance)' in script
 
 
+def test_update_cli_reports_distinct_candidate_and_recovery_states():
+    script = (ROOT / "deploy/common/concierge.sh").read_text(encoding="utf-8")
+    runtime = (ROOT / "deploy/common/runtime.sh").read_text(encoding="utf-8")
+    for message in (
+        "backup creation",
+        "backup verification",
+        "migration failed",
+        "candidate startup",
+        "readiness validation",
+        "Previous release pointer restored",
+        "previous release cannot read the current database schema",
+        "previous release started successfully and passed readiness. Application rollback: SUCCESS.",
+        "Operator recovery required",
+    ):
+        assert message in script
+    assert "Could not download stable release" in runtime
+    assert "SHA-256 verification failed" in runtime
+
+
 def test_backup_includes_verifiable_secret_free_build_manifest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("CONCIERGE_VERSION", "0.9.2")
     monkeypatch.setenv("CONCIERGE_COMMIT", "a1b2c3d4")
@@ -473,6 +599,9 @@ def test_backup_includes_verifiable_secret_free_build_manifest(tmp_path: Path, m
         "commit": "a1b2c3d4",
         "deployment_mode": "appliance",
         "schema_revision": database.CURRENT_SCHEMA_REVISION,
+        "minimum_schema_revision": database.CURRENT_SCHEMA_REVISION,
+        "maximum_schema_revision": database.CURRENT_SCHEMA_REVISION,
+        "build_date": "unknown",
     }
     assert "backup-does-not-record-secrets" not in json.dumps(manifest)
 
@@ -490,6 +619,15 @@ def test_rollback_decision_reports_exact_recovery_state(pointer_restored, servic
     assert update_decision.rollback_decision(
         pointer_restored=pointer_restored, service_started=service_started, health_passed=health_passed
     ) == expected
+
+
+def test_rollback_decision_does_not_start_incompatible_previous_release():
+    assert update_decision.rollback_decision(
+        pointer_restored=True,
+        service_started=False,
+        health_passed=False,
+        previous_schema_compatible=False,
+    ) == "operator_recovery_required_schema_incompatible"
 
 
 @pytest.mark.parametrize(

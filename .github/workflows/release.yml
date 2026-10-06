@@ -22,12 +22,36 @@ jobs:
       - name: Build immutable source archive and release metadata
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG_PUBLIC_KEY: ${{ secrets.RELEASE_TAG_PUBLIC_KEY }}
+          RELEASE_TAG_SIGNER_FINGERPRINT: ${{ vars.RELEASE_TAG_SIGNER_FINGERPRINT }}
         run: |
           set -euo pipefail
           [[ "$RELEASE_TAG" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]
           VERSION="${RELEASE_TAG#v}"
           COMMIT="$(git rev-parse "$RELEASE_TAG^{commit}")"
+          test "$COMMIT" = "$(git rev-parse HEAD)"
+          if [[ -n "$RELEASE_TAG_PUBLIC_KEY" || -n "$RELEASE_TAG_SIGNER_FINGERPRINT" ]]; then
+            [[ -n "$RELEASE_TAG_PUBLIC_KEY" && "$RELEASE_TAG_SIGNER_FINGERPRINT" =~ ^([A-Fa-f0-9]{40}|[A-Fa-f0-9]{64})$ ]]
+            printf '%s\n' "$RELEASE_TAG_PUBLIC_KEY" | gpg --batch --import
+            if ! git verify-tag --raw "$RELEASE_TAG" > "$RUNNER_TEMP/tag-verification.log" 2>&1; then
+              cat "$RUNNER_TEMP/tag-verification.log"
+              echo "Published release tag signature verification failed." >&2
+              exit 1
+            fi
+            if ! grep -Eiq "VALIDSIG ${RELEASE_TAG_SIGNER_FINGERPRINT}[[:space:]]" "$RUNNER_TEMP/tag-verification.log"; then
+              echo "Release tag was not signed by the configured trusted fingerprint." >&2
+              exit 1
+            fi
+          else
+            echo "WARNING: signed tag verification is not configured; an operator must verify the signed tag before publication."
+          fi
           BUILD_DATE="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          SCHEMA_REVISION="$(sed -n 's/^CURRENT_SCHEMA_REVISION = "\([0-9_]*\)"$/\1/p' app/database.py)"
+          MINIMUM_SCHEMA_REVISION="$(sed -n 's/^MINIMUM_SCHEMA_REVISION = "\([0-9_]*\)"$/\1/p' deploy/common/schema_compatibility.py)"
+          MAXIMUM_SCHEMA_REVISION="$SCHEMA_REVISION"
+          [[ "$SCHEMA_REVISION" =~ ^[0-9]{8}_[0-9]{4}$ ]]
+          [[ "$MINIMUM_SCHEMA_REVISION" =~ ^[0-9]{8}_[0-9]{4}$ ]]
+          [[ "$MINIMUM_SCHEMA_REVISION" < "$SCHEMA_REVISION" || "$MINIMUM_SCHEMA_REVISION" = "$SCHEMA_REVISION" ]]
           ARTIFACT="concierge-ai-${VERSION}.tar.gz"
           git archive --format=tar "$RELEASE_TAG" | gzip -n > "$ARTIFACT"
           SHA256="$(sha256sum "$ARTIFACT" | awk '{print $1}')"
@@ -37,6 +61,9 @@ jobs:
             printf 'SHA256=%s\n' "$SHA256"
             printf 'COMMIT=%s\n' "$COMMIT"
             printf 'BUILD_DATE=%s\n' "$BUILD_DATE"
+            printf 'SCHEMA_REVISION=%s\n' "$SCHEMA_REVISION"
+            printf 'MINIMUM_SCHEMA_REVISION=%s\n' "$MINIMUM_SCHEMA_REVISION"
+            printf 'MAXIMUM_SCHEMA_REVISION=%s\n' "$MAXIMUM_SCHEMA_REVISION"
           } > concierge-release.env
           cp deploy/install.sh concierge-install.sh
           cp deploy/common/runtime.sh concierge-runtime.sh
@@ -47,8 +74,7 @@ jobs:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: >-
           gh release upload "$RELEASE_TAG"
-          concierge-ai-*.tar.gz
+          "concierge-ai-${RELEASE_TAG#v}.tar.gz"
           concierge-release.env
           concierge-install.sh
           concierge-runtime.sh
-          --clobber

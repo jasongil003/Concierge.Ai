@@ -15,15 +15,19 @@ server or a Mac mini in this development environment. Therefore neither target
 is yet verified for production support. Do not treat static checks or a passing
 application health endpoint as a substitute for the reboot test below.
 
-Checks completed in this checkout: `pytest -q` reported 896 passed and 17
-skipped, with 2 warnings; installer shell syntax and ShellCheck passed; all
-macOS LaunchDaemon property lists passed `plutil -lint`; deployment Python
-files compiled; Bandit passed; Docker Compose configuration parsed; and the
-CI-mode Playwright browser suite reported 257 passed and 35 skipped. Dependency
-vulnerability audits could not complete because package-registry access was
-unavailable. Docker runtime and `systemd-analyze` host checks are unavailable
-on this Mac. Hosted CI jobs have not run for this change yet. These checks do
-not count as a real reboot acceptance test.
+Checks completed in this checkout on 2026-10-06: backend `pytest -q -rs`
+reported 924 passed, 17 skipped, and 2 dependency deprecation warnings; the
+functional Playwright suite reported 257 passed and 35 skipped. Linux and
+macOS installer Bash syntax and ShellCheck checks passed, all macOS LaunchDaemon
+property lists passed `plutil -lint`, deployment Python compiled, Bandit passed,
+and Docker Compose configuration parsed. The backend skips are PostgreSQL and
+Redis integration cases plus the `systemd-analyze` service check. The local
+Docker daemon is unavailable, so container runtime smoke, image vulnerability
+scanning, SBOM generation, and containerized Nginx validation did not run.
+Package-registry DNS was unavailable for npm and Python dependency audits, and
+Gitleaks is not installed locally; a local scan for common credential patterns
+found no matches. Hosted Linux CI and hosted CI security jobs have not run for
+this change. These checks do not count as a real reboot acceptance test.
 
 The installer supports Ubuntu Server 24.04 LTS and 26.04 LTS on amd64 and arm64,
 and Apple Silicon Macs running macOS Sequoia 15, Tahoe 26, or Golden Gate 27.
@@ -158,7 +162,11 @@ daily LaunchDaemon calendar interval. Backups older than 30 days are removed
 during maintenance. The installer also creates and verifies a backup before an
 application update. Backup files should be copied to a separate protected
 system as part of the hotel's disaster-recovery plan; the local copy alone is
-not an off-host backup.
+not an off-host backup. Provider credentials remain encrypted in the database.
+Keep `CREDENTIAL_ENCRYPTION_SECRET` in an independent, access-controlled
+password manager or secrets vault. The key is deliberately absent from the
+backup archive. A restore drill must recover both the backup and that key from
+their separate protected locations; never store the key beside the backup.
 
 Create and verify a backup on demand with:
 
@@ -178,28 +186,89 @@ The shared command checks the latest stable GitHub Release metadata, downloads
 the versioned source archive, verifies SHA-256, and rejects unexpected archive
 paths. It verifies a fresh backup before changing the active release, runs the
 application migration/import check, restarts services, and waits for healthy
-readiness. It restores the previous application release if installation,
-migration, or health checks fail; it retains the verified backup and does not
-roll a database backward automatically. After pointer rollback it validates
-the previous release. If that release cannot read the migrated schema, the
-command reports that readiness also failed and keeps the backup for an
-operator-led recovery. The current updater switches the `current` pointer
-before migration and health validation; it does not promote a candidate only
-after readiness passes. Install/update work is protected by a process lock at
+readiness. A schema preflight checks candidate migration support and the prior
+release's declared compatibility range before service changes. It warns and
+blocks by default when migration would make rollback unsafe. An explicit
+`--allow-incompatible-rollback` requires a verified backup; if the candidate
+then fails after an incompatible migration, the prior pointer is restored but
+the prior service is not started and no database downgrade is attempted. The
+command reports operator recovery as required. Compatible failures restore the
+prior pointer, start the prior release, and report whether readiness passed.
+The current updater switches the `current` pointer before migration and health
+validation; install/update work is protected by a process lock at
 `/opt/concierge/.deployment.lock`.
 
 ```bash
 sudo concierge update
 ```
 
+The schema preflight belongs to the installed updater. An appliance running an
+older updater does not gain these checks until that updater is replaced, so
+validate this first transition on a disposable clone of the exact installed
+release and schema before updating production. Do not infer first-hop rollback
+safety from the candidate code alone.
+
 The repository must publish a stable `vMAJOR.MINOR.PATCH` GitHub Release with
 the generated appliance assets before the bootstrap installer or update command
 can run. Development commits and `main` are never auto-installed.
 
 The active deployment manifest is stored at `deployment.json` in the appliance
-state directory. It contains version, commit, deployment mode, schema revision,
-and install/update timestamps only. Verified backups carry equivalent
-application identity and checksums.
+state directory. It contains version, commit, build date, deployment mode,
+schema revision/compatibility range, and install/update timestamps only.
+Verified backups carry sanitized application identity and file checksums.
+
+## Fresh Install, Update, and Recovery Acceptance
+
+Run the following checklist on a disposable clean target for **Ubuntu Server
+24.04/26.04 amd64 and arm64**, then separately on an **Apple Silicon Mac mini**.
+Do not use a production appliance, its database, its release repository, or its
+credentials for a simulated failure. Intel macOS and Windows/WSL are unsupported.
+
+1. Install from the stable release using the platform command above. Record OS,
+   hardware, release version, and the install output. Complete the initial
+   administrator password setup; confirm a first property can be created in
+   Admin and persists after signing out and back in.
+2. Check `sudo concierge doctor`, then run:
+
+   ```bash
+   curl --fail --silent --show-error http://127.0.0.1:8080/health/live
+   curl --fail --silent --show-error http://127.0.0.1:8080/health/ready
+   curl --fail --silent --show-error http://127.0.0.1:8080/health/version
+   ```
+
+   Record the responses; confirm the version, commit, build date, and schema
+   match the installed release. Do not attach credentials or full environment
+   output to the evidence.
+3. Create an on-demand backup with `sudo concierge backup`. Copy it to the
+   designated protected off-host backup store. Separately retrieve the
+   encryption key from escrow and verify that a restore into a new, empty
+   disposable state path recovers the property and a known record. Confirm the
+   source database still has the same record after validation.
+4. On a staging appliance pointed at a **separate acceptance-only GitHub
+   repository** with a stable, signed test release, run
+   `sudo CONCIERGE_REPOSITORY=owner/concierge-acceptance concierge update`.
+   Record the old/new release identities, schema assessment, backup
+   verification, and final doctor output. Never publish a simulated failure to
+   the production release repository.
+5. For rollback acceptance, publish a staging-only signed candidate with a
+   valid archive/checksum that deliberately fails application startup before
+   schema migration. Run the update against that staging repository, and
+   verify that the previous release pointer is restored, the previous service
+   starts healthy, the database has not been downgraded, and the verified
+   backup remains available. Capture the command's exact recovery state.
+6. Run `sudo concierge boot-test prepare`, reboot without manually starting
+   Concierge or Docker, then run `sudo concierge boot-test verify`. Confirm the
+   boot ID changed and the pre-reboot property count/configuration digest
+   matches. Repeat the health checks and `sudo concierge doctor`.
+7. Save the sanitized health responses, backup verification result, update and
+   rollback output, doctor report, `boot-test.json`, and host details with the
+   release acceptance record.
+
+The simulated failure requires a disposable appliance and a separate
+acceptance release channel; it must not be attempted against production data.
+The test-only release should fail before migration so the rollback validates
+the compatible path. The incompatible-schema path is intentionally fail-closed
+and requires operator recovery; do not induce that state on a production host.
 
 ## Boot Test
 

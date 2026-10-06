@@ -56,3 +56,30 @@ CI-generated bootstrap passwords, encryption keys, and metrics tokens are
 one-run test values written to the runner environment. No production secrets
 belong in the workflow or repository. Keep image scanning enabled for the exact
 image built by the Docker smoke job.
+
+## Stable appliance release integrity
+
+The appliance updater consumes the versioned tarball from a stable
+`vMAJOR.MINOR.PATCH` GitHub Release only. It checks release metadata and
+SHA-256 before unpacking; metadata binds the artifact name, commit, UTC build
+timestamp, and schema compatibility range. The packaging workflow checks that
+the tag resolves to the checked-out commit, creates the archive from that tag
+with deterministic gzip metadata, and does not use `--clobber`. Do not replace
+an already published version's assets or reuse a release tag.
+
+To require automated signed-tag verification, configure these repository
+settings before the first release:
+
+- `RELEASE_TAG_PUBLIC_KEY` as a GitHub Actions secret containing the trusted
+  ASCII-armored public GPG key. Store only the public key in GitHub; keep its
+  private signing key offline or in the approved signing service.
+- `RELEASE_TAG_SIGNER_FINGERPRINT` as a repository Actions variable containing
+  the exact 40- or 64-character fingerprint for that public key.
+
+Both values are required together. The release workflow verifies the signed
+tag and checks the `VALIDSIG` fingerprint. If they are not configured, the
+workflow warns and an authorized release operator must verify the tag
+signature and fingerprint using the independently trusted key before
+publishing. Never trust `main` as the appliance update input. Keep release
+creation and asset replacement permissions limited to release operators and
+preserve the immutable tag-to-commit and artifact-to-checksum record.

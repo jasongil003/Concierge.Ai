@@ -90,6 +90,14 @@ CREDENTIAL_ENCRYPTION_SECRET=<generated-random-value>
 
 Rotating this secret requires re-entering provider credentials unless a migration/decryption process is added.
 
+For appliance disaster recovery, escrow `CREDENTIAL_ENCRYPTION_SECRET`
+independently from database and upload backups in an access-controlled secrets
+vault or password manager. A backup deliberately does not contain this key.
+Verify the recovery procedure on a disposable target by restoring a backup and
+confirming that an existing encrypted provider credential can be decrypted.
+Never put the key in a backup manifest, diagnostic report, support bundle, or
+beside the off-host backup archive.
+
 ## Usage and Audit
 
 Each AI call records provider, model, latency, success/failure, and token counts when available. Prompt text is not stored by default. Provider and credential changes are written to `ai_audit_logs` without secret values.

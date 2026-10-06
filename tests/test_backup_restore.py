@@ -1,3 +1,4 @@
+import hashlib
 import sqlite3
 from pathlib import Path
 import subprocess
@@ -99,6 +100,30 @@ def test_backup_verify_and_actual_restore(tmp_path: Path):
     assert upload.read_text(encoding="utf-8") == "Hotel A private knowledge"
     with sqlite3.connect(db_path) as db:
         assert db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+
+
+def test_restore_validation_uses_separate_sqlite_target_and_preserves_source(tmp_path: Path):
+    source_db = tmp_path / "source" / "concierge.db"
+    source_uploads = tmp_path / "source" / "uploads"
+    source_uploads.mkdir(parents=True)
+    source_store = PropertyStore(source_db)
+    source_store.upsert(PropertyRecord(property_id="restore-safe", hotel_name="Restore Safe"))
+    archive = tmp_path / "backup" / "restore-safe.zip"
+    create_backup(source_db, source_uploads, archive)
+    source_hash = hashlib.sha256(source_db.read_bytes()).hexdigest()
+
+    restored_db = tmp_path / "validation-target" / "concierge.db"
+    restored_uploads = tmp_path / "validation-target" / "uploads"
+    restore_backup(archive, restored_db, restored_uploads)
+
+    assert PropertyStore(restored_db).get("restore-safe").hotel_name == "Restore Safe"
+    assert hashlib.sha256(source_db.read_bytes()).hexdigest() == source_hash
+    assert source_store.get("restore-safe").hotel_name == "Restore Safe"
+    with zipfile.ZipFile(archive) as saved:
+        manifest = __import__("json").loads(saved.read("manifest.json"))
+    assert manifest["concierge"]["minimum_schema_revision"] <= manifest["concierge"]["schema_revision"]
+    assert manifest["concierge"]["schema_revision"] <= manifest["concierge"]["maximum_schema_revision"]
+    assert not any("secret" in key.casefold() or "key" in key.casefold() for key in manifest["concierge"])
 
 
 def test_postgres_backup_archive_uses_secret_free_argv_and_restores_to_empty_target(tmp_path, monkeypatch):

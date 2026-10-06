@@ -83,10 +83,21 @@ fetch_release() {
     expected_sha=$(awk -F= '$1 == "SHA256" {print $2; exit}' "$metadata")
     commit=$(awk -F= '$1 == "COMMIT" {print $2; exit}' "$metadata")
     build_date=$(awk -F= '$1 == "BUILD_DATE" {print $2; exit}' "$metadata")
+    schema_revision=$(awk -F= '$1 == "SCHEMA_REVISION" {print $2; exit}' "$metadata")
+    minimum_schema_revision=$(awk -F= '$1 == "MINIMUM_SCHEMA_REVISION" {print $2; exit}' "$metadata")
+    maximum_schema_revision=$(awk -F= '$1 == "MAXIMUM_SCHEMA_REVISION" {print $2; exit}' "$metadata")
     printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || die "Release metadata has an invalid VERSION."
     [ "$artifact" = "concierge-ai-${version}.tar.gz" ] || die "Release metadata has an invalid ARTIFACT."
     printf '%s' "$expected_sha" | grep -Eq '^[0-9a-fA-F]{64}$' || die "Release metadata has an invalid SHA256."
     printf '%s' "$commit" | grep -Eq '^[0-9a-fA-F]{7,40}$' || die "Release metadata has an invalid COMMIT."
+    printf '%s' "$build_date" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' || die "Release metadata has an invalid BUILD_DATE."
+    printf '%s' "$build_date" | "$CONCIERGE_TOOL_PYTHON" -c 'import datetime,sys; datetime.datetime.fromisoformat(sys.stdin.read().replace("Z", "+00:00"))' || die "Release metadata has an invalid BUILD_DATE."
+    printf '%s' "$schema_revision" | grep -Eq '^[0-9]{8}_[0-9]{4}$' || die "Release metadata has an invalid SCHEMA_REVISION."
+    printf '%s' "$minimum_schema_revision" | grep -Eq '^[0-9]{8}_[0-9]{4}$' || die "Release metadata has an invalid MINIMUM_SCHEMA_REVISION."
+    printf '%s' "$maximum_schema_revision" | grep -Eq '^[0-9]{8}_[0-9]{4}$' || die "Release metadata has an invalid MAXIMUM_SCHEMA_REVISION."
+    if [[ "$minimum_schema_revision" > "$schema_revision" || "$schema_revision" > "$maximum_schema_revision" ]]; then
+        die "Release metadata has an invalid schema compatibility range."
+    fi
 
     archive="$release_dir/$artifact"
     curl --fail --silent --show-error --location --retry 3 \
@@ -103,9 +114,10 @@ fetch_release() {
     [ -f "$release_dir/unpacked/deploy/install.sh" ] || die "Release archive is missing deploy/install.sh."
     printf '%s\n' "$version" > "$release_dir/unpacked/RELEASE_VERSION"
     printf '%s\n' "$commit" > "$release_dir/unpacked/RELEASE_COMMIT"
-    if printf '%s' "$build_date" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'; then
-        printf '%s\n' "$build_date" > "$release_dir/unpacked/RELEASE_BUILD_DATE"
-    fi
+    printf '%s\n' "$build_date" > "$release_dir/unpacked/RELEASE_BUILD_DATE"
+    printf '%s\n' "$schema_revision" > "$release_dir/unpacked/RELEASE_SCHEMA_REVISION"
+    printf '%s\n' "$minimum_schema_revision" > "$release_dir/unpacked/RELEASE_MINIMUM_SCHEMA_REVISION"
+    printf '%s\n' "$maximum_schema_revision" > "$release_dir/unpacked/RELEASE_MAXIMUM_SCHEMA_REVISION"
     info "release: v${version} (${commit:0:12}), SHA-256 verified"
 }
 

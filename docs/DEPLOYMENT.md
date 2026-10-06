@@ -36,8 +36,13 @@ access. It does not print environment secrets or database contents.
 `concierge status` prints a concise summary and can run from a checkout before
 the source virtual environment is installed. `GET /health/version` provides
 sanitized version, commit, build date, deployment mode, profile, Python version,
-and schema revision. `/health/live` means the process answers; `/health/ready` means its
-database connection/schema and required upload storage pass readiness.
+and schema revision. `/health/live` means the process answers; `/health/ready`
+means its database connection/schema and required upload storage pass readiness.
+Authenticated Super Admins can request the richer, sanitized
+`GET /api/admin/system/diagnostics` report. It uses the existing
+`system.configure` permission and reports database, Redis, storage, proxy,
+uptime, backup/update, and provider status without returning credentials or
+connection strings.
 
 Development Compose is loopback-only and uses its own host port and named
 volume:

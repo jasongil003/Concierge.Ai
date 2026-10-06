@@ -283,6 +283,10 @@
     "authentication": "required",
     "permission": "system.configure"
   },
+  "GET /api/admin/system/diagnostics": {
+    "authentication": "required",
+    "permission": "system.configure"
+  },
   "GET /api/admin/users": {
     "authentication": "required",
     "permission": "users.view"
