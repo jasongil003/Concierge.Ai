@@ -174,12 +174,16 @@ def main() -> None:
             _docker(
                 "run", "-d", "--name", postgres, "-e", "POSTGRES_USER=concierge",
                 "-e", "POSTGRES_DB=concierge", "-e", "POSTGRES_HOST_AUTH_METHOD=trust",
-                "-p", f"127.0.0.1:{pg_port}:5432", "postgres:16",
+                "-p", f"127.0.0.1:{pg_port}:5432",
+                "postgres:16@sha256:f1c3376c26f2609ab9f29f71f824103fe2fcd8ee0346485cb6122a4f93df6f94",
             )
             if _published_port(postgres, "5432/tcp") != str(pg_port):
                 raise RuntimeError("PostgreSQL test port was not bound to its reserved host port.")
             _wait_container(["docker", "exec", postgres, "pg_isready", "-U", "concierge", "-d", "concierge"])
-            _docker("run", "-d", "--name", redis, "-p", f"127.0.0.1:{redis_port}:6379", "redis:7-alpine")
+            _docker(
+                "run", "-d", "--name", redis, "-p", f"127.0.0.1:{redis_port}:6379",
+                "redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499",
+            )
             if _published_port(redis, "6379/tcp") != str(redis_port):
                 raise RuntimeError("Redis test port was not bound to its reserved host port.")
             _wait_container(["docker", "exec", redis, "redis-cli", "ping"])
