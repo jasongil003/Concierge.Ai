@@ -71,6 +71,9 @@ class Settings:
     knowledge_max_files_per_property: int = int(os.getenv("KNOWLEDGE_MAX_FILES_PER_PROPERTY", "500"))
     knowledge_storage_quota_bytes: int = int(os.getenv("KNOWLEDGE_STORAGE_QUOTA_BYTES", str(2 * 1024 * 1024 * 1024)))
     knowledge_max_extracted_chars: int = int(os.getenv("KNOWLEDGE_MAX_EXTRACTED_CHARS", "500000"))
+    knowledge_pdf_memory_limit_bytes: int = int(
+        os.getenv("KNOWLEDGE_PDF_MEMORY_LIMIT_BYTES", str(768 * 1024 * 1024))
+    )
     session_ttl_minutes: int = int(os.getenv("SESSION_TTL_MINUTES", "30"))
     admin_session_ttl_minutes: int = int(os.getenv("ADMIN_SESSION_TTL_MINUTES", "480"))
     admin_lockout_attempts: int = int(os.getenv("ADMIN_LOCKOUT_ATTEMPTS", "5"))
@@ -227,6 +230,8 @@ def validate_production_settings(value: Settings, *, check_filesystem: bool = Tr
         errors.append("ADMIN_COOKIE_SECURE must be enabled")
     if value.app_debug:
         errors.append("APP_DEBUG must be disabled")
+    if value.knowledge_pdf_memory_limit_bytes < 64 * 1024 * 1024:
+        errors.append("KNOWLEDGE_PDF_MEMORY_LIMIT_BYTES must be at least 67108864")
     if value.allow_body_property_selection:
         errors.append("ALLOW_BODY_PROPERTY_SELECTION must be disabled")
     if value.allow_demo_settings:

@@ -16,18 +16,22 @@ is yet verified for production support. Do not treat static checks or a passing
 application health endpoint as a substitute for the reboot test below.
 
 Checks completed in this checkout on 2026-10-06: backend `pytest -q -rs`
-reported 924 passed, 17 skipped, and 2 dependency deprecation warnings; the
-functional Playwright suite reported 257 passed and 35 skipped. Linux and
+reported 938 passed, 17 skipped, 0 failed, and 2 dependency deprecation
+warnings. The Playwright suite reported 260 passed, 35 skipped, and 1 failed:
+the mobile guest restaurant-details toggle had a transient visibility/state
+mismatch (`tests/e2e/guest.spec.js:754`). An immediate isolated rerun of that
+test passed (1 passed); the full-suite failure remains recorded. Linux and
 macOS installer Bash syntax and ShellCheck checks passed, all macOS LaunchDaemon
 property lists passed `plutil -lint`, deployment Python compiled, Bandit passed,
-and Docker Compose configuration parsed. The backend skips are PostgreSQL and
+and Docker Compose configuration parsed. Backend skips are PostgreSQL and
 Redis integration cases plus the `systemd-analyze` service check. The local
 Docker daemon is unavailable, so container runtime smoke, image vulnerability
 scanning, SBOM generation, and containerized Nginx validation did not run.
-Package-registry DNS was unavailable for npm and Python dependency audits, and
-Gitleaks is not installed locally; a local scan for common credential patterns
-found no matches. Hosted Linux CI and hosted CI security jobs have not run for
-this change. These checks do not count as a real reboot acceptance test.
+`npm audit` could not reach the npm registry because registry DNS resolution
+failed. `pip-audit`, Gitleaks, Trivy, and actionlint are not installed locally;
+a local scan for common credential patterns found no matches. Hosted Linux CI
+and hosted CI security jobs have not run for this change. These checks do not
+count as a real reboot acceptance test.
 
 The installer supports Ubuntu Server 24.04 LTS and 26.04 LTS on amd64 and arm64,
 and Apple Silicon Macs running macOS Sequoia 15, Tahoe 26, or Golden Gate 27.
@@ -179,8 +183,11 @@ sudo concierge backup
 Start troubleshooting with `concierge doctor`; it reports the active runtime,
 release identity, listener owner, service state, and readiness separately from
 liveness. `concierge status` gives a concise summary. Both commands are
-read-only. The app also exposes `GET /health/version` with sanitized build and
-schema identity.
+read-only. The unauthenticated `GET /health/version` returns only `status` and
+the semantic application `version`. For detailed build, database, and platform
+diagnostics, sign in as a Platform Admin and use
+`GET /api/admin/system/diagnostics`; global `/health/details` also requires
+Platform Admin permission.
 
 The shared command checks the latest stable GitHub Release metadata, downloads
 the versioned source archive, verifies SHA-256, and rejects unexpected archive
@@ -236,8 +243,9 @@ credentials for a simulated failure. Intel macOS and Windows/WSL are unsupported
    curl --fail --silent --show-error http://127.0.0.1:8080/health/version
    ```
 
-   Record the responses; confirm the version, commit, build date, and schema
-   match the installed release. Do not attach credentials or full environment
+   Confirm `/health/version` contains only `status` and `version`. Confirm
+   detailed release and schema identity in Platform Admin diagnostics and the
+   local deployment manifest. Do not attach credentials or full environment
    output to the evidence.
 3. Create an on-demand backup with `sudo concierge backup`. Copy it to the
    designated protected off-host backup store. Separately retrieve the
@@ -269,6 +277,9 @@ acceptance release channel; it must not be attempted against production data.
 The test-only release should fail before migration so the rollback validates
 the compatible path. The incompatible-schema path is intentionally fail-closed
 and requires operator recovery; do not induce that state on a production host.
+Use the full [production acceptance procedure](PRODUCTION_ACCEPTANCE.md),
+including the off-host [disaster recovery rehearsal](DISASTER_RECOVERY_REHEARSAL.md),
+as the signed evidence record for each supported OS and architecture.
 
 ## Boot Test
 

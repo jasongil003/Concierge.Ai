@@ -324,12 +324,18 @@ async def _chat_rate_limited(session_id: str) -> bool:
 
 
 async def _guest_chat_rate_limited(session_id: str, property_id: str, client_ip: str) -> bool:
-    """Limit each session and cap session multiplication from one verified client."""
+    """Limit each session and cap session multiplication within one property."""
     if await _chat_rate_limited(session_id):
         return True
+    try:
+        client_identity = str(ipaddress.ip_address(client_ip))
+    except (TypeError, ValueError):
+        # An unresolved proxy identity still shares a bounded bucket, scoped to
+        # this property so one hotel's fallback traffic cannot throttle another.
+        client_identity = "unresolved-client"
     address_key = hmac.new(
         settings.credential_encryption_secret.encode("utf-8"),
-        f"{property_id}\0{client_ip}".encode("utf-8"),
+        f"{property_id}\0{client_identity}".encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()
     return not await _rate_limit_allowed(f"guest-chat-client:{address_key}", 120, 60)
@@ -1222,11 +1228,7 @@ async def health_live() -> dict[str, str]:
 
 @app.get("/health/version")
 async def health_version() -> dict[str, str]:
-    try:
-        schema_revision = persisted_schema_revision(settings.db_path)
-    except Exception:
-        schema_revision = "unavailable"
-    return {**BUILD_IDENTITY, "schema_revision": schema_revision or "unavailable"}
+    return {"status": "ok", "version": str(BUILD_IDENTITY.get("version", "0.0.0"))}
 
 
 @app.get("/health/ready")
@@ -1280,8 +1282,8 @@ async def prometheus_metrics(request: Request) -> Response:
 @app.get("/health/details")
 async def health_details(request: Request) -> dict[str, Any]:
     principal = admin_auth.authenticate(request.cookies.get(SESSION_COOKIE))
-    if principal is None or not principal.can("diagnostics.view"):
-        raise HTTPException(status_code=401 if principal is None else 403, detail="Administrator diagnostics permission required.")
+    if principal is None or not principal.can("system.configure"):
+        raise HTTPException(status_code=401 if principal is None else 403, detail="Platform administrator diagnostics permission required.")
     database = observability.database_health()
     return {
         "status": "ok" if database.get("state") == "healthy" else "degraded",
@@ -5914,7 +5916,7 @@ async def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
     session, property_record = _guest_session(request, payload.session_id)
     decision = getattr(request.state, "guardrail_decision", None)
     client_ip = decision.client_ip if decision else ""
-    if client_ip and await _guest_chat_rate_limited(payload.session_id, property_record.property_id, client_ip):
+    if await _guest_chat_rate_limited(payload.session_id, property_record.property_id, client_ip):
         raise HTTPException(status_code=429, detail="Too many messages. Please wait a moment.")
 
     requested_mode = payload.mode if settings.ai_guest_mode_switch else settings.ai_default_mode

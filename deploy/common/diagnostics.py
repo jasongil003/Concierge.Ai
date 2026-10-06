@@ -409,15 +409,21 @@ def collect(args: argparse.Namespace) -> dict[str, object]:
     live_code, _, _ = _request(base_url.rstrip("/") + "/health/live")
     ready_code, ready_body, ready_reason = _request(base_url.rstrip("/") + "/health/ready")
     version_code, version_body, _ = _request(base_url.rstrip("/") + "/health/version")
-    identity = version_body if version_code == 200 and isinstance(version_body, dict) else {}
-    schema = str(identity.get("schema_revision", manifest.get("schema_revision", "unknown")))
+    # The public endpoint intentionally carries only status and semantic version.
+    # Detailed identity and schema data come from local deployment metadata.
+    public_version = version_body.get("version") if version_code == 200 and isinstance(version_body, dict) else None
+    if not isinstance(public_version, str) or not re.fullmatch(r"\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?", public_version):
+        public_version = "unknown"
+    schema = str(getattr(args, "database_schema_revision", "unknown") or "unknown")
+    if schema not in {"unknown", "unavailable", "legacy/unmarked"} and not re.fullmatch(r"\d{8}_\d{4}", schema):
+        schema = "unknown"
     container_mode = mode in {"appliance", "docker-dev"} and bool(docker)
     project_name = _docker_dev_project(root) if mode == "docker-dev" else "concierge"
     volume_name = f"{project_name}_{'concierge-dev-state' if mode == 'docker-dev' else 'concierge-state'}"
     if container_mode and backend == "SQLite":
         db_path = None
         db_location = f"/state/concierge.db in Docker volume {volume_name}"
-    if backend == "SQLite" and schema == "unknown":
+    if backend == "SQLite" and schema in {"unknown", "unavailable"}:
         schema = _sqlite_revision(db_path)
     port_owners = _port_owner(port)
     runtimes = []
@@ -494,19 +500,19 @@ def collect(args: argparse.Namespace) -> dict[str, object]:
     else:
         ready = "FAIL"
     live = "PASS" if live_code == 200 else "FAIL"
-    identity_version = str(identity.get("version", manifest.get("version", "unknown")))
-    identity_commit = str(identity.get("commit", manifest.get("commit", "unknown")))
+    identity_version = str(manifest.get("version", public_version))
+    identity_commit = str(manifest.get("commit", "unknown"))
     identity_drift = bool(
         manifest
-        and identity
-        and ((manifest.get("version") and identity_version != manifest.get("version"))
-             or (manifest.get("commit") and identity_commit != manifest.get("commit")))
+        and public_version != "unknown"
+        and manifest.get("version")
+        and public_version != manifest.get("version")
     )
-    if container_mode and identity:
+    if container_mode:
         local_version, local_commit = _git_identity(root)
         if local_commit and identity_commit != "unknown" and identity_commit != local_commit:
             identity_drift = True
-        if local_version and identity_version != "unknown" and identity_version != local_version:
+        if local_version and public_version != "unknown" and public_version != local_version:
             identity_drift = True
     if container_mode:
         storage_ready = ready == "PASS" and ready_checks.get("storage") == "healthy"
@@ -585,8 +591,8 @@ def collect(args: argparse.Namespace) -> dict[str, object]:
         match = re.search(r"(?:^|,\s*)([^,]+?):" + str(port) + r"->8080/tcp", port_binding)
         if match:
             bind = match.group(1).split(":", 1)[0]
-    if container_mode and backend == "SQLite" and schema == "unknown":
-        schema = "reported by running instance unavailable"
+    if container_mode and backend == "SQLite" and schema in {"unknown", "unavailable"}:
+        schema = "unavailable in host diagnostics"
     active_containers = [
         item for item in active_docker
         if item.get("project") in {"concierge", _docker_dev_project(root)}
@@ -594,7 +600,7 @@ def collect(args: argparse.Namespace) -> dict[str, object]:
         or (mode == "docker-dev" and f":{port}->8080/tcp" in item["ports"])
     ]
     container_name = ", ".join(item["name"] for item in active_containers) or "none detected"
-    app_python = str(identity.get("python_version", sys.version.split()[0]))
+    app_python = sys.version.split()[0]
     service_restart_loop = restart_loop
     return {
         "mode": mode,
@@ -602,7 +608,7 @@ def collect(args: argparse.Namespace) -> dict[str, object]:
         "profile": profile,
         "version": identity_version,
         "commit": identity_commit,
-        "build_date": str(identity.get("build_date", "unknown")),
+        "build_date": str(manifest.get("build_date", "unknown")),
         "runtime": "Docker Compose" if active_docker else "Python/launchd" if mode == "appliance" and sys.platform == "darwin" else "Python/source" if unmatched_manual or mode == "source" else "unknown",
         "container": container_name,
         "python": app_python,
@@ -760,6 +766,7 @@ def main() -> int:
     parser.add_argument("--config", type=Path)
     parser.add_argument("--state-directory", type=Path)
     parser.add_argument("--manifest", type=Path)
+    parser.add_argument("--database-schema-revision", default="unknown")
     parser.add_argument("--base-url")
     parser.add_argument("--bind")
     parser.add_argument("--port", type=int)

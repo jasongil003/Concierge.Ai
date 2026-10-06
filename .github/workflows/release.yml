@@ -14,7 +14,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Check out the published tag
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.release.tag_name }}
           fetch-depth: 0
@@ -26,24 +26,38 @@ jobs:
           RELEASE_TAG_SIGNER_FINGERPRINT: ${{ vars.RELEASE_TAG_SIGNER_FINGERPRINT }}
         run: |
           set -euo pipefail
-          [[ "$RELEASE_TAG" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]
+          if [[ ! "$RELEASE_TAG" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "::error::Production releases require a stable vMAJOR.MINOR.PATCH tag." >&2
+            exit 1
+          fi
           VERSION="${RELEASE_TAG#v}"
+          if [[ -z "$RELEASE_TAG_PUBLIC_KEY" ]]; then
+            echo "::error::Production release signing key is missing; configure RELEASE_TAG_PUBLIC_KEY before publishing." >&2
+            exit 1
+          fi
+          if [[ -z "$RELEASE_TAG_SIGNER_FINGERPRINT" ]]; then
+            echo "::error::Approved release signer fingerprint is missing; configure RELEASE_TAG_SIGNER_FINGERPRINT before publishing." >&2
+            exit 1
+          fi
+          if [[ ! "$RELEASE_TAG_SIGNER_FINGERPRINT" =~ ^([A-Fa-f0-9]{40}|[A-Fa-f0-9]{64})$ ]]; then
+            echo "::error::RELEASE_TAG_SIGNER_FINGERPRINT must be the exact 40- or 64-character approved key fingerprint." >&2
+            exit 1
+          fi
+          if [[ "$RELEASE_TAG_PUBLIC_KEY" != *"-----BEGIN PGP PUBLIC KEY BLOCK-----"* ]]; then
+            echo "::error::RELEASE_TAG_PUBLIC_KEY must contain the approved ASCII-armored public key." >&2
+            exit 1
+          fi
           COMMIT="$(git rev-parse "$RELEASE_TAG^{commit}")"
           test "$COMMIT" = "$(git rev-parse HEAD)"
-          if [[ -n "$RELEASE_TAG_PUBLIC_KEY" || -n "$RELEASE_TAG_SIGNER_FINGERPRINT" ]]; then
-            [[ -n "$RELEASE_TAG_PUBLIC_KEY" && "$RELEASE_TAG_SIGNER_FINGERPRINT" =~ ^([A-Fa-f0-9]{40}|[A-Fa-f0-9]{64})$ ]]
-            printf '%s\n' "$RELEASE_TAG_PUBLIC_KEY" | gpg --batch --import
-            if ! git verify-tag --raw "$RELEASE_TAG" > "$RUNNER_TEMP/tag-verification.log" 2>&1; then
-              cat "$RUNNER_TEMP/tag-verification.log"
-              echo "Published release tag signature verification failed." >&2
-              exit 1
-            fi
-            if ! grep -Eiq "VALIDSIG ${RELEASE_TAG_SIGNER_FINGERPRINT}[[:space:]]" "$RUNNER_TEMP/tag-verification.log"; then
-              echo "Release tag was not signed by the configured trusted fingerprint." >&2
-              exit 1
-            fi
-          else
-            echo "WARNING: signed tag verification is not configured; an operator must verify the signed tag before publication."
+          printf '%s\n' "$RELEASE_TAG_PUBLIC_KEY" | gpg --batch --import
+          if ! git verify-tag --raw "$RELEASE_TAG" > "$RUNNER_TEMP/tag-verification.log" 2>&1; then
+            cat "$RUNNER_TEMP/tag-verification.log"
+            echo "::error::Published release tag signature verification failed." >&2
+            exit 1
+          fi
+          if ! grep -Eiq "VALIDSIG ${RELEASE_TAG_SIGNER_FINGERPRINT}[[:space:]]" "$RUNNER_TEMP/tag-verification.log"; then
+            echo "::error::Release tag was not signed by the configured trusted fingerprint." >&2
+            exit 1
           fi
           BUILD_DATE="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           SCHEMA_REVISION="$(sed -n 's/^CURRENT_SCHEMA_REVISION = "\([0-9_]*\)"$/\1/p' app/database.py)"

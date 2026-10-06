@@ -129,10 +129,10 @@ update_release() {
         ""|sqlite:*|sqlite+*:* ) database_type=sqlite ;;
         *) die "Update schema preflight cannot identify the configured database type; no changes were made." ;;
     esac
-    current_schema_json=$(curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8080/health/version) || \
-        die "Update schema preflight failed: the active release did not provide /health/version. No service or database changes were made."
-    current_schema=$(printf '%s' "$current_schema_json" | "$CONCIERGE_TOOL_PYTHON" -c 'import json,sys; value=json.load(sys.stdin).get("schema_revision", ""); print(value if isinstance(value,str) else "")')
-    [ -n "$current_schema" ] || die "Update schema preflight failed: active database schema is unknown. No changes were made."
+    current_schema=$(platform_schema_revision) || \
+        die "Update schema preflight failed while reading the local database schema. No service or database changes were made."
+    [ -n "$current_schema" ] && [ "$current_schema" != unavailable ] || \
+        die "Update schema preflight failed: active database schema is unknown. No changes were made."
     assessment_args=(assess --current-schema "$current_schema" --database-type "$database_type" \
         --candidate "$temporary/release/unpacked" --previous "$previous_dir")
     if [ "$allow_incompatible_rollback" = yes ]; then
@@ -227,14 +227,18 @@ boot_test_verify() {
 
 case "${1:-}" in
     status)
+        database_schema_revision=$(platform_schema_revision 2>/dev/null || printf unknown)
         "$CONCIERGE_TOOL_PYTHON" "$APP_RELEASE/deploy/common/diagnostics.py" status \
             --mode appliance --root "$APP_RELEASE" --config "$CONFIG_FILE" \
-            --state-directory "$STATE_ROOT" --base-url http://127.0.0.1:8080 --bind 127.0.0.1
+            --state-directory "$STATE_ROOT" --base-url http://127.0.0.1:8080 --bind 127.0.0.1 \
+            --database-schema-revision "$database_schema_revision"
         ;;
     doctor)
+        database_schema_revision=$(platform_schema_revision 2>/dev/null || printf unknown)
         "$CONCIERGE_TOOL_PYTHON" "$APP_RELEASE/deploy/common/diagnostics.py" doctor \
             --mode appliance --root "$APP_RELEASE" --config "$CONFIG_FILE" \
-            --state-directory "$STATE_ROOT" --base-url http://127.0.0.1:8080 --bind 127.0.0.1
+            --state-directory "$STATE_ROOT" --base-url http://127.0.0.1:8080 --bind 127.0.0.1 \
+            --database-schema-revision "$database_schema_revision"
         ;;
     health)
         curl --fail --silent --show-error http://127.0.0.1:8080/health/ready

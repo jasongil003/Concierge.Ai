@@ -502,6 +502,56 @@ def test_system_diagnostics_is_super_admin_only_and_sanitized(auth_store: AdminA
     assert "api_key" not in response.text
 
 
+def test_global_health_details_requires_platform_admin_for_role_matrix(
+    auth_store: AdminAuthStore, monkeypatch: pytest.MonkeyPatch
+):
+    from app.hospitality import HospitalityStore
+
+    monkeypatch.setattr(main_module, "admin_auth", auth_store)
+    monkeypatch.setattr(main_module.observability, "database_health", lambda: {"state": "healthy"})
+    department = HospitalityStore(auth_store.path).upsert_department("tenant-a", {"name": "Front Desk"})
+    _, platform_admin = auth_store.login("admin", ADMIN_PASSWORD, "127.0.0.1", "test")
+    role_slugs = (
+        "property-administrator",
+        "content-manager",
+        "department-manager",
+        "restaurant-manager",
+        "restaurant-staff",
+        "property-manager",
+    )
+    credentials: list[tuple[str, str]] = []
+    for slug in role_slugs:
+        username = slug.replace("-", ".")
+        password = "RoleMatrix123!"
+        payload = {
+            "username": username,
+            "display_name": slug,
+            "password": password,
+            "role_id": f"role-{slug}",
+            "property_id": "tenant-a",
+            "status": "active",
+        }
+        if slug == "department-manager":
+            payload["department_id"] = department["department_id"]
+        auth_store.create_user(payload, platform_admin)
+        credentials.append((username, password))
+
+    with TestClient(app) as client:
+        assert client.get("/health/details").status_code == 401
+        client.cookies.set(main_module.GUEST_SESSION_COOKIE, "guest-session")
+        assert client.get("/health/details").status_code == 401
+        client.cookies.clear()
+
+        for username, password in [("admin", ADMIN_PASSWORD), *credentials]:
+            logged_in = client.post(
+                "/api/admin/auth/login",
+                json={"username": username, "password": password, "remember_me": False},
+            )
+            assert logged_in.status_code == 200, logged_in.text
+            expected = 200 if username == "admin" else 403
+            assert client.get("/health/details").status_code == expected
+
+
 def test_property_admin_cannot_delegate_global_permissions_even_with_spoofed_role_slug(auth_store: AdminAuthStore):
     _, global_admin = auth_store.login("admin", ADMIN_PASSWORD, "10.0.0.1", "test")
     user = auth_store.create_user(

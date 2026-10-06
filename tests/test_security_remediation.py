@@ -89,6 +89,17 @@ def test_production_requires_secure_cookie(tmp_path: Path):
         )
 
 
+def test_production_requires_enforceable_pdf_worker_memory_ceiling(tmp_path: Path):
+    with pytest.raises(RuntimeError, match="KNOWLEDGE_PDF_MEMORY_LIMIT_BYTES"):
+        validate_production_settings(
+            _production_settings(
+                tmp_path,
+                knowledge_pdf_memory_limit_bytes=32 * 1024 * 1024,
+            ),
+            check_filesystem=False,
+        )
+
+
 def test_production_requires_canonical_hosts_and_admin_network_restrictions(tmp_path: Path):
     with pytest.raises(RuntimeError, match="CANONICAL_HOSTS"):
         validate_production_settings(_production_settings(tmp_path, canonical_hosts=()))

@@ -3,6 +3,7 @@
 import io
 import base64
 import sqlite3
+import sys
 import time
 import zipfile
 from dataclasses import replace
@@ -10,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from app.knowledge_management import KnowledgeStore, parse_document, validate_file
+from app.knowledge_management import KnowledgeStore, _extract_pdf_in_limited_worker, _run_limited_pdf_worker, parse_document, validate_file
 
 
 def _store(tmp_path: Path) -> KnowledgeStore:
@@ -94,6 +95,63 @@ def test_pdf_extraction_stops_at_text_budget_before_reading_more_pages(monkeypat
         extract_pdf_bytes(b"%PDF-test", 10)
 
     assert calls == ["three", "123456"]
+
+
+def test_pdf_worker_memory_violation_is_terminated_and_reaped(tmp_path: Path):
+    import psutil
+
+    pid_file = tmp_path / "worker.pid"
+    script = (
+        "import os,pathlib,sys,time; "
+        "pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); "
+        "chunks=[bytearray(1024*1024) for _ in range(192)]; "
+        "time.sleep(10)"
+    )
+
+    with pytest.raises(MemoryError):
+        _run_limited_pdf_worker(
+            [sys.executable, "-c", script, str(pid_file)],
+            b"",
+            memory_limit_bytes=96 * 1024 * 1024,
+            timeout_seconds=5,
+            poll_interval=0.01,
+        )
+
+    worker_pid = int(pid_file.read_text(encoding="utf-8"))
+    assert not psutil.pid_exists(worker_pid)
+    assert list(tmp_path.iterdir()) == [pid_file]
+
+
+def test_pdf_worker_timeout_is_terminated_and_reaped(tmp_path: Path):
+    import psutil
+
+    pid_file = tmp_path / "worker.pid"
+    script = "import os,pathlib,sys,time; pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(10)"
+
+    with pytest.raises(TimeoutError):
+        _run_limited_pdf_worker(
+            [sys.executable, "-c", script, str(pid_file)],
+            b"",
+            memory_limit_bytes=256 * 1024 * 1024,
+            timeout_seconds=0.25,
+            poll_interval=0.01,
+        )
+
+    worker_pid = int(pid_file.read_text(encoding="utf-8"))
+    assert not psutil.pid_exists(worker_pid)
+    assert list(tmp_path.iterdir()) == [pid_file]
+
+
+def test_pdf_worker_memory_error_is_sanitized(monkeypatch):
+    from app import knowledge_management as knowledge
+
+    def reject_memory(*_args, **_kwargs):
+        raise MemoryError("private process details")
+
+    monkeypatch.setattr(knowledge, "_run_limited_pdf_worker", reject_memory)
+    with pytest.raises(ValueError, match="configured memory limit") as caught:
+        _extract_pdf_in_limited_worker(_pdf("safe text"))
+    assert "private process details" not in str(caught.value)
 
 
 def test_document_upload_rejects_csv_formulas_and_office_zip_bombs():
