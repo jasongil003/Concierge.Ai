@@ -24,9 +24,10 @@ pytestmark = pytest.mark.skipif(
 def test_postgres_backup_restores_expected_records_to_clean_database(tmp_path: Path):
     parsed = make_url(DATABASE_URL)
     target_database = f"restore_{uuid.uuid4().hex[:12]}"
-    maintenance_url = parsed.set(drivername="postgresql").set(database="postgres").render_as_string(hide_password=False)
+    psycopg_url = parsed.set(drivername="postgresql")
+    maintenance_url = psycopg_url.set(database="postgres").render_as_string(hide_password=False)
     target_url = parsed.set(database=target_database).render_as_string(hide_password=False)
-    target_psycopg_url = parsed.set(drivername="postgresql").set(database=target_database).render_as_string(hide_password=False)
+    target_psycopg_url = psycopg_url.set(database=target_database).render_as_string(hide_password=False)
     property_id = f"backup-drill-{uuid.uuid4().hex[:12]}"
     uploads = tmp_path / "uploads"
     uploads.mkdir()
@@ -56,7 +57,7 @@ def test_postgres_backup_restores_expected_records_to_clean_database(tmp_path: P
                 (property_id,),
             ).fetchone()
         assert row == ("Restore Drill Property", "restore.example.test")
-        with psycopg.connect(DATABASE_URL) as source_connection:
+        with psycopg.connect(psycopg_url.render_as_string(hide_password=False)) as source_connection:
             source_row = source_connection.execute(
                 "SELECT hotel_name,domain FROM properties WHERE property_id=%s",
                 (property_id,),
