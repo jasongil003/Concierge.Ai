@@ -88,7 +88,12 @@ def test_invalid_secret_is_replaced_and_valid_secret_and_custom_settings_are_pre
 
 def test_installation_rerun_preserves_encryption_key_database_and_admin_password(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ):
+    # Exercise a normal source install in its temporary root, not the pytest
+    # process profile inherited by the installer subprocess.
+    for variable in ("APP_ENVIRONMENT", "CONCIERGE_TESTING", "DB_PATH", "STATE_DIRECTORY", "UPLOAD_ROOT"):
+        monkeypatch.delenv(variable, raising=False)
     (tmp_path / "app").symlink_to(PROJECT_ROOT / "app", target_is_directory=True)
     (tmp_path / "deploy").mkdir()
     (tmp_path / "deploy" / "source_install.py").symlink_to(

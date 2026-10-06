@@ -48,11 +48,14 @@ def test_script_splitter_respects_semicolons_inside_literals():
     assert statements == ["INSERT INTO sample(value) VALUES ('a;b')", "SELECT 1"]
 
 
-def test_runtime_postgres_configuration_rejects_sqlite_database_urls():
+def test_runtime_postgres_configuration_rejects_sqlite_database_urls(tmp_path, monkeypatch):
+    monkeypatch.delenv("CONCIERGE_TESTING", raising=False)
     from app.config import Settings, validate_production_settings
 
     values = Settings(
         app_environment="production",
+        db_path=tmp_path / "concierge.db",
+        state_directory=tmp_path,
         property_id="hotel-a",
         antlabs_mode="browser_handoff",
         antlabs_auth_url="https://gateway.example/login/main.ant?c=proc",
