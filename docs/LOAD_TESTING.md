@@ -21,15 +21,51 @@ For representative results, run the injector separately from the application and
 
 ## Run against an isolated installation
 
-Install Locust with `python -m pip install -r loadtest/requirements.txt`, provision a disposable property and deterministic AI endpoint, then:
+The load Compose profile is an overlay on `docker-compose.yml`. Use a unique Compose project name for every run. Compose scopes networks and the persistent volume to that project. The overlay attaches the API (`concierge`) to the project frontend and to a dedicated internal `loadtest` network; `mock-ai` joins only `loadtest`. The proxy and API share the project frontend, which is also marked internal in this overlay. The load profile removes the base host-gateway mapping and keeps the proxy published on loopback, using `LOADTEST_PORT` (default `18080`). No production service is attached to either project network and the containers have no external network egress.
+
+The API uses the deterministic OpenAI-compatible mock endpoint, disables background workers, and writes to the project-scoped SQLite volume. This Compose profile does not define PostgreSQL or Redis services. Locust runs on the host; there is no injector image. The Concierge and mock-AI images are built locally from Dockerfiles whose Python base images are digest-pinned. The proxy's Nginx image is pinned by digest. The profile does not pull a PostgreSQL, Redis, or injector image.
+
+Use a disposable host with Docker Compose v2.24 or later (the overlay uses `!reset` and `!override`). Build a temporary env file containing synthetic-only values, then validate the fully merged topology before starting it:
 
 ```bash
-export LOADTEST_BASE_URL=http://127.0.0.1:8092
+load_state="$(mktemp -d "${TMPDIR:-/tmp}/concierge-load.XXXXXX")"
+cat > "$load_state/safe.env" <<EOF
+CONCIERGE_CONFIG_FILE=$load_state/safe.env
+CONCIERGE_BACKUP_DIR=$load_state/backups
+CONCIERGE_VERSION=local
+LOADTEST_PORT=18080
+ADMIN_BOOTSTRAP_USERNAME=loadtest-admin
+ADMIN_BOOTSTRAP_PASSWORD=LoadtestOnly-Admin-123!
+CREDENTIAL_ENCRYPTION_SECRET=LoadtestOnly-Encryption-Secret-1234567890
+METRICS_TOKEN=LoadtestOnly-Metrics-Token-1234567890
+CANONICAL_HOSTS=localhost
+PUBLIC_BASE_URL=https://localhost
+ADMIN_ALLOWED_CIDRS=127.0.0.1/32
+ANTLABS_MODE=mock
+EOF
+project="concierge-loadtest-$(id -u)-$$"
+docker compose --project-name "$project" --env-file "$load_state/safe.env" \
+  -f docker-compose.yml -f docker-compose.load.yml config
+```
+
+Do not put hotel or production credentials in this file. After review, start the isolated profile on a host where port 18080 is free:
+
+```bash
+docker compose --project-name "$project" --env-file "$load_state/safe.env" \
+  -f docker-compose.yml -f docker-compose.load.yml up --build -d
+```
+
+Install Locust with `python -m pip install -r loadtest/requirements.txt`, provision a disposable property and synthetic guest identities, then run:
+
+```bash
+export LOADTEST_BASE_URL=http://127.0.0.1:18080
 export LOADTEST_METRICS_TOKEN='<test-only metrics token>'
 export PROPERTY_ID='<disposable test property id>'
 export LOADTEST_CONFIRMATION=YES
 python loadtest/run_stages.py
 ```
+
+Stop the stack and remove only its disposable Compose project and temporary env directory when finished. Never reuse the project name or its volume for a hotel deployment.
 
 For dedicated infrastructure only, add `LOADTEST_DEDICATED_INFRASTRUCTURE=YES` and select `--profile high-scale`, `--profile spike`, or `--profile soak`. The optional soak can be sized with `LOADTEST_SOAK_USERS=500` and `LOADTEST_SOAK_DURATION=30m` (or higher within the documented limits).
 

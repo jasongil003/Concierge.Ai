@@ -17,6 +17,12 @@ from app.properties import PropertyRecord, PropertyStore
 from app.session_store import SessionStore
 
 
+@pytest.fixture(autouse=True)
+def validate_explicit_profiles_without_pytest_runtime_marker(monkeypatch: pytest.MonkeyPatch):
+    """These tests validate supplied Settings objects, not the running pytest profile."""
+    monkeypatch.delenv("CONCIERGE_TESTING", raising=False)
+
+
 def _production_settings(tmp_path: Path, **overrides) -> Settings:
     safe = Settings(
         app_environment="production",

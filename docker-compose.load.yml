@@ -10,8 +10,26 @@ services:
     expose:
       - "8081"
     networks:
-      - backend
+      - loadtest
 
-  api:
+  concierge:
     environment:
       ENABLE_BACKGROUND_WORKERS: "false"
+      AI_PROVIDER_MODE: compatible
+      COMPATIBLE_API_BASE_URL: http://mock-ai:8081
+      COMPATIBLE_FAST_MODEL: concierge-loadtest
+      COMPATIBLE_ADVANCED_MODEL: concierge-loadtest
+    networks:
+      - frontend
+      - loadtest
+    extra_hosts: !reset []
+
+  proxy:
+    ports: !override
+      - "${LOADTEST_BIND_ADDRESS:-127.0.0.1}:${LOADTEST_PORT:-18080}:80"
+
+networks:
+  frontend:
+    internal: true
+  loadtest:
+    internal: true

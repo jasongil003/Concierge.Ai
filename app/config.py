@@ -1,5 +1,7 @@
 import os
 import json
+import re
+import tempfile
 from dataclasses import dataclass, field
 import ipaddress
 from pathlib import Path
@@ -48,6 +50,19 @@ def _bool(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def _looks_like_production_name(value: str) -> bool:
+    parts = re.findall(r"[a-z0-9]+", value.casefold())
+    return bool({"prod", "production", "live"}.intersection(parts))
+
+
 @dataclass(frozen=True)
 class Settings:
     app_name: str = os.getenv("APP_NAME", "Concierge.Ai")
@@ -55,6 +70,7 @@ class Settings:
     deployment_mode: str = os.getenv("CONCIERGE_DEPLOYMENT_MODE", "source").strip().lower()
     property_id: str = os.getenv("PROPERTY_ID", "").strip()
     db_path: Path = Path(os.getenv("DB_PATH", "state/concierge.db"))
+    state_directory: Path = Path(os.getenv("STATE_DIRECTORY", "")) if os.getenv("STATE_DIRECTORY") else Path("")
     database_url: str = os.getenv("DATABASE_URL", "").strip()
     redis_url: str = os.getenv("REDIS_URL", "").strip()
     metrics_token: str = os.getenv("METRICS_TOKEN", "").strip()
@@ -153,6 +169,65 @@ class Settings:
     )
 
 
+def _validate_test_state_paths(value: Settings) -> None:
+    """Ensure test-mode app initialization can write only to isolated temp state."""
+    temporary_root = Path(tempfile.gettempdir()).resolve()
+    if not value.state_directory.parts or not value.upload_root.parts:
+        raise RuntimeError(
+            "Test mode requires explicit DB_PATH, STATE_DIRECTORY, and UPLOAD_ROOT values for each isolated process."
+        )
+    database_path = value.db_path.expanduser().resolve()
+    state_path = value.state_directory.expanduser().resolve()
+    upload_path = value.upload_root.expanduser().resolve()
+
+    if (
+        not _is_relative_to(database_path, temporary_root)
+        or not _is_relative_to(state_path, temporary_root)
+        or not _is_relative_to(upload_path, temporary_root)
+        or state_path == temporary_root
+        or not _is_relative_to(database_path, state_path)
+        or not _is_relative_to(upload_path, state_path)
+    ):
+        raise RuntimeError(
+            "Test mode requires DB_PATH, STATE_DIRECTORY, and UPLOAD_ROOT to use one isolated directory under the system temporary directory."
+        )
+
+    names = [*state_path.parts, database_path.stem]
+    if any(_looks_like_production_name(part) for part in names):
+        raise RuntimeError("Test mode refuses production-looking database or state paths.")
+
+    if value.database_url:
+        try:
+            parsed_database_url = urlsplit(value.database_url)
+            hostname = parsed_database_url.hostname or ""
+            database_name = parsed_database_url.path.rstrip("/").rsplit("/", maxsplit=1)[-1]
+        except ValueError:
+            hostname = ""
+            database_name = ""
+        local_host = hostname.casefold() == "localhost"
+        if not local_host:
+            try:
+                local_host = ipaddress.ip_address(hostname).is_loopback
+            except ValueError:
+                local_host = False
+        if not local_host or _looks_like_production_name(database_name):
+            raise RuntimeError("Test mode permits PostgreSQL only on loopback with a non-production database name.")
+
+    if value.redis_url:
+        try:
+            redis_hostname = urlsplit(value.redis_url).hostname or ""
+        except ValueError:
+            redis_hostname = ""
+        local_redis = redis_hostname.casefold() == "localhost"
+        if not local_redis:
+            try:
+                local_redis = ipaddress.ip_address(redis_hostname).is_loopback
+            except ValueError:
+                local_redis = False
+        if not local_redis:
+            raise RuntimeError("Test mode permits Redis only on loopback.")
+
+
 DEFAULT_ENCRYPTION_SECRETS = {
     "",
     "change-me",
@@ -165,6 +240,8 @@ DEFAULT_ENCRYPTION_SECRETS = {
 
 def validate_production_settings(value: Settings, *, check_filesystem: bool = True) -> None:
     """Fail closed before any production database or account initialization occurs."""
+    if value.app_environment == "test" or _bool("CONCIERGE_TESTING"):
+        _validate_test_state_paths(value)
     initial_default_admin = (
         value.admin_bootstrap_username.casefold() == "root"
         and value.admin_bootstrap_password == "admin"
@@ -298,6 +375,8 @@ def validate_production_settings(value: Settings, *, check_filesystem: bool = Tr
 settings = Settings()
 settings = Settings(antlabs_mode=validate_antlabs_mode(settings.antlabs_mode))
 validate_production_settings(settings)
+if not settings.state_directory.parts:
+    object.__setattr__(settings, "state_directory", settings.db_path.parent)
 settings.db_path.parent.mkdir(parents=True, exist_ok=True)
 if not settings.upload_root.parts:
     object.__setattr__(settings, "upload_root", settings.db_path.parent / "uploads")

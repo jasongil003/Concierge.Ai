@@ -1,10 +1,12 @@
 import { defineConfig, devices } from "@playwright/test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { mkdtempSync } from "node:fs";
 
-const e2eDatabase = join(tmpdir(), `concierge-ai-e2e-${process.pid}.db`);
+const e2eStateDirectory = mkdtempSync(join(tmpdir(), "concierge-ai-e2e-"));
+const e2eDatabase = join(e2eStateDirectory, "concierge.db");
 const serverCommand = process.env.PLAYWRIGHT_SERVER_COMMAND
-  || ".venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8092 --no-proxy-headers";
+  || ".venv/bin/python tests/e2e/run_server.py";
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -23,17 +25,26 @@ export default defineConfig({
   },
   webServer: {
     command: serverCommand,
+    gracefulShutdown: { signal: "SIGTERM", timeout: 10_000 },
     env: {
       ...process.env,
-      ADMIN_BOOTSTRAP_USERNAME: process.env.ADMIN_BOOTSTRAP_USERNAME || "admin",
-      ADMIN_BOOTSTRAP_PASSWORD: process.env.ADMIN_BOOTSTRAP_PASSWORD || "PlaywrightOnly-Admin-123!",
-      CREDENTIAL_ENCRYPTION_SECRET: process.env.CREDENTIAL_ENCRYPTION_SECRET || "PlaywrightOnly-Encryption-Secret-1234567890",
+      APP_ENVIRONMENT: "test",
+      CONCIERGE_TESTING: "1",
+      STATE_DIRECTORY: e2eStateDirectory,
+      UPLOAD_ROOT: join(e2eStateDirectory, "uploads"),
+      DATABASE_URL: "",
+      REDIS_URL: "",
+      ENABLE_BACKGROUND_WORKERS: "false",
+      ADMIN_BOOTSTRAP_USERNAME: "admin",
+      ADMIN_BOOTSTRAP_PASSWORD: "PlaywrightOnly-Admin-123!",
+      CREDENTIAL_ENCRYPTION_SECRET: "PlaywrightOnly-Encryption-Secret-1234567890",
       DB_PATH: e2eDatabase,
       PROPERTY_ID: "",
       ALLOW_BODY_PROPERTY_SELECTION: "true",
     },
     url: "http://127.0.0.1:8092/health",
-    reuseExistingServer: !process.env.CI,
+      // Never reuse an unrelated developer server that may use persistent state.
+      reuseExistingServer: false,
     timeout: 60_000,
   },
   projects: [
