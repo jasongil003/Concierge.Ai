@@ -67,8 +67,8 @@ the tag resolves to the checked-out commit, creates the archive from that tag
 with deterministic gzip metadata, and does not use `--clobber`. Do not replace
 an already published version's assets or reuse a release tag.
 
-To require automated signed-tag verification, configure these repository
-settings before the first release:
+Before publishing any production release, configure these repository
+settings:
 
 - `RELEASE_TAG_PUBLIC_KEY` as a GitHub Actions secret containing the trusted
   ASCII-armored public GPG key. Store only the public key in GitHub; keep its
@@ -76,10 +76,10 @@ settings before the first release:
 - `RELEASE_TAG_SIGNER_FINGERPRINT` as a repository Actions variable containing
   the exact 40- or 64-character fingerprint for that public key.
 
-Both values are required together. The release workflow verifies the signed
-tag and checks the `VALIDSIG` fingerprint. If they are not configured, the
-workflow warns and an authorized release operator must verify the tag
-signature and fingerprint using the independently trusted key before
-publishing. Never trust `main` as the appliance update input. Keep release
-creation and asset replacement permissions limited to release operators and
-preserve the immutable tag-to-commit and artifact-to-checksum record.
+Both values are mandatory. The release workflow fails closed when either is
+missing, when the fingerprint is malformed, when the tag is not signed by that
+key, or when the tag does not point to the checked-out release commit. A
+production release cannot be published until the approved signer is configured.
+Never trust `main` as the appliance update input. Keep release creation and
+asset replacement permissions limited to release operators and preserve the
+immutable tag-to-commit and artifact-to-checksum record.

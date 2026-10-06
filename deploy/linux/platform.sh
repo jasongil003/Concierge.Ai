@@ -28,6 +28,10 @@ platform_compose() {
         --env-file "$CONFIG_FILE" -f /opt/concierge/current/docker-compose.yml "$@"
 }
 
+platform_schema_revision() {
+    platform_compose exec -T concierge python -m deploy.common.schema_revision
+}
+
 platform_install_release() {
     release_dir=$1
     version=$(cat "$release_dir/RELEASE_VERSION")

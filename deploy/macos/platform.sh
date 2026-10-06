@@ -148,6 +148,10 @@ run_app_python() {
     "$APP_ROOT/current/.venv/bin/python" "$@"
 }
 
+platform_schema_revision() {
+    run_app_python -m deploy.common.schema_revision
+}
+
 platform_runtime_maintenance() {
     platform_ensure_python
     if [ "$PLATFORM_PYTHON_UPDATED" = 1 ]; then

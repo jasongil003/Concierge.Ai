@@ -7,7 +7,6 @@ import json
 import sys
 
 
-PDF_MEMORY_LIMIT_BYTES = 768 * 1024 * 1024
 PDF_CPU_LIMIT_SECONDS = 20
 PDF_MAX_PAGES = 300
 PDF_MAX_BLOCKS = 10_000
@@ -38,7 +37,7 @@ def extract_pdf_bytes(data: bytes, max_chars: int) -> list[dict[str, object]]:
     return blocks
 
 
-def _set_resource_limits() -> None:
+def _set_resource_limits(memory_limit_bytes: int) -> None:
     import resource
 
     for name, limit in (
@@ -52,21 +51,24 @@ def _set_resource_limits() -> None:
         bounded_limit = limit if hard == resource.RLIM_INFINITY else min(limit, hard)
         resource.setrlimit(resource_id, (bounded_limit, bounded_limit))
 
-    # RLIMIT_AS is reliable in the Linux production container. On macOS it can
-    # count shared mappings against the ceiling and reject even ordinary Python
-    # allocations, so local development keeps the CPU and wall-clock limits only.
+    # The parent also monitors RSS and terminates this worker on every platform.
+    # RLIMIT_AS adds a kernel-enforced ceiling in the Linux appliance container;
+    # macOS shared mappings make that limit too restrictive for Python itself.
     if sys.platform.startswith("linux") and hasattr(resource, "RLIMIT_AS"):
         resource_id = resource.RLIMIT_AS
         _, hard = resource.getrlimit(resource_id)
-        bounded_limit = PDF_MEMORY_LIMIT_BYTES if hard == resource.RLIM_INFINITY else min(PDF_MEMORY_LIMIT_BYTES, hard)
+        bounded_limit = memory_limit_bytes if hard == resource.RLIM_INFINITY else min(memory_limit_bytes, hard)
         resource.setrlimit(resource_id, (bounded_limit, bounded_limit))
 
 
 def main() -> int:
     try:
-        _set_resource_limits()
         max_input_bytes = int(sys.argv[1])
         max_chars = int(sys.argv[2])
+        memory_limit_bytes = int(sys.argv[3])
+        if memory_limit_bytes < 1:
+            raise ValueError("invalid worker memory limit")
+        _set_resource_limits(memory_limit_bytes)
         data = sys.stdin.buffer.read(max_input_bytes + 1)
         if len(data) > max_input_bytes:
             raise ValueError("The PDF exceeds the configured upload limit.")

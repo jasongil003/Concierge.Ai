@@ -1,5 +1,6 @@
 import hashlib
 import sqlite3
+import traceback
 from pathlib import Path
 import subprocess
 import zipfile
@@ -169,6 +170,75 @@ def test_postgres_backup_archive_uses_secret_free_argv_and_restores_to_empty_tar
     assert sum("--exit-on-error" in argv for argv in restore_commands) == 1
     assert all("unit@test" not in " ".join(argv) for argv in argv_seen)
     assert all(env["PGPASSWORD"] == "unit@test" for env in env_seen)
+
+
+def test_failed_postgres_connection_never_echoes_dsn_or_password(monkeypatch, capsys):
+    import psycopg
+
+    sentinel_password = "test-only-password-not-for-output"
+    test_dsn = f"postgresql://backup-user:{sentinel_password}@db.example.test/concierge"
+
+    def fail_connection(*_args, **_kwargs):
+        raise RuntimeError(f"connection failed for {test_dsn}")
+
+    monkeypatch.setattr(psycopg, "connect", fail_connection)
+    with pytest.raises(RuntimeError) as caught:
+        backup._assert_empty_postgres_database(test_dsn)
+
+    captured = capsys.readouterr()
+    rendered_error = "".join(traceback.format_exception(caught.value))
+    if str(caught.value) != "Could not validate the PostgreSQL restore target." or not caught.value.__suppress_context__:
+        pytest.fail("PostgreSQL restore validation did not return the sanitized error.")
+    if sentinel_password in captured.out + captured.err + rendered_error:
+        pytest.fail("PostgreSQL connection failure leaked sensitive data.")
+
+
+def test_postgres_credentials_with_literal_percent_sequences_are_not_decoded_twice(monkeypatch):
+    import psycopg
+
+    database_url = (
+        "postgresql://literal%2540user:literal%252Fpassword@127.0.0.1/"
+        "database%252Fname"
+    )
+    _, environment = backup._postgres_environment(database_url)
+    captured_options = {}
+
+    class EmptyDatabase:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, *_args):
+            return self
+
+        def fetchall(self):
+            return []
+
+    def fake_connect(**options):
+        captured_options.update(options)
+        return EmptyDatabase()
+
+    monkeypatch.setattr(psycopg, "connect", fake_connect)
+    backup._assert_empty_postgres_database(database_url)
+
+    expected = {
+        "PGUSER": "literal%40user",
+        "PGPASSWORD": "literal%2Fpassword",
+        "PGDATABASE": "database%2Fname",
+    }
+    if any(environment.get(key) != value for key, value in expected.items()):
+        pytest.fail("PostgreSQL environment credentials were decoded more than once.")
+    if any(
+        captured_options.get(option) != value
+        for option, value in {
+            "user": expected["PGUSER"],
+            "password": expected["PGPASSWORD"],
+            "dbname": expected["PGDATABASE"],
+        }.items()
+    ):
+        pytest.fail("PostgreSQL restore connection credentials were decoded more than once.")
 
 
 def test_postgres_restore_refuses_a_nonempty_target_without_applying_dump(tmp_path, monkeypatch):

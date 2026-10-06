@@ -119,28 +119,90 @@ def _clean(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
+def _run_limited_pdf_worker(
+    command: list[str],
+    data: bytes,
+    *,
+    memory_limit_bytes: int,
+    timeout_seconds: float = 30,
+    poll_interval: float = 0.025,
+) -> subprocess.CompletedProcess[bytes]:
+    """Run the parser under parent-enforced RSS and wall-clock ceilings."""
+    import psutil
+
+    process = subprocess.Popen(
+        command,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        env={"PATH": os.defpath, "PYTHONIOENCODING": "utf-8"},
+    )
+    deadline = time.monotonic() + timeout_seconds
+    pending_input: bytes | None = data
+
+    def stop_and_reap() -> None:
+        if process.poll() is None:
+            process.kill()
+        try:
+            process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.communicate()
+
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                stop_and_reap()
+                raise TimeoutError("PDF processing exceeded its safe time limit.")
+            try:
+                output, _ = process.communicate(
+                    input=pending_input,
+                    timeout=min(poll_interval, remaining),
+                )
+                return subprocess.CompletedProcess(command, process.returncode, output, None)
+            except subprocess.TimeoutExpired:
+                pending_input = None
+                if process.poll() is not None:
+                    continue
+                try:
+                    resident_bytes = psutil.Process(process.pid).memory_info().rss
+                except psutil.NoSuchProcess:
+                    continue
+                except Exception:
+                    stop_and_reap()
+                    raise RuntimeError("PDF worker memory supervision failed.") from None
+                if resident_bytes > memory_limit_bytes:
+                    stop_and_reap()
+                    raise MemoryError("PDF processing exceeded its configured memory limit.")
+    except BaseException:
+        if process.poll() is None:
+            stop_and_reap()
+        raise
+
+
 def _extract_pdf_in_limited_worker(data: bytes) -> list[dict[str, Any]]:
     worker = Path(__file__).with_name("pdf_extraction_worker.py")
     try:
-        result = subprocess.run(
+        result = _run_limited_pdf_worker(
             [
                 sys.executable,
                 "-I",
                 str(worker),
                 str(settings.knowledge_max_file_bytes),
                 str(settings.knowledge_max_extracted_chars),
+                str(settings.knowledge_pdf_memory_limit_bytes),
             ],
-            input=data,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            env={"PATH": os.defpath, "PYTHONIOENCODING": "utf-8"},
-            timeout=30,
-            check=False,
+            data,
+            memory_limit_bytes=settings.knowledge_pdf_memory_limit_bytes,
+            timeout_seconds=30,
         )
-    except subprocess.TimeoutExpired as exc:
-        raise ValueError("PDF processing exceeded its safe time limit. Simplify the document and retry.") from exc
-    except OSError as exc:
-        raise ValueError("The isolated PDF processor is unavailable. Contact the system administrator.") from exc
+    except TimeoutError:
+        raise ValueError("PDF processing exceeded its safe time limit. Simplify the document and retry.") from None
+    except MemoryError:
+        raise ValueError("PDF processing exceeded its configured memory limit. Simplify the document and retry.") from None
+    except (OSError, RuntimeError, ImportError):
+        raise ValueError("The isolated PDF processor is unavailable or could not be safely supervised. Contact the system administrator.") from None
 
     try:
         response = json.loads(result.stdout)

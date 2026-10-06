@@ -66,9 +66,16 @@ def _digest_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _parse_database_url(database_url: str):
+    try:
+        return make_url(database_url)
+    except Exception:
+        raise ValueError("DATABASE_URL is invalid.") from None
+
+
 def _postgres_environment(database_url: str) -> tuple[list[str], dict[str, str]]:
     """Return libpq connection switches and environment without putting secrets in argv."""
-    parsed = make_url(database_url)
+    parsed = _parse_database_url(database_url)
     if parsed.get_backend_name() != "postgresql":
         raise ValueError("PostgreSQL backup requires a PostgreSQL DATABASE_URL.")
     environment = os.environ.copy()
@@ -77,9 +84,11 @@ def _postgres_environment(database_url: str) -> tuple[list[str], dict[str, str]]
     if parsed.port:
         environment["PGPORT"] = str(parsed.port)
     if parsed.username:
-        environment["PGUSER"] = unquote(parsed.username)
+        # make_url() already decodes credentials once. Decoding again corrupts
+        # literal percent sequences such as "%2F" in a username.
+        environment["PGUSER"] = parsed.username
     if parsed.password:
-        environment["PGPASSWORD"] = unquote(parsed.password)
+        environment["PGPASSWORD"] = parsed.password
     if parsed.database:
         environment["PGDATABASE"] = unquote(parsed.database)
     query = dict(parsed.query)
@@ -129,9 +138,26 @@ def _assert_empty_postgres_database(database_url: str) -> None:
     from psycopg import sql
 
     try:
-        parsed = make_url(database_url)
-        psycopg_url = parsed.set(drivername="postgresql").render_as_string(hide_password=False)
-        with psycopg.connect(psycopg_url, connect_timeout=5, autocommit=True) as connection:
+        parsed = _parse_database_url(database_url)
+        if parsed.get_backend_name() != "postgresql":
+            raise ValueError("PostgreSQL restore requires a PostgreSQL DATABASE_URL.")
+        connect_options: dict[str, object] = {"connect_timeout": 5, "autocommit": True}
+        if parsed.host:
+            connect_options["host"] = parsed.host
+        if parsed.port:
+            connect_options["port"] = parsed.port
+        if parsed.username:
+            connect_options["user"] = parsed.username
+        if parsed.password:
+            connect_options["password"] = parsed.password
+        if parsed.database:
+            connect_options["dbname"] = unquote(parsed.database)
+        for query_name in (
+            "sslmode", "sslrootcert", "sslcert", "sslkey", "application_name",
+        ):
+            if parsed.query.get(query_name):
+                connect_options[query_name] = str(parsed.query[query_name])
+        with psycopg.connect(**connect_options) as connection:
             tables = connection.execute(
                 "SELECT tablename FROM pg_catalog.pg_tables "
                 "WHERE schemaname=current_schema() AND tablename <> 'alembic_version'"
@@ -144,8 +170,8 @@ def _assert_empty_postgres_database(database_url: str) -> None:
                 count += int(has_rows)
                 if count:
                     break
-    except Exception as exc:
-        raise RuntimeError("Could not validate the PostgreSQL restore target.") from exc
+    except Exception:
+        raise RuntimeError("Could not validate the PostgreSQL restore target.") from None
     if count:
         raise RuntimeError("PostgreSQL restore requires an empty target database; no changes were applied.")
 
@@ -181,7 +207,7 @@ def create_backup(
     db_path = db_path.resolve()
     upload_root = upload_root.resolve()
     destination = destination.resolve()
-    postgres = bool(database_url and make_url(database_url).get_backend_name() == "postgresql")
+    postgres = bool(database_url and _parse_database_url(database_url).get_backend_name() == "postgresql")
     if not postgres and not db_path.is_file():
         raise FileNotFoundError(f"Database not found: {db_path}")
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -349,7 +375,7 @@ def restore_backup(
     postgres = verification["database_type"] == "postgresql"
     if postgres and not database_url:
         raise RuntimeError("DATABASE_URL is required for PostgreSQL restore.")
-    if not postgres and database_url and make_url(database_url).get_backend_name() == "postgresql":
+    if not postgres and database_url and _parse_database_url(database_url).get_backend_name() == "postgresql":
         raise RuntimeError("The archive contains SQLite data but DATABASE_URL selects PostgreSQL.")
     if not postgres and (db_path.exists() or upload_root.exists()) and not replace:
         raise FileExistsError("Restore targets already exist; pass replace=True after stopping the application.")
@@ -380,7 +406,7 @@ def restore_backup(
         if postgres:
             _assert_empty_postgres_database(database_url)
             switches, environment = _postgres_environment(database_url)
-            database_name = make_url(database_url).database
+            database_name = _parse_database_url(database_url).database
             if not database_name:
                 raise RuntimeError("DATABASE_URL must include a PostgreSQL database name for restore.")
             try:

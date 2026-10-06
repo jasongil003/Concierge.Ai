@@ -34,15 +34,16 @@ The read-only report shows active runtime/version/build identity, health, port
 owner, service state, database type and schema revision, and state-directory
 access. It does not print environment secrets or database contents.
 `concierge status` prints a concise summary and can run from a checkout before
-the source virtual environment is installed. `GET /health/version` provides
-sanitized version, commit, build date, deployment mode, profile, Python version,
-and schema revision. `/health/live` means the process answers; `/health/ready`
-means its database connection/schema and required upload storage pass readiness.
-Authenticated Super Admins can request the richer, sanitized
+the source virtual environment is installed. Unauthenticated
+`GET /health/version` returns only `status` and the semantic `version`.
+`/health/live` means the process answers; `/health/ready` means its database
+connection/schema and required upload storage pass readiness. Authenticated
+Platform Admins can request the richer, sanitized
 `GET /api/admin/system/diagnostics` report. It uses the existing
 `system.configure` permission and reports database, Redis, storage, proxy,
 uptime, backup/update, and provider status without returning credentials or
-connection strings.
+connection strings. Global `GET /health/details` is also restricted to
+Platform Admins.
 
 Development Compose is loopback-only and uses its own host port and named
 volume:

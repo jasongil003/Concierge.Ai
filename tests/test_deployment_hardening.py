@@ -48,16 +48,8 @@ def test_version_endpoint_reports_only_safe_build_identity(monkeypatch: pytest.M
         response = client.get("/health/version")
 
     assert response.status_code == 200
-    assert response.json() == {
-        "version": "0.9.2",
-        "commit": "a1b2c3d4",
-        "build_date": "2026-10-06T01:02:03Z",
-        "deployment_mode": "docker-dev",
-        "profile": "development",
-        "runtime": "python",
-        "python_version": sys.version.split()[0],
-        "schema_revision": database.CURRENT_SCHEMA_REVISION,
-    }
+    assert response.json() == {"status": "ok", "version": "0.9.2"}
+    assert set(response.json()) == {"status", "version"}
     assert "private-build-secret" not in response.text
     assert "private-metrics-token" not in response.text
 
@@ -132,6 +124,54 @@ def test_guest_chat_rate_limit_cannot_be_multiplied_by_new_sessions(monkeypatch:
     assert results[:120] == [False] * 120
     assert results[120] is True
     assert all("192.0.2.15" not in key for key in seen_keys)
+
+
+def test_unresolved_guest_chat_rate_limit_is_property_scoped(monkeypatch: pytest.MonkeyPatch):
+    bucket_counts: dict[str, int] = {}
+    seen_client_keys: set[str] = set()
+
+    async def allow(key: str, limit: int, _seconds: int) -> bool:
+        if key.startswith("guest-chat:"):
+            return True
+        seen_client_keys.add(key)
+        bucket_counts[key] = bucket_counts.get(key, 0) + 1
+        return bucket_counts[key] <= limit
+
+    import app.main as main_module
+
+    monkeypatch.setattr(main_module, "_rate_limit_allowed", allow)
+    unresolved = [
+        asyncio.run(main_module._guest_chat_rate_limited(f"unresolved-{index}", "property-a", ""))
+        for index in range(121)
+    ]
+    other_property = asyncio.run(main_module._guest_chat_rate_limited("other-property", "property-b", ""))
+
+    assert unresolved[:120] == [False] * 120
+    assert unresolved[120] is True
+    assert other_property is False
+    assert len(seen_client_keys) == 2
+    assert all("unresolved-client" not in key for key in seen_client_keys)
+
+
+def test_guest_client_ip_resolution_trusts_only_valid_forwarded_chains():
+    from app.guardrails import NetworkGuard
+
+    guard = NetworkGuard()
+    config = {"trusted_proxy_ranges": ["192.0.2.0/24"]}
+
+    trusted_ip, trusted = guard.client_ip(
+        "192.0.2.10", {"x-forwarded-for": "198.51.100.8, 192.0.2.20"}, config
+    )
+    malformed_ip, malformed_trusted = guard.client_ip(
+        "192.0.2.10", {"x-forwarded-for": "198.51.100.8, not-an-ip"}, config
+    )
+    untrusted_ip, untrusted = guard.client_ip(
+        "203.0.113.10", {"x-forwarded-for": "198.51.100.8"}, config
+    )
+
+    assert (trusted_ip, trusted) == ("198.51.100.8", True)
+    assert (malformed_ip, malformed_trusted) == ("", True)
+    assert (untrusted_ip, untrusted) == ("203.0.113.10", False)
 
 
 def test_sqlite_legacy_schema_upgrade_preserves_rows_and_records_revision(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -256,6 +296,7 @@ def test_doctor_redacts_config_secrets_and_groups_expected_appliance_runtime(tmp
     assert data["conflict"] is False
     assert data["database"] == "PostgreSQL"
     assert data["database_location"] == "remote/configured; credentials hidden"
+    assert data["schema_revision"] == "unknown"
     assert len(data["runtimes"]) == 1
     assert "private-password" not in rendered
     assert "private-encryption-secret" not in rendered
@@ -264,7 +305,7 @@ def test_doctor_redacts_config_secrets_and_groups_expected_appliance_runtime(tmp
     assert "Internet reachability unknown" not in rendered
 
 
-def test_docker_dev_doctor_reports_its_volume_and_running_python_version(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_docker_dev_doctor_reports_its_volume_and_host_diagnostics_python_version(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     project = diagnostics._docker_dev_project(tmp_path)
     args = SimpleNamespace(
         mode="docker-dev", root=tmp_path, config=None, state_directory=None, manifest=None,
@@ -280,7 +321,7 @@ def test_docker_dev_doctor_reports_its_volume_and_running_python_version(tmp_pat
         (200, {"status": "ok", "checks": {"database": "healthy", "storage": "healthy"}}, None)
         if url.endswith("/health/ready") else
         (200, {"status": "ok"}, None) if url.endswith("/health/live") else
-        (200, {"version": "0.9.2", "commit": "abc123", "python_version": "3.14.0", "schema_revision": "20261005_0001"}, None)
+        (200, {"status": "ok", "version": "0.9.2"}, None)
     ))
     monkeypatch.setattr(diagnostics, "_port_owner", lambda _port: ["docker-proxy (pid 123)"])
     monkeypatch.setattr(diagnostics, "_can_connect", lambda _port: True)
@@ -290,7 +331,7 @@ def test_docker_dev_doctor_reports_its_volume_and_running_python_version(tmp_pat
 
     assert data["overall"] == "HEALTHY"
     assert data["container"] == "concierge-dev-web-1"
-    assert data["python"] == "3.14.0"
+    assert data["python"] == sys.version.split()[0]
     assert data["database_location"].startswith("/state/concierge.db in Docker volume")
     assert "127.0.0.1:8081" in rendered
 
@@ -335,6 +376,19 @@ def test_deployment_manifest_is_atomic_sanitized_and_preserves_install_time(tmp_
     assert manifest_path.stat().st_mode & 0o777 == 0o600
     assert "manifest-must-not-have-this" not in manifest_path.read_text(encoding="utf-8")
     assert list(manifest_path.parent.glob("*.tmp")) == []
+
+
+def test_local_schema_revision_command_sanitizes_database_failures(monkeypatch, capsys):
+    from deploy.common import schema_revision
+
+    def fail(_path):
+        raise RuntimeError("postgresql://user:private-test-value@database/concierge")
+
+    monkeypatch.setattr(database, "persisted_schema_revision", fail)
+    assert schema_revision.main() == 1
+    captured = capsys.readouterr()
+    assert captured.out == "unavailable\n"
+    assert "private-test-value" not in captured.out + captured.err
 
 
 def test_update_lock_refuses_parallel_operation_and_recovers_stale_metadata(tmp_path: Path):

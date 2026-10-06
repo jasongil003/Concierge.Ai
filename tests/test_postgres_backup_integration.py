@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from urllib.parse import unquote
 import uuid
 
 import psycopg
@@ -21,13 +22,29 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def _connect(url, **overrides):
+    """Connect with keyword parameters so credentials are never rendered as a DSN."""
+    parsed = make_url(url)
+    options = {}
+    for source, target in (
+        ("host", "host"), ("port", "port"), ("username", "user"),
+        ("password", "password"), ("database", "dbname"),
+    ):
+        value = getattr(parsed, source)
+        if value is not None:
+            options[target] = unquote(value) if source in {"username", "password", "database"} else value
+    for name in ("sslmode", "sslrootcert", "sslcert", "sslkey", "application_name"):
+        if parsed.query.get(name):
+            options[name] = str(parsed.query[name])
+    options.update(overrides)
+    return psycopg.connect(**options)
+
+
 def test_postgres_backup_restores_expected_records_to_clean_database(tmp_path: Path):
     parsed = make_url(DATABASE_URL)
     target_database = f"restore_{uuid.uuid4().hex[:12]}"
-    psycopg_url = parsed.set(drivername="postgresql")
-    maintenance_url = psycopg_url.set(database="postgres").render_as_string(hide_password=False)
-    target_url = parsed.set(database=target_database).render_as_string(hide_password=False)
-    target_psycopg_url = psycopg_url.set(database=target_database).render_as_string(hide_password=False)
+    maintenance_url = parsed.set(drivername="postgresql", database="postgres")
+    target_url = parsed.set(database=target_database)
     property_id = f"backup-drill-{uuid.uuid4().hex[:12]}"
     uploads = tmp_path / "uploads"
     uploads.mkdir()
@@ -39,7 +56,7 @@ def test_postgres_backup_restores_expected_records_to_clean_database(tmp_path: P
         PropertyRecord(property_id=property_id, hotel_name="Restore Drill Property", domain="restore.example.test")
     )
     try:
-        with psycopg.connect(maintenance_url, autocommit=True) as connection:
+        with _connect(maintenance_url, autocommit=True) as connection:
             connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(target_database)))
         created = create_backup(tmp_path / "unused.sqlite", uploads, archive, database_url=DATABASE_URL)
         assert created["files"] == 2
@@ -51,13 +68,13 @@ def test_postgres_backup_restores_expected_records_to_clean_database(tmp_path: P
             restored_uploads,
             database_url=target_url,
         )
-        with psycopg.connect(target_psycopg_url) as connection:
+        with _connect(target_url) as connection:
             row = connection.execute(
                 "SELECT hotel_name,domain FROM properties WHERE property_id=%s",
                 (property_id,),
             ).fetchone()
         assert row == ("Restore Drill Property", "restore.example.test")
-        with psycopg.connect(psycopg_url.render_as_string(hide_password=False)) as source_connection:
+        with _connect(DATABASE_URL) as source_connection:
             source_row = source_connection.execute(
                 "SELECT hotel_name,domain FROM properties WHERE property_id=%s",
                 (property_id,),
@@ -67,5 +84,5 @@ def test_postgres_backup_restores_expected_records_to_clean_database(tmp_path: P
     finally:
         with connect_database(tmp_path / "postgres-ignored.db") as connection:
             connection.execute("DELETE FROM properties WHERE property_id=?", (property_id,))
-        with psycopg.connect(maintenance_url, autocommit=True) as connection:
+        with _connect(maintenance_url, autocommit=True) as connection:
             connection.execute(sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(target_database)))
