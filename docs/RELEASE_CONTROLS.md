@@ -83,3 +83,51 @@ production release cannot be published until the approved signer is configured.
 Never trust `main` as the appliance update input. Keep release creation and
 asset replacement permissions limited to release operators and preserve the
 immutable tag-to-commit and artifact-to-checksum record.
+
+## Production release trust boundary
+
+Treat the signing identity, release workflow, protected tag namespace, and
+GitHub release permission as one production trust boundary. The workflow's
+signature check proves that the tag was signed by the configured identity; it
+does not prove that GitHub currently restricts who can change that identity or
+publish the resulting artifact. Repository settings must be reviewed and
+recorded before a production release is enabled.
+
+| Capability | Required owner and control |
+| --- | --- |
+| Change `RELEASE_TAG_PUBLIC_KEY` | Repository security administrators only. Require a reviewed change request with an independent approver who verifies the public key against the offline signing-key custody record. |
+| Change `RELEASE_TAG_SIGNER_FINGERPRINT` | Same restricted administrator group and independent review. Check the complete fingerprint against the approved signing-key record; do not accept a value supplied only by the release operator. |
+| Modify `.github/workflows/release.yml` or release-control policy | Protected `main` pull request with required CI and independent security/maintainer review. Protect workflow and release-control paths with `CODEOWNERS` or an equivalent mandatory review rule. |
+| Create, move, or delete production `v*` tags | A small release-operator group. Apply a tag ruleset that restricts creation and blocks update/deletion; require signed annotated tags from the approved key. |
+| Publish or replace GitHub Releases/assets | Release operators only, using the reviewed workflow. Do not grant this to the role that can silently replace the trusted signer. Prohibit replacing an existing version's assets. |
+| Change Actions permissions, environments, or repository rules | Repository administrators under the same tracked, independently reviewed change process. Keep workflow token permissions least-privilege and require environment approval for production publication. |
+
+Use separate people or separately controlled roles for signing-key custody,
+signer-configuration changes, and production publication. At minimum, a
+publisher must not be able to redefine the trusted signer without independent
+review. Require multi-person approval for changes to the signing key,
+fingerprint, tag rules, workflow permissions, and release environment. Keep an
+auditable record of the approver, setting changed, old/new fingerprint (never
+the private key), and effective date.
+
+Before enabling production releases, an administrator must inspect and record
+the live GitHub configuration:
+
+1. `main` ruleset or branch protection applies to administrators, has no
+   unreviewed bypass, requires pull requests, requires the named CI checks,
+   and protects `.github/workflows/**` and release documentation.
+2. A tag ruleset covers production version tags, restricts creation to
+   release operators, and prevents force-update and deletion.
+3. Actions workflow permissions are read-only by default; the release job has
+   only the permissions needed to create the intended release and upload its
+   assets.
+4. The production environment limits deployment to release operators and
+   requires an independent reviewer. Required reviewers must not be bypassable
+   by the publisher.
+5. Repository secret/variable administration is limited to the security
+   administrators described above, and audit-log evidence is retained.
+
+The current repository audit cannot access these GitHub settings. Their state
+is **OPERATIONAL VERIFICATION REQUIRED**; this is not a code vulnerability.
+Do not treat the existence of the workflow checks above as evidence that the
+GitHub permission boundary is configured.
