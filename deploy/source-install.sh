@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 
 ROOT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
+ORIGINAL_ARGS=("$@")
 INSTALL_LOG=$(mktemp "${TMPDIR:-/tmp}/concierge-install.XXXXXX")
 VERBOSE=0
 WITH_QA=0
@@ -139,12 +140,20 @@ PYTHON_VERSION=$("$PYTHON_BIN" --version 2>&1 | awk '{print $2}')
 "$PYTHON_BIN" -m venv --help >/dev/null 2>&1 || fail "Python $PYTHON_VERSION is missing venv support. Install the OS venv package (for Ubuntu: sudo apt install python3.12-venv) and rerun."
 printf '[✓] Python: %s\n' "$PYTHON_VERSION"
 
+if [[ "${CONCIERGE_OPERATION_LOCK_HELD:-}" != 1 ]]; then
+    if "$PYTHON_BIN" "$ROOT_DIR/deploy/common/operation_lock.py" run \
+        --lock "$ROOT_DIR/.concierge-deployment.lock" -- "$0" "${ORIGINAL_ARGS[@]}"; then
+        exit 0
+    else
+        lock_status=$?
+        exit "$lock_status"
+    fi
+fi
+
 STEP=port-check
 SERVICE_ARGS=(--root "$ROOT_DIR" --platform "$PLATFORM")
 if ! "$PYTHON_BIN" "$ROOT_DIR/deploy/source_service.py" "${SERVICE_ARGS[@]}" port-check; then
-    if ! "$PYTHON_BIN" "$ROOT_DIR/deploy/source_service.py" "${SERVICE_ARGS[@]}" owns; then
-        fail 'Port 8080 is already in use by another application. Stop it or change its port before installing Concierge.AI.'
-    fi
+    fail 'Port 8080 is occupied by another Concierge.AI runtime or application. No service or database changes were made. Inspect the port owner, then resolve the conflict before installing.'
 fi
 
 STEP=virtual-environment
@@ -239,6 +248,8 @@ SERVICE_MODE=$(printf '%s\n' "$SERVICE_OUTPUT" | awk -F= '$1 == "service" {print
 printf '[✓] Service configured%s\n' "${SERVICE_MODE:+ ($SERVICE_MODE)}"
 
 if [[ $NO_START -eq 1 ]]; then
+    "$VENV_PYTHON" "$ROOT_DIR/deploy/common/deployment_manifest.py" \
+        --path "$ROOT_DIR/state/deployment.json" --root "$ROOT_DIR" --mode source >/dev/null
     printf '\nService is configured but was not started (--no-start). Run ./start.sh when ready.\n'
     exit 0
 fi
@@ -250,12 +261,13 @@ if ! "$VENV_PYTHON" "$ROOT_DIR/deploy/source_service.py" "${SERVICE_ARGS[@]}" wa
 fi
 printf '[✓] Health check passed\n'
 INSTALLER_STARTING=0
+"$VENV_PYTHON" "$ROOT_DIR/deploy/common/deployment_manifest.py" \
+    --path "$ROOT_DIR/state/deployment.json" --root "$ROOT_DIR" --mode source >/dev/null
 
 printf '\nInstallation complete.\n\n'
 printf 'Guest:\nhttp://localhost:8080\n\n'
 printf 'Admin:\nhttp://localhost:8080/admin\n\n'
-printf 'Default login:\nUsername: root\nPassword: admin\n\n'
-printf 'Change the default password after first login.\n'
+printf 'Use the administrator account configured during installation.\n'
 if [[ "$PLATFORM" == linux ]]; then
     HOST_IP=$("$VENV_PYTHON" -c '
 import socket

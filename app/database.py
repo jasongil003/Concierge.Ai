@@ -22,6 +22,7 @@ from . import metrics
 
 
 CURRENT_SCHEMA_REVISION = "20261005_0001"
+SQLITE_SCHEMA_METADATA_TABLE = "concierge_schema_metadata"
 _migration_schema_mode: ContextVar[bool] = ContextVar("migration_schema_mode", default=False)
 _migration_connection: ContextVar[Connection | None] = ContextVar("migration_connection", default=None)
 _engine: Engine | None = None
@@ -457,24 +458,107 @@ def bind_migration_connection(connection: Connection):
         _migration_connection.reset(token)
 
 
-def verify_schema_current() -> None:
-    if not database_url_configured():
-        return
-    with _postgres_engine().connect() as connection:
+def sqlite_schema_revision(path: Path) -> str | None:
+    """Read the SQLite schema marker without creating or modifying the database."""
+    if not path.is_file():
+        return None
+    try:
+        connection = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=2)
         try:
-            revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
-        except SQLAlchemyError as exc:
-            raise RuntimeError("PostgreSQL schema is not migrated; run `alembic upgrade head` before starting the API.") from exc
-    if revision != CURRENT_SCHEMA_REVISION:
-        raise RuntimeError("PostgreSQL schema revision is not current; run `alembic upgrade head` before starting the API.")
+            table = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                (SQLITE_SCHEMA_METADATA_TABLE,),
+            ).fetchone()
+            if table is None:
+                return None
+            row = connection.execute(
+                f"SELECT revision FROM {SQLITE_SCHEMA_METADATA_TABLE} WHERE id=1"  # nosec B608: this identifier is a module constant, never user input.
+            ).fetchone()
+            if row is None or not row[0]:
+                return "unknown"
+            return str(row[0])
+        finally:
+            connection.close()
+    except sqlite3.Error as exc:
+        raise RuntimeError("SQLite schema metadata could not be read safely.") from exc
 
 
-def database_ready() -> None:
+def _revision_key(revision: str) -> tuple[int, int] | None:
+    match = re.fullmatch(r"(\d{8})_(\d{4})", revision)
+    return (int(match.group(1)), int(match.group(2))) if match else None
+
+
+def verify_schema_current(sqlite_path: Path | None = None) -> None:
+    if database_url_configured():
+        with _postgres_engine().connect() as connection:
+            try:
+                revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
+            except SQLAlchemyError as exc:
+                raise RuntimeError("PostgreSQL schema is not migrated; run `alembic upgrade head` before starting the API.") from exc
+        if revision != CURRENT_SCHEMA_REVISION:
+            current_key = _revision_key(CURRENT_SCHEMA_REVISION)
+            stored_key = _revision_key(str(revision)) if revision is not None else None
+            if current_key is not None and stored_key is not None and stored_key > current_key:
+                raise RuntimeError("Database schema is newer than this application build; install a compatible application release.")
+            if stored_key is None:
+                raise RuntimeError("PostgreSQL schema revision is unknown; refusing to serve traffic against unrecognized persisted state.")
+            raise RuntimeError("Database migration required; run `alembic upgrade head` before starting the API.")
+        return
+
+    if sqlite_path is None:
+        return
+    revision = sqlite_schema_revision(Path(sqlite_path))
+    if revision is None:
+        # Existing SQLite databases predate the explicit marker. Their store
+        # initializers apply the repository's additive, idempotent upgrades.
+        return
+    current_key = _revision_key(CURRENT_SCHEMA_REVISION)
+    stored_key = _revision_key(revision)
+    if stored_key is None:
+        raise RuntimeError("SQLite schema revision is not recognized; refusing to start against unknown persisted state.")
+    if current_key is not None and stored_key > current_key:
+        raise RuntimeError("Database schema is newer than this application build; install a compatible application release.")
+    if current_key is not None and stored_key < current_key:
+        raise RuntimeError(
+            "SQLite schema revision is older than this application build; refusing to mark it current without a supported migration."
+        )
+
+
+def stamp_sqlite_schema_current(path: Path) -> None:
+    """Record the revision only after all store initializers have completed."""
+    with sqlite3.connect(path, timeout=5) as connection:
+        connection.execute(
+            f"CREATE TABLE IF NOT EXISTS {SQLITE_SCHEMA_METADATA_TABLE} ("
+            "id INTEGER PRIMARY KEY CHECK (id=1), revision TEXT NOT NULL)"
+        )
+        connection.execute(
+            f"INSERT INTO {SQLITE_SCHEMA_METADATA_TABLE} (id, revision) VALUES (1, ?) "  # nosec B608: this identifier is a module constant, never user input.
+            "ON CONFLICT(id) DO UPDATE SET revision=excluded.revision",
+            (CURRENT_SCHEMA_REVISION,),
+        )
+
+
+def database_ready(sqlite_path: Path | None = None) -> None:
     if database_url_configured():
         with _postgres_engine().connect() as connection:
             connection.execute(text("SELECT 1")).scalar_one()
-    else:
-        raise RuntimeError("PostgreSQL is not configured for this deployment.")
+        verify_schema_current()
+        return
+    if sqlite_path is None:
+        raise RuntimeError("SQLite database path is required for readiness checks.")
+    with sqlite3.connect(f"{Path(sqlite_path).resolve().as_uri()}?mode=ro", uri=True, timeout=2) as connection:
+        connection.execute("SELECT 1").fetchone()
+    revision = sqlite_schema_revision(Path(sqlite_path))
+    if revision != CURRENT_SCHEMA_REVISION:
+        raise RuntimeError("Database migration required; restart with the current application to apply supported SQLite upgrades.")
+
+
+def persisted_schema_revision(sqlite_path: Path) -> str:
+    if database_url_configured():
+        with _postgres_engine().connect() as connection:
+            revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one_or_none()
+        return str(revision) if revision else "unavailable"
+    return sqlite_schema_revision(sqlite_path) or "unavailable"
 
 
 def dispose_database() -> None:

@@ -4,10 +4,7 @@
 <dict>
   <key>Label</key><string>com.conciergeai.proxy</string>
   <key>ProgramArguments</key>
-  <array>
-    <string>/Library/Frameworks/Python.framework/Versions/3.14/bin/python3.14</string>
-    <string>/opt/concierge/current/deploy/common/loopback_proxy.py</string>
-  </array>
+  <array><string>/opt/concierge/current/deploy/macos/run-proxy.sh</string></array>
   <key>UserName</key><string>_concierge</string>
   <key>GroupName</key><string>_concierge</string>
   <key>WorkingDirectory</key><string>/opt/concierge/current</string>

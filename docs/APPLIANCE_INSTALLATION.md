@@ -15,13 +15,15 @@ server or a Mac mini in this development environment. Therefore neither target
 is yet verified for production support. Do not treat static checks or a passing
 application health endpoint as a substitute for the reboot test below.
 
-Checks completed in this checkout: `pytest -q` reported 778 passed and 16
-skipped; installer shell syntax passed; all macOS LaunchDaemon property lists
-passed `plutil -lint`; deployment Python files compiled; Docker Compose
-configuration parsed. `shellcheck` and `systemd-analyze` were unavailable on
-the Mac host. The CI workflow now contains Linux systemd and Docker validation
-and macOS dependency/plist validation, but those hosted jobs have not run for
-this change yet. These checks do not count as a real reboot acceptance test.
+Checks completed in this checkout: `pytest -q` reported 896 passed and 17
+skipped, with 2 warnings; installer shell syntax and ShellCheck passed; all
+macOS LaunchDaemon property lists passed `plutil -lint`; deployment Python
+files compiled; Bandit passed; Docker Compose configuration parsed; and the
+CI-mode Playwright browser suite reported 257 passed and 35 skipped. Dependency
+vulnerability audits could not complete because package-registry access was
+unavailable. Docker runtime and `systemd-analyze` host checks are unavailable
+on this Mac. Hosted CI jobs have not run for this change yet. These checks do
+not count as a real reboot acceptance test.
 
 The installer supports Ubuntu Server 24.04 LTS and 26.04 LTS on amd64 and arm64,
 and Apple Silicon Macs running macOS Sequoia 15, Tahoe 26, or Golden Gate 27.
@@ -46,10 +48,9 @@ GPU availability, and whether local AI is advisable. It installs Ubuntu's
 Docker Engine and Compose packages, creates the locked `concierge` system user,
 generates production secrets, and installs the selected stable release under
 `/opt/concierge`. It prompts for the hotel's canonical hostname, SG5 processor
-URL, and trusted administrator source CIDRs. A fresh appliance uses the
-bootstrap login `root` / `admin` and offers to change that password after the
-first sign-in. Change it before exposing the management interface to an
-untrusted network.
+URL, trusted administrator source CIDRs, and a new administrator password.
+Password input is hidden and confirmed; it is saved only in the protected host
+configuration and is not printed by the installer.
 
 Concierge runs in a single Docker Compose project. SQLite and uploaded files
 persist in the `concierge-state` Docker volume; verified backup archives live in
@@ -167,13 +168,25 @@ sudo concierge backup
 
 ## Updates
 
+Start troubleshooting with `concierge doctor`; it reports the active runtime,
+release identity, listener owner, service state, and readiness separately from
+liveness. `concierge status` gives a concise summary. Both commands are
+read-only. The app also exposes `GET /health/version` with sanitized build and
+schema identity.
+
 The shared command checks the latest stable GitHub Release metadata, downloads
 the versioned source archive, verifies SHA-256, and rejects unexpected archive
 paths. It verifies a fresh backup before changing the active release, runs the
 application migration/import check, restarts services, and waits for healthy
 readiness. It restores the previous application release if installation,
 migration, or health checks fail; it retains the verified backup and does not
-roll a database backward automatically.
+roll a database backward automatically. After pointer rollback it validates
+the previous release. If that release cannot read the migrated schema, the
+command reports that readiness also failed and keeps the backup for an
+operator-led recovery. The current updater switches the `current` pointer
+before migration and health validation; it does not promote a candidate only
+after readiness passes. Install/update work is protected by a process lock at
+`/opt/concierge/.deployment.lock`.
 
 ```bash
 sudo concierge update
@@ -182,6 +195,11 @@ sudo concierge update
 The repository must publish a stable `vMAJOR.MINOR.PATCH` GitHub Release with
 the generated appliance assets before the bootstrap installer or update command
 can run. Development commits and `main` are never auto-installed.
+
+The active deployment manifest is stored at `deployment.json` in the appliance
+state directory. It contains version, commit, deployment mode, schema revision,
+and install/update timestamps only. Verified backups carry equivalent
+application identity and checksums.
 
 ## Boot Test
 

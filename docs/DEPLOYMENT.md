@@ -8,6 +8,78 @@ reboot acceptance test has passed on each target platform**.
 
 This page retains the manual development and lab setup instructions below.
 
+## Supported modes and diagnosis
+
+Concierge.AI supports these modes:
+
+| Mode | Runtime | Default listener | Persistent state |
+| --- | --- | --- | --- |
+| `source` | Python from a Git checkout; optional systemd/LaunchAgent service | `127.0.0.1:8080` | `<checkout>/state` unless `.env` selects another path |
+| `docker-dev` | Development Docker Compose project | `127.0.0.1:8081` on the host | Checkout-specific Compose volume mounted at `/state` |
+| `appliance` | Ubuntu Docker Compose under systemd, or macOS Python under launchd | `127.0.0.1:8080` | `/var/lib/concierge` or `/Library/Application Support/Concierge.AI` |
+
+One runtime should own a Concierge installation's listening port and state. Do
+not run Docker development, source/systemd, and appliance deployments against
+the same port or database. Their default state locations are separate. If you
+customize a database path, keep it exclusive to one deployment mode unless you
+have a tested shared-state upgrade plan.
+
+Start troubleshooting with:
+
+```bash
+concierge doctor
+```
+
+The read-only report shows active runtime/version/build identity, health, port
+owner, service state, database type and schema revision, and state-directory
+access. It does not print environment secrets or database contents.
+`concierge status` prints a concise summary and can run from a checkout before
+the source virtual environment is installed. `GET /health/version` provides
+sanitized version, commit, build date, deployment mode, profile, Python version,
+and schema revision. `/health/live` means the process answers; `/health/ready` means its
+database connection/schema and required upload storage pass readiness.
+
+Development Compose is loopback-only and uses its own host port and named
+volume:
+
+```bash
+./deploy/docker-compose.sh dev up --build
+```
+
+Open `http://127.0.0.1:8081`. For an intentional trusted-LAN test, bind the
+development listener explicitly:
+
+```bash
+CONCIERGE_DEV_BIND_HOST=0.0.0.0 ./deploy/docker-compose.sh dev up --build
+```
+
+This exposes unencrypted development HTTP to reachable interfaces; it does not
+prove Internet reachability and must not be used as a public deployment.
+
+If diagnosis reports a port conflict, inspect the named process/container and
+service before deciding which runtime to change. Installers refuse conflicting
+source/appliance modes and never terminate the port owner. On Ubuntu,
+`concierge.service` supervises the appliance Compose project; it is the same
+runtime, not a second API. The development Compose state volume remains separate
+from the appliance volume.
+
+An older SQLite database without Concierge's schema marker is upgraded through
+the stores' idempotent, additive compatibility migrations during application
+initialization. Existing records are retained. After all store initializers
+succeed, the app records the current schema revision. A newer recorded revision
+causes startup to fail with a compatibility message; the database is opened
+read-only for that comparison. PostgreSQL startup/readiness checks the Alembic
+revision. Migration failures stop candidate startup; the installer does not
+reset a database.
+
+Appliance installs and updates serialize on `/opt/concierge/.deployment.lock`.
+The OS lock is released when its owner exits, so stale lock-file contents do
+not block the next operation. A busy operation reports its PID and start time.
+Successful installs/updates write sanitized `deployment.json` metadata under
+their state directory. Backup archives also carry version, commit, schema
+revision, deployment mode, database type, and checksums without environment
+credentials.
+
 ## Minimum prototype
 
 You need:
@@ -37,7 +109,7 @@ cp .env.example .env
 ollama pull qwen3:4b
 ollama serve
 
-uvicorn app.main:app --host 127.0.0.1 --port 8080 --no-proxy-headers
+./concierge serve
 ```
 
 Open:
@@ -57,17 +129,21 @@ http://localhost:8080/health
 ```bash
 cp .env.example .env
 # Add unique production secrets and configure ANTlabs browser handoff first.
-docker compose up --build
+./deploy/docker-compose.sh appliance up --build
 ```
 
-On a fresh database, the default administrator is `root` / `admin`; after
-first sign-in the Admin UI offers to change that password or skip for now.
-Change it before exposing the management interface to an untrusted network.
+Before starting a production Compose profile copied from `.env.example`, replace
+the local bootstrap password with a unique value of at least 12 characters and
+restrict access to `.env`. The managed appliance installer instead prompts for
+a hidden, confirmed administrator password and does not print it. Keep the
+management interface restricted to the configured trusted administrator
+networks.
 The production Compose profile fails closed until `.env` contains a valid
 `CREDENTIAL_ENCRYPTION_SECRET`, `METRICS_TOKEN`,
 `CANONICAL_HOSTS`, `PUBLIC_BASE_URL`, and a restrictive `ADMIN_ALLOWED_CIDRS`.
-The Compose profile preserves an explicitly configured bootstrap account; on
-a new installation it uses the built-in root/admin credentials.
+The Compose profile preserves an explicitly configured bootstrap account. The
+example `.env` retains its local development bootstrap value for compatibility;
+it must not be used for a production installation.
 Set `ANTLABS_MODE=browser_handoff` and configure `ANTLABS_AUTH_URL` as
 `https://<sg5-host>/login/main.ant?c=proc` before starting it. The live adapter
 uses the SG5 built-in processor; its connection check verifies reachability, not

@@ -1,13 +1,19 @@
 services:
   concierge:
     image: concierge-ai:${CONCIERGE_VERSION:-local}
-    build: .
+    build:
+      context: .
+      args:
+        CONCIERGE_VERSION: ${CONCIERGE_VERSION:-local}
+        CONCIERGE_COMMIT: ${CONCIERGE_COMMIT:-unknown}
+        CONCIERGE_BUILD_DATE: ${CONCIERGE_BUILD_DATE:-unknown}
     init: true
     stop_grace_period: 45s
     env_file:
       - ${CONCIERGE_CONFIG_FILE:-.env}
     environment:
       APP_ENVIRONMENT: production
+      CONCIERGE_DEPLOYMENT_MODE: appliance
       DB_PATH: /state/concierge.db
       UPLOAD_ROOT: /state/uploads
       CONCIERGE_BACKUP_DIR: /backups

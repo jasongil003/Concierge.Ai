@@ -10,13 +10,18 @@ RECOVERY_STATE="$STATE_ROOT/recovery-state.json"
 RECOVERY_RESTART_COMMAND=(/usr/local/libexec/concierge-restart)
 
 platform_service_start() {
+    platform_runtime_preflight
     launchctl kickstart -k system/com.conciergeai.server
     launchctl kickstart -k system/com.conciergeai.proxy
 }
-platform_service_restart() { /usr/local/libexec/concierge-restart; }
+platform_service_restart() { platform_runtime_preflight && /usr/local/libexec/concierge-restart; }
 platform_service_stop() {
     launchctl kill SIGTERM system/com.conciergeai.proxy >/dev/null 2>&1 || true
     launchctl kill SIGTERM system/com.conciergeai.server >/dev/null 2>&1 || true
+    /Library/Frameworks/Python.framework/Versions/3.14/bin/python3.14 \
+        /opt/concierge/current/deploy/common/preflight.py port-free --port 8080 --timeout 60 && \
+        /Library/Frameworks/Python.framework/Versions/3.14/bin/python3.14 \
+        /opt/concierge/current/deploy/common/preflight.py port-free --port 8081 --timeout 60
 }
 platform_service_status() {
     launchctl print system/com.conciergeai.server
@@ -96,6 +101,16 @@ platform_backup_verify() {
     run_app_python -m app.backup verify "$1" >/dev/null
 }
 
+platform_runtime_preflight() {
+    /Library/Frameworks/Python.framework/Versions/3.14/bin/python3.14 \
+        /opt/concierge/current/deploy/common/preflight.py appliance --port 8080
+}
+
+platform_record_manifest() {
+    run_app_python /opt/concierge/current/deploy/common/deployment_manifest.py \
+        --path "$STATE_ROOT/deployment.json" --root /opt/concierge/current --mode appliance >/dev/null
+}
+
 platform_retention() {
     find "$BACKUP_ROOT" -type f -name 'concierge-*.zip' -mtime +30 -delete
     current=$(readlink "$APP_ROOT/current" 2>/dev/null || true)
@@ -110,6 +125,9 @@ platform_internal_serve() { die "Concierge runs as a launchd LaunchDaemon on mac
 platform_internal_stop() { platform_service_stop; }
 
 platform_migrate() {
+    if run_app_python -c 'import os,sys; sys.exit(0 if os.getenv("DATABASE_URL", "").strip() else 1)'; then
+        run_app_python -m alembic upgrade head
+    fi
     run_app_python -c 'import app.main'
 }
 

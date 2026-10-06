@@ -27,6 +27,7 @@ jobs:
           [[ "$RELEASE_TAG" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]
           VERSION="${RELEASE_TAG#v}"
           COMMIT="$(git rev-parse "$RELEASE_TAG^{commit}")"
+          BUILD_DATE="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           ARTIFACT="concierge-ai-${VERSION}.tar.gz"
           git archive --format=tar "$RELEASE_TAG" | gzip -n > "$ARTIFACT"
           SHA256="$(sha256sum "$ARTIFACT" | awk '{print $1}')"
@@ -35,6 +36,7 @@ jobs:
             printf 'ARTIFACT=%s\n' "$ARTIFACT"
             printf 'SHA256=%s\n' "$SHA256"
             printf 'COMMIT=%s\n' "$COMMIT"
+            printf 'BUILD_DATE=%s\n' "$BUILD_DATE"
           } > concierge-release.env
           cp deploy/install.sh concierge-install.sh
           cp deploy/common/runtime.sh concierge-runtime.sh

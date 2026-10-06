@@ -18,7 +18,9 @@ from urllib.parse import unquote
 
 from sqlalchemy.engine import make_url
 
+from .build_info import BUILD_IDENTITY
 from .config import settings
+from .database import CURRENT_SCHEMA_REVISION
 
 
 FORMAT_VERSION = 2
@@ -186,12 +188,19 @@ def create_backup(
                         member = "uploads/" + path.relative_to(upload_root).as_posix()
                         members[member] = _digest_file(path)
                         archive.write(path, member)
+                identity = BUILD_IDENTITY
                 manifest = {
                     "format_version": FORMAT_VERSION,
                     "database_type": "postgresql" if postgres else "sqlite",
                     "created_at": int(time.time()),
                     "database": database_member,
                     "files": members,
+                    "concierge": {
+                        "version": identity["version"],
+                        "commit": identity["commit"],
+                        "deployment_mode": identity["deployment_mode"],
+                        "schema_revision": CURRENT_SCHEMA_REVISION,
+                    },
                 }
                 archive.writestr(MANIFEST_MEMBER, json.dumps(manifest, indent=2, sort_keys=True))
             os.replace(temporary_archive, destination)
@@ -223,6 +232,14 @@ def verify_backup(archive_path: Path, *, database_url: str = "") -> dict[str, ob
                 or (database_type == "sqlite") != (database_member == SQLITE_MEMBER)
             ):
                 raise RuntimeError("Backup manifest is invalid.")
+            identity = manifest.get("concierge")
+            if identity is not None and (
+                not isinstance(identity, dict)
+                or any(not isinstance(identity.get(key), str) or len(identity[key]) > 128 for key in (
+                    "version", "commit", "deployment_mode", "schema_revision"
+                ))
+            ):
+                raise RuntimeError("Backup application metadata is invalid.")
             if len(names) != len(archive_names) or names != set(files) | {MANIFEST_MEMBER}:
                 raise RuntimeError("Backup contains duplicate or unmanifested archive members.")
             total_bytes = 0
