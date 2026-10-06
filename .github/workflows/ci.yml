@@ -192,8 +192,14 @@ jobs:
           pg_restore --version | grep -qE '^pg_restore \(PostgreSQL\) 16\.'
       - name: Generate integration-only application credentials
         run: |
-          echo "ADMIN_BOOTSTRAP_PASSWORD=$(openssl rand -hex 16)A!" >> "$GITHUB_ENV"
-          echo "CREDENTIAL_ENCRYPTION_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          admin_bootstrap_password="$(openssl rand -hex 16)A!"
+          credential_encryption_secret="$(openssl rand -hex 32)"
+          printf '::add-mask::%s\n' "$admin_bootstrap_password"
+          printf '::add-mask::%s\n' "$credential_encryption_secret"
+          {
+            printf 'ADMIN_BOOTSTRAP_PASSWORD=%s\n' "$admin_bootstrap_password"
+            printf 'CREDENTIAL_ENCRYPTION_SECRET=%s\n' "$credential_encryption_secret"
+          } >> "$GITHUB_ENV"
       - name: Apply fresh schema and confirm repeatable migration
         run: |
           alembic upgrade head
@@ -256,10 +262,16 @@ jobs:
       - uses: actions/checkout@v7
       - name: Generate one-run smoke credentials
         run: |
+          admin_bootstrap_password="$(openssl rand -hex 16)A!"
+          credential_encryption_secret="$(openssl rand -hex 32)"
+          metrics_token="$(openssl rand -hex 32)"
+          printf '::add-mask::%s\n' "$admin_bootstrap_password"
+          printf '::add-mask::%s\n' "$credential_encryption_secret"
+          printf '::add-mask::%s\n' "$metrics_token"
           {
-            printf 'ADMIN_BOOTSTRAP_PASSWORD=%sA!\n' "$(openssl rand -hex 16)"
-            printf 'CREDENTIAL_ENCRYPTION_SECRET=%s\n' "$(openssl rand -hex 32)"
-            printf 'METRICS_TOKEN=%s\n' "$(openssl rand -hex 32)"
+            printf 'ADMIN_BOOTSTRAP_PASSWORD=%s\n' "$admin_bootstrap_password"
+            printf 'CREDENTIAL_ENCRYPTION_SECRET=%s\n' "$credential_encryption_secret"
+            printf 'METRICS_TOKEN=%s\n' "$metrics_token"
           } >> "$GITHUB_ENV"
       - name: Build production image
         run: |
@@ -423,10 +435,16 @@ jobs:
         run: python -m py_compile deploy/common/loopback_proxy.py deploy/common/ops.py
       - name: Generate one-run validation credentials
         run: |
+          admin_bootstrap_password="$(python -c 'import secrets; print(secrets.token_hex(24))')A!"
+          credential_encryption_secret="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+          metrics_token="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+          printf '::add-mask::%s\n' "$admin_bootstrap_password"
+          printf '::add-mask::%s\n' "$credential_encryption_secret"
+          printf '::add-mask::%s\n' "$metrics_token"
           {
-            printf 'ADMIN_BOOTSTRAP_PASSWORD=%sA!\n' "$(python -c 'import secrets; print(secrets.token_hex(24))')"
-            printf 'CREDENTIAL_ENCRYPTION_SECRET=%s\n' "$(python -c 'import secrets; print(secrets.token_hex(32))')"
-            printf 'METRICS_TOKEN=%s\n' "$(python -c 'import secrets; print(secrets.token_hex(32))')"
+            printf 'ADMIN_BOOTSTRAP_PASSWORD=%s\n' "$admin_bootstrap_password"
+            printf 'CREDENTIAL_ENCRYPTION_SECRET=%s\n' "$credential_encryption_secret"
+            printf 'METRICS_TOKEN=%s\n' "$metrics_token"
           } >> "$GITHUB_ENV"
       - name: Validate production settings
         run: |
