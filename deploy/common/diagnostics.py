@@ -14,6 +14,8 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
+import zipfile
+from datetime import datetime, timezone
 
 
 SAFE_PROFILE = {"development", "staging", "production", "test"}
@@ -72,7 +74,15 @@ def read_config(path: Path | None) -> dict[str, str]:
         return values
     allowed = {
         "APP_ENVIRONMENT", "DB_PATH", "DATABASE_URL", "UPLOAD_ROOT", "CONCIERGE_INTERNAL_PORT",
-        "CONCIERGE_DEV_BIND_HOST", "CONCIERGE_DEV_PORT",
+        "CONCIERGE_DEV_BIND_HOST", "CONCIERGE_DEV_PORT", "CONCIERGE_BACKUP_DIR",
+        "REDIS_URL",
+        "GEMINI_API_KEY", "GROQ_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY",
+        "ANTHROPIC_API_KEY", "CLAUDE_API_KEY", "COMPATIBLE_API_KEY",
+    }
+    secret_presence_names = {"REDIS_URL"}
+    api_key_names = {
+        "GEMINI_API_KEY", "GROQ_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY",
+        "ANTHROPIC_API_KEY", "CLAUDE_API_KEY", "COMPATIBLE_API_KEY",
     }
     for line in lines:
         match = re.match(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$", line)
@@ -81,11 +91,60 @@ def read_config(path: Path | None) -> dict[str, str]:
         value = match.group(2).strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
             value = value[1:-1]
-        values[match.group(1)] = value
+        key = match.group(1)
+        values[key] = ("configured" if value else "") if key in api_key_names | secret_presence_names else value
     for key in allowed:
         if key in os.environ:
-            values[key] = os.environ[key]
+            values[key] = ("configured" if os.environ[key] else "") if key in api_key_names | secret_presence_names else os.environ[key]
     return values
+
+
+def _sqlite_ai_credentials(path: Path | None) -> bool | None:
+    if path is None or not path.is_file():
+        return None
+    import sqlite3
+
+    try:
+        with sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=1) as db:
+            exists = db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='provider_credentials'"
+            ).fetchone()
+            if not exists:
+                return False
+            return bool(db.execute("SELECT 1 FROM provider_credentials LIMIT 1").fetchone())
+    except sqlite3.Error:
+        return None
+
+
+def _latest_backup(directory: Path | None) -> dict[str, str]:
+    if directory is None or not directory.is_dir():
+        return {"status": "unknown", "created_at": "unknown", "version": "unknown"}
+    try:
+        backups = sorted(directory.glob("concierge-*.zip"), key=lambda item: item.stat().st_mtime, reverse=True)
+    except OSError:
+        backups = []
+    for path in backups[:20]:
+        try:
+            with zipfile.ZipFile(path) as archive:
+                info = archive.getinfo("manifest.json")
+                if info.file_size > 1024 * 1024:
+                    continue
+                manifest = json.loads(archive.read("manifest.json"))
+            created = manifest.get("created_at")
+            if not isinstance(created, int) or created < 0:
+                continue
+            identity = manifest.get("concierge", {})
+            version = identity.get("version") if isinstance(identity, dict) else None
+            if not isinstance(version, str) or not re.fullmatch(r"(?:[vV]?\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)*|[A-Fa-f0-9]{7,40}|local|unknown)", version):
+                version = "unknown"
+            return {
+                "status": "available",
+                "created_at": datetime.fromtimestamp(created, timezone.utc).isoformat(timespec="seconds"),
+                "version": version,
+            }
+        except (OSError, ValueError, KeyError, TypeError, zipfile.BadZipFile, OverflowError):
+            continue
+    return {"status": "unknown", "created_at": "unknown", "version": "unknown"}
 
 
 def _run(command: list[str], timeout: float = 2.0) -> subprocess.CompletedProcess[str] | None:
@@ -254,7 +313,15 @@ def _deployment_manifest(path: Path) -> dict[str, str]:
         "updated_at": r"(?:\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\+00:00|Z))",
     }
     result: dict[str, str] = {}
-    for key in ("version", "commit", "deployment_mode", "schema_revision", "updated_at"):
+    patterns.update({
+        "minimum_schema_revision": r"(?:\d{8}_\d{4}|unknown)",
+        "maximum_schema_revision": r"(?:\d{8}_\d{4}|unknown)",
+        "build_date": r"(?:\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\+00:00|Z)|unknown)",
+    })
+    for key in (
+        "version", "commit", "deployment_mode", "schema_revision", "updated_at",
+        "minimum_schema_revision", "maximum_schema_revision", "build_date",
+    ):
         item = value.get(key)
         if not isinstance(item, str) or len(item) > 128 or not re.fullmatch(patterns[key], item):
             continue
@@ -406,7 +473,11 @@ def collect(args: argparse.Namespace) -> dict[str, object]:
         runtimes.extend({"kind": "uvicorn", **item, "status": "running", "ports": item["port"]} for item in unmatched_manual)
         runtime_ports.extend((f"uvicorn pid {item['pid']}", int(item["port"])) for item in unmatched_manual)
     port_listening = bool(port_owners) or _can_connect(port)
-    port_conflict = len([value for _, value in runtime_ports if value == port]) > 1
+    port_conflict = (
+        len([value for _, value in runtime_ports if value == port]) > 1
+        or {"appliance", "source"} <= runtime_modes
+        or {"appliance", "manual"} <= runtime_modes
+    )
     profile = config.get("APP_ENVIRONMENT", "unknown").casefold()
     if profile == "unknown" and mode == "docker-dev":
         profile = "development"
@@ -462,7 +533,49 @@ def collect(args: argparse.Namespace) -> dict[str, object]:
     else:
         state_directory = str(state_dir)
     service_failed = any(value.startswith(("failed", "activating")) for value in services.values())
-    if port_conflict or identity_drift or restart_loop or container_unhealthy or service_failed or ready == "FAIL" or live == "FAIL" or not database_accessible or not state_readable or not state_writable:
+    redis_check = ready_checks.get("redis") if isinstance(ready_checks, dict) else None
+    redis_status = (
+        "PASS" if redis_check == "healthy"
+        else "NOT CONFIGURED" if redis_check == "not_configured" or (redis_check is None and not config.get("REDIS_URL"))
+        else "FAIL/UNKNOWN"
+    )
+    if mode == "appliance":
+        docker_proxy_active = any(
+            item["status"].casefold().startswith("up")
+            and ("proxy" in item["name"].casefold() or re.search(r":8080->80/tcp", item["ports"]))
+            for item in active_docker
+        )
+        proxy_status = "PASS" if docker_proxy_active or services.get("com.conciergeai.proxy", "").startswith("active") else "FAIL/UNKNOWN"
+    else:
+        proxy_status = "N/A"
+    if backend == "SQLite" and db_path is not None:
+        database_has_ai_credentials = _sqlite_ai_credentials(db_path)
+    else:
+        database_has_ai_credentials = None
+    ai_configured = any(
+        config.get(key) == "configured"
+        for key in ("GEMINI_API_KEY", "GROQ_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "CLAUDE_API_KEY", "COMPATIBLE_API_KEY")
+    )
+    if ai_configured or database_has_ai_credentials is True:
+        ai_provider_status = "CONFIGURED; connection not probed"
+    elif database_has_ai_credentials is False:
+        ai_provider_status = "NOT CONFIGURED"
+    else:
+        ai_provider_status = "UNKNOWN; connection not probed"
+    backup_directory = Path(config["CONCIERGE_BACKUP_DIR"]).expanduser() if config.get("CONCIERGE_BACKUP_DIR") else None
+    if backup_directory is None and mode == "appliance":
+        backup_directory = Path("/Library/Application Support/Concierge.AI/Backups") if sys.platform == "darwin" else Path("/var/backups/concierge")
+    last_backup = _latest_backup(backup_directory)
+    uptime = "unknown"
+    uptime_pid = next(iter(service_pids), None)
+    if uptime_pid is None and unmatched_manual:
+        uptime_pid = unmatched_manual[0]["pid"]
+    if uptime_pid is not None:
+        uptime_result = _run(["ps", "-p", uptime_pid, "-o", "etime="])
+        uptime_value = uptime_result.stdout.strip() if uptime_result and not uptime_result.returncode else ""
+        if re.fullmatch(r"(?:\d+-)?\d{1,2}:\d{2}:\d{2}", uptime_value):
+            uptime = uptime_value
+    if port_conflict or identity_drift or restart_loop or container_unhealthy or service_failed or ready == "FAIL" or live == "FAIL" or not database_accessible or not state_readable or not state_writable or proxy_status == "FAIL/UNKNOWN":
         overall = "DEGRADED" if any((docker, manual, any(v.startswith(("active", "activating")) for v in services.values()), bool(port_owners))) else "FAILED"
     else:
         overall = "HEALTHY"
@@ -512,6 +625,11 @@ def collect(args: argparse.Namespace) -> dict[str, object]:
         "database_location": db_location,
         "schema_revision": schema,
         "last_deployment": manifest.get("updated_at", "unknown"),
+        "last_backup": last_backup,
+        "redis": redis_status,
+        "proxy": proxy_status,
+        "ai_provider": ai_provider_status,
+        "uptime": uptime,
         "identity_drift": identity_drift,
         "restart_loop": service_restart_loop,
         "container_unhealthy": container_unhealthy,
@@ -569,7 +687,14 @@ def render_doctor(data: dict[str, object]) -> str:
         f"State accessible  : {'yes' if data['state_readable'] and data['state_writable'] else 'no'}",
         f"Database          : {data['database']} ({data['database_location']})",
         f"Database access   : {'PASS' if data['database_accessible'] else 'FAIL/UNKNOWN'}",
+        f"Redis             : {data['redis']}",
+        f"Storage           : {'PASS' if data['state_readable'] and data['state_writable'] else 'FAIL/UNKNOWN'}",
+        f"Proxy             : {data['proxy']}",
+        f"Port {data['port']}          : {'PASS' if data['port_listening'] and not data['conflict'] else 'FAIL/UNKNOWN'}",
+        f"AI provider       : {data['ai_provider']}",
         f"Schema revision   : {data['schema_revision']}",
+        f"Uptime            : {data['uptime']}",
+        f"Last backup       : {data['last_backup'].get('created_at', 'unknown')} (v{data['last_backup'].get('version', 'unknown')})",
         f"Last deployment   : {data['last_deployment']}",
         f"Live              : {data['live']}",
         f"Readiness         : {data['ready']}{(': ' + str(data['ready_reason'])) if data['ready_reason'] else ''}",
@@ -591,6 +716,10 @@ def render_doctor(data: dict[str, object]) -> str:
         rows.append("WARNING: A service or container is restarting repeatedly; inspect its service logs before retrying.")
     elif data["container_unhealthy"]:
         rows.append("WARNING: Docker reports an unhealthy container; inspect readiness and container logs.")
+    if data["proxy"] == "FAIL/UNKNOWN":
+        rows.append("WARNING: The expected appliance proxy is not active; verify its service and local listener before routing traffic.")
+    if data["ai_provider"].startswith("UNKNOWN"):
+        rows.append("AI provider status could not be determined locally; inspect provider status in authenticated Admin diagnostics.")
     if data["ready_checks"]:
         rows.append("Readiness checks: " + ", ".join(f"{key}={value}" for key, value in data["ready_checks"].items()))
     rows.append(f"Overall status: {data['overall']}")
@@ -608,6 +737,8 @@ def render_doctor(data: dict[str, object]) -> str:
                 recommendations.append(f"Resolve the readiness failure ({reason}) before routing traffic.")
             else:
                 recommendations.append("Inspect application logs for the readiness failure before routing traffic.")
+        if data["proxy"] == "FAIL/UNKNOWN":
+            recommendations.append("Check the managed proxy service and its logs; do not start a second proxy on the same listener.")
         if not data["database_accessible"]:
             recommendations.append("Verify database reachability and persisted schema status; do not reset or replace the database.")
         if not data["state_readable"] or not data["state_writable"]:

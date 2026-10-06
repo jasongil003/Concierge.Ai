@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+from datetime import datetime
 import sys
 
 
@@ -15,15 +16,33 @@ _SAFE_TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2
 
 
 def _release_file(name: str) -> str | None:
+    validators = {
+        "RELEASE_VERSION": _SAFE_VERSION,
+        "RELEASE_COMMIT": _SAFE_COMMIT,
+        "RELEASE_BUILD_DATE": _SAFE_TIMESTAMP,
+    }
+    validator = validators.get(name)
+    if validator is None:
+        return None
     for parent in Path(__file__).resolve().parents:
         candidate = parent / name
         try:
             value = candidate.read_text(encoding="utf-8").strip()
         except OSError:
             continue
-        if _SAFE_VERSION.fullmatch(value) or _SAFE_COMMIT.fullmatch(value):
+        if validator.fullmatch(value) and (
+            name != "RELEASE_BUILD_DATE" or _valid_timestamp(value)
+        ):
             return value
     return None
+
+
+def _valid_timestamp(value: str) -> bool:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None
 
 
 def _version(value: str | None) -> str:
@@ -77,7 +96,7 @@ def _git_timestamp() -> str | None:
     except (OSError, subprocess.SubprocessError, TypeError):
         return None
     value = result.stdout.strip()
-    return value if _SAFE_TIMESTAMP.fullmatch(value) else None
+    return value if _SAFE_TIMESTAMP.fullmatch(value) and _valid_timestamp(value) else None
 
 
 def build_identity() -> dict[str, str]:
@@ -92,11 +111,11 @@ def build_identity() -> dict[str, str]:
     if commit == "unknown":
         commit = _commit(_git_value("rev-parse", "--short=12", "HEAD"))
     build_date = os.getenv("CONCIERGE_BUILD_DATE", "").strip()
-    if not _SAFE_TIMESTAMP.fullmatch(build_date):
+    if not _SAFE_TIMESTAMP.fullmatch(build_date) or not _valid_timestamp(build_date):
         build_date = _release_file("RELEASE_BUILD_DATE") or ""
-    if not _SAFE_TIMESTAMP.fullmatch(build_date):
+    if not _SAFE_TIMESTAMP.fullmatch(build_date) or not _valid_timestamp(build_date):
         build_date = _git_timestamp() or ""
-    if not _SAFE_TIMESTAMP.fullmatch(build_date):
+    if not _SAFE_TIMESTAMP.fullmatch(build_date) or not _valid_timestamp(build_date):
         build_date = "unknown"
     profile = os.getenv("APP_ENVIRONMENT", "unknown").strip().casefold()
     if profile not in {"development", "staging", "production", "test"}:

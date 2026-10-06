@@ -262,7 +262,13 @@ jobs:
             printf 'METRICS_TOKEN=%s\n' "$(openssl rand -hex 32)"
           } >> "$GITHUB_ENV"
       - name: Build production image
-        run: docker build -t concierge-ai:ci .
+        run: |
+          CONCIERGE_BUILD_DATE="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          docker build \
+            --build-arg CONCIERGE_VERSION=local \
+            --build-arg "CONCIERGE_COMMIT=$GITHUB_SHA" \
+            --build-arg "CONCIERGE_BUILD_DATE=$CONCIERGE_BUILD_DATE" \
+            -t concierge-ai:ci .
       - name: Execute production environment validation in the image
         run: |
           docker run --rm --entrypoint python \

@@ -17,7 +17,17 @@ SAFE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$")
 VERSION = re.compile(r"^(?:[vV]?\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)*|[A-Fa-f0-9]{7,40}|local|unknown)$")
 COMMIT = re.compile(r"^(?:[A-Fa-f0-9]{7,40}|unknown)$")
 REVISION = re.compile(r"^\d{8}_\d{4}$")
-TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$")
+TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|\+00:00)$")
+
+
+def _valid_timestamp(value: str) -> bool:
+    if not TIMESTAMP.fullmatch(value):
+        return False
+    try:
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return True
 
 
 def _git(root: Path, *args: str) -> str:
@@ -51,6 +61,25 @@ def write_manifest(path: Path, root: Path, mode: str) -> dict[str, str]:
         source = ""
     match = re.search(r'^CURRENT_SCHEMA_REVISION\s*=\s*["\']([^"\']+)["\']', source, re.MULTILINE)
     schema_revision = match.group(1) if match and REVISION.fullmatch(match.group(1)) else "unknown"
+    try:
+        minimum_schema_revision = (root / "RELEASE_MINIMUM_SCHEMA_REVISION").read_text(encoding="utf-8").strip()
+        maximum_schema_revision = (root / "RELEASE_MAXIMUM_SCHEMA_REVISION").read_text(encoding="utf-8").strip()
+    except OSError:
+        minimum_schema_revision = maximum_schema_revision = schema_revision
+    if not (
+        REVISION.fullmatch(minimum_schema_revision)
+        and REVISION.fullmatch(maximum_schema_revision)
+        and minimum_schema_revision <= schema_revision <= maximum_schema_revision
+    ):
+        minimum_schema_revision = maximum_schema_revision = schema_revision
+    build_date = os.getenv("CONCIERGE_BUILD_DATE", "").strip()
+    if not _valid_timestamp(build_date):
+        try:
+            build_date = (root / "RELEASE_BUILD_DATE").read_text(encoding="utf-8").strip()
+        except OSError:
+            build_date = ""
+    if not _valid_timestamp(build_date):
+        build_date = "unknown"
     if mode not in {"source", "docker-dev", "appliance", "docker-production"}:
         raise ValueError("Deployment mode contains unsupported characters.")
     path = path.expanduser().resolve()
@@ -71,6 +100,9 @@ def write_manifest(path: Path, root: Path, mode: str) -> dict[str, str]:
         "installed_at": installed_at,
         "updated_at": now,
         "schema_revision": schema_revision,
+        "minimum_schema_revision": minimum_schema_revision,
+        "maximum_schema_revision": maximum_schema_revision,
+        "build_date": build_date,
         "installer_version": "1",
     }
     fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)

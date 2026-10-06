@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -32,6 +33,25 @@ MANIFEST_MEMBER = "manifest.json"
 PG_TOOL_TIMEOUT_SECONDS = 1800
 MAX_ARCHIVE_MEMBER_BYTES = 16 * 1024 * 1024 * 1024
 MAX_ARCHIVE_TOTAL_BYTES = 32 * 1024 * 1024 * 1024
+SCHEMA_REVISION_RE = re.compile(r"^\d{8}_\d{4}$")
+BUILD_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+
+
+def _release_schema_range() -> tuple[str, str]:
+    """Use artifact compatibility claims, or conservatively claim this schema only."""
+    release_root = Path(__file__).resolve().parents[1]
+    try:
+        minimum = (release_root / "RELEASE_MINIMUM_SCHEMA_REVISION").read_text(encoding="utf-8").strip()
+        maximum = (release_root / "RELEASE_MAXIMUM_SCHEMA_REVISION").read_text(encoding="utf-8").strip()
+    except OSError:
+        return CURRENT_SCHEMA_REVISION, CURRENT_SCHEMA_REVISION
+    if (
+        SCHEMA_REVISION_RE.fullmatch(minimum)
+        and SCHEMA_REVISION_RE.fullmatch(maximum)
+        and minimum <= CURRENT_SCHEMA_REVISION <= maximum
+    ):
+        return minimum, maximum
+    return CURRENT_SCHEMA_REVISION, CURRENT_SCHEMA_REVISION
 
 
 def _digest(data: bytes) -> str:
@@ -189,6 +209,10 @@ def create_backup(
                         members[member] = _digest_file(path)
                         archive.write(path, member)
                 identity = BUILD_IDENTITY
+                minimum_schema_revision, maximum_schema_revision = _release_schema_range()
+                build_date = identity.get("build_date", "unknown")
+                if not isinstance(build_date, str) or not BUILD_DATE_RE.fullmatch(build_date):
+                    build_date = "unknown"
                 manifest = {
                     "format_version": FORMAT_VERSION,
                     "database_type": "postgresql" if postgres else "sqlite",
@@ -200,6 +224,9 @@ def create_backup(
                         "commit": identity["commit"],
                         "deployment_mode": identity["deployment_mode"],
                         "schema_revision": CURRENT_SCHEMA_REVISION,
+                        "minimum_schema_revision": minimum_schema_revision,
+                        "maximum_schema_revision": maximum_schema_revision,
+                        "build_date": build_date,
                     },
                 }
                 archive.writestr(MANIFEST_MEMBER, json.dumps(manifest, indent=2, sort_keys=True))
@@ -240,6 +267,26 @@ def verify_backup(archive_path: Path, *, database_url: str = "") -> dict[str, ob
                 ))
             ):
                 raise RuntimeError("Backup application metadata is invalid.")
+            if identity is not None:
+                minimum = identity.get("minimum_schema_revision")
+                maximum = identity.get("maximum_schema_revision")
+                if (minimum is None) != (maximum is None):
+                    raise RuntimeError("Backup schema compatibility metadata is invalid.")
+                if minimum is not None and (
+                    not isinstance(minimum, str)
+                    or not isinstance(maximum, str)
+                    or not SCHEMA_REVISION_RE.fullmatch(minimum)
+                    or not SCHEMA_REVISION_RE.fullmatch(maximum)
+                    or not SCHEMA_REVISION_RE.fullmatch(identity.get("schema_revision", ""))
+                    or not minimum <= identity["schema_revision"] <= maximum
+                ):
+                    raise RuntimeError("Backup schema compatibility metadata is invalid.")
+                build_date = identity.get("build_date")
+                if build_date is not None and (
+                    not isinstance(build_date, str)
+                    or (build_date != "unknown" and not BUILD_DATE_RE.fullmatch(build_date))
+                ):
+                    raise RuntimeError("Backup build metadata is invalid.")
             if len(names) != len(archive_names) or names != set(files) | {MANIFEST_MEMBER}:
                 raise RuntimeError("Backup contains duplicate or unmanifested archive members.")
             total_bytes = 0

@@ -461,6 +461,47 @@ def test_revoked_sessions_are_rejected(auth_store: AdminAuthStore):
     assert auth_store.authenticate(token) is None
 
 
+def test_system_diagnostics_is_super_admin_only_and_sanitized(auth_store: AdminAuthStore, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(main_module, "admin_auth", auth_store)
+    monkeypatch.setattr(main_module, "database_ready", lambda _path: None)
+    monkeypatch.setattr(main_module, "persisted_schema_revision", lambda _path: "20261005_0001")
+
+    _, super_admin = auth_store.login("admin", ADMIN_PASSWORD, "127.0.0.1", "test")
+    auth_store.create_user(
+        {
+            "username": "property.admin",
+            "display_name": "Property Administrator",
+            "password": "PropertyAdmin123!",
+            "role_id": "role-property-administrator",
+            "property_id": "tenant-a",
+            "status": "active",
+        },
+        super_admin,
+    )
+    monkeypatch.setattr(main_module, "properties", type("Properties", (), {"list": lambda self: []})())
+    monkeypatch.setattr(main_module, "ai_provider_store", type("Providers", (), {"list_connections": lambda self, _id: [{"enabled": True, "status": "connected", "api_key": "never-return"}]})())
+
+    with TestClient(app) as client:
+        denied = client.post(
+            "/api/admin/auth/login",
+            json={"username": "property.admin", "password": "PropertyAdmin123!", "remember_me": False},
+        )
+        assert denied.status_code == 200
+        assert client.get("/api/admin/system/diagnostics").status_code == 403
+
+        elevated = client.post(
+            "/api/admin/auth/login",
+            json={"username": "admin", "password": ADMIN_PASSWORD, "remember_me": False},
+        )
+        assert elevated.status_code == 200
+        response = client.get("/api/admin/system/diagnostics")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["database"] == {"type": "sqlite", "status": "healthy"}
+    assert "never-return" not in response.text
+    assert "api_key" not in response.text
+
+
 def test_property_admin_cannot_delegate_global_permissions_even_with_spoofed_role_slug(auth_store: AdminAuthStore):
     _, global_admin = auth_store.login("admin", ADMIN_PASSWORD, "10.0.0.1", "test")
     user = auth_store.create_user(

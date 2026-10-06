@@ -52,6 +52,7 @@ from .database import (
     verify_schema_current,
 )
 from .build_info import BUILD_IDENTITY
+from . import system_diagnostics
 from .improvement_loop import ImprovementLoopManager, ImprovementLoopStore
 from .guest_identity import GuestIdentityStore
 from .guest_context import build_guest_context
@@ -130,6 +131,7 @@ from .zones import ZoneStore
 from . import metrics
 
 logger = logging.getLogger(__name__)
+PROCESS_STARTED_MONOTONIC = time.monotonic()
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 SAFE_DATABASE_READINESS_DETAILS = {
@@ -319,6 +321,18 @@ async def _admin_rate_limited(session_id: str) -> bool:
 
 async def _chat_rate_limited(session_id: str) -> bool:
     return not await _rate_limit_allowed(f"guest-chat:{session_id}", 20, 60)
+
+
+async def _guest_chat_rate_limited(session_id: str, property_id: str, client_ip: str) -> bool:
+    """Limit each session and cap session multiplication from one verified client."""
+    if await _chat_rate_limited(session_id):
+        return True
+    address_key = hmac.new(
+        settings.credential_encryption_secret.encode("utf-8"),
+        f"{property_id}\0{client_ip}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    return not await _rate_limit_allowed(f"guest-chat-client:{address_key}", 120, 60)
 
 
 def _apply_security_headers(request: Request, response: Response) -> Response:
@@ -1273,6 +1287,60 @@ async def health_details(request: Request) -> dict[str, Any]:
         "status": "ok" if database.get("state") == "healthy" else "degraded",
         "database": database,
         "queued_requests": observability.queue_depth,
+    }
+
+
+@app.get("/api/admin/system/diagnostics")
+async def admin_system_diagnostics() -> dict[str, Any]:
+    """Return sanitized global runtime health to platform administrators."""
+    try:
+        await asyncio.to_thread(database_ready, settings.db_path)
+        database_status = "healthy"
+    except Exception:
+        database_status = "unavailable"
+    try:
+        schema_revision = await asyncio.to_thread(persisted_schema_revision, settings.db_path)
+    except Exception:
+        schema_revision = "unavailable"
+    if isinstance(rate_limiter, RedisRateLimiter):
+        try:
+            redis_status = "healthy" if await rate_limiter.ping() else "unavailable"
+        except Exception:
+            redis_status = "unavailable"
+    else:
+        redis_status = "not_configured"
+    storage_status = (
+        "healthy" if settings.upload_root.is_dir() and os.access(settings.upload_root, os.W_OK)
+        else "unavailable"
+    )
+    deployment_mode = str(BUILD_IDENTITY.get("deployment_mode", "unknown"))
+    manifest_setting = os.getenv("CONCIERGE_DEPLOYMENT_MANIFEST", "").strip()
+    manifest_path = Path(manifest_setting) if manifest_setting else settings.db_path.parent / "deployment.json"
+    backup_dir = system_diagnostics.backup_directory(deployment_mode)
+    try:
+        records = await asyncio.to_thread(properties.list)
+        providers = await asyncio.to_thread(system_diagnostics.provider_health, records, ai_provider_store)
+    except Exception:
+        providers = {"status": "unknown", "configured": 0, "healthy": 0, "unavailable": 0, "unknown": 1}
+    mode = deployment_mode if deployment_mode in {"source", "docker-dev", "appliance", "docker-production"} else "unknown"
+    proxy_status = "not_probed" if mode == "appliance" else "not_applicable" if mode in {"source", "docker-dev"} else "unknown"
+    return {
+        "application": {
+            "version": BUILD_IDENTITY.get("version", "unknown"),
+            "commit": BUILD_IDENTITY.get("commit", "unknown"),
+            "build_date": BUILD_IDENTITY.get("build_date", "unknown"),
+            "deployment_mode": mode,
+            "python_version": BUILD_IDENTITY.get("python_version", "unknown"),
+        },
+        "schema_revision": schema_revision,
+        "database": {"type": "postgresql" if settings.database_url else "sqlite", "status": database_status},
+        "redis": redis_status,
+        "upload_storage": storage_status,
+        "proxy_runtime": {"status": proxy_status, "mode": mode},
+        "uptime_seconds": system_diagnostics.process_uptime(PROCESS_STARTED_MONOTONIC),
+        "last_backup": system_diagnostics.last_backup(backup_dir),
+        "last_successful_update": system_diagnostics.last_update(manifest_path),
+        "ai_providers": providers,
     }
 
 
@@ -5844,7 +5912,9 @@ async def authenticate(payload: AuthRequest, request: Request) -> dict[str, Any]
 @app.post("/api/chat")
 async def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
     session, property_record = _guest_session(request, payload.session_id)
-    if await _chat_rate_limited(payload.session_id):
+    decision = getattr(request.state, "guardrail_decision", None)
+    client_ip = decision.client_ip if decision else ""
+    if client_ip and await _guest_chat_rate_limited(payload.session_id, property_record.property_id, client_ip):
         raise HTTPException(status_code=429, detail="Too many messages. Please wait a moment.")
 
     requested_mode = payload.mode if settings.ai_guest_mode_switch else settings.ai_default_mode
@@ -6940,4 +7010,24 @@ configuration_action_services = {
     "save_management_network_access": save_management_network_access,
 }
 register_admin_configuration_actions(configuration_action_registry, configuration_action_services)
+
+
+@app.get("/{page_slug}", include_in_schema=False)
+async def direct_guest_page(page_slug: str, request: Request) -> Response:
+    """Serve the guest shell for a published single-segment custom page URL."""
+    try:
+        record = _guest_property(request)
+        _enforce_guest_network(request, record)
+    except GuardrailDenied as exc:
+        return FileResponse(STATIC_DIR / "access-restricted.html", status_code=exc.status_code)
+    path = f"/{page_slug}"
+    pages = record.design_published.get("pages", []) if isinstance(record.design_published, dict) else []
+    if not any(
+        isinstance(page, dict) and page.get("slug") == path and page.get("enabled", True) is True
+        for page in pages
+    ):
+        raise HTTPException(status_code=404, detail="Page not found.")
+    return FileResponse(STATIC_DIR / "index.html")
+
+
 bind_admin_route_policies(app)

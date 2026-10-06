@@ -814,6 +814,27 @@ def test_guest_hotel_api_uses_published_design(admin_client: TestClient):
         client.post(f"/api/admin/properties/{property_id}/design/publish")
 
 
+def test_published_custom_guest_page_supports_direct_load(admin_client: TestClient):
+    record = main_module.properties.get("test-property")
+    assert record is not None
+    original = copy.deepcopy(record.design_published)
+    published = copy.deepcopy(original)
+    published["pages"].append({
+        "id": "spa", "type": "guest_page", "version": 1, "name": "Spa",
+        "slug": "/spa", "enabled": True, "navigation": True, "sections": [],
+    })
+    record.design_published = published
+    main_module.properties.upsert(record)
+    try:
+        response = admin_client.get("/spa")
+        assert response.status_code == 200
+        assert "Concierge" in response.text
+        assert admin_client.get("/unpublished-page").status_code == 404
+    finally:
+        record.design_published = original
+        main_module.properties.upsert(record)
+
+
 def test_basic_property_update_preserves_design_revision(admin_client: TestClient):
     client = admin_client
     property_id = client.get("/api/admin/properties").json()["properties"][0]["property_id"]

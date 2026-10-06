@@ -52,6 +52,7 @@ def _bool(name: str, default: bool = False) -> bool:
 class Settings:
     app_name: str = os.getenv("APP_NAME", "Concierge.Ai")
     app_environment: str = os.getenv("APP_ENVIRONMENT", "development").strip().lower()
+    deployment_mode: str = os.getenv("CONCIERGE_DEPLOYMENT_MODE", "source").strip().lower()
     property_id: str = os.getenv("PROPERTY_ID", "").strip()
     db_path: Path = Path(os.getenv("DB_PATH", "state/concierge.db"))
     database_url: str = os.getenv("DATABASE_URL", "").strip()
@@ -165,7 +166,24 @@ def validate_production_settings(value: Settings, *, check_filesystem: bool = Tr
         value.admin_bootstrap_username.casefold() == "root"
         and value.admin_bootstrap_password == "admin"
     )
-    if not initial_default_admin and (
+    if value.app_environment not in {"development", "staging", "production", "test"}:
+        raise RuntimeError("APP_ENVIRONMENT must be development, staging, production, or test.")
+    valid_deployment_modes = {"source", "docker-dev", "appliance", "docker-production"}
+    if value.deployment_mode not in valid_deployment_modes:
+        raise RuntimeError("CONCIERGE_DEPLOYMENT_MODE must be a supported deployment mode.")
+    if value.app_environment in {"production", "staging"}:
+        if value.deployment_mode == "docker-dev":
+            raise RuntimeError("CONCIERGE_DEPLOYMENT_MODE=docker-dev is not allowed in production or staging.")
+        if initial_default_admin:
+            raise RuntimeError("ADMIN_BOOTSTRAP_PASSWORD must not use the default root/admin credential in production or staging.")
+        if (
+            not value.admin_bootstrap_password
+            or value.admin_bootstrap_password.casefold() in {"admin", "password", "changeme", "change-me", "default"}
+            or value.admin_bootstrap_password == "ChangeMe123!"
+            or len(value.admin_bootstrap_password) < 12
+        ):
+            raise RuntimeError("ADMIN_BOOTSTRAP_PASSWORD must be a unique value of at least 12 characters in production or staging.")
+    elif not initial_default_admin and (
         not value.admin_bootstrap_password
         or value.admin_bootstrap_password == "ChangeMe123!"
         or len(value.admin_bootstrap_password) < 12

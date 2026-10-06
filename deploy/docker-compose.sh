@@ -55,6 +55,11 @@ fi
 
 if [ -z "${CONCIERGE_VERSION:-}" ]; then
     CONCIERGE_VERSION=$(git -C "$ROOT_DIR" describe --tags --always --dirty 2>/dev/null || cat "$ROOT_DIR/RELEASE_VERSION" 2>/dev/null || printf unknown)
+    if [[ ! "$CONCIERGE_VERSION" =~ ^([vV]?[0-9]+\.[0-9]+\.[0-9]+([-+][A-Za-z0-9.-]+)*|[A-Fa-f0-9]{7,40}|local|unknown)$ ]]; then
+        # `git describe --dirty` appends a suffix not valid in the version
+        # contract. Keep local images clearly local and retain HEAD in COMMIT.
+        CONCIERGE_VERSION=local
+    fi
 fi
 if [ -z "${CONCIERGE_COMMIT:-}" ]; then
     CONCIERGE_COMMIT=$(git -C "$ROOT_DIR" rev-parse --short=12 HEAD 2>/dev/null || cat "$ROOT_DIR/RELEASE_COMMIT" 2>/dev/null || printf unknown)
@@ -72,6 +77,10 @@ fi
 }
 [[ "$CONCIERGE_BUILD_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || {
     printf 'CONCIERGE_BUILD_DATE must be a UTC ISO timestamp.\n' >&2
+    exit 1
+}
+printf '%s' "$CONCIERGE_BUILD_DATE" | python3 -c 'import datetime,sys; datetime.datetime.fromisoformat(sys.stdin.read().replace("Z", "+00:00"))' || {
+    printf 'CONCIERGE_BUILD_DATE must be a real UTC calendar timestamp.\n' >&2
     exit 1
 }
 export CONCIERGE_VERSION CONCIERGE_COMMIT CONCIERGE_BUILD_DATE

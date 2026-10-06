@@ -44,13 +44,35 @@ def test_production_rejects_default_admin_password(tmp_path: Path):
         )
 
 
-def test_production_allows_the_initial_root_admin_bootstrap_pair(tmp_path: Path):
+def test_production_rejects_the_initial_root_admin_bootstrap_pair(tmp_path: Path):
     production = _production_settings(
         tmp_path,
         admin_bootstrap_username="root",
         admin_bootstrap_password="admin",
     )
-    validate_production_settings(production)
+    with pytest.raises(RuntimeError, match="default root/admin credential"):
+        validate_production_settings(production)
+
+
+def test_development_keeps_the_initial_root_admin_bootstrap_pair(tmp_path: Path):
+    development = replace(
+        _production_settings(tmp_path),
+        app_environment="development",
+        admin_bootstrap_password="admin",
+        antlabs_mode="mock",
+        admin_cookie_secure=False,
+        canonical_hosts=(),
+        public_base_url="",
+        admin_allowed_cidrs=(),
+    )
+    validate_production_settings(development)
+
+
+def test_production_rejects_development_deployment_mode_and_unknown_mode(tmp_path: Path):
+    with pytest.raises(RuntimeError, match="docker-dev"):
+        validate_production_settings(_production_settings(tmp_path, deployment_mode="docker-dev"))
+    with pytest.raises(RuntimeError, match="supported deployment mode"):
+        validate_production_settings(_production_settings(tmp_path, deployment_mode="mystery"))
 
 
 def test_production_rejects_default_encryption_secret(tmp_path: Path):
