@@ -596,10 +596,10 @@ def _refresh_guest_cookie_response(request: Request, response: Response) -> Resp
     candidate = getattr(request.state, "guest_cookie_refresh", None)
     if not candidate or response.status_code >= 400:
         return response
-    session_id, token, context, ttl_seconds, legacy = candidate
+    session_id, token, context, ttl_seconds, legacy, validated_at = candidate
     if legacy:
         credentials = store.rotate_guest_credentials(
-            session_id, token, context, ttl_seconds=ttl_seconds
+            session_id, token, context, ttl_seconds=ttl_seconds, validated_at=validated_at
         )
         if credentials is None:
             return response
@@ -613,6 +613,7 @@ def _refresh_guest_cookie_response(request: Request, response: Response) -> Resp
         context,
         ttl_seconds=ttl_seconds,
         refresh_threshold_seconds=threshold,
+        validated_at=validated_at,
     ):
         _set_guest_cookies(response, session_id, token, context, ttl_seconds)
     return response
@@ -647,7 +648,8 @@ def _guest_session(request: Request, session_id: str | None, action_level: int =
             request.state.guest_cookie_cleanup_session_id = resolved_session_id
         decision = GuardrailDecision(False, "Concierge session expired.", "session_validation", None, action_level, False, False, _request_id(request))
         raise GuardrailDenied(decision, status_code=401)
-    if not store.verify_guest_credentials(session.session_id, token, context):
+    validated_at = store.verify_guest_credentials_at(session.session_id, token, context)
+    if validated_at is None:
         request.state.guest_cookie_cleanup_session_id = session.session_id
         # Legacy sessions without browser credentials fail closed in every environment.
         decision = GuardrailDecision(False, "Concierge session expired.", "session_validation", None, action_level, False, False, _request_id(request))
@@ -676,6 +678,7 @@ def _guest_session(request: Request, session_id: str | None, action_level: int =
         context,
         int(policy_config["guest_session_timeout"]) * 60,
         legacy,
+        validated_at,
     )
     refreshed = store.get(session.session_id)
     if refreshed is None or refreshed.property_id != property_record.property_id:
@@ -5853,12 +5856,13 @@ async def resume_session(payload: ResumeSessionRequest, request: Request, respon
         raise HTTPException(status_code=429, detail="Too many resume attempts. Please wait a moment.")
     session, property_record = _guest_session(request, payload.session_id)
     policy = normalize_guardrails(property_record.guardrails)
-    _, current_token, current_context, _, _ = request.state.guest_cookie_refresh
+    _, current_token, current_context, _, _, validated_at = request.state.guest_cookie_refresh
     credentials = store.rotate_guest_credentials(
         session.session_id,
         current_token or "",
         current_context or "",
         ttl_seconds=int(policy["guest_session_timeout"]) * 60,
+        validated_at=validated_at,
     )
     if credentials is None:
         raise HTTPException(status_code=401, detail="Concierge session expired.")
