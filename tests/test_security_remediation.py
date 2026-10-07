@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from starlette.requests import Request
 
 import app.main as main_module
+import app.session_store as session_store_module
 from app.admin_auth import AdminAuthStore
 from app.config import Settings, validate_antlabs_mode, validate_production_settings
 from app.guardrails import PropertyGuard
@@ -473,11 +474,23 @@ def test_expired_guest_credentials_cannot_resume_and_their_cookie_is_cleared(
     with TestClient(app, base_url="http://a.example.test") as client:
         session_id = _start_guest(client)
         token_cookie_name = main_module._guest_cookie_names(session_id)[0]
+        expired_at = int(time.time()) - 1
         with session_store._connect() as db:
             db.execute(
                 "UPDATE sessions SET guest_token_expires_at=? WHERE session_id=?",
-                (int(time.time()) - 1, session_id),
+                (expired_at, session_id),
             )
+        rejected = client.get("/api/guest/personalization")
+        assert rejected.status_code == 401
+        with session_store._connect() as db:
+            expired_row = db.execute(
+                "SELECT guest_token_expires_at FROM sessions WHERE session_id=?", (session_id,)
+            ).fetchone()
+        # Expired guest rows are removed by session cleanup; they must not be
+        # recreated or extended by activity using the expired cookie.
+        assert expired_row is None
+        assert not any("Max-Age=1800" in cookie for cookie in rejected.headers.get_list("set-cookie"))
+
         resumed = client.post(
             "/api/session/resume",
             json={"client_id": "browser-client", "session_id": session_id},
@@ -490,10 +503,31 @@ def test_active_guest_activity_slides_expiry_and_refreshes_cookie_age(tmp_path: 
     session_store = _guest_replay_stores(tmp_path, monkeypatch)
     with TestClient(app, base_url="http://a.example.test") as client:
         session_id = _start_guest(client)
+        class Clock:
+            def __init__(self, current: int):
+                self.current = current
+
+            def time(self) -> float:
+                return float(self.current)
+
+            def advance(self, seconds: int) -> None:
+                self.current += seconds
+
+        clock = Clock(int(time.time()))
+        monkeypatch.setattr(session_store_module, "time", clock)
+        original_guest_state = main_module.personalization.guest_state
+
+        def guest_state_after_authentication(property_id: str, current_session_id: str):
+            # The credential is valid at request authentication, but its
+            # one-second expiry passes while the endpoint is being handled.
+            clock.advance(2)
+            return original_guest_state(property_id, current_session_id)
+
+        monkeypatch.setattr(main_module.personalization, "guest_state", guest_state_after_authentication)
         with session_store._connect() as db:
             db.execute(
                 "UPDATE sessions SET guest_token_expires_at=? WHERE session_id=?",
-                (int(time.time()) + 1, session_id),
+                (clock.current + 1, session_id),
             )
         active = client.get("/api/guest/personalization")
         assert active.status_code == 200, active.text
@@ -501,16 +535,34 @@ def test_active_guest_activity_slides_expiry_and_refreshes_cookie_age(tmp_path: 
             extended_expiry = db.execute(
                 "SELECT guest_token_expires_at FROM sessions WHERE session_id=?", (session_id,)
             ).fetchone()[0]
-        assert extended_expiry >= int(time.time()) + 1700
+        assert extended_expiry >= clock.current + 1700
         assert any(
             cookie.startswith(main_module._guest_cookie_names(session_id)[0] + "=")
             and "Max-Age=1800" in cookie
             for cookie in active.headers.get_list("set-cookie")
         )
 
-        time.sleep(1.1)
-        after_original_expiry = client.get("/api/guest/personalization")
-        assert after_original_expiry.status_code == 200, after_original_expiry.text
+        # Repeated activity near the newly extended expiry slides it forward
+        # again and refreshes the browser cookie's lifetime.
+        with session_store._connect() as db:
+            db.execute(
+                "UPDATE sessions SET guest_token_expires_at=? WHERE session_id=?",
+                (clock.current + 60, session_id),
+            )
+        before_repeat = clock.current + 60
+        repeated = client.get("/api/guest/personalization")
+        assert repeated.status_code == 200, repeated.text
+        with session_store._connect() as db:
+            repeated_expiry = db.execute(
+                "SELECT guest_token_expires_at FROM sessions WHERE session_id=?", (session_id,)
+            ).fetchone()[0]
+        assert repeated_expiry >= clock.current + 1700
+        assert repeated_expiry > before_repeat
+        assert any(
+            cookie.startswith(main_module._guest_cookie_names(session_id)[0] + "=")
+            and "Max-Age=1800" in cookie
+            for cookie in repeated.headers.get_list("set-cookie")
+        )
 
 
 def test_inactive_guest_session_expires_by_property_timeout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -534,17 +586,64 @@ def test_revoked_guest_credential_is_rejected(tmp_path: Path, monkeypatch: pytes
         revoked_cookie_name = main_module._guest_cookie_names(revoked_session_id)[0]
         active_cookie_name = main_module._guest_cookie_names(active_session_id)[0]
         session_store.revoke_guest_credentials(revoked_session_id)
+        with session_store._connect() as db:
+            revoked_before = db.execute(
+                "SELECT guest_token_expires_at,guest_token_revoked_at FROM sessions WHERE session_id=?",
+                (revoked_session_id,),
+            ).fetchone()
         response = client.get(
             "/api/guest/personalization",
             headers={"X-Concierge-Session": revoked_session_id},
         )
         assert response.status_code == 401
+        with session_store._connect() as db:
+            revoked_after = db.execute(
+                "SELECT guest_token_expires_at,guest_token_revoked_at FROM sessions WHERE session_id=?",
+                (revoked_session_id,),
+            ).fetchone()
+        assert tuple(revoked_after) == tuple(revoked_before)
         assert client.cookies.get(revoked_cookie_name) is None
         assert client.cookies.get(active_cookie_name) is not None
         assert client.get(
             "/api/guest/personalization",
             headers={"X-Concierge-Session": active_session_id},
         ).status_code == 200
+
+
+def test_sliding_guest_refresh_does_not_restore_credentials_revoked_after_authentication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    session_store = _guest_replay_stores(tmp_path, monkeypatch)
+    with TestClient(app, base_url="http://a.example.test") as client:
+        session_id = _start_guest(client)
+        token, context = _client_guest_credentials(client, session_id)
+        with session_store._connect() as db:
+            db.execute(
+                "UPDATE sessions SET guest_token_expires_at=? WHERE session_id=?",
+                (int(time.time()) + 60, session_id),
+            )
+        validated_at = session_store.verify_guest_credentials_at(session_id, token, context)
+        assert validated_at is not None
+
+        session_store.revoke_guest_credentials(session_id)
+        assert not session_store.extend_guest_credentials_if_needed(
+            session_id,
+            token,
+            context,
+            ttl_seconds=1800,
+            refresh_threshold_seconds=300,
+            validated_at=validated_at,
+        )
+        with session_store._connect() as db:
+            row = db.execute(
+                "SELECT guest_token_hash,guest_context_hash,guest_token_expires_at,guest_token_revoked_at "
+                "FROM sessions WHERE session_id=?",
+                (session_id,),
+            ).fetchone()
+        assert row["guest_token_hash"] is None
+        assert row["guest_context_hash"] is None
+        assert row["guest_token_expires_at"] is None
+        assert row["guest_token_revoked_at"] is not None
 
 
 @pytest.mark.parametrize("session_count", [2, 10, 25, 50])

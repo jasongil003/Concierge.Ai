@@ -341,10 +341,19 @@ class SessionStore:
         return token, context
 
     def rotate_guest_credentials(
-        self, session_id: str, token: str, context: str, *, ttl_seconds: int
+        self,
+        session_id: str,
+        token: str,
+        context: str,
+        *,
+        ttl_seconds: int,
+        validated_at: int | None = None,
     ) -> tuple[str, str] | None:
-        """Rotate credentials for exactly one unexpired session."""
+        """Rotate credentials for one pair valid at its authentication time."""
         now = int(time.time())
+        validation_time = now if validated_at is None else int(validated_at)
+        if validation_time > now or now - validation_time > max(60, int(ttl_seconds)):
+            return None
         token_hash = self._credential_hash(token)
         context_hash = self._credential_hash(context)
         next_token = secrets.token_urlsafe(32)
@@ -360,7 +369,8 @@ class SessionStore:
             ).fetchone()
             if (
                 row is None or row["guest_token_revoked_at"] is not None
-                or row["guest_token_expires_at"] is None or int(row["guest_token_expires_at"]) <= now
+                or row["guest_token_expires_at"] is None
+                or int(row["guest_token_expires_at"]) <= validation_time
                 or not hmac.compare_digest(str(row["guest_token_hash"] or ""), token_hash)
                 or not hmac.compare_digest(str(row["guest_context_hash"] or ""), context_hash)
             ):
@@ -369,7 +379,15 @@ class SessionStore:
                 "UPDATE sessions SET guest_token_hash=?,guest_context_hash=?,guest_token_expires_at=? "
                 "WHERE session_id=? AND guest_token_hash=? AND guest_context_hash=? "
                 "AND guest_token_expires_at>? AND guest_token_revoked_at IS NULL",
-                (next_token_hash, next_context_hash, now + max(60, int(ttl_seconds)), session_id, token_hash, context_hash, now),
+                (
+                    next_token_hash,
+                    next_context_hash,
+                    now + max(60, int(ttl_seconds)),
+                    session_id,
+                    token_hash,
+                    context_hash,
+                    validation_time,
+                ),
             )
             if cursor.rowcount != 1:
                 return None
@@ -383,11 +401,25 @@ class SessionStore:
         *,
         ttl_seconds: int,
         refresh_threshold_seconds: int,
+        validated_at: int | None = None,
     ) -> bool:
-        """Slide expiry only for a valid, unrevoked credential near expiration."""
+        """Slide expiry for a credential authenticated before its expiry.
+
+        Validation happens before route handling, while renewal happens after
+        a successful response so the cookie and database TTL start together.
+        Use that validation timestamp to allow an already-authenticated request
+        to finish across the expiry boundary, but bound how long a request may
+        hold that renewal authority. A new request with an expired credential
+        still fails validation, and the update rechecks credential hashes and
+        revocation state inside the write transaction.
+        """
         if not token or not context:
             return False
         now = int(time.time())
+        validation_time = now if validated_at is None else int(validated_at)
+        ttl = max(60, int(ttl_seconds))
+        if validation_time > now or now - validation_time > ttl:
+            return False
         token_hash = self._credential_hash(token)
         context_hash = self._credential_hash(context)
         with self._connect() as db:
@@ -401,7 +433,7 @@ class SessionStore:
                 row is None
                 or row["guest_token_revoked_at"] is not None
                 or row["guest_token_expires_at"] is None
-                or int(row["guest_token_expires_at"]) <= now
+                or int(row["guest_token_expires_at"]) <= validation_time
                 or not hmac.compare_digest(str(row["guest_token_hash"] or ""), token_hash)
                 or not hmac.compare_digest(str(row["guest_context_hash"] or ""), context_hash)
                 or int(row["guest_token_expires_at"]) - now > max(0, int(refresh_threshold_seconds))
@@ -411,26 +443,40 @@ class SessionStore:
                 "UPDATE sessions SET guest_token_expires_at=? WHERE session_id=? "
                 "AND guest_token_hash=? AND guest_context_hash=? AND guest_token_expires_at>? "
                 "AND guest_token_revoked_at IS NULL",
-                (now + max(60, int(ttl_seconds)), session_id, token_hash, context_hash, now),
+                (now + ttl, session_id, token_hash, context_hash, validation_time),
             )
             return cursor.rowcount == 1
 
-    def verify_guest_credentials(self, session_id: str, token: str | None, context: str | None) -> bool:
+    def verify_guest_credentials_at(
+        self, session_id: str, token: str | None, context: str | None
+    ) -> int | None:
+        """Return the credential validation time, or None for invalid credentials."""
         if not token or not context:
-            return False
+            return None
+        token_hash = self._credential_hash(token)
+        context_hash = self._credential_hash(context)
         with self._connect() as db:
             row = db.execute(
                 "SELECT guest_token_hash,guest_context_hash,guest_token_expires_at,guest_token_revoked_at "
                 "FROM sessions WHERE session_id=?",
                 (session_id,),
             ).fetchone()
-        if row is None or row["guest_token_revoked_at"] is not None or row["guest_token_expires_at"] is None:
-            return False
-        if int(row["guest_token_expires_at"]) <= int(time.time()):
-            return False
-        return hmac.compare_digest(str(row["guest_token_hash"] or ""), self._credential_hash(token)) and hmac.compare_digest(
-            str(row["guest_context_hash"] or ""), self._credential_hash(context)
-        )
+        # Capture the validation instant after the database read so a slow
+        # query cannot accept a credential that expired while it was running.
+        now = int(time.time())
+        if (
+            row is None
+            or row["guest_token_revoked_at"] is not None
+            or row["guest_token_expires_at"] is None
+            or int(row["guest_token_expires_at"]) <= now
+            or not hmac.compare_digest(str(row["guest_token_hash"] or ""), token_hash)
+            or not hmac.compare_digest(str(row["guest_context_hash"] or ""), context_hash)
+        ):
+            return None
+        return now
+
+    def verify_guest_credentials(self, session_id: str, token: str | None, context: str | None) -> bool:
+        return self.verify_guest_credentials_at(session_id, token, context) is not None
 
     def find_by_guest_credentials(self, token: str | None, context: str | None) -> str | None:
         if not token or not context:
