@@ -526,6 +526,113 @@ test("guest: chat submit works with direct input", async ({ page }) => {
   await expect(input).toHaveValue("");
 });
 
+test("guest: responsive shell keeps the concierge composer attached without horizontal overflow", async ({ page }) => {
+  await page.route("**/api/chat", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ answer: "Your concierge is ready to help." }),
+  }));
+  await page.goto("/");
+  const input = page.getByLabel("Ask your concierge");
+  await input.fill("Hi");
+  await page.getByRole("button", { name: "Send message" }).click();
+  await expect(page.locator("#home-message-list .message-row.user .message-text")).toHaveText("Hi");
+  await expect(page.locator("#home-conversation")).toBeVisible();
+  expect(await page.locator("#composer-region").evaluate((element) => element.parentElement.id)).toBe("home-conversation");
+
+  const sizes = [375, 768, 1024, 1440, 1920];
+  for (const width of sizes) {
+    await page.setViewportSize({ width, height: 900 });
+    const home = await page.evaluate(() => {
+      const rect = (selector) => {
+        const candidates = [...document.querySelectorAll(selector)];
+        const element = candidates.find((candidate) => candidate.getClientRects().length) || candidates[0];
+        if (!element) return null;
+        const box = element.getBoundingClientRect();
+        return { x: box.x, right: box.right, width: box.width, y: box.y, bottom: box.bottom };
+      };
+      const bubble = document.querySelector("#home-message-list .message-row.user .message-text");
+      const bubbleStyle = bubble ? getComputedStyle(bubble) : null;
+      const navigation = [...document.querySelectorAll(".experience-configured-navigation, .guest-bottom-nav")]
+        .find((element) => element.getClientRects().length);
+      return {
+        viewport: document.documentElement.clientWidth,
+        documentWidth: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+        shell: rect(".concierge-shell"),
+        headerMenu: rect(".experience-configured-menu, #menu-button"),
+        brand: rect(".experience-configured-identity, .hotel-identity"),
+        hero: rect(".experience-hero, .home-hero"),
+        actions: rect(".experience-quick_actions, #home-actions-section"),
+        conversation: rect("#home-conversation"),
+        navigation: rect(".experience-configured-navigation, .guest-bottom-nav"),
+        navigationPosition: getComputedStyle(navigation).position,
+        composerPosition: getComputedStyle(document.querySelector("#composer-region")).position,
+        composerParent: document.querySelector("#composer-region").parentElement.id,
+        bubble: bubble ? {
+          width: bubble.getBoundingClientRect().width,
+          contentHeight: bubble.getBoundingClientRect().height
+            - parseFloat(bubbleStyle.paddingTop || "0")
+            - parseFloat(bubbleStyle.paddingBottom || "0"),
+          lineHeight: parseFloat(bubbleStyle.lineHeight),
+        } : null,
+      };
+    });
+
+    expect(home.documentWidth).toBeLessThanOrEqual(home.viewport + 1);
+    expect(home.shell.width).toBeLessThanOrEqual(Math.min(width, 1180) + 1);
+    expect(home.shell.x).toBeGreaterThanOrEqual(-1);
+    expect(home.shell.right).toBeLessThanOrEqual(width + 1);
+    if (width > 1180) expect(Math.abs(home.shell.x - (width - home.shell.width) / 2)).toBeLessThanOrEqual(1);
+    expect(home.headerMenu.x).toBeGreaterThanOrEqual(home.shell.x - 1);
+    expect(home.headerMenu.right).toBeLessThanOrEqual(home.shell.right + 1);
+    expect(home.brand.x).toBeGreaterThanOrEqual(home.shell.x - 1);
+    expect(home.brand.right).toBeLessThanOrEqual(home.shell.right + 1);
+    expect(home.actions.x).toBeCloseTo(home.conversation.x, 0);
+    expect(home.hero.x).toBeCloseTo(home.conversation.x, 0);
+    expect(home.navigation.x).toBeGreaterThanOrEqual(home.shell.x - 1);
+    expect(home.navigation.right).toBeLessThanOrEqual(home.shell.right + 1);
+    expect(home.composerParent).toBe("home-conversation");
+    expect(home.composerPosition).not.toBe("fixed");
+    expect(home.bubble.width).toBeGreaterThan(20);
+    expect(home.bubble.contentHeight).toBeLessThanOrEqual(home.bubble.lineHeight * 1.5);
+
+    await page.locator("#home-conversation [data-open-view='concierge']").click();
+    const chat = await page.evaluate(() => {
+      const rect = (element) => {
+        const box = element.getBoundingClientRect();
+        return { x: box.x, right: box.right, width: box.width, bottom: box.bottom };
+      };
+      const shell = document.querySelector(".concierge-shell");
+      const card = document.querySelector("#concierge-card");
+      const composer = document.querySelector("#composer-region");
+      const nav = [...document.querySelectorAll(".experience-configured-navigation, .guest-bottom-nav")]
+        .find((element) => element.getClientRects().length);
+      return {
+        documentWidth: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+        viewport: document.documentElement.clientWidth,
+        shell: rect(shell),
+        card: rect(card),
+        composer: rect(composer),
+        composerParent: composer.parentElement.id,
+        composerPosition: getComputedStyle(composer).position,
+        navigation: rect(nav),
+        navigationPosition: getComputedStyle(nav).position,
+      };
+    });
+    expect(chat.documentWidth).toBeLessThanOrEqual(chat.viewport + 1);
+    expect(home.hero.x).toBeCloseTo(chat.card.x, 0);
+    expect(chat.card.x).toBeGreaterThanOrEqual(chat.shell.x - 1);
+    expect(chat.card.right).toBeLessThanOrEqual(chat.shell.right + 1);
+    expect(chat.composerParent).toBe("concierge-card");
+    expect(chat.composerPosition).not.toBe("fixed");
+    expect(chat.composer.bottom).toBeLessThanOrEqual(chat.card.bottom + 1);
+    expect(chat.navigation.x).toBeGreaterThanOrEqual(chat.shell.x - 1);
+    expect(chat.navigation.right).toBeLessThanOrEqual(chat.shell.right + 1);
+    if (width >= 761) expect(chat.navigationPosition).not.toBe("fixed");
+    await page.locator(".experience-configured-navigation [data-page-id='home']:visible, #guest-bottom-nav [data-view='home']:visible").first().click();
+  }
+});
+
 test("guest: submitted message stays in the composer when session startup fails", async ({ page }) => {
   await page.route("**/api/session/start", (route) => route.fulfill({
     status: 503,

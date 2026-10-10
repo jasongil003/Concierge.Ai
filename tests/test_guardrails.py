@@ -485,6 +485,112 @@ def test_configured_guest_domain_can_start_session_with_matching_origin(tmp_path
     assert referer_response.status_code == 200, referer_response.text
 
 
+def test_configured_guest_portal_url_is_mapped_and_matches_exact_origin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    property_store = PropertyStore(tmp_path / "origin-portal-url.db")
+    record = PropertyRecord(
+        property_id="portal-property",
+        hotel_name="Portal Property",
+        app_settings={"deployment": {"public_base_url": "http://portal.example.test:8087"}},
+        guardrails={"allowed_cidrs": ["127.0.0.0/8"]},
+    )
+    property_store.upsert(record)
+    monkeypatch.setattr(main_module, "properties", property_store)
+    monkeypatch.setattr(
+        main_module,
+        "settings",
+        replace(main_module.settings, app_environment="development", canonical_hosts=(), property_id="", allow_body_property_selection=False),
+    )
+    monkeypatch.setattr(main_module, "store", SessionStore(tmp_path / "origin-portal-sessions.db"))
+
+    assert PropertyGuard.host_record(property_store.list(), "portal.example.test:8087").property_id == "portal-property"
+    with TestClient(app, base_url="http://portal.example.test:8087") as client:
+        allowed = client.post(
+            "/api/session/start",
+            headers={"Origin": "http://portal.example.test:8087"},
+            json={"client_id": "configured-portal"},
+        )
+    with TestClient(app, base_url="http://portal.example.test:8088") as client:
+        wrong_port = client.post(
+            "/api/session/start",
+            headers={"Origin": "http://portal.example.test:8088"},
+            json={"client_id": "wrong-portal-port"},
+        )
+
+    assert allowed.status_code == 200, allowed.text
+    assert wrong_port.status_code == 403
+    assert wrong_port.json()["detail"] == "Cross-origin guest mutation denied."
+
+
+def test_single_property_fallback_does_not_allow_an_unmapped_ip_origin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    property_store = PropertyStore(tmp_path / "origin-unmapped-ip.db")
+    property_store.upsert(PropertyRecord(
+        property_id="portal-property",
+        hotel_name="Portal Property",
+        app_settings={"deployment": {"public_base_url": "https://portal.example.test"}},
+    ))
+    monkeypatch.setattr(main_module, "properties", property_store)
+    monkeypatch.setattr(
+        main_module,
+        "settings",
+        replace(main_module.settings, app_environment="development", canonical_hosts=(), property_id="portal-property", allow_body_property_selection=False),
+    )
+    monkeypatch.setattr(main_module, "store", SessionStore(tmp_path / "origin-unmapped-ip-sessions.db"))
+
+    with TestClient(app, base_url="http://198.51.100.42:8080") as client:
+        response = client.post(
+            "/api/session/start",
+            headers={"Origin": "http://198.51.100.42:8080"},
+            json={"client_id": "unmapped-ip"},
+        )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Cross-origin guest mutation denied."
+
+
+def test_https_guest_portal_uses_forwarded_scheme_only_from_trusted_proxy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    property_store = PropertyStore(tmp_path / "origin-portal-proxy.db")
+    property_store.upsert(PropertyRecord(
+        property_id="portal-property",
+        hotel_name="Portal Property",
+        app_settings={"deployment": {"public_base_url": "https://portal.example.test"}},
+        guardrails={
+            "allowed_cidrs": ["203.0.113.0/24"],
+            "trusted_proxy_ranges": ["10.20.30.0/24"],
+        },
+    ))
+    monkeypatch.setattr(main_module, "properties", property_store)
+    monkeypatch.setattr(
+        main_module,
+        "settings",
+        replace(main_module.settings, app_environment="production", canonical_hosts=(), property_id="", allow_body_property_selection=False),
+    )
+    monkeypatch.setattr(main_module, "store", SessionStore(tmp_path / "origin-portal-proxy-sessions.db"))
+
+    with TestClient(app, base_url="http://portal.example.test", client=("10.20.30.10", 50000)) as trusted_proxy:
+        allowed = trusted_proxy.post(
+            "/api/session/start",
+            headers={
+                "Origin": "https://portal.example.test",
+                "X-Forwarded-Proto": "https",
+                "X-Forwarded-For": "203.0.113.40",
+            },
+            json={"client_id": "trusted-forwarded-scheme"},
+        )
+
+    with TestClient(app, base_url="http://portal.example.test", client=("198.51.100.10", 50000)) as untrusted_peer:
+        denied = untrusted_peer.post(
+            "/api/session/start",
+            headers={
+                "Origin": "https://portal.example.test",
+                "X-Forwarded-Proto": "https",
+            },
+            json={"client_id": "untrusted-forwarded-scheme"},
+        )
+
+    assert allowed.status_code == 200, allowed.text
+    assert denied.status_code == 426
+
+
 def test_guest_mutation_rejects_explicit_zero_origin_port(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     property_store = PropertyStore(tmp_path / "origin-zero-port.db")
     property_store.upsert(PropertyRecord(
