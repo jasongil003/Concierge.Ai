@@ -82,9 +82,11 @@ def property_guest_hostnames(record: Any) -> set[str]:
     if isinstance(record, dict):
         domain = record.get("domain", "")
         raw_guardrails = record.get("guardrails")
+        raw_settings = record.get("app_settings")
     else:
         domain = getattr(record, "domain", "")
         raw_guardrails = getattr(record, "guardrails", None)
+        raw_settings = getattr(record, "app_settings", None)
 
     hostnames: set[str] = set()
     if domain:
@@ -102,6 +104,29 @@ def property_guest_hostnames(record: Any) -> set[str]:
             except (TypeError, ValueError):
                 # Keep valid mappings from this property usable when one legacy entry is corrupt.
                 continue
+
+    deployment = raw_settings.get("deployment", {}) if isinstance(raw_settings, dict) else {}
+    public_guest_url = deployment.get("public_base_url") if isinstance(deployment, dict) else None
+    if isinstance(public_guest_url, str) and public_guest_url == public_guest_url.strip():
+        try:
+            parsed_url = urlsplit(public_guest_url)
+            # A configured portal URL is a property host mapping only when it
+            # is a plain HTTP(S) origin. The origin policy checks its scheme
+            # and port separately before allowing a browser mutation.
+            if (
+                parsed_url.scheme.casefold() in {"http", "https"}
+                and parsed_url.hostname
+                and not parsed_url.username
+                and not parsed_url.password
+                and parsed_url.path in {"", "/"}
+                and not parsed_url.query
+                and not parsed_url.fragment
+            ):
+                _ = parsed_url.port  # Reject malformed ports before mapping the hostname.
+                hostnames.add(normalize_guest_hostname(parsed_url.hostname))
+        except (TypeError, ValueError):
+            # Invalid legacy portal URLs never establish a host mapping.
+            pass
     return hostnames
 
 

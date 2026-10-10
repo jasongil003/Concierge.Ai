@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=1920, height=1080">
+    <title>Concierge.AI — Hospitality, connected</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      @font-face {
+        font-family: "Concierge Serif";
+        src: local("Iowan Old Style"), local("Georgia");
+        font-weight: 400 700;
+      }
+      @font-face {
+        font-family: "Concierge Sans";
+        src: local("Geist"), local("Inter"), local("Arial");
+        font-weight: 400 700;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #FAF8F4;
+        font-family: "Concierge Sans", Arial, sans-serif;
+      }
+      .composition-layer {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+      }
+      .clip {
+        position: absolute;
+        inset: 0;
+        display: block;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <main data-hf-id="hf-60io" id="root" data-composition-id="main" data-start="0" data-duration="20" data-width="1920" data-height="1080">
+      <div data-hf-id="hf-2v41" id="layer-1" class="composition-layer">
+        <div data-hf-id="hf-uupc" id="beat-1-intro" class="clip" data-composition-id="beat-1-intro" data-composition-src="compositions/beat-1-intro.html" data-start="0" data-duration="4" data-track-index="1" data-width="1920" data-height="1080"></div>
+      </div>
+      <div data-hf-id="hf-6t82" id="layer-2" class="composition-layer">
+        <div data-hf-id="hf-zt65" id="beat-2-guide" class="clip" data-composition-id="beat-2-guide" data-composition-src="compositions/beat-2-guide.html" data-start="3.6" data-duration="5.6" data-track-index="1" data-width="1920" data-height="1080"></div>
+      </div>
+      <div data-hf-id="hf-cyxv" id="layer-3" class="composition-layer">
+        <div data-hf-id="hf-7l0t" id="beat-3-ops" class="clip" data-composition-id="beat-3-ops" data-composition-src="compositions/beat-3-ops.html" data-start="8.8" data-duration="5.2" data-track-index="1" data-width="1920" data-height="1080"></div>
+      </div>
+      <div data-hf-id="hf-phgc" id="layer-4" class="composition-layer">
+        <div data-hf-id="hf-cnnp" id="beat-4-close" class="clip" data-composition-id="beat-4-close" data-composition-src="compositions/beat-4-close.html" data-start="13.7" data-duration="6.3" data-track-index="1" data-width="1920" data-height="1080"></div>
+      </div>
+      <audio data-hf-id="hf-0fqs" id="narration" src="narration.wav" data-start="0" data-duration="17.05" data-track-index="3" data-volume="1"></audio>
+    </main>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const mainTl = gsap.timeline({ paused: true });
+      mainTl.fromTo("#layer-1", { opacity: 0 }, { opacity: 1, duration: 0.45, ease: "power2.out" }, 0);
+      mainTl.to("#layer-1", { opacity: 0, duration: 0.45, ease: "power2.inOut" }, 3.6);
+      mainTl.fromTo("#layer-2", { opacity: 0 }, { opacity: 1, duration: 0.45, ease: "power2.out" }, 3.6);
+      mainTl.to("#layer-2", { opacity: 0, duration: 0.45, ease: "power2.inOut" }, 8.8);
+      mainTl.fromTo("#layer-3", { opacity: 0 }, { opacity: 1, duration: 0.45, ease: "power2.out" }, 8.8);
+      mainTl.to("#layer-3", { opacity: 0, duration: 0.45, ease: "power2.inOut" }, 13.7);
+      mainTl.fromTo("#layer-4", { opacity: 0 }, { opacity: 1, duration: 0.45, ease: "power2.out" }, 13.7);
+      window.__timelines["main"] = mainTl;
+    </script>
+  </body>
+</html>

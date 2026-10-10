@@ -1,0 +1,240 @@
+{
+  "typography": [
+    {
+      "role": "display",
+      "fontFamily": "Iowan Old Style",
+      "fontSize": "66px",
+      "fontWeight": "590",
+      "lineHeight": "67.32px",
+      "letterSpacing": "-2.97px",
+      "color": "#1C1C1C",
+      "sampleText": "Your stay, made easier."
+    },
+    {
+      "role": "body",
+      "fontFamily": "Geist Sans",
+      "fontSize": "20px",
+      "fontWeight": "400",
+      "lineHeight": "29px",
+      "letterSpacing": "normal",
+      "color": "#6E6A64",
+      "sampleText": "Your personal concierge is here to make your stay more comfo"
+    },
+    {
+      "role": "body-small",
+      "fontFamily": "Geist Sans",
+      "fontSize": "12.5px",
+      "fontWeight": "400",
+      "lineHeight": "normal",
+      "letterSpacing": "normal",
+      "color": "#1C1C1C",
+      "sampleText": "Concierge"
+    },
+    {
+      "role": "heading",
+      "fontFamily": "Geist Sans",
+      "fontSize": "12px",
+      "fontWeight": "700",
+      "lineHeight": "normal",
+      "letterSpacing": "1.68px",
+      "color": "#B38A4A",
+      "sampleText": "Quick actions"
+    }
+  ],
+  "spacing": {
+    "observed": [
+      1,
+      3,
+      4,
+      6,
+      8,
+      10,
+      12,
+      14,
+      15,
+      16,
+      17,
+      19,
+      20,
+      30,
+      56
+    ],
+    "baseUnit": 4
+  },
+  "radius": [
+    "10px",
+    "14px",
+    "15px"
+  ],
+  "shadows": [
+    {
+      "value": "rgba(25, 25, 25, 0.07) 0px 7px 24px 0px",
+      "count": 4
+    },
+    {
+      "value": "rgba(8, 22, 18, 0.22) 28px 0px 90px 0px",
+      "count": 1
+    },
+    {
+      "value": "rgba(25, 25, 25, 0.05) 0px -4px 18px 0px",
+      "count": 1
+    }
+  ],
+  "buttons": [
+    {
+      "label": "Menu",
+      "background": "transparent",
+      "backgroundImage": "",
+      "backdropFilter": "",
+      "color": "#1C1C1C",
+      "padding": "0px 12px",
+      "borderRadius": "0px",
+      "border": "0px none rgb(28, 28, 28)",
+      "boxShadow": "none",
+      "fontSize": "15px",
+      "fontWeight": "400",
+      "height": "36px"
+    },
+    {
+      "label": "Explore dining",
+      "background": "#FFFFFF",
+      "backgroundImage": "",
+      "backdropFilter": "",
+      "color": "#1C1C1C",
+      "padding": "17px 19px",
+      "borderRadius": "14px",
+      "border": "1px solid rgb(232, 227, 218)",
+      "boxShadow": "rgba(25, 25, 25, 0.07) 0px 7px 24px 0px",
+      "fontSize": "15px",
+      "fontWeight": "400",
+      "height": "106px"
+    },
+    {
+      "label": "button",
+      "background": "transparent",
+      "backgroundImage": "",
+      "backdropFilter": "",
+      "color": "#6E6A64",
+      "padding": "1px 6px",
+      "borderRadius": "15px",
+      "border": "0px none rgb(110, 106, 100)",
+      "boxShadow": "none",
+      "fontSize": "15px",
+      "fontWeight": "400",
+      "height": "44px"
+    },
+    {
+      "label": "button",
+      "background": "#B38A4A",
+      "backgroundImage": "",
+      "backdropFilter": "",
+      "color": "#1C1C1C",
+      "padding": "1px 6px",
+      "borderRadius": "15px",
+      "border": "0px none rgb(28, 28, 28)",
+      "boxShadow": "none",
+      "fontSize": "20px",
+      "fontWeight": "400",
+      "height": "44px"
+    },
+    {
+      "label": "×",
+      "background": "transparent",
+      "backgroundImage": "",
+      "backdropFilter": "",
+      "color": "#1C1C1C",
+      "padding": "1px 6px",
+      "borderRadius": "999px",
+      "border": "1px solid rgba(0, 0, 0, 0)",
+      "boxShadow": "none",
+      "fontSize": "15px",
+      "fontWeight": "400",
+      "height": "42px"
+    },
+    {
+      "label": "New conversationStart fresh with your co",
+      "background": "transparent",
+      "backgroundImage": "",
+      "backdropFilter": "",
+      "color": "#1C1C1C",
+      "padding": "8px 10px",
+      "borderRadius": "10px",
+      "border": "1px solid rgba(0, 0, 0, 0)",
+      "boxShadow": "none",
+      "fontSize": "14px",
+      "fontWeight": "590",
+      "height": "66px"
+    }
+  ],
+  "cards": [
+    {
+      "label": "card",
+      "background": "#FFFFFF",
+      "backgroundImage": "",
+      "backdropFilter": "",
+      "color": "#1C1C1C",
+      "padding": "17px 19px",
+      "borderRadius": "14px",
+      "border": "1px solid rgb(232, 227, 218)",
+      "boxShadow": "rgba(25, 25, 25, 0.07) 0px 7px 24px 0px",
+      "fontSize": "15px",
+      "fontWeight": "400",
+      "height": "106px"
+    },
+    {
+      "label": "card",
+      "background": "#FFFFFF",
+      "backgroundImage": "",
+      "backdropFilter": "blur(18px)",
+      "color": "#1C1C1C",
+      "padding": "26px 20px 22px",
+      "borderRadius": "0px",
+      "border": "0px none rgb(28, 28, 28)",
+      "boxShadow": "rgba(8, 22, 18, 0.22) 28px 0px 90px 0px",
+      "fontSize": "15px",
+      "fontWeight": "400",
+      "height": "1080px"
+    }
+  ],
+  "nav": {
+    "label": "navigation",
+    "background": "#FAF8F4",
+    "backgroundImage": "",
+    "backdropFilter": "",
+    "color": "#1C1C1C",
+    "padding": "0px",
+    "borderRadius": "0px",
+    "border": "0px none rgb(28, 28, 28)",
+    "boxShadow": "none",
+    "fontSize": "15px",
+    "fontWeight": "400",
+    "height": "1080px"
+  },
+  "chips": [],
+  "statCells": [],
+  "tabs": [],
+  "backgrounds": [
+    {
+      "value": "radial-gradient(circle, rgba(173, 131, 81, 0.1), rgba(0, 0, 0, 0) 68%)",
+      "area": 2073600
+    },
+    {
+      "value": "radial-gradient(circle, color(srgb 0.701961 0.541176 0.290196 / 0.11), rgba(0, 0, 0, 0) 69%)",
+      "area": 2073600
+    },
+    {
+      "value": "linear-gradient(90deg, rgba(0, 0, 0, 0), color(srgb 0.701961 0.541176 0.290196 / 0.12), rgba(0, 0, 0, 0))",
+      "area": 2073600
+    }
+  ],
+  "glass": [
+    {
+      "backdropFilter": "blur(18px)",
+      "background": "rgb(255, 255, 255)",
+      "border": "0px none rgb(28, 28, 28)",
+      "borderRadius": "0px",
+      "boxShadow": "rgba(8, 22, 18, 0.22) 28px 0px 90px 0px",
+      "area": 432000
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "summary": {
+    "webAnimations": 1,
+    "cssDeclarations": 36,
+    "scrollTargets": 0,
+    "cdpAnimations": 2,
+    "canvases": 0
+  },
+  "namedAnimations": [
+    "guest-ui-in"
+  ],
+  "scrollTriggeredElements": 0,
+  "representativeAnimations": [
+    {
+      "type": "CSSAnimation",
+      "playState": "finished",
+      "animationName": "guest-ui-in",
+      "targetSelector": "#composer-form.composer",
+      "targetRect": {
+        "x": 600,
+        "y": 933,
+        "width": 720,
+        "height": 60,
+        "top": 933,
+        "right": 1320,
+        "bottom": 993,
+        "left": 600
+      },
+      "keyframes": [
+        {
+          "offset": 0,
+          "easing": "ease",
+          "composite": "auto",
+          "transform": "translateY(3px)",
+          "opacity": "0.72",
+          "computedOffset": 0
+        },
+        {
+          "offset": 1,
+          "easing": "ease",
+          "composite": "auto",
+          "transform": "translateY(0px)",
+          "opacity": "1",
+          "computedOffset": 1
+        }
+      ],
+      "timing": {
+        "duration": 220,
+        "delay": 0,
+        "iterations": 1,
+        "easing": "linear",
+        "direction": "normal"
+      }
+    }
+  ]
+}

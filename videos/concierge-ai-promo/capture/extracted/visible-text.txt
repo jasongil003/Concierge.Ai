@@ -1,0 +1,94 @@
+[p] Welcome
+[button] Skip
+[h1] Property not configured
+[p] The guest experience is not available at this address yet. Please contact the property administrator.
+[span] Menu
+[strong] Harbor House Hotel
+[span] Concierge
+[button] Menu
+[strong] Harbor House Hotel
+[small] Concierge
+[p] Good evening.
+[h1] Your stay, made easier.
+[p] Your personal concierge is here to make your stay more comfortable.
+[h2] Quick actions
+[strong] Explore dining
+[strong] Request towels
+[strong] Find the pool
+[strong] My Stay
+[span] Your concierge
+[button] Open conversation
+[p] Welcome
+[h1] How can I help with your stay today?
+[p] Your personal concierge is here to make your stay more comfortable.
+[span] Quick actions
+[span] Your requests
+[button] View all
+[span] Suggested for you
+[button] Requests
+[button] Concierge
+[p] Enter to send
+[p] Shift+Enter for a new line
+[small] Requests
+[small] Concierge
+[span] Guest controlled
+[h2] Personalization / Memory
+[p] Keep this concierge private or let it remember useful preferences for your stay. You can change or clear them any time.
+[label] Personalization level
+[option] Private / Anonymous
+[option] Stay Personalization
+[option] Personal Concierge
+[p] Private mode is on. Saved preferences aren't used while this is selected.
+[strong] What your concierge knows
+[span] Nothing saved
+[label] Preference type
+[option] Food or cuisine
+[option] Dietary need
+[option] Budget
+[option] Travel party
+[option] Getting around
+[option] Interests
+[option] Activities
+[option] Accessibility
+[option] Language
+[option] Response style
+[option] Trip purpose
+[option] Activity time
+[option] Preferred name
+[label] Preference
+[button] Save preference
+[button] Clear all preferences
+[button] Keep it private
+[span] Explore your property
+[h2] Property map
+[p] A property map has not been added yet.
+[p] Select a marker to view its published property label.
+[span] Guest support
+[h2] Talk to Restaurant Staff
+[p] Your selected restaurant and request will be shared with its staff. Your concierge chat stays private.
+[label] Restaurant
+[label] What can the team help with?
+[button] Cancel
+[button] Request staff
+[small] Requests
+[small] Concierge
+[span] Guest services
+[strong] How can we help?
+[p] Concierge
+[strong] New conversation
+[small] Start fresh with your concierge
+[strong] Talk to Restaurant Staff
+[small] Send a private request to a dining team
+[strong] Property map
+[small] Find your way around
+[strong] Hotel information
+[small] Address, amenities, and hours
+[strong] Language
+[small] Switch reply language
+[strong] Personalization & memory
+[small] Review or clear saved preferences
+[strong] Accessibility
+[small] Adjust reading and display
+[small] How your chat is handled
+[strong] Help
+[small] Tips for a smooth stay

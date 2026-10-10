@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en" style="--background: #faf8f4; --background-image: none; --background-overlay: 0; --surface: #ffffff; --surface-elevated: #ffffff; --text-primary: #1c1c1c; --text-secondary: #6e6a64; --accent: #b38a4a; --button-color: #b38a4a; --accent-text: #1c1c1c; --border: #e8e3da; --user-message-bg: #f0ede7; --user-message-text: #1c1c1c; --assistant-text: #1c1c1c; --column-width: 840px; --composer-max: 720px; --message-width: 680px; --message-spacing: 24px; --message-radius: 18px; --composer-radius: 24px; --base-font-size: 15px; --heading-weight: 600; --body-weight: 400; --letter-spacing: 0em; --font-family: &quot;Geist Sans&quot;, Inter, system-ui, sans-serif; --guest-radius: 14px; --guest-card-radius: 14px; --guest-shadow: 0 7px 24px rgba(25, 25, 25, .07); --guest-density: 1;">
+<head>
+
+
+</head>
+<body>
+
+  <section class="intro-overlay" id="intro-overlay" hidden>
+    <div class="intro-stage" id="intro-stage">
+      <video class="intro-video" id="intro-video" muted playsinline loop hidden></video>
+      <div class="intro-content"><div class="intro-logo" id="intro-logo"><img id="intro-logo-image" alt="" hidden><span id="intro-logo-mark">C</span></div>
+      <p id="intro-message">Welcome</p>
+      <button id="intro-skip" type="button">Skip</button>
+      </div>
+    </div>
+  </section>
+  <section class="property-unconfigured" id="property-unconfigured" hidden aria-labelledby="property-unconfigured-title">
+    <div><div class="property-unconfigured-mark" aria-hidden="true">C</div><h1 id="property-unconfigured-title">Property not configured</h1><p>The guest experience is not available at this address yet. Please contact the property administrator.</p></div>
+  </section>
+  <main class="concierge-shell" id="concierge-shell">
+    <header class="concierge-header" hidden>
+      <button class="icon-button menu-trigger" id="menu-button" type="button" aria-label="Open hotel menu" aria-controls="hotel-menu" aria-expanded="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+        <span>Menu</span>
+      </button>
+      <div class="hotel-identity" aria-live="polite">
+        <div class="hotel-mark" id="hotel-mark" aria-hidden="true"><span id="hotel-initial">H</span><img id="hotel-logo" alt="" hidden></div>
+        <div>
+          <strong id="hotel-name">Harbor House Hotel</strong>
+          <span class="concierge-presence"><i aria-hidden="true"></i><span id="concierge-name">Concierge</span></span>
+        </div>
+      </div>
+    </header>
+    <div class="maintenance-banner" id="maintenance-banner" role="status" hidden>Concierge maintenance is in progress. Some requests may take longer than usual.</div>
+
+    <section class="guest-view personal-home" id="home-view" aria-label="Home" aria-hidden="false">
+      <div class="guest-view-inner home-view-inner">
+        <div class="guest-experience-page" id="guest-experience-page" data-page-id="home" style="padding-bottom: var(--experience-footer-clearance, 180px);"><section class="experience-section experience-header experience-configured-header" data-section-id="header" aria-label="Header" data-animation="none" data-interaction="none" style="--experience-duration: 320ms; --experience-delay: 0ms; --experience-columns: 2;"><button type="button" class="experience-configured-menu" aria-label="Open hotel menu">Menu</button><span class="experience-configured-identity"><strong>Harbor House Hotel</strong><small>Concierge</small></span></section><section class="experience-section experience-hero experience-hero-large experience-align-left" data-section-id="hero" aria-label="Welcome" data-animation="none" data-interaction="none" style="--experience-duration: 320ms; --experience-delay: 0ms; --experience-columns: 2;"><p class="experience-eyebrow">Good evening.</p><h1>Your stay, made easier.</h1><p>Your personal concierge is here to make your stay more comfortable.</p></section><section class="experience-section experience-quick_actions" data-section-id="quick-actions" aria-label="Quick actions" data-animation="none" data-interaction="none" style="--experience-duration: 320ms; --experience-delay: 0ms; --experience-columns: 2;"><h2 class="experience-section-title">Quick actions</h2><div class="experience-action-grid"><button type="button" class="experience-action-card" data-action-type="configured"><span class="experience-action-copy"><strong>Explore dining</strong></span></button><button type="button" class="experience-action-card" data-action-type="configured"><span class="experience-action-copy"><strong>Request towels</strong></span></button><button type="button" class="experience-action-card" data-action-type="configured"><span class="experience-action-copy"><strong>Find the pool</strong></span></button><button type="button" class="experience-action-card" data-action-type="route"><span class="experience-action-copy"><strong>My Stay</strong></span></button></div></section></div>
+        <section class="home-conversation" id="home-conversation" aria-label="Concierge replies" hidden>
+          <div class="home-section-heading"><span>Your concierge</span><button type="button" data-open-view="concierge">Open conversation</button></div>
+          <div class="home-message-list" id="home-message-list" aria-live="polite" aria-label="Concierge replies"></div>
+        </section>
+        <div class="legacy-home-content" id="legacy-home-content" hidden>
+        <header class="home-hero" id="home-hero" aria-labelledby="home-name">
+          <div class="home-hero-media" id="home-hero-media" aria-hidden="true" hidden>
+            <img id="home-hero-image" alt="" loading="lazy" decoding="async">
+          </div>
+          <div class="home-hero-copy">
+            <p class="home-hero-greeting" id="home-greeting">Welcome</p>
+            <h1 id="home-name">How can I help with your stay today?</h1>
+            <p class="home-hero-description" id="home-description">Your personal concierge is here to make your stay more comfortable.</p>
+            <span class="home-stay-phase" id="home-stay-phase" hidden></span>
+          </div>
+        </header>
+        <section class="home-section home-actions-section" id="home-actions-section" aria-labelledby="home-actions-heading" hidden>
+          <div class="home-section-heading">
+            <span id="home-actions-heading">Quick actions</span>
+            <button type="button" id="home-actions-toggle" aria-expanded="false" hidden>See all <span aria-hidden="true">›</span></button>
+          </div>
+          <div class="quick-action-list" id="quick-actions"></div>
+        </section>
+        <section class="home-primary" id="home-primary" aria-label="A helpful next step" hidden></section>
+        <section class="home-section" id="home-requests-section" hidden>
+          <div class="home-section-heading"><span>Your requests</span><button type="button" data-open-view="requests">View all</button></div>
+          <div class="home-request-list" id="home-requests"></div>
+        </section>
+        <section class="home-section" id="home-cards-section" hidden>
+          <div class="home-section-heading">
+            <span>Suggested for you</span>
+            <button type="button" id="home-suggestions-more" aria-expanded="false" hidden>See all</button>
+          </div>
+          <div class="home-suggestion-list" id="home-cards"></div>
+        </section>
+        </div>
+      </div>
+    </section>
+
+    <section class="guest-view guest-custom-page" id="custom-page-view" aria-label="Guest page" hidden aria-hidden="true">
+      <div class="guest-view-inner"><div class="guest-experience-page" id="custom-experience-page"></div></div>
+    </section>
+
+    <section class="guest-view" id="explore-view" aria-label="Explore" hidden aria-hidden="true">
+      <div class="guest-view-inner">
+        <header class="section-page-heading"><p>Discover the property</p><h1>Explore</h1></header>
+        <section class="home-section" id="dining-section" hidden><div class="home-section-heading"><span>Dining</span></div><div class="home-card-list" id="dining-list"></div></section>
+        <section class="home-section" id="menu-section" hidden><div class="home-section-heading"><span id="menu-heading">Menu</span><button type="button" id="close-menu-view">All dining</button></div><div class="home-card-list" id="menu-list"></div></section>
+        <section class="home-section" id="facility-section" hidden><div class="home-section-heading"><span>Facilities</span></div><div class="home-card-list" id="facility-list"></div></section>
+        <section class="home-section" id="event-section" hidden><div class="home-section-heading"><span>Coming up</span></div><div class="home-card-list" id="event-list"></div></section>
+        <section class="home-section" id="promotion-section" hidden><div class="home-section-heading"><span>Current offers</span></div><div class="home-card-list" id="promotion-list"></div></section>
+        <section class="home-section" id="recommendation-section" hidden><div class="home-section-heading"><span>Nearby and more</span></div><div class="home-card-list" id="recommendation-list"></div></section>
+        <p class="empty-state" id="explore-empty" hidden>Explore information is not configured yet. Ask hotel staff for help.</p>
+      </div>
+    </section>
+
+    <section class="guest-view" id="requests-view" aria-label="My requests" hidden aria-hidden="true">
+      <div class="guest-view-inner">
+        <header class="section-page-heading"><p>Guest services</p><h1>My Requests</h1></header>
+        <div class="request-list" id="request-list" aria-live="polite"></div>
+        <p class="empty-state" id="requests-empty" hidden>No requests for this stay yet.</p>
+        <section class="home-section" id="request-catalog-section">
+          <div class="home-section-heading"><span>Request a service</span></div>
+          <div class="service-action-list" id="request-catalog-list"></div>
+          <div id="request-action-confirmation" hidden></div>
+          <p class="empty-state" id="request-catalog-empty" hidden>Service requests are not configured here. Concierge and hotel staff are still available.</p>
+        </section>
+      </div>
+    </section>
+
+    <section class="guest-view" id="stay-view" aria-label="My stay" hidden aria-hidden="true">
+      <div class="guest-view-inner">
+        <header class="section-page-heading"><p id="stay-property-name"></p><h1>My Stay</h1></header>
+        <div class="stay-summary-card" id="stay-summary-card"></div>
+        <section class="home-section"><div class="home-section-heading"><span>Your preferences</span><button type="button" id="manage-preferences">Manage</button></div><div class="preference-summary" id="preference-summary"></div></section>
+      </div>
+    </section>
+
+    <section class="conversation-region guest-view" id="concierge-view" aria-label="Concierge conversation" hidden aria-hidden="true">
+      <div class="conversation-column">
+        <section class="welcome-state" id="welcome-state">
+          <div class="welcome-copy">
+            <div class="welcome-eyebrow">
+              <p id="welcome-greeting">Good evening.</p>
+            </div>
+          <h1 id="welcome-headline">Your stay, made easier.</h1>
+          <p class="welcome-subtitle">Ask anything about your stay. You can return to your stay home whenever you like.</p>
+          </div>
+          <div class="suggestion-heading" aria-hidden="true">
+            <span>Suggested questions</span>
+            <span>Choose a starting point</span>
+          </div>
+          <div class="suggestion-list" id="suggestion-list" aria-label="Suggested prompts"><button type="button" data-kind="dining"><span class="suggestion-icon"><svg viewBox="0 0 24 24"><path d="M7 3v8M4.5 3v5.5A2.5 2.5 0 0 0 7 11v10M9.5 3v5.5A2.5 2.5 0 0 1 7 11M17 3c-2 2.2-2.5 5.8-1.1 8.3.4.7 1.1 1.1 1.9 1.1H19V21" /></svg></span><span class="suggestion-label">Explore dining</span><span class="suggestion-arrow" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="m7.5 4.5 5 5.5-5 5.5" /></svg></span></button><button type="button" data-kind="housekeeping"><span class="suggestion-icon"><svg viewBox="0 0 24 24"><path d="m14.5 4-8 8M13 5.5l2.5 2.5M6 12l3 3M4 17l3-3 3 3-3 3-3-3ZM15.5 12.5l4.5 4.5M18 10l2 2M14 15l-2 2" /></svg></span><span class="suggestion-label">Request towels</span><span class="suggestion-arrow" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="m7.5 4.5 5 5.5-5 5.5" /></svg></span></button><button type="button" data-kind="wellness"><span class="suggestion-icon"><svg viewBox="0 0 24 24"><path d="M3 15.5c1.5-1.3 3-1.3 4.5 0s3 1.3 4.5 0 3-1.3 4.5 0 3 1.3 4.5 0M3 19c1.5-1.3 3-1.3 4.5 0s3 1.3 4.5 0 3-1.3 4.5 0 3 1.3 4.5 0" /><path d="M5 12h14l-1.2-5H6.2L5 12Z" /></svg></span><span class="suggestion-label">Find the pool</span><span class="suggestion-arrow" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="m7.5 4.5 5 5.5-5 5.5" /></svg></span></button></div>
+          <div class="privacy-note">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.2 16 4.7v4.5c0 3.8-2.4 6.9-6 8.6-3.6-1.7-6-4.8-6-8.6V4.7L10 2.2Z" /><path d="m7.4 9.9 1.7 1.7 3.7-4" /></svg>
+            <span>Your concierge chat stays private. Confirmed service and restaurant staff requests share only the details you submit.</span>
+          </div>
+          <button class="personalize-cta" id="personalize-cta" type="button">Personalize my stay</button>
+        </section>
+
+        <section class="message-list" id="message-list" aria-live="polite" aria-label="Messages"></section>
+      </div>
+    </section>
+
+    <footer class="composer-region has-fixed-navigation" id="composer-region" data-position="sticky_bottom">
+      
+      
+      
+      <div class="composer-stack">
+      <div class="composer-action-sheet" id="composer-action-sheet" role="group" aria-label="Concierge shortcuts" hidden><button type="button" class="composer-shortcut">Explore</button><button type="button" class="composer-shortcut">Requests</button><button type="button" class="composer-shortcut">My Stay</button><button type="button" class="composer-shortcut">Concierge</button></div>
+      <form class="composer" id="composer-form">
+        <button class="composer-tool-button composer-plus-button" id="composer-actions-toggle" type="button" aria-label="Open concierge shortcuts" aria-controls="composer-action-sheet" aria-expanded="false" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+        </button>
+        <textarea id="composer-input" rows="1" maxlength="2000" autocomplete="off" enterkeyhint="send" aria-describedby="composer-note" placeholder="Ask your concierge..." aria-label="Ask your concierge" style="height: 44px;"></textarea>
+        <button class="composer-tool-button composer-voice-button" id="composer-voice-button" type="button" aria-label="Start voice input" aria-pressed="false" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3" /><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M9 21h6" /></svg>
+        </button>
+        <button class="send-button" id="send-button" type="submit" aria-label="Send message" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4.8 14-2.7-5.5L5 12Z" /><path d="m11.5 13.5 3.6-3.6" /></svg>
+        </button>
+      </form>
+      </div><p class="composer-status" id="composer-status" role="status" hidden></p><p class="composer-note" id="composer-note">Enter to send <span aria-hidden="true">·</span> Shift+Enter for a new line</p><nav class="guest-bottom-nav" id="guest-bottom-nav" aria-label="Guest navigation" hidden style="--navigation-count: 5;"><button type="button" data-view="home"><span aria-hidden="true">⌂</span><small>Home</small></button><button type="button" data-view="explore"><span aria-hidden="true">◇</span><small>Explore</small></button><button type="button" data-view="requests"><span aria-hidden="true">✓</span><small>Requests</small></button><button type="button" data-view="stay"><span aria-hidden="true">▤</span><small>My Stay</small></button><button type="button" data-view="concierge"><span aria-hidden="true">○</span><small>Concierge</small></button></nav>
+    </footer>
+
+  
+
+    <section class="memory-modal" id="memory-modal" hidden aria-modal="true" role="dialog" aria-labelledby="memory-title">
+      <div class="memory-panel">
+        <header>
+          <div><span>Guest controlled</span><h2 id="memory-title">Personalization / Memory</h2></div>
+          <button class="icon-button" id="close-memory-button" type="button" aria-label="Close personalization settings">×</button>
+        </header>
+        <p class="memory-intro">Keep this concierge private or let it remember useful preferences for your stay. You can change or clear them any time.</p>
+        <label class="memory-level-label" for="memory-level">Personalization level</label>
+        <select id="memory-level">
+          <option value="private">Private / Anonymous</option>
+          <option value="stay">Stay Personalization</option>
+          <option value="personal">Personal Concierge</option>
+        </select>
+        <p class="memory-status" id="memory-status" role="status">Private mode is on. Saved preferences aren't used while this is selected.</p>
+        <div class="memory-list-heading"><strong>What your concierge knows</strong><span id="memory-count">Nothing saved</span></div>
+        <div class="memory-preference-list" id="memory-preference-list"></div>
+        <form class="memory-preference-form" id="memory-preference-form">
+          <label>Preference type
+            <select id="memory-category">
+              <option value="food">Food or cuisine</option><option value="dietary">Dietary need</option><option value="budget">Budget</option>
+              <option value="travel_party">Travel party</option><option value="transportation">Getting around</option><option value="interests">Interests</option>
+              <option value="activities">Activities</option><option value="accessibility">Accessibility</option><option value="language">Language</option>
+              <option value="response_style">Response style</option><option value="trip_purpose">Trip purpose</option><option value="activity_time">Activity time</option>
+              <option value="preferred_name" disabled>Preferred name</option>
+            </select>
+          </label>
+          <label>Preference
+            <input id="memory-value" maxlength="160" placeholder="For example, Japanese food" required>
+          </label>
+          <input id="memory-preference-key" type="hidden">
+          <button type="submit">Save preference</button>
+        </form>
+        <div class="memory-actions">
+          <button class="secondary" id="clear-memory-button" type="button" disabled>Clear all preferences</button>
+          <button class="secondary" id="disable-memory-button" type="button" disabled>Keep it private</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="property-map-modal" id="property-map-modal" hidden aria-modal="true" role="dialog" aria-labelledby="property-map-title">
+      <div class="property-map-panel">
+        <header>
+          <div>
+            <span>Explore your property</span>
+            <h2 id="property-map-title">Property map</h2>
+          </div>
+          <button class="icon-button" id="close-map-button" type="button" aria-label="Close property map">×</button>
+        </header>
+        <div class="property-map-canvas" id="property-map-canvas">
+          <img id="property-map-image" alt="" hidden>
+          <p class="property-map-empty" id="property-map-empty">A property map has not been added yet.</p>
+          <div id="property-map-markers" aria-label="Mapped guest areas"></div>
+        </div>
+        <p class="property-map-note">Select a marker to view its published property label.</p>
+      </div>
+    </section>
+
+    <dialog class="staff-request-dialog" id="restaurant-staff-dialog">
+      <form id="restaurant-staff-request-form">
+        <header>
+          <div><span>Guest support</span><h2 id="restaurant-staff-title">Talk to Restaurant Staff</h2></div>
+          <button class="icon-button" id="close-restaurant-staff-dialog" type="button" aria-label="Close">×</button>
+        </header>
+        <p class="field-note">Your selected restaurant and request will be shared with its staff. Your concierge chat stays private.</p>
+        <label>Restaurant<select id="restaurant-staff-select" required></select></label>
+        <label>What can the team help with?<textarea id="restaurant-staff-reason" rows="3" maxlength="500" placeholder="Optional"></textarea></label>
+        <p id="restaurant-staff-status" role="status"></p>
+        <div class="dialog-actions"><button class="secondary" id="cancel-restaurant-staff-dialog" type="button">Cancel</button><button type="submit">Request staff</button></div>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </main>
+  <div id="guest-configured-navigation-slot"><section class="experience-section experience-bottom_navigation experience-configured-navigation" data-section-id="bottom-navigation" aria-label="Guest navigation" role="navigation" data-position="fixed" data-height="medium" data-icon-size="medium" data-safe-area="true" data-animation="none" data-interaction="none" style="--navigation-count: 5; --experience-active-color: #b38a4a; --experience-border-color: #e8e4dc; --experience-duration: 320ms; --experience-delay: 0ms; --experience-columns: 2;"><button type="button" data-page-id="home" aria-current="page"><span aria-hidden="true">⌂</span><small>Home</small></button><button type="button" data-page-id="explore"><span aria-hidden="true">◇</span><small>Explore</small></button><button type="button" data-page-id="requests"><span aria-hidden="true">✓</span><small>Requests</small></button><button type="button" data-page-id="stay"><span aria-hidden="true">▤</span><small>My Stay</small></button><button type="button" data-page-id="concierge"><span aria-hidden="true">○</span><small>Concierge</small></button></section></div>
+  <script src="/static/app.js?v=35"></script><aside class="hotel-menu" id="hotel-menu" aria-hidden="true" inert="" aria-label="Hotel menu">
+      <div class="menu-panel">
+        <div class="menu-header">
+          <div>
+            <span>Guest services</span>
+            <strong>How can we help?</strong>
+          </div>
+          <button class="icon-button" id="close-menu-button" type="button" aria-label="Close menu">×</button>
+        </div>
+        <p class="menu-section-label">Concierge</p>
+        <button type="button" data-menu-action="new-chat">
+          <span class="menu-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /><path d="M5 3.75h14a1.25 1.25 0 0 1 1.25 1.25v14A1.25 1.25 0 0 1 19 20.25H5A1.25 1.25 0 0 1 3.75 19V5A1.25 1.25 0 0 1 5 3.75Z" /></svg></span>
+          <span class="menu-item-copy"><strong>New conversation</strong><small>Start fresh with your concierge</small></span>
+        </button>
+        <button type="button" data-menu-action="restaurant-staff" hidden>
+          <span class="menu-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 19.5V7.75A2.75 2.75 0 0 1 6.75 5h10.5A2.75 2.75 0 0 1 20 7.75v7.5A2.75 2.75 0 0 1 17.25 18H9l-5 3v-1.5Z" /><path d="M8 10h8M8 13.5h5" /></svg></span>
+          <span class="menu-item-copy"><strong>Talk to Restaurant Staff</strong><small>Send a private request to a dining team</small></span>
+        </button>
+        <button type="button" data-menu-action="property-map" hidden>
+          <span class="menu-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m3.75 6 5-2 6.5 2 5-2v14l-5 2-6.5-2-5 2V6Z" /><path d="M8.75 4v14M15.25 6v14M12 8.5a2.5 2.5 0 1 0-5 0c0 2.3 2.5 5 2.5 5s2.5-2.7 2.5-5Z" /></svg></span>
+          <span class="menu-item-copy"><strong>Property map</strong><small>Find your way around</small></span>
+        </button>
+        <button type="button" data-menu-action="hotel-info">
+          <span class="menu-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 20V5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5V20M2.75 20h18.5" /><path d="M8 8h2M14 8h2M8 12h2M14 12h2M10 20v-4h4v4" /></svg></span>
+          <span class="menu-item-copy"><strong>Hotel information</strong><small>Address, amenities, and hours</small></span>
+        </button>
+        <button type="button" data-menu-action="language">
+          <span class="menu-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M3.5 9h17M3.5 15h17M12 3c2.2 2.4 3.2 5.4 3.2 9s-1 6.6-3.2 9c-2.2-2.4-3.2-5.4-3.2-9s1-6.6 3.2-9Z" /></svg></span>
+          <span class="menu-item-copy"><strong>Language</strong><small>Switch reply language</small></span>
+        </button>
+        <button type="button" data-menu-action="memory">
+          <span class="menu-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3 1.4 5.6L19 10l-5.6 1.4L12 17l-1.4-5.6L5 10l5.6-1.4L12 3Z" /><path d="m19 15 .7 2.3L22 18l-2.3.7L19 21l-.7-2.3L16 18l2.3-.7L19 15ZM5 3l.7 2.3L8 6l-2.3.7L5 9l-.7-2.3L2 6l2.3-.7L5 3Z" /></svg></span>
+          <span class="menu-item-copy"><strong>Personalization &amp; memory</strong><small>Review or clear saved preferences</small></span>
+        </button>
+        <button type="button" data-menu-action="accessibility">
+          <span class="menu-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="4.5" r="1.75" /><path d="M5 8.25h14M12 8.5v5m0 0-4 6m4-6 4 6m-4-6-5-3m5 3 5-3" /></svg></span>
+          <span class="menu-item-copy"><strong>Accessibility</strong><small>Adjust reading and display</small></span>
+        </button>
+        <button type="button" data-menu-action="privacy">
+          <span class="menu-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3 8 3v5.5c0 4.3-3.2 7.5-8 9.5-4.8-2-8-5.2-8-9.5V6l8-3Z" /><path d="m8.5 11.7 2.2 2.2 4.8-5" /></svg></span>
+          <span class="menu-item-copy"><strong>Privacy</strong><small>How your chat is handled</small></span>
+        </button>
+        <button type="button" data-menu-action="help">
+          <span class="menu-item-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M9.7 9a2.4 2.4 0 1 1 4.1 1.7c-1 .9-1.8 1.3-1.8 2.8M12 17.2h.01" /></svg></span>
+          <span class="menu-item-copy"><strong>Help</strong><small>Tips for a smooth stay</small></span>
+        </button>
+        <div id="configured-module-list"></div>
+      </div>
+    </aside>
+
+
+
+</body>
+</html>

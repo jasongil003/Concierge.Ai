@@ -581,10 +581,12 @@ function renderExperienceSection(section, design) {
     if (type === "header") {
       outer.classList.add("experience-configured-header");
       if (p.show_menu !== false) { const menu = document.createElement("button"); menu.type = "button"; menu.className = "experience-configured-menu"; menu.textContent = "Menu"; menu.setAttribute("aria-label", "Open hotel menu"); menu.addEventListener("click", () => p.menu_action && p.menu_action.type !== "none" ? experienceAction(p.menu_action) : $("menu-button")?.click()); outer.appendChild(menu); }
-      const identity = document.createElement("span"); identity.className = "experience-configured-identity";
-      if (p.show_logo !== false && design.branding?.logoUrl) { const logoUrl = safeGuestUrl(design.branding.logoUrl, { allowDataImage: true }); if (logoUrl) { const logo = document.createElement("img"); logo.className = "experience-configured-logo"; logo.src = logoUrl; logo.alt = `${design.branding.hotelName || state.hotel?.name || "Property"} logo`; outer.appendChild(logo); } }
-      if (p.show_hotel_name !== false) { const title = document.createElement("strong"); title.textContent = design.branding?.hotelName || state.hotel?.name || ""; identity.appendChild(title); }
-      if (p.show_concierge_label !== false) { const concierge = document.createElement("small"); concierge.textContent = design.branding?.conciergeName || "Concierge"; identity.appendChild(concierge); }
+      const identity = document.createElement("div"); identity.className = "experience-configured-identity";
+      if (p.show_logo !== false && design.branding?.logoUrl) { const logoUrl = safeGuestUrl(design.branding.logoUrl, { allowDataImage: true }); if (logoUrl) { const logo = document.createElement("img"); logo.className = "experience-configured-logo"; logo.src = logoUrl; logo.alt = `${design.branding.hotelName || state.hotel?.name || "Property"} logo`; identity.appendChild(logo); } }
+      const identityCopy = document.createElement("span"); identityCopy.className = "experience-configured-identity-copy";
+      if (p.show_hotel_name !== false) { const title = document.createElement("strong"); title.textContent = design.branding?.hotelName || state.hotel?.name || ""; identityCopy.appendChild(title); }
+      if (p.show_concierge_label !== false) { const concierge = document.createElement("small"); concierge.textContent = design.branding?.conciergeName || "Concierge"; identityCopy.appendChild(concierge); }
+      if (identityCopy.childElementCount) identity.appendChild(identityCopy);
       if (identity.childElementCount) outer.appendChild(identity);
     } else {
       outer.classList.add("experience-configured-navigation");
@@ -762,7 +764,6 @@ function renderConfiguredExperience(page, target) {
   target.style.paddingBottom = "";
   for (const section of sections) {
     if (section.type === "bottom_navigation" && section.properties?.position !== "inline") {
-      if (section === fixedNavigationSection) target.style.paddingBottom = "var(--experience-footer-clearance, 180px)";
       continue;
     }
     const element = renderExperienceSection(section, state.hotel?.design || {});
@@ -770,7 +771,6 @@ function renderConfiguredExperience(page, target) {
       target.appendChild(element);
     }
   }
-  if (activeFixedNavigation) target.style.paddingBottom = "var(--experience-footer-clearance, 180px)";
   const empty = target.childElementCount === 0;
   target.hidden = empty;
 }
@@ -1285,6 +1285,25 @@ function addMessage(message) {
   renderMessages();
 }
 
+function placeComposerRegion() {
+  const region = $("composer-region");
+  if (!region) return;
+  if (state.activeView === "concierge") {
+    const conversation = $("concierge-card");
+    if (conversation && region.parentElement !== conversation) conversation.appendChild(region);
+    return;
+  }
+  const homeConversation = $("home-conversation");
+  if (state.activeView === "home" && homeConversation && !homeConversation.hidden) {
+    const conversation = homeConversation;
+    if (conversation && region.parentElement !== conversation) conversation.appendChild(region);
+    return;
+  }
+  const shell = $("concierge-shell");
+  const navigation = $("guest-bottom-nav");
+  if (shell && region.parentElement !== shell) shell.insertBefore(region, navigation || null);
+}
+
 function renderMessages() {
   const isConversation = state.activeView === "concierge";
   const isHome = state.activeView === "home";
@@ -1295,6 +1314,7 @@ function renderMessages() {
   homeList.replaceChildren();
   const destination = isHome ? homeList : isConversation ? list : null;
   $("home-conversation").hidden = !isHome || state.messages.length === 0;
+  placeComposerRegion();
   if (destination) {
     for (const message of state.messages) destination.appendChild(renderMessage(message));
   }
@@ -2440,7 +2460,6 @@ function renderComposerForPage(page, target, design) {
   const stack = region.querySelector(".composer-stack");
   const status = $("composer-status");
   const note = $("composer-note");
-  const nav = $("guest-bottom-nav");
   const block = (page.sections || []).find((section) => section.type === "concierge_composer");
   const rootEnabled = design.composer?.enabled !== false;
   const props = block?.properties || {};
@@ -2456,9 +2475,7 @@ function renderComposerForPage(page, target, design) {
   stack.hidden = !enabled;
   status.hidden = !enabled || status.textContent.trim() === "";
   note.hidden = !enabled;
-  region.insertBefore(stack, nav);
-  region.insertBefore(status, nav);
-  region.insertBefore(note, nav);
+  region.hidden = !enabled;
 }
 
 function renderConfiguredModules(modules) {

@@ -3573,6 +3573,15 @@ def _origin_tuple(value: str, *, allow_path: bool) -> tuple[str, str, int] | Non
     return parsed.scheme.casefold(), hostname, port
 
 
+def _property_guest_portal_origin(record: PropertyRecord) -> tuple[str, str, int] | None:
+    """Return the exact configured guest portal origin for one property."""
+    deployment = dict((record.app_settings or {}).get("deployment") or {})
+    public_url = deployment.get("public_base_url")
+    if not isinstance(public_url, str):
+        return None
+    return _origin_tuple(public_url, allow_path=False)
+
+
 def _guest_mutation_origin_allowed(request: Request) -> bool:
     fetch_site = request.headers.get("sec-fetch-site", "").strip().casefold()
     if fetch_site == "cross-site":
@@ -3607,11 +3616,29 @@ def _guest_mutation_origin_allowed(request: Request) -> bool:
 
     configured_hosts = {_normalize_hostname(host) for host in settings.canonical_hosts}
     configured_hosts.discard("")
+    configured_portal_origins: set[tuple[str, str, int]] = set()
     for record in properties.list():
-        configured_hosts.update(property_guest_hostnames(record))
+        if record.domain:
+            normalized_domain = _normalize_hostname(record.domain)
+            if normalized_domain:
+                configured_hosts.add(normalized_domain)
+        try:
+            configured_hosts.update(
+                normalized
+                for normalized in (
+                    _normalize_hostname(host)
+                    for host in normalize_guardrails(record.guardrails).get("guest_access_hosts", [])
+                )
+                if normalized
+            )
+        except (TypeError, ValueError):
+            pass
+        portal_origin = _property_guest_portal_origin(record)
+        if portal_origin:
+            configured_portal_origins.add(portal_origin)
     if settings.app_environment not in SECURE_ENVIRONMENTS:
         configured_hosts.update({"localhost", "127.0.0.1", "::1"})
-    return source[1] in configured_hosts
+    return source[1] in configured_hosts or source in configured_portal_origins
 
 
 def _source_ip_allowed(source_ip: str, allowed_cidrs: tuple[str, ...] | list[str]) -> bool:
