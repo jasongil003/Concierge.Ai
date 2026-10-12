@@ -1135,10 +1135,38 @@ function renderExplore() {
     status: item.status === "closed" ? "Closed" : "", description: item.description, restaurant_id: item.restaurant_id,
   }));
   $("facility-section").hidden = facilities.length === 0;
-  fillCards("facility-list", facilities, (item) => createGuestCard({
-    type: "facility", title: item.name, subtitle: item.facility_type,
-    status: item.live_status === "open" ? "" : item.live_status, description: item.description,
-  }));
+  fillCards("facility-list", facilities, (item) => {
+    const card = createGuestCard({
+      type: "facility", title: item.name, subtitle: item.facility_type,
+      status: item.live_status === "open" ? "" : item.live_status, description: item.description,
+      facility_id: item.facility_id,
+    });
+    if (item.location) {
+      const location = document.createElement("p");
+      location.className = "guest-card-location";
+      location.textContent = `Location: ${item.location}`;
+      card.appendChild(location);
+    }
+    if (item.opening_hours?.display) {
+      const hours = document.createElement("p");
+      hours.className = "guest-card-hours";
+      hours.textContent = `Hours: ${item.opening_hours.display}`;
+      card.appendChild(hours);
+    }
+    const policies = Array.isArray(item.policies) ? item.policies.filter((value) => typeof value === "string").slice(0, 8) : [];
+    if (policies.length) {
+      const list = document.createElement("ul");
+      list.className = "guest-card-policies";
+      list.setAttribute("aria-label", "Guest policies");
+      for (const policy of policies) {
+        const entry = document.createElement("li");
+        entry.textContent = policy;
+        list.appendChild(entry);
+      }
+      card.appendChild(list);
+    }
+    return card;
+  });
   $("event-section").hidden = events.length === 0;
   fillCards("event-list", events, (item) => createGuestCard({
     type: "event", title: item.title, subtitle: propertyDateTime(item.starts_at), description: item.description,

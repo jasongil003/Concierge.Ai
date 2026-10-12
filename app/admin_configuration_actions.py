@@ -363,8 +363,8 @@ def register_admin_configuration_actions(registry: ConfigurationActionRegistry, 
 
     # Property-scoped facilities and service catalog actions.
     facility_fields = {
-        "name": string(160, minimum=1), "facility_type": string(80), "description": string(1000),
-        "opening_hours": any_object, "images": _strings(500, count=12), "capacity": {"type": "integer", "minimum": 0, "maximum": 100000},
+        "name": string(160, minimum=1), "facility_type": string(80), "location": string(240), "description": string(1000),
+        "opening_hours": any_object, "images": _strings(500, count=12), "policies": _strings(240, count=8), "capacity": {"type": "integer", "minimum": 0, "maximum": 100000},
         "booking_supported": {"type": "boolean"}, "live_status": string(32, enum=["open", "closed", "temporarily_closed", "full", "maintenance", "private_event"]),
         "status_note": string(240),
     }

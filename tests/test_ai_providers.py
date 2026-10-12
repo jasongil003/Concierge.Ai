@@ -695,6 +695,53 @@ def test_provider_stream_falls_back_only_before_first_delta(tmp_path: Path, monk
     assert partial.closed is True
 
 
+def test_concurrent_property_streams_keep_deltas_isolated(tmp_path: Path):
+    store = AIProviderStore(tmp_path / "concurrent-property-streams.db")
+    for property_id in ("hotel-a", "hotel-b"):
+        _enabled_provider(store, property_id, "openai")
+        store.save_settings(property_id, {"default_provider": "openai", "routing_mode": "fixed"})
+    started: set[str] = set()
+    both_started = asyncio.Event()
+
+    class PropertyStreamingAdapter(_StreamingFakeAdapter):
+        async def stream_message(self, request, credential):
+            del credential
+            property_id = request.property_id
+            started.add(property_id)
+            if len(started) == 2:
+                both_started.set()
+            await asyncio.wait_for(both_started.wait(), timeout=2)
+            try:
+                yield f"{property_id}-first"
+                await asyncio.sleep(0)
+                yield f"{property_id}-last"
+            finally:
+                self.closed = True
+
+    service = AIModelService(store)
+    adapter = PropertyStreamingAdapter("openai", [])
+    service.adapter_for = lambda provider_id, endpoint_url="": adapter
+
+    async def run_property(property_id: str) -> list[str]:
+        received: list[str] = []
+
+        async def on_delta(chunk: str) -> None:
+            received.append(chunk)
+
+        result = await service.concierge_chat_stream(property_id, f"prompt-{property_id}", property_id, [], on_delta)
+        assert result.response.provider == "openai"
+        return received
+
+    async def run() -> tuple[list[str], list[str]]:
+        return tuple(await asyncio.gather(run_property("hotel-a"), run_property("hotel-b")))
+
+    hotel_a, hotel_b = asyncio.run(run())
+    assert hotel_a == ["hotel-a-first", "hotel-a-last"]
+    assert hotel_b == ["hotel-b-first", "hotel-b-last"]
+    assert started == {"hotel-a", "hotel-b"}
+    assert adapter.closed is True
+
+
 def test_provider_stream_cancellation_closes_provider_and_releases_slot(tmp_path: Path):
     store = AIProviderStore(tmp_path / "stream-cancel.db")
     _enabled_provider(store, "hotel-a", "openai")

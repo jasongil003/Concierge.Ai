@@ -45,6 +45,54 @@ def test_facility_hours_preserve_configured_meridiem_without_duplicate_suffixes(
     assert main_module._display_hours("06:00 to 22:00") == "6:00 AM to 10:00 PM"
 
 
+def test_selection_form_protocol_accepts_typed_fields_and_rejects_unsafe_shapes():
+    response = make_response("conversation", [{
+        "id": "dining-preferences",
+        "type": "selection_form",
+        "title": "Dining preferences",
+        "fields": [
+            {"id": "date", "label": "Date", "input_type": "date", "required": True},
+            {"id": "time", "label": "Time", "input_type": "time", "required": True},
+            {"id": "quantity", "label": "Quantity", "input_type": "quantity", "minimum": 1, "maximum": 8},
+            {"id": "party", "label": "Party size", "input_type": "party_size", "minimum": 1, "maximum": 10},
+            {"id": "service", "label": "Preference", "input_type": "service_option", "options": [
+                {"label": "Indoor", "value": "indoor"},
+                {"label": "Patio", "value": "patio"},
+            ]},
+        ],
+    }], "turn")
+    form = response["blocks"][0]
+    assert [field["input_type"] for field in form["fields"]] == [
+        "date", "time", "quantity", "party_size", "service_option",
+    ]
+    assert form["options"] == []
+
+    invalid_forms = [
+        {"id": "missing-fields", "type": "selection_form", "title": "Choose"},
+        {"id": "missing-options", "type": "selection_form", "title": "Choose", "fields": [
+            {"id": "service", "label": "Service", "input_type": "service_option"},
+        ]},
+        {"id": "invalid-range", "type": "selection_form", "title": "Choose", "fields": [
+            {"id": "quantity", "label": "Quantity", "input_type": "quantity", "minimum": 8, "maximum": 2},
+        ]},
+        {"id": "duplicate-fields", "type": "selection_form", "title": "Choose", "fields": [
+            {"id": "same", "label": "Date", "input_type": "date"},
+            {"id": "same", "label": "Time", "input_type": "time"},
+        ]},
+        {"id": "unsafe-id", "type": "selection_form", "title": "Choose", "fields": [
+            {"id": "service/id", "label": "Service", "input_type": "date"},
+        ]},
+        {"id": "duplicate-options", "type": "selection_form", "title": "Choose", "fields": [
+            {"id": "service", "label": "Service", "input_type": "service_option", "options": [
+                {"label": "Indoor", "value": "same"}, {"label": "Patio", "value": "same"},
+            ]},
+        ]},
+    ]
+    for form in invalid_forms:
+        with pytest.raises(ValueError):
+            make_response("conversation", [form], "turn")
+
+
 def test_protocol_requires_versioned_allowlisted_blocks_and_stable_ids():
     result = make_response("opaque-conversation", [
         {"id": "text-1", "type": "text", "content": "Pool hours are published as 6 AM to 10 PM."},
@@ -177,13 +225,16 @@ def test_intelligent_facility_cards_use_only_published_property_facility_data(mo
         "description": "A heated rooftop swimming pool.",
         "opening_hours": {"display": "6:00 AM–10:00 PM"},
         "images": ["/uploads/rooftop-pool.webp"],
+        "policies": ["Children must be supervised.", "No glass containers."],
         "live_status": "open",
+        "status_note": "Open to hotel guests until 10 PM.",
     })
     main_module.hospitality.upsert_facility_profile("other-property", {
         "name": "Other Property Pool",
         "facility_type": "Pool",
         "description": "Must remain property scoped.",
         "opening_hours": {"display": "24 hours"},
+        "policies": ["Other-property-only policy."],
         "live_status": "open",
     })
 
@@ -206,6 +257,10 @@ def test_intelligent_facility_cards_use_only_published_property_facility_data(mo
     pool_card = next(card for card in cards if card["title"] == "Rooftop Pool")
     assert pool_card["opening_hours"] == "6:00 AM–10:00 PM"
     assert pool_card["image_url"] == "/uploads/rooftop-pool.webp"
+    assert pool_card["policies"] == ["Children must be supervised.", "No glass containers."]
+    assert pool_card["location"] == ""
+    assert "Open to hotel guests until 10 PM." in pool_card["detail"]
+    assert "Other-property-only policy." not in str(pool_card)
 
 
 def test_intelligent_map_uses_property_floor_plan_and_guest_visible_nodes(monkeypatch: pytest.MonkeyPatch):
