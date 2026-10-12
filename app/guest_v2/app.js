@@ -15,6 +15,7 @@
   let clientId = null;
   let messages = [];
   let inputPending = false;
+  let activeController = null;
 
   function newId() {
     if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
@@ -61,6 +62,150 @@
     return api(url, { method: "POST", body: JSON.stringify(data) });
   }
 
+  async function streamGuestChat(payload, onDelta, onComponent) {
+    const controller = new AbortController();
+    activeController = controller;
+    let timedOut = false;
+    const timeout = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, 120000);
+    let reader;
+    let buffer = "";
+    let current = { event: "message", id: "", data: [] };
+    let lastSequence = 0;
+    let streamedTextLength = 0;
+    let responsePayload = null;
+
+    function dispatchEvent() {
+      if (!current.data.length) { current = { event: "message", id: "", data: [] }; return; }
+      let sequence = 0;
+      const idMatch = current.id.match(/^[A-Za-z0-9_-]+:(\d+)$/);
+      if (!idMatch) throw new Error("The concierge returned an invalid stream event ID.");
+      sequence = Number(idMatch[1]);
+      if (!Number.isSafeInteger(sequence) || sequence <= lastSequence) {
+        current = { event: "message", id: "", data: [] };
+        return;
+      }
+      if (sequence !== lastSequence + 1) throw new Error("A response stream event was missing. Please retry.");
+      lastSequence = sequence;
+      let data;
+      try { data = JSON.parse(current.data.join("\n")); }
+      catch { throw new Error("The concierge returned an invalid stream event."); }
+      switch (current.event) {
+        case "turn.started":
+          if (data.schema_version !== "1.0" || data.conversation_id !== payload.session_id || data.turn_id !== payload.turn_id) {
+            throw new Error("The response belongs to a different conversation.");
+          }
+          break;
+        case "text.delta":
+          if (!validText(data.text, 24000)) throw new Error("The concierge returned an oversized text event.");
+          streamedTextLength += data.text.length;
+          if (streamedTextLength > 24000) throw new Error("The concierge response exceeded the safe display limit.");
+          onDelta(data.text);
+          break;
+        case "component.ready":
+        case "action.pending": {
+          const block = validateBlock(data.block);
+          if (block.type === "unknown") throw new Error("The concierge returned a component this screen cannot safely display.");
+          onComponent(block);
+          break;
+        }
+        case "text.completed":
+          if (data.streamed === false && validText(data.text, 6000) && data.text) onDelta(data.text);
+          break;
+        case "turn.completed":
+          responsePayload = data.response;
+          break;
+        case "turn.failed": {
+          const error = new Error(validText(data.message, 300) ? data.message : "The response was interrupted. Please retry.");
+          error.retryable = data.retryable === true;
+          error.status = 502;
+          throw error;
+        }
+        default: throw new Error("The concierge returned an unsupported stream event.");
+      }
+      current = { event: "message", id: "", data: [] };
+    }
+
+    function parseLine(line) {
+      if (!line) { dispatchEvent(); return; }
+      if (line.startsWith(":")) return;
+      const separator = line.indexOf(":");
+      const field = separator < 0 ? line : line.slice(0, separator);
+      const value = separator < 0 ? "" : line.slice(separator + 1).replace(/^ /, "");
+      if (field === "event") current.event = value;
+      else if (field === "id") current.id = value;
+      else if (field === "data") current.data.push(value);
+    }
+
+    try {
+      let response;
+      try {
+        response = await fetch("/api/guest/intelligent-chat/stream", {
+          method: "POST",
+          credentials: "same-origin",
+          signal: controller.signal,
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            ...(sessionId ? { "X-Concierge-Session": sessionId } : {}),
+          },
+          body: JSON.stringify(payload),
+        });
+      } catch (error) {
+        if (controller.signal.aborted) throw error;
+        const networkError = new Error("The network connection was interrupted. Check your connection and try again.");
+        networkError.networkFailure = true;
+        throw networkError;
+      }
+      if (!response.ok) {
+        let detail = "Request failed. Please try again.";
+        try { detail = readError((await response.json()).detail); } catch { /* Keep a bounded fallback. */ }
+        const error = new Error(detail);
+        error.status = response.status;
+        throw error;
+      }
+      if (!response.headers.get("content-type")?.includes("text/event-stream") || !response.body) {
+        throw new Error("The concierge did not return a response stream.");
+      }
+      reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split(/\r?\n/);
+        buffer = lines.pop() || "";
+        for (const line of lines) parseLine(line);
+      }
+      buffer += decoder.decode();
+      if (buffer) parseLine(buffer);
+      parseLine("");
+      if (!responsePayload || responsePayload.schema_version !== "1.0"
+        || responsePayload.conversation_id !== payload.session_id
+        || responsePayload.turn_id !== payload.turn_id
+        || !Array.isArray(responsePayload.blocks) || responsePayload.blocks.length < 1 || responsePayload.blocks.length > 20) {
+        throw new Error("The concierge returned a response this screen cannot safely display.");
+      }
+      return { ...responsePayload, blocks: responsePayload.blocks.map(validateBlock) };
+    } catch (error) {
+      if (controller.signal.aborted) {
+        const stopped = new Error(timedOut
+          ? "The response took too long. Your message is saved; you can retry it."
+          : "Response stopped. You can retry your message.");
+        stopped.cancelled = !timedOut;
+        stopped.networkFailure = timedOut;
+        throw stopped;
+      }
+      throw error;
+    } finally {
+      window.clearTimeout(timeout);
+      if (reader) { try { await reader.cancel(); } catch { /* The stream may already be closed. */ } }
+      if (activeController === controller) activeController = null;
+    }
+  }
+
   function gatewayContext() {
     return Object.fromEntries(new URLSearchParams(window.location.search).entries());
   }
@@ -92,6 +237,17 @@
     try {
       const url = new URL(raw, window.location.href);
       return url.origin === window.location.origin && ["http:", "https:"].includes(url.protocol) ? url.href : "";
+    } catch { return ""; }
+  }
+
+  function safeApprovedHttpsUrl(value) {
+    const raw = String(value || "").trim();
+    if (!raw || raw.startsWith("//") || /[\\\u0000-\u001f]/.test(raw)) return "";
+    try {
+      const url = new URL(raw, window.location.href);
+      if (url.username || url.password) return "";
+      if (url.origin === window.location.origin && ["http:", "https:"].includes(url.protocol)) return url.href;
+      return url.protocol === "https:" ? url.href : "";
     } catch { return ""; }
   }
 
@@ -154,34 +310,35 @@
     }
   }
 
-  function isValidMessageCollection(value) {
-    return Array.isArray(value) && value.length <= 80 && value.every((item) =>
-      item && typeof item.id === "string" && ["guest", "assistant"].includes(item.role) && Array.isArray(item.blocks));
+  function clearLegacyTranscriptStorage() {
+    for (const key of Object.keys(sessionStorage)) {
+      if (key.startsWith("concierge-v2-messages-")) sessionStorage.removeItem(key);
+    }
   }
 
-  function restoreMessages() {
+  async function restoreMessages() {
     try {
-      const raw = sessionStorage.getItem(storageKeys.messages(sessionId));
-      const parsed = raw ? JSON.parse(raw) : [];
-      messages = isValidMessageCollection(parsed) ? parsed : [];
-      if (messages.length) messages = messages.map((message) => ({ ...message, blocks: message.blocks.map(validateBlock) }));
+      const history = await api("/api/guest/intelligent-history");
+      if (history.schema_version !== "1.0" || history.conversation_id !== sessionId || !Array.isArray(history.turns)) {
+        throw new Error("Invalid server conversation history.");
+      }
+      messages = [];
+      for (const turn of history.turns.slice(-40)) {
+        if (!turn || typeof turn.turn_id !== "string" || !validText(turn.message, 2000)
+          || turn.response?.schema_version !== "1.0" || turn.response?.conversation_id !== sessionId
+          || turn.response?.turn_id !== turn.turn_id || !Array.isArray(turn.response.blocks)) continue;
+        messages.push({ id: `guest-${turn.turn_id}`, turnId: turn.turn_id, role: "guest", blocks: [{ id: newId(), type: "text", content: turn.message }] });
+        messages.push({ id: `assistant-${turn.turn_id}`, role: "assistant", blocks: turn.response.blocks.map(validateBlock) });
+      }
     } catch { messages = []; }
   }
 
   function persistMessages() {
     if (!sessionId) return;
-    const trimmed = messages.slice(-80).map((message) => ({
+    messages = messages.slice(-80).map((message) => ({
       ...message,
-      blocks: (message.blocks || []).map((block) => {
-        const clean = validateBlock(block);
-        // A service proposal is bound to the active session, signed, and short lived.
-        // Keeping it in tab-scoped storage permits safe recovery after refresh.
-        return clean;
-      }),
+      blocks: (message.blocks || []).map(validateBlock),
     }));
-    messages = trimmed;
-    try { sessionStorage.setItem(storageKeys.messages(sessionId), JSON.stringify(messages)); }
-    catch { /* Conversation rendering remains available if browser storage is full. */ }
   }
 
   function validText(value, maximum = 6000) {
@@ -193,7 +350,13 @@
       && ["restaurant", "facility"].includes(card.type)
       && validText(card.id, 80) && validText(card.title, 120) && card.title.trim()
       && validText(card.subtitle || "", 120) && validText(card.description || "", 500)
-      && validText(card.detail || "", 300);
+      && validText(card.detail || "", 300)
+      && validText(card.resource_id || "", 80) && validText(card.image_url || "", 500)
+      && (!card.image_url || safeApprovedHttpsUrl(card.image_url))
+      && validText(card.location || "", 240) && validText(card.opening_hours || "", 160)
+      && typeof (card.menu_available ?? false) === "boolean"
+      && validText(card.reservation_url || "", 1000)
+      && (!card.reservation_url || safeApprovedHttpsUrl(card.reservation_url));
   }
 
   function validateBlock(block) {
@@ -226,9 +389,25 @@
         return validText(block.title, 120) && validText(block.detail || "", 500)
           ? block : { id: block.id, type: "unknown" };
       case "map_view":
-        return validText(block.title, 120) && Number.isFinite(block.latitude) && block.latitude >= -90 && block.latitude <= 90
-          && Number.isFinite(block.longitude) && block.longitude >= -180 && block.longitude <= 180 && validText(block.label || "", 120)
-          ? block : { id: block.id, type: "unknown" };
+        {
+          const hasCoordinates = Number.isFinite(block.latitude) && block.latitude >= -90 && block.latitude <= 90
+            && Number.isFinite(block.longitude) && block.longitude >= -180 && block.longitude <= 180;
+          const hasFloorPlan = typeof block.map_image_url === "string" && block.map_image_url.startsWith("/")
+            && !block.map_image_url.startsWith("//") && Boolean(safeApprovedHttpsUrl(block.map_image_url))
+            && Number.isInteger(block.image_width) && block.image_width > 0 && block.image_width <= 25000
+            && Number.isInteger(block.image_height) && block.image_height > 0 && block.image_height <= 25000;
+          const mapMarkers = Array.isArray(block.markers) ? block.markers : [];
+          const markersValid = block.markers === undefined ? !hasFloorPlan
+            : Array.isArray(block.markers) && mapMarkers.length <= 80
+            && mapMarkers.every((marker) => validText(marker?.id, 80) && marker.id
+              && validText(marker?.label, 120) && marker.label
+              && Number.isFinite(marker?.x_percent) && marker.x_percent >= 0 && marker.x_percent <= 100
+              && Number.isFinite(marker?.y_percent) && marker.y_percent >= 0 && marker.y_percent <= 100);
+          return validText(block.title, 120) && validText(block.label || "", 120)
+            && validText(block.map_alt || "", 500) && (hasCoordinates || hasFloorPlan)
+            && (!block.map_image_url || hasFloorPlan) && markersValid
+            ? block : { id: block.id, type: "unknown" };
+        }
       case "loading_state": return validText(block.message || "", 160) ? block : { id: block.id, type: "unknown" };
       case "error_state": return validText(block.message, 500) ? block : { id: block.id, type: "unknown" };
       default: return { id: block.id, type: "unknown" };
@@ -255,10 +434,76 @@
 
   function appendEntityCard(parent, card) {
     const article = element("article", `entity-card entity-card-${card.type}`);
+    const imageUrl = safeApprovedHttpsUrl(card.image_url);
+    if (imageUrl) {
+      const image = document.createElement("img");
+      image.className = "entity-card-image";
+      image.src = imageUrl;
+      image.alt = "";
+      image.loading = "lazy";
+      image.decoding = "async";
+      image.referrerPolicy = "no-referrer";
+      image.addEventListener("error", () => image.remove(), { once: true });
+      article.appendChild(image);
+    }
     article.appendChild(element("h3", "", card.title));
     if (card.subtitle) article.appendChild(element("p", "card-subtitle", card.subtitle));
     if (card.description) article.appendChild(element("p", "card-description", card.description));
+    if (card.location) article.appendChild(element("p", "card-location", `Location: ${card.location}`));
+    if (card.opening_hours) article.appendChild(element("p", "card-hours", `Hours: ${card.opening_hours}`));
     if (card.detail) article.appendChild(element("p", "card-detail", card.detail));
+    if (card.type === "restaurant" && card.menu_available && card.resource_id) {
+      const menuButton = element("button", "menu-toggle", "View published menu");
+      const menuRegion = element("div", "menu-details");
+      menuRegion.hidden = true;
+      menuRegion.setAttribute("aria-live", "polite");
+      menuButton.type = "button";
+      menuButton.setAttribute("aria-expanded", "false");
+      menuButton.addEventListener("click", async () => {
+        if (!menuRegion.dataset.loaded) {
+          menuButton.disabled = true;
+          menuButton.textContent = "Loading menu…";
+          try {
+            const result = await api(`/api/guest/restaurants/${encodeURIComponent(card.resource_id)}/menus`);
+            menuRegion.replaceChildren();
+            for (const menu of (Array.isArray(result.menus) ? result.menus : []).slice(0, 8)) {
+              menuRegion.appendChild(element("h4", "", [menu.name, menu.meal_period].filter(Boolean).join(" · ")));
+              for (const item of (Array.isArray(menu.items) ? menu.items : []).slice(0, 40)) {
+                const entry = element("div", "menu-item");
+                entry.appendChild(element("strong", "", String(item.name || "Menu item").slice(0, 160)));
+                if (item.price) entry.appendChild(element("span", "menu-price", String(item.price).slice(0, 40)));
+                if (item.description) entry.appendChild(element("p", "", String(item.description).slice(0, 500)));
+                const dietary = [
+                  ...(Array.isArray(item.dietary_tags) ? item.dietary_tags : []),
+                  ...(Array.isArray(item.allergens) ? item.allergens.map((value) => `Allergen: ${value}`) : []),
+                ].slice(0, 12);
+                if (dietary.length) entry.appendChild(element("p", "menu-tags", dietary.join(" · ")));
+                menuRegion.appendChild(entry);
+              }
+            }
+            if (!menuRegion.childElementCount) menuRegion.appendChild(element("p", "", "No published menu items are available right now."));
+            menuRegion.dataset.loaded = "true";
+          } catch {
+            menuRegion.replaceChildren(element("p", "", "The published menu couldn't be loaded. Please try again."));
+          } finally {
+            menuButton.disabled = false;
+            menuButton.textContent = "View published menu";
+          }
+        }
+        menuRegion.hidden = !menuRegion.hidden;
+        menuButton.setAttribute("aria-expanded", String(!menuRegion.hidden));
+      });
+      article.append(menuButton, menuRegion);
+    }
+    const reservationUrl = safeApprovedHttpsUrl(card.reservation_url);
+    if (card.type === "restaurant" && reservationUrl) {
+      const link = element("a", "reservation-link", "Reservation options");
+      link.href = reservationUrl;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.referrerPolicy = "no-referrer";
+      article.appendChild(link);
+    }
     parent.appendChild(article);
   }
 
@@ -328,7 +573,49 @@
       case "map_view": {
         const panel = element("section", "map-panel");
         panel.appendChild(element("h3", "", block.title));
-        panel.appendChild(element("p", "", block.label || `${block.latitude.toFixed(5)}, ${block.longitude.toFixed(5)}`));
+        if (block.map_image_url && block.image_width && block.image_height) {
+          const figure = element("figure", "floor-map-figure");
+          const mapFrame = element("div", "floor-map-frame");
+          mapFrame.style.aspectRatio = `${block.image_width} / ${block.image_height}`;
+          const image = document.createElement("img");
+          image.className = "floor-map-image";
+          image.src = safeApprovedHttpsUrl(block.map_image_url);
+          image.alt = block.map_alt || block.title;
+          image.loading = "lazy";
+          image.decoding = "async";
+          image.referrerPolicy = "no-referrer";
+          const markers = element("div", "floor-map-markers");
+          const selectedLocation = element("p", "floor-map-selection", "Select a marker to identify its location.");
+          selectedLocation.setAttribute("aria-live", "polite");
+          for (const marker of (Array.isArray(block.markers) ? block.markers : [])) {
+            const button = element("button", "floor-map-marker", marker.label);
+            button.type = "button";
+            button.style.left = `${marker.x_percent}%`;
+            button.style.top = `${marker.y_percent}%`;
+            button.setAttribute("aria-label", `Show location: ${marker.label}`);
+            button.setAttribute("aria-pressed", "false");
+            button.addEventListener("click", () => {
+              markers.querySelectorAll(".floor-map-marker").forEach((item) => item.setAttribute("aria-pressed", "false"));
+              button.setAttribute("aria-pressed", "true");
+              selectedLocation.textContent = marker.label;
+            });
+            markers.appendChild(button);
+          }
+          image.addEventListener("error", () => {
+            image.hidden = true;
+            markers.hidden = true;
+            mapFrame.classList.add("floor-map-unavailable");
+          }, { once: true });
+          mapFrame.append(image, markers);
+          figure.appendChild(mapFrame);
+          panel.append(figure, selectedLocation);
+          if (block.markers.length) {
+            const textAlternative = element("p", "floor-map-alternative", `Locations on this floor: ${block.markers.map((marker) => marker.label).join(", ")}.`);
+            panel.appendChild(textAlternative);
+          }
+        } else {
+          panel.appendChild(element("p", "", block.label || `${block.latitude.toFixed(5)}, ${block.longitude.toFixed(5)}`));
+        }
         wrapper.appendChild(panel);
         break;
       }
@@ -380,49 +667,6 @@
     }).slice(-10);
   }
 
-  function isServiceRequest(message) {
-    const asksForAction = /\b(i need|i want|send|bring|deliver|request|could i have|can i have|please get|please send|please bring|arrange)\b/i.test(message);
-    const asksForFacts = /\b(what|where|when|which|hours?|open|opening|close|closing|located|location)\b/i.test(message);
-    return asksForAction && !asksForFacts;
-  }
-
-  async function proposeService(message) {
-    let proposal;
-    try {
-      proposal = await requestBody("/api/guest/actions/propose", { session_id: sessionId, message });
-    } catch (error) {
-      return [{ id: newId(), type: "error_state", message: error.status === 401
-        ? "Your concierge session has expired. Start a new chat to continue."
-        : "I couldn't verify or send that service request. Nothing has been submitted. Please try again or contact the Front Desk." }];
-    }
-    if (proposal.status === "proposed" && proposal.confirmation_required === true && proposal.card && typeof proposal.proposal_token === "string") {
-      return [{
-        id: newId(), type: "request_review", title: String(proposal.card.title || "Service request").slice(0, 120),
-        department: String(proposal.card.department || "").slice(0, 120),
-        description: String(proposal.card.description || message).slice(0, 1000),
-        confirmation_token: proposal.proposal_token, confirm_label: "Confirm request",
-      }];
-    }
-    if (proposal.status === "ambiguous") {
-      const names = (proposal.choices || []).map((item) => [item.name, item.department].filter(Boolean).join(" · ")).filter(Boolean).slice(0, 4);
-      return [{ id: newId(), type: "text", content: names.length
-        ? `I found more than one matching hotel service: ${names.join(", ")}. Please tell me the exact service you'd like.`
-        : "I found more than one matching service. Please contact the Front Desk so the team can confirm your request." }];
-    }
-    if (proposal.status === "unmatched") {
-      let services = [];
-      try {
-        const catalog = await api("/api/guest/service-catalog");
-        services = (catalog.services || []).filter((item) => item.enabled !== false && !item.archived).map((item) => String(item.name || "").trim()).filter(Boolean).slice(0, 8);
-      } catch { /* The direct alternative remains safe if the catalog is unavailable. */ }
-      const content = services.length
-        ? `I can't submit that service because it isn't in this hotel's configured request list. I can help request: ${services.join(", ")}.`
-        : "I can't submit that service because it isn't in this hotel's configured request list. Please contact the Front Desk and they can advise you.";
-      return [{ id: newId(), type: "text", content }];
-    }
-    return [{ id: newId(), type: "error_state", message: "I couldn't match that request to an available hotel service. Please contact the Front Desk for help." }];
-  }
-
   async function confirmGuestAction(block, button) {
     const token = block.confirmation_token;
     if (!token || pendingActions.has(token) || invalidActions.has(token)) return;
@@ -466,8 +710,18 @@
     const message = String(rawMessage || "").trim();
     if (!message || inputPending || !sessionId) return;
     const history = historyForApi();
-    const guestMessage = { id: newId(), role: "guest", blocks: [{ id: newId(), type: "text", content: message }] };
-    messages.push(guestMessage);
+    const previousAssistant = messages.at(-1);
+    const previousGuest = messages.at(-2);
+    const previousText = previousGuest?.blocks?.filter((block) => block.type === "text").map((block) => block.content).join("\n");
+    const retrying = previousGuest?.role === "guest" && previousAssistant?.role === "assistant"
+      && previousText === message && previousGuest.turnId
+      && previousAssistant.blocks?.some((block) => block.type === "error_state");
+    const guestMessage = retrying ? previousGuest : {
+      id: newId(), turnId: `${Date.now().toString(36)}-${newId()}`, role: "guest",
+      blocks: [{ id: newId(), type: "text", content: message }],
+    };
+    if (retrying) messages.pop();
+    else messages.push(guestMessage);
     const assistantMessage = {
       id: newId(), role: "assistant",
       blocks: [{ id: newId(), type: "loading_state", message: "Checking that for you…" }],
@@ -476,23 +730,31 @@
     inputPending = true;
     updateComposer();
     $("conversation-status").hidden = false;
-    $("conversation-status").textContent = "Your message stays on screen while the concierge checks.";
+    $("conversation-status-copy").textContent = "The concierge is checking that for you.";
+    $("cancel-response").hidden = false;
     renderMessages();
     try {
-      if (isServiceRequest(message)) {
-        assistantMessage.blocks = await proposeService(message);
-      } else {
-        const result = await requestBody("/api/guest/intelligent-chat", {
-          session_id: sessionId,
-          message,
-          mode: "auto",
-          conversation_history: history,
-        });
-        if (result.schema_version !== "1.0" || result.conversation_id !== sessionId || typeof result.turn_id !== "string" || !Array.isArray(result.blocks) || result.blocks.length > 20) {
-          throw new Error("The concierge returned a response this screen cannot safely display.");
+      const result = await streamGuestChat({
+        session_id: sessionId,
+        turn_id: guestMessage.turnId,
+        message,
+        mode: "auto",
+        conversation_history: history,
+      }, (delta) => {
+        let textBlock = assistantMessage.blocks.find((block) => block.type === "text");
+        if (!textBlock) {
+          textBlock = { id: newId(), type: "text", content: "" };
+          assistantMessage.blocks = [textBlock];
         }
-        assistantMessage.blocks = result.blocks.map(validateBlock);
-      }
+        textBlock.content += delta;
+        renderMessages();
+      }, (block) => {
+        if (!assistantMessage.blocks.some((candidate) => candidate.id === block.id)) {
+          assistantMessage.blocks.push(block);
+          renderMessages();
+        }
+      });
+      assistantMessage.blocks = result.blocks.map(validateBlock);
       const input = $("composer-input");
       if (input.value.trim() === message) input.value = "";
       updateComposer();
@@ -503,16 +765,16 @@
           ? "Your concierge session has expired. Start a new chat to continue."
           : error.status === 404
             ? "This interface is no longer enabled for this property. Reload to return to the current guest experience."
+            : error.status === 409
+              ? error.message
             : error.networkFailure
               ? "The connection was interrupted. Your message is still visible; reconnect and try sending it again if needed."
               : error.message || "I couldn't complete that reply. Please try again.",
       }];
-      if (!error.networkFailure && error.status && error.status < 500) {
-        // Keep the submitted draft for a deliberate retry.
-      }
     } finally {
       inputPending = false;
       $("conversation-status").hidden = true;
+      $("cancel-response").hidden = true;
       persistMessages();
       renderMessages();
       updateComposer();
@@ -533,7 +795,7 @@
       try {
         const resumed = await requestBody("/api/session/resume", { client_id: clientId, session_id: savedSession });
         sessionId = resumed.session_id;
-        restoreMessages();
+        await restoreMessages();
         return;
       } catch {
         sessionStorage.removeItem(storageKeys.session);
@@ -558,21 +820,25 @@
   async function startNewConversation() {
     if (inputPending || !property) return;
     const oldSession = sessionId;
-    if (oldSession) sessionStorage.removeItem(storageKeys.messages(oldSession));
-    sessionStorage.removeItem(storageKeys.session);
-    sessionStorage.removeItem(storageKeys.property);
-    sessionId = null;
-    messages = [];
-    renderMessages();
-    updateComposer();
     $("new-conversation").disabled = true;
     try {
+      if (oldSession) {
+        await requestBody("/api/session/end", { client_id: clientId, session_id: oldSession });
+        sessionStorage.removeItem(storageKeys.messages(oldSession));
+      }
+      sessionStorage.removeItem(storageKeys.session);
+      sessionStorage.removeItem(storageKeys.property);
+      sessionId = null;
+      messages = [];
+      renderMessages();
+      updateComposer();
       await startSession(true);
       $("composer-input").value = "";
       updateComposer();
       $("composer-input").focus({ preventScroll: true });
     } catch {
-      setError("A new private conversation couldn't be started. Check your connection and reload to try again.");
+      $("conversation-status").hidden = false;
+      $("conversation-status-copy").textContent = "A new private conversation couldn't be started. Your current conversation remains available.";
     } finally {
       $("new-conversation").disabled = false;
     }
@@ -592,12 +858,14 @@
       if (input.value.trim()) sendMessage(input.value);
     });
     $("new-conversation").addEventListener("click", startNewConversation);
+    $("cancel-response").addEventListener("click", () => activeController?.abort());
     $("reload-page").addEventListener("click", () => window.location.reload());
     updateComposer();
   }
 
   async function start() {
     setupComposer();
+    clearLegacyTranscriptStorage();
     try {
       property = await api("/api/hotel");
       applyBranding(property);

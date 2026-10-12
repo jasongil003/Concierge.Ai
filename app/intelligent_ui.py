@@ -8,9 +8,13 @@ DOM component and treats all text as untrusted.
 from __future__ import annotations
 
 from typing import Annotated, Literal, Union
+from urllib.parse import urlsplit
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
+
+
+MAX_TEXT_CONTENT_CHARS = 6000
 
 
 class StrictSchema(BaseModel):
@@ -48,7 +52,7 @@ class GuestExperienceSettings(StrictSchema):
 class TextBlock(StrictSchema):
     id: str = Field(min_length=1, max_length=80)
     type: Literal["text"]
-    content: str = Field(max_length=6000)
+    content: str = Field(max_length=MAX_TEXT_CONTENT_CHARS)
 
 
 class SuggestionItem(StrictSchema):
@@ -69,6 +73,25 @@ class EntityCard(StrictSchema):
     subtitle: str = Field(default="", max_length=120)
     description: str = Field(default="", max_length=500)
     detail: str = Field(default="", max_length=300)
+    resource_id: str = Field(default="", max_length=80)
+    image_url: str = Field(default="", max_length=500)
+    location: str = Field(default="", max_length=240)
+    opening_hours: str = Field(default="", max_length=160)
+    menu_available: StrictBool = False
+    reservation_url: str = Field(default="", max_length=1000)
+
+    @field_validator("image_url", "reservation_url")
+    @classmethod
+    def validate_card_url(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            return ""
+        if value.startswith("/") and not value.startswith("//") and not any(c in value for c in "\\\r\n\x00"):
+            return value
+        parsed = urlsplit(value)
+        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+            raise ValueError("Card URLs must use HTTPS or a safe same-origin path.")
+        return value
 
 
 class EntityCardBlock(StrictSchema):
@@ -126,13 +149,48 @@ class VerifiedConfirmationBlock(StrictSchema):
     detail: str = Field(default="", max_length=500)
 
 
+class MapMarker(StrictSchema):
+    id: str = Field(min_length=1, max_length=80)
+    label: str = Field(min_length=1, max_length=120)
+    x_percent: float = Field(ge=0, le=100)
+    y_percent: float = Field(ge=0, le=100)
+
+
 class MapViewBlock(StrictSchema):
     id: str = Field(min_length=1, max_length=80)
     type: Literal["map_view"]
     title: str = Field(min_length=1, max_length=120)
-    latitude: float = Field(ge=-90, le=90)
-    longitude: float = Field(ge=-180, le=180)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
     label: str = Field(default="", max_length=120)
+    map_image_url: str = Field(default="", max_length=500)
+    map_alt: str = Field(default="", max_length=500)
+    image_width: int | None = Field(default=None, ge=1, le=25000)
+    image_height: int | None = Field(default=None, ge=1, le=25000)
+    markers: list[MapMarker] = Field(default_factory=list, max_length=80)
+
+    @field_validator("map_image_url")
+    @classmethod
+    def validate_map_image_url(cls, value: str) -> str:
+        value = value.strip()
+        if value and (
+            not value.startswith("/") or value.startswith("//")
+            or any(character in value for character in "\\\r\n\x00")
+        ):
+            raise ValueError("Map image URLs must be safe same-origin paths.")
+        return value
+
+    @model_validator(mode="after")
+    def validate_location_source(self) -> "MapViewBlock":
+        has_coordinates = self.latitude is not None and self.longitude is not None
+        has_floor_map = bool(self.map_image_url and self.image_width and self.image_height)
+        if (self.latitude is None) != (self.longitude is None):
+            raise ValueError("A geographic map location requires both coordinates.")
+        if not has_coordinates and not has_floor_map:
+            raise ValueError("A map needs verified coordinates or a configured floor plan.")
+        if self.map_image_url and not has_floor_map:
+            raise ValueError("A floor plan requires its configured dimensions.")
+        return self
 
 
 class LoadingStateBlock(StrictSchema):
@@ -182,11 +240,11 @@ def validate_guest_experience_settings(raw: object) -> dict:
     return GuestExperienceSettings.model_validate(raw).model_dump(mode="json")
 
 
-def make_response(conversation_id: str, blocks: list[dict]) -> dict:
+def make_response(conversation_id: str, blocks: list[dict], turn_id: str | None = None) -> dict:
     """Validate and serialize a complete v1 presentation response."""
     response = IntelligentUIResponse(
         conversation_id=conversation_id,
-        turn_id=uuid4().hex,
+        turn_id=turn_id or uuid4().hex,
         blocks=blocks,
     )
     return response.model_dump(mode="json")

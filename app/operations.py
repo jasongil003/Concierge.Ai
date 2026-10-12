@@ -395,6 +395,31 @@ class OperationsStore:
             return {"management_access_enabled": True, "management_allowed_cidrs": [], "management_trusted_proxy_ranges": []}
         return {**defaults, **config}
 
+    def intelligent_ui_global_enabled(self, default: bool = False) -> bool:
+        """Read the operational kill switch on every call so workers converge immediately."""
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT config_json FROM platform_settings WHERE setting_key='intelligent_ui'"
+            ).fetchone()
+        if row is None:
+            return bool(default)
+        try:
+            config = json.loads(row["config_json"] or "{}")
+        except (TypeError, json.JSONDecodeError):
+            return False
+        return isinstance(config, dict) and config.get("enabled") is True
+
+    def save_intelligent_ui_global_enabled(self, enabled: bool) -> None:
+        now = int(time.time())
+        with self._connect() as db:
+            db.execute(
+                """INSERT INTO platform_settings(setting_key,config_json,secret_encrypted,updated_at)
+                VALUES('intelligent_ui',?,'',?)
+                ON CONFLICT(setting_key) DO UPDATE SET
+                    config_json=excluded.config_json,updated_at=excluded.updated_at""",
+                (json.dumps({"enabled": bool(enabled)}, separators=(",", ":")), now),
+            )
+
     def save_network_access_settings(self, config: dict[str, Any]) -> None:
         now = int(time.time())
         with self._connect() as db:
