@@ -2072,22 +2072,37 @@ async def get_property(property_id: str, request: Request) -> dict[str, Any]:
 
 
 @app.get("/api/admin/properties/{property_id}/dashboard")
-async def property_dashboard(property_id: str) -> dict[str, Any]:
+async def property_dashboard(property_id: str, request: Request) -> dict[str, Any]:
     _require_property(property_id)
-    ai_settings = ai_provider_store.get_settings(property_id)
-    ai_providers = ai_provider_store.list_connections(property_id)
+    principal = _admin_principal(request)
+    department_name = _department_scope_name(principal, property_id)
+    ai_allowed = principal.can("ai.view")
+    session_metrics = store.metrics(property_id) if department_name is None else {}
+    ai_settings = ai_provider_store.get_settings(property_id) if ai_allowed else {}
+    ai_providers = ai_provider_store.list_connections(property_id) if ai_allowed else []
     enabled = [provider for provider in ai_providers if provider.get("enabled")]
+    request_metrics = (
+        hospitality.request_metrics(property_id, department_name=department_name)
+        if principal.can("requests.view") or principal.can("analytics.view")
+        else {"total_requests": None, "open_requests": None, "overdue_requests": None}
+    )
+    usage = store.operational_metrics(property_id, 7) if ai_allowed and department_name is None else {"availability": "restricted"}
+    if not (principal.can("conversations.view") and principal.can("guest_sessions.view")):
+        usage.pop("recent_activity", None)
     return {
-        **store.metrics(property_id),
-        **hospitality.request_metrics(property_id),
+        "active_guests": session_metrics.get("active_guests") if principal.can("guest_sessions.view") else None,
+        "ai_requests_today": session_metrics.get("ai_requests_today") if ai_allowed else None,
+        "auth_attempts_today": session_metrics.get("auth_attempts_today") if principal.can("analytics.view") else None,
+        "auth_success_rate": session_metrics.get("auth_success_rate") if principal.can("analytics.view") else None,
+        **request_metrics,
         "application": {"name": settings.app_name, "version": app.version, "environment": settings.app_environment},
         "ai": {
             "default_provider": ai_settings.get("default_provider"),
             "enabled_providers": len(enabled),
             "credentialed_providers": sum(1 for provider in enabled if provider.get("credentials") or provider.get("provider_id") == "local"),
-        },
-        "antlabs": antlabs.configuration_status(),
-        "usage": store.operational_metrics(property_id, 7),
+        } if ai_allowed else {"availability": "restricted"},
+        "antlabs": antlabs.configuration_status() if principal.can("integrations.view") else {"availability": "restricted"},
+        "usage": usage,
     }
 
 
