@@ -1558,7 +1558,7 @@ async def guest_home(request: Request, session_id: str | None = None) -> dict[st
     home["local_time"] = context["time_context"]["local_time"]
     allowed = {
         "restaurants": {"restaurant_id", "facility_id", "name", "location", "opening_hours", "meal_periods", "reservation_available", "description", "status", "cuisine", "dress_code", "external_reservation_url", "guest_notes", "images"},
-        "facilities": {"facility_id", "zone_id", "building_id", "floor_id", "name", "facility_type", "opening_hours", "description", "images", "capacity", "booking_supported", "live_status", "status_note"},
+        "facilities": {"facility_id", "zone_id", "building_id", "floor_id", "name", "facility_type", "location", "opening_hours", "description", "images", "policies", "capacity", "booking_supported", "live_status", "status_note"},
         "promotions": {"promotion_id", "restaurant_id", "title", "description", "starts_at", "ends_at", "status"},
         "menu_items": {"item_id", "menu_id", "name", "description", "price", "image_url", "ingredients", "allergens", "dietary_tags", "available"},
         "recommendations": {"recommendation_id", "name", "category", "description", "address", "map_url", "opening_hours", "images"},
@@ -6514,10 +6514,11 @@ async def _compose_intelligent_guest_response(
             zone = zone_lookup.get(str(facility.get("zone_id") or ""), {})
             floor = floor_lookup.get(str(facility.get("floor_id") or zone.get("floor_id") or ""), {})
             building = building_lookup.get(str(floor.get("building_id") or facility.get("building_id") or ""), {})
-            location = " · ".join(
+            map_location = " · ".join(
                 str(value).strip() for value in (building.get("name"), floor.get("name"), zone.get("name"))
                 if str(value or "").strip()
             )
+            location = str(facility.get("location") or map_location).strip()
             detail = " · ".join(
                 value for value in (
                     f"Hours: {hours}" if hours else "",
@@ -6537,6 +6538,7 @@ async def _compose_intelligent_guest_response(
                 "image_url": image_url,
                 "location": location[:240],
                 "opening_hours": hours[:160],
+                "policies": [item[:240] for item in facility.get("policies", [])[:8] if isinstance(item, str)] if isinstance(facility.get("policies"), list) else [],
             })
         if facility_cards:
             blocks.append({

@@ -354,9 +354,51 @@
       && validText(card.resource_id || "", 80) && validText(card.image_url || "", 500)
       && (!card.image_url || safeApprovedHttpsUrl(card.image_url))
       && validText(card.location || "", 240) && validText(card.opening_hours || "", 160)
+      && Array.isArray(card.policies || []) && (card.policies || []).length <= 8
+      && (card.policies || []).every((policy) => validText(policy, 240) && policy.trim())
       && typeof (card.menu_available ?? false) === "boolean"
       && validText(card.reservation_url || "", 1000)
       && (!card.reservation_url || safeApprovedHttpsUrl(card.reservation_url));
+  }
+
+  function validSelectionOption(option) {
+    return option && typeof option === "object"
+      && validText(option.label, 100) && option.label.trim()
+      && validText(option.value, 120) && option.value.trim();
+  }
+
+  function validSelectionField(field) {
+    if (!field || typeof field !== "object"
+      || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/.test(field.id || "")
+      || !validText(field.label, 100) || !field.label.trim()
+      || !["date", "time", "quantity", "party_size", "service_option"].includes(field.input_type)
+      || typeof (field.required ?? true) !== "boolean") return false;
+    const options = Array.isArray(field.options) ? field.options : [];
+    if (options.length > 8 || !options.every(validSelectionOption)) return false;
+    if (field.input_type === "service_option") {
+      return options.length > 0 && field.minimum == null && field.maximum == null
+        && new Set(options.map((option) => option.value)).size === options.length;
+    }
+    return options.length === 0
+      && ((field.minimum == null) || (Number.isSafeInteger(field.minimum) && field.minimum >= 0 && field.minimum <= 100000))
+      && ((field.maximum == null) || (Number.isSafeInteger(field.maximum) && field.maximum >= 0 && field.maximum <= 100000))
+      && !(field.minimum != null && field.maximum != null && field.minimum > field.maximum)
+      && (!["date", "time"].includes(field.input_type) || (field.minimum == null && field.maximum == null));
+  }
+
+  function validSelectionForm(block) {
+    if (!validText(block.title, 120) || !block.title.trim()) return false;
+    const fields = Array.isArray(block.fields) ? block.fields : [];
+    const options = Array.isArray(block.options) ? block.options : [];
+    const typedFieldsValid = fields.length >= 1 && fields.length <= 6
+      && fields.every(validSelectionField)
+      && new Set(fields.map((field) => field.id)).size === fields.length;
+    const legacyOptionsValid = options.length >= 1 && options.length <= 8 && options.every(validSelectionOption);
+    if (Boolean(fields.length) === Boolean(options.length)) return false;
+    return (fields.length ? typedFieldsValid : legacyOptionsValid)
+      && validText(block.submit_label || "Review selections", 40)
+      && validText(block.continue_label || "Share with concierge", 40)
+      && validText(block.cancel_label || "Cancel selections", 40);
   }
 
   function validateBlock(block) {
@@ -377,9 +419,7 @@
           && block.fields.every((item) => validText(item?.label, 60) && item.label && validText(item?.value, 300))
           ? block : { id: block.id, type: "unknown" };
       case "selection_form":
-        return validText(block.title, 120) && Array.isArray(block.options) && block.options.length <= 8
-          && block.options.every((item) => validText(item?.label, 100) && item.label && validText(item?.value, 120) && item.value)
-          ? block : { id: block.id, type: "unknown" };
+        return validSelectionForm(block) ? block : { id: block.id, type: "unknown" };
       case "request_review":
         return validText(block.title, 120) && validText(block.department || "", 120)
           && validText(block.description, 1000) && validText(block.confirmation_token, 3000)
@@ -452,6 +492,12 @@
     if (card.location) article.appendChild(element("p", "card-location", `Location: ${card.location}`));
     if (card.opening_hours) article.appendChild(element("p", "card-hours", `Hours: ${card.opening_hours}`));
     if (card.detail) article.appendChild(element("p", "card-detail", card.detail));
+    if (Array.isArray(card.policies) && card.policies.length) {
+      const list = element("ul", "card-policies");
+      list.setAttribute("aria-label", "Guest policies");
+      for (const policy of card.policies.slice(0, 8)) list.appendChild(element("li", "", policy));
+      article.appendChild(list);
+    }
     if (card.type === "restaurant" && card.menu_available && card.resource_id) {
       const menuButton = element("button", "menu-toggle", "View published menu");
       const menuRegion = element("div", "menu-details");
@@ -520,6 +566,133 @@
     parent.appendChild(card);
   }
 
+  function renderSelectionForm(parent, block) {
+    const panel = element("section", "selection-panel");
+    const heading = element("h3", "", block.title);
+    const guidance = element("p", "selection-guidance", "Review your details before sharing them with the concierge. This does not create a booking or service request.");
+    panel.append(heading, guidance);
+    const fields = block.fields?.length ? block.fields : [{
+      id: "selection", label: "Your selection", input_type: "service_option", required: true, options: block.options,
+    }];
+
+    function renderEntry(values = {}, focusFirst = false) {
+      const form = document.createElement("form");
+      form.className = "selection-form";
+      const controlById = new Map();
+      for (const field of fields) {
+        const group = element("div", "selection-field");
+        const label = document.createElement("label");
+        const controlId = `selection-${newId()}`;
+        label.htmlFor = controlId;
+        label.textContent = field.label;
+        let control;
+        if (field.input_type === "service_option") {
+          control = document.createElement("select");
+          const placeholder = document.createElement("option");
+          placeholder.value = "";
+          placeholder.textContent = "Choose an option";
+          control.appendChild(placeholder);
+          for (const option of field.options) {
+            const choice = document.createElement("option");
+            choice.value = option.value;
+            choice.textContent = option.label;
+            control.appendChild(choice);
+          }
+        } else {
+          control = document.createElement("input");
+          control.type = field.input_type === "quantity" || field.input_type === "party_size" ? "number" : field.input_type;
+          if (control.type === "number") {
+            control.step = "1";
+            control.min = String(field.minimum ?? 1);
+            if (field.maximum != null) control.max = String(field.maximum);
+            control.inputMode = "numeric";
+          }
+        }
+        control.id = controlId;
+        control.name = field.id;
+        control.required = field.required !== false;
+        control.autocomplete = "off";
+        control.value = values[field.id] ?? "";
+        control.addEventListener("input", () => control.setCustomValidity(""));
+        control.addEventListener("change", () => control.setCustomValidity(""));
+        group.append(label, control);
+        form.appendChild(group);
+        controlById.set(field.id, control);
+      }
+      const review = element("button", "btn btn-primary", block.submit_label || "Review selections");
+      review.type = "submit";
+      form.appendChild(review);
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        if (!form.reportValidity()) return;
+        const selected = {};
+        for (const field of fields) {
+          const control = controlById.get(field.id);
+          const value = control.value;
+          if (field.required === false && value === "") continue;
+          if (["quantity", "party_size"].includes(field.input_type)) {
+            const numeric = Number(value);
+            const minimum = field.minimum ?? 1;
+            if (!Number.isSafeInteger(numeric) || numeric < minimum || (field.maximum != null && numeric > field.maximum)) {
+              control.setCustomValidity(`Enter a whole number from ${minimum}${field.maximum != null ? ` to ${field.maximum}` : " or more"}.`);
+              control.reportValidity();
+              return;
+            }
+            control.setCustomValidity("");
+          }
+          selected[field.id] = value;
+        }
+        renderReview(selected);
+      });
+      panel.replaceChildren(heading, guidance, form);
+      const firstControl = controlById.values().next().value;
+      if (firstControl && focusFirst) firstControl.focus({ preventScroll: true });
+    }
+
+    function renderReview(selected) {
+      const summary = element("dl", "selection-summary");
+      const lines = [];
+      for (const field of fields) {
+        if (!(field.id in selected)) continue;
+        const raw = selected[field.id];
+        const option = field.options?.find((item) => item.value === raw);
+        const shown = option ? option.label : raw;
+        summary.append(element("dt", "", field.label), element("dd", "", shown));
+        lines.push(`${field.label}: ${shown}`);
+      }
+      const review = element("div", "selection-review");
+      review.setAttribute("aria-live", "polite");
+      review.append(element("h4", "", "Review your selections"), summary);
+      const actions = element("div", "selection-actions");
+      const edit = element("button", "btn btn-secondary", "Edit selections");
+      edit.type = "button";
+      edit.addEventListener("click", () => renderEntry(selected, true));
+      const cancel = element("button", "btn btn-secondary", block.cancel_label || "Cancel selections");
+      cancel.type = "button";
+      cancel.addEventListener("click", () => panel.replaceChildren(
+        heading,
+        element("p", "selection-guidance", "Selections cleared. Nothing was sent."),
+      ));
+      const share = element("button", "btn btn-primary", block.continue_label || "Share with concierge");
+      share.type = "button";
+      let submitted = false;
+      share.addEventListener("click", () => {
+        if (submitted) return;
+        submitted = true;
+        share.disabled = true;
+        edit.disabled = true;
+        cancel.disabled = true;
+        sendMessage(`Please share these preferences with the concierge. This is not a booking or service request.\n${lines.join("\n")}`);
+      });
+      actions.append(edit, cancel, share);
+      review.appendChild(actions);
+      panel.replaceChildren(heading, guidance, review);
+    }
+
+    parent.appendChild(panel);
+    renderEntry();
+  }
+
   function renderBlock(parent, rawBlock) {
     const block = validateBlock(rawBlock);
     const wrapper = element("div", "message-block");
@@ -548,17 +721,7 @@
         break;
       }
       case "selection_form": {
-        const panel = element("section", "selection-panel");
-        panel.appendChild(element("h3", "", block.title));
-        const choices = element("div", "selection-options");
-        for (const option of block.options) {
-          const button = element("button", "", option.label);
-          button.type = "button";
-          button.addEventListener("click", () => sendMessage(option.label));
-          choices.appendChild(button);
-        }
-        panel.appendChild(choices);
-        wrapper.appendChild(panel);
+        renderSelectionForm(wrapper, block);
         break;
       }
       case "request_review": renderRequestReview(wrapper, block); break;

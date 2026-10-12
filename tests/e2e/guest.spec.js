@@ -1192,6 +1192,151 @@ test("Intelligent UI: verified floor maps render interactive markers and a text 
   }
 });
 
+const typedSelectionBlock = {
+  id: "dining-details",
+  type: "selection_form",
+  title: "Dining details",
+  fields: [
+    { id: "date", label: "Date", input_type: "date", required: true },
+    { id: "time", label: "Time", input_type: "time", required: true },
+    { id: "quantity", label: "Quantity", input_type: "quantity", minimum: 1, maximum: 8, required: true },
+    { id: "party-size", label: "Party size", input_type: "party_size", minimum: 1, maximum: 10, required: true },
+    { id: "service", label: "Dining preference", input_type: "service_option", options: [
+      { label: "Indoor", value: "indoor" }, { label: "Patio", value: "patio" },
+    ], required: true },
+  ],
+};
+
+test("Intelligent UI: typed selections validate, support edit and cancel, and do not book", async ({ page, request }, testInfo) => {
+  await setIntelligentUi(request, true);
+  const messages = [];
+  const guestMutations = [];
+  page.on("request", (browserRequest) => {
+    if (browserRequest.url().includes("/api/guest/") && browserRequest.method() !== "GET") {
+      guestMutations.push(browserRequest.url());
+    }
+  });
+  try {
+    await page.route("**/api/guest/intelligent-chat/stream", async (route) => {
+      const payload = route.request().postDataJSON();
+      messages.push(payload.message);
+      const conversationId = payload.session_id;
+      const block = messages.length === 1 ? typedSelectionBlock : { id: "shared", type: "text", content: "Your preferences were shared with the concierge." };
+      const response = { schema_version: "1.0", conversation_id: conversationId, turn_id: payload.turn_id, blocks: [block] };
+      const events = [
+        ["turn.started", { schema_version: "1.0", conversation_id: conversationId, turn_id: payload.turn_id }],
+        ["component.ready", { block }],
+        ...(block.type === "text" ? [["text.completed", { streamed: false, text: block.content }]] : []),
+        ["turn.completed", { response }],
+      ];
+      await route.fulfill({
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+        body: events.map(([type, data], index) =>
+          `id: ${payload.turn_id}:${index + 1}\nevent: ${type}\ndata: ${JSON.stringify(data)}\n\n`,
+        ).join(""),
+      });
+    });
+    await page.goto("/");
+    await page.getByLabel("Message your concierge").fill("I would like to plan dinner");
+    await page.getByRole("button", { name: "Send message" }).click();
+    const panel = page.locator(".selection-panel");
+    await expect(panel.getByRole("heading", { name: "Dining details" })).toBeVisible();
+    await expect(panel).toContainText("does not create a booking");
+    if (testInfo.project.name === "chromium") {
+      const screenshotDirectory = join(process.cwd(), "docs", "intelligent-ui", "screenshots");
+      mkdirSync(screenshotDirectory, { recursive: true });
+      await panel.screenshot({ path: join(screenshotDirectory, "selection-form-chromium.png") });
+    }
+    const originalViewport = page.viewportSize();
+    for (const width of [320, 375, 390, 430, 768, 1024, 1440, 1920]) {
+      await page.setViewportSize({ width, height: 900 });
+      const panelBounds = await panel.boundingBox();
+      expect(panelBounds, `selection form should remain visible at ${width}px`).not.toBeNull();
+      expect(panelBounds.x).toBeGreaterThanOrEqual(0);
+      expect(panelBounds.x + panelBounds.width).toBeLessThanOrEqual(width + 1);
+    }
+    if (originalViewport) await page.setViewportSize(originalViewport);
+    const date = panel.getByLabel("Date");
+    await panel.getByRole("button", { name: "Review selections" }).click();
+    expect(await date.evaluate((input) => input.validity.valueMissing)).toBe(true);
+    await date.fill("2027-01-15");
+    await panel.getByLabel("Time").fill("18:30");
+    await panel.getByLabel("Quantity").fill("2");
+    await panel.getByLabel("Party size").fill("4");
+    await panel.getByLabel("Dining preference").selectOption("patio");
+    await panel.getByRole("button", { name: "Review selections" }).click();
+    await expect(panel.locator(".selection-review")).toContainText("2027-01-15");
+    await expect(panel.locator(".selection-review")).toContainText("Patio");
+    if (testInfo.project.name === "chromium") {
+      const screenshotDirectory = join(process.cwd(), "docs", "intelligent-ui", "screenshots");
+      await panel.screenshot({ path: join(screenshotDirectory, "selection-review-chromium.png") });
+    }
+    await panel.getByRole("button", { name: "Edit selections" }).click();
+    await expect(panel.getByLabel("Party size")).toHaveValue("4");
+    await expect(panel.getByLabel("Dining preference")).toHaveValue("patio");
+    await panel.getByRole("button", { name: "Review selections" }).click();
+    await panel.getByRole("button", { name: "Cancel selections" }).click();
+    await expect(panel).toContainText("Selections cleared. Nothing was sent.");
+    expect(messages).toHaveLength(1);
+    expect(guestMutations.filter((url) => !url.includes("/intelligent-chat/stream"))).toEqual([]);
+  } finally {
+    await setIntelligentUi(request, false);
+  }
+});
+
+test("Intelligent UI: sharing reviewed selections sends one concierge turn without creating a reservation", async ({ page, request }) => {
+  await setIntelligentUi(request, true);
+  const messages = [];
+  const guestMutations = [];
+  page.on("request", (browserRequest) => {
+    if (browserRequest.url().includes("/api/guest/") && browserRequest.method() !== "GET") {
+      guestMutations.push(browserRequest.url());
+    }
+  });
+  try {
+    await page.route("**/api/guest/intelligent-chat/stream", async (route) => {
+      const payload = route.request().postDataJSON();
+      messages.push(payload.message);
+      const conversationId = payload.session_id;
+      const block = messages.length === 1 ? typedSelectionBlock : { id: "shared", type: "text", content: "Your preferences were shared with the concierge." };
+      const response = { schema_version: "1.0", conversation_id: conversationId, turn_id: payload.turn_id, blocks: [block] };
+      const events = [
+        ["turn.started", { schema_version: "1.0", conversation_id: conversationId, turn_id: payload.turn_id }],
+        ["component.ready", { block }],
+        ...(block.type === "text" ? [["text.completed", { streamed: false, text: block.content }]] : []),
+        ["turn.completed", { response }],
+      ];
+      await route.fulfill({
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+        body: events.map(([type, data], index) =>
+          `id: ${payload.turn_id}:${index + 1}\nevent: ${type}\ndata: ${JSON.stringify(data)}\n\n`,
+        ).join(""),
+      });
+    });
+    await page.goto("/");
+    await page.getByLabel("Message your concierge").fill("Plan dinner");
+    await page.getByRole("button", { name: "Send message" }).click();
+    const panel = page.locator(".selection-panel");
+    await panel.getByLabel("Date").fill("2027-01-15");
+    await panel.getByLabel("Time").fill("18:30");
+    await panel.getByLabel("Quantity").fill("2");
+    await panel.getByLabel("Party size").fill("4");
+    await panel.getByLabel("Dining preference").selectOption("patio");
+    await panel.getByRole("button", { name: "Review selections" }).click();
+    await panel.getByRole("button", { name: "Share with concierge" }).click();
+    await expect(page.locator(".message-row.assistant .message-text").last()).toContainText("shared with the concierge");
+    expect(messages).toHaveLength(2);
+    expect(messages[1]).toContain("Date: 2027-01-15");
+    expect(messages[1]).toContain("Dining preference: Patio");
+    expect(messages[1]).toContain("not a booking or service request");
+    expect(guestMutations.filter((url) => !url.includes("/intelligent-chat/stream"))).toEqual([]);
+  } finally {
+    await setIntelligentUi(request, false);
+  }
+});
+
 test("Intelligent UI: service requests wait for explicit confirmation and backend verification", async ({ page, request }) => {
   await ensureGuestData(request);
   await setIntelligentUi(request, true);

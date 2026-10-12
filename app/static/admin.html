@@ -1131,6 +1131,11 @@
         <label>Status<select id="facility-status"><option value="open">Open</option><option value="full">Full</option><option value="closed">Closed</option><option value="temporarily_closed">Temporarily closed</option><option value="maintenance">Maintenance</option><option value="private_event">Private event</option></select></label>
       </div>
       <label>Description<textarea id="facility-description" rows="3" maxlength="2000" placeholder="Guest-ready details such as directions, available amenities, or access guidance."></textarea></label>
+      <label>Guest image URLs<textarea id="facility-images" rows="2" maxlength="6000" placeholder="Add one HTTPS or same-origin image URL per line"></textarea></label>
+      <p class="facility-dialog-help">Add up to 12 images. HTTPS and same-origin paths are supported.</p>
+      <label>Guest policies<textarea id="facility-policies" rows="3" maxlength="2000" placeholder="Add one guest-facing policy per line"></textarea></label>
+      <p class="facility-dialog-help">Add up to 8 guest-facing policies. Each policy can contain up to 240 characters.</p>
+      <label>Status note<textarea id="facility-status-note" rows="2" maxlength="240" placeholder="Optional guest-facing note about the current status"></textarea></label>
       <p class="facility-dialog-help">For pool, gym, or spa questions, the concierge can use the description as a fallback location when Location is blank. Use Hours for the usual schedule and Status for current availability.</p>
       <p class="dialog-message" id="facility-dialog-message" role="alert"></p>
       <div class="dialog-actions"><button class="btn btn-secondary" id="cancel-facility" type="button">Cancel</button><button class="btn btn-primary" id="save-facility" type="submit">Save Facility</button></div>

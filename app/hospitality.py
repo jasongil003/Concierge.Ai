@@ -67,6 +67,12 @@ class HospitalityStore:
                     updated_at INTEGER NOT NULL,
                     created_at INTEGER NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS facility_metadata (
+                    facility_id TEXT PRIMARY KEY REFERENCES facility_profiles(facility_id) ON DELETE CASCADE,
+                    property_id TEXT NOT NULL,
+                    location TEXT NOT NULL DEFAULT '',
+                    policies TEXT NOT NULL DEFAULT '[]'
+                );
                 CREATE TABLE IF NOT EXISTS restaurants (
                     restaurant_id TEXT PRIMARY KEY,
                     property_id TEXT NOT NULL,
@@ -564,6 +570,37 @@ class HospitalityStore:
             raise ValueError("Invalid facility status.")
         now = _now()
         facility_id = str(payload.get("facility_id") or _id("facp"))
+        if "policies" in payload:
+            policies = payload["policies"]
+            if not isinstance(policies, list) or len(policies) > 8:
+                raise ValueError("Facility policies must be a list of at most 8 items.")
+            if any(not isinstance(item, str) or not item.strip() or len(item.strip()) > 240 for item in policies):
+                raise ValueError("Facility policies must contain 1 to 240 characters.")
+            policies_json = _json([item.strip() for item in policies])
+        else:
+            policies_json = None
+        images = payload.get("images", [])
+        if not isinstance(images, list) or len(images) > 12:
+            raise ValueError("Facility images must be a list of at most 12 URLs.")
+        safe_images: list[str] = []
+        for image in images:
+            if not isinstance(image, str) or not image.strip() or len(image.strip()) > 500:
+                raise ValueError("Facility image URLs must contain 1 to 500 characters.")
+            image = image.strip()
+            if "\\" in image or any(ord(char) < 32 or ord(char) == 127 for char in image):
+                raise ValueError("Facility image URLs must use HTTPS or a safe same-origin path.")
+            if image.startswith("/"):
+                if image.startswith("//"):
+                    raise ValueError("Facility image URLs must use HTTPS or a safe same-origin path.")
+            else:
+                parsed_image = urlsplit(image)
+                try:
+                    parsed_image.port
+                except ValueError:
+                    raise ValueError("Facility image URLs must use HTTPS or a safe same-origin path.") from None
+                if parsed_image.scheme != "https" or not parsed_image.hostname or parsed_image.username or parsed_image.password:
+                    raise ValueError("Facility image URLs must use HTTPS or a safe same-origin path.")
+            safe_images.append(image)
         record = {
             "facility_id": facility_id,
             "property_id": property_id,
@@ -574,7 +611,7 @@ class HospitalityStore:
             "facility_type": _clean(payload.get("facility_type") or "amenity", 80),
             "opening_hours": _json(payload.get("opening_hours") or {}),
             "description": _clean(payload.get("description"), 1000),
-            "images": _json(list(payload.get("images") or [])[:12]),
+            "images": _json(safe_images),
             "capacity": payload.get("capacity"),
             "booking_supported": 1 if payload.get("booking_supported") else 0,
             "live_status": status,
@@ -582,12 +619,49 @@ class HospitalityStore:
             "updated_at": now,
             "created_at": now,
         }
+        metadata = {
+            "facility_id": facility_id,
+            "property_id": property_id,
+            "location": _clean(payload.get("location"), 240),
+            "policies": policies_json or _json([]),
+        }
         if not record["name"]:
             raise ValueError("Facility name is required.")
+        if "location" in payload and (not isinstance(payload["location"], str) or len(payload["location"].strip()) > 240):
+            raise ValueError("Facility location must be text up to 240 characters.")
+        if "opening_hours" in payload:
+            opening_hours = payload["opening_hours"]
+            if not isinstance(opening_hours, dict) or len(opening_hours) > 14:
+                raise ValueError("Facility hours must be an object with at most 14 periods.")
+            if any(
+                not isinstance(period, str) or len(period) > 24
+                or not isinstance(value, str) or len(value) > 160
+                for period, value in opening_hours.items()
+            ):
+                raise ValueError("Facility hours must use short text labels and values.")
         with self._connect() as db:
-            existing = db.execute("SELECT created_at FROM facility_profiles WHERE property_id=? AND facility_id=?", (property_id, facility_id)).fetchone()
+            existing = db.execute("SELECT * FROM facility_profiles WHERE property_id=? AND facility_id=?", (property_id, facility_id)).fetchone()
+            if existing is None and db.execute(
+                "SELECT 1 FROM facility_profiles WHERE facility_id=?", (facility_id,),
+            ).fetchone():
+                raise ValueError("Facility identifier is unavailable.")
+            existing_metadata = db.execute(
+                "SELECT location,policies FROM facility_metadata WHERE property_id=? AND facility_id=?",
+                (property_id, facility_id),
+            ).fetchone()
             if existing:
                 record["created_at"] = existing["created_at"]
+                for field in (
+                    "zone_id", "building_id", "floor_id", "facility_type", "opening_hours", "description",
+                    "images", "capacity", "booking_supported", "live_status", "status_note",
+                ):
+                    if field not in payload:
+                        record[field] = existing[field]
+                if existing_metadata:
+                    if "location" not in payload:
+                        metadata["location"] = existing_metadata["location"]
+                    if policies_json is None:
+                        metadata["policies"] = existing_metadata["policies"]
                 db.execute(
                     """UPDATE facility_profiles SET zone_id=:zone_id,building_id=:building_id,floor_id=:floor_id,
                     name=:name,facility_type=:facility_type,opening_hours=:opening_hours,description=:description,
@@ -597,11 +671,23 @@ class HospitalityStore:
                 )
             else:
                 db.execute(
-                    """INSERT INTO facility_profiles VALUES
+                    """INSERT INTO facility_profiles
+                    (facility_id,property_id,zone_id,building_id,floor_id,name,facility_type,opening_hours,
+                    description,images,capacity,booking_supported,live_status,status_note,updated_at,created_at) VALUES
                     (:facility_id,:property_id,:zone_id,:building_id,:floor_id,:name,:facility_type,:opening_hours,
                     :description,:images,:capacity,:booking_supported,:live_status,:status_note,:updated_at,:created_at)""",
                     record,
                 )
+            metadata.update({"facility_id": facility_id, "property_id": property_id})
+            db.execute(
+                """INSERT INTO facility_metadata (facility_id,property_id,location,policies)
+                VALUES (:facility_id,:property_id,:location,:policies)
+                ON CONFLICT(facility_id) DO UPDATE SET
+                property_id=excluded.property_id,location=excluded.location,policies=excluded.policies""",
+                metadata,
+            )
+        record["location"] = metadata["location"]
+        record["policies"] = metadata["policies"]
         return self._facility_dict(record)
 
     def delete_facility_profile(self, property_id: str, facility_id: str) -> bool:
@@ -1556,7 +1642,15 @@ class HospitalityStore:
                     (property_id, scoped_department),
                 ).fetchall()
             return {
-                "facilities": [self._facility_dict(row) for row in db.execute("SELECT * FROM facility_profiles WHERE property_id=? ORDER BY name", (property_id,))],
+                "facilities": [
+                    self._facility_dict(row) for row in db.execute(
+                        """SELECT f.*,COALESCE(m.location,'') AS location,COALESCE(m.policies,'[]') AS policies
+                        FROM facility_profiles f LEFT JOIN facility_metadata m
+                          ON m.facility_id=f.facility_id AND m.property_id=f.property_id
+                        WHERE f.property_id=? ORDER BY f.name""",
+                        (property_id,),
+                    )
+                ],
                 "restaurants": restaurants,
                 "menus": menus,
                 "promotions": promotions,
@@ -1573,7 +1667,10 @@ class HospitalityStore:
             facilities = [
                 self._facility_dict(row)
                 for row in db.execute(
-                    "SELECT * FROM facility_profiles WHERE property_id=? AND live_status NOT IN ('maintenance','private_event') ORDER BY name",
+                    """SELECT f.*,COALESCE(m.location,'') AS location,COALESCE(m.policies,'[]') AS policies
+                    FROM facility_profiles f LEFT JOIN facility_metadata m
+                      ON m.facility_id=f.facility_id AND m.property_id=f.property_id
+                    WHERE f.property_id=? AND f.live_status NOT IN ('maintenance','private_event') ORDER BY f.name""",
                     (property_id,),
                 )
             ]
@@ -1677,6 +1774,7 @@ class HospitalityStore:
         data = self._bools(row, ["booking_supported"])
         data["opening_hours"] = _load(data["opening_hours"])
         data["images"] = json.loads(data["images"] or "[]")
+        data["policies"] = json.loads(data.get("policies") or "[]")
         return data
 
     def _restaurant_dict(self, row: sqlite3.Row | dict[str, Any], *, guest: bool = False) -> dict[str, Any]:
