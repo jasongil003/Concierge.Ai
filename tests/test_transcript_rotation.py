@@ -211,6 +211,31 @@ def test_missing_or_wrong_keys_and_database_write_failure_preserve_rows(tmp_path
     assert _legacy_ring().decrypt(value) == "must remain recoverable"
 
 
+def test_rotation_refuses_corrupted_ciphertext_without_modifying_any_rows(tmp_path: Path):
+    store = _store(tmp_path / "corrupt-rotation.db")
+    store.record_message("guest-a", "hotel-a", "guest", "valid synthetic transcript")
+    with store._connect() as db:
+        db.execute(
+            "UPDATE conversation_messages SET content=? WHERE session_id=?",
+            ("fernet:v1:not-a-valid-fernet-token", "guest-a"),
+        )
+
+    ring = _staged_ring()
+    before = inventory_transcripts(ring, connection_factory=store._connect)
+    assert before["unreadable"] == 1
+
+    with pytest.raises(RuntimeError, match="records cannot be decrypted"):
+        rotate_transcripts(ring, "key-b", connection_factory=store._connect)
+
+    after = inventory_transcripts(ring, connection_factory=store._connect)
+    assert after["fingerprint"] == before["fingerprint"]
+    with store._connect() as db:
+        value = db.execute(
+            "SELECT content FROM conversation_messages WHERE session_id=?", ("guest-a",)
+        ).fetchone()["content"]
+    assert value == "fernet:v1:not-a-valid-fernet-token"
+
+
 def test_large_synthetic_transcript_set_migrates_in_small_idempotent_batches(tmp_path: Path):
     store = _store(tmp_path / "large-rotation.db")
     legacy_box = SecretBox(LEGACY_SECRET)

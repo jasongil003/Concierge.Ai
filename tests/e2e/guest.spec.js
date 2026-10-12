@@ -895,7 +895,61 @@ test("guest: restaurant card details button toggles verified details", async ({ 
   const details = recommendation.locator("p");
   await expect(details).toBeVisible();
   await expect(details).toHaveText("Synthetic test recommendation.");
-  await expect(recommendation.locator("button").nth(1)).toHaveText("Hide details");
+  const hideDetailsBtn = recommendation.getByRole("button", { name: "Hide details", exact: true });
+  await expect(hideDetailsBtn).toHaveAttribute("aria-expanded", "true");
+  await hideDetailsBtn.click();
+  const showDetailsBtn = recommendation.getByRole("button", { name: "Details", exact: true });
+  await expect(details).toBeHidden();
+  await expect(showDetailsBtn).toHaveAttribute("aria-expanded", "false");
+  await showDetailsBtn.click();
+  await expect(details).toBeVisible();
+  await expect(recommendation.getByRole("button", { name: "Hide details", exact: true })).toHaveAttribute("aria-expanded", "true");
+});
+
+test("guest: expanded restaurant details survive a chat response rerender", async ({ page, request }) => {
+  await ensureGuestData(request);
+  let resumeChat;
+  let markChatStarted;
+  const chatGate = new Promise((resolve) => { resumeChat = resolve; });
+  const chatStarted = new Promise((resolve) => { markChatStarted = resolve; });
+  await page.route("**/api/chat", async (route) => {
+    markChatStarted();
+    await chatGate;
+    await route.continue();
+  });
+
+  try {
+    await page.goto("/");
+    await page.getByLabel("Ask your concierge").fill("Recommend somewhere nearby to eat");
+    const chatResponse = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/chat");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await chatStarted;
+
+    const recommendation = page.locator(".recommendation-card").first();
+    const detailsBtn = recommendation.getByRole("button", { name: "Details", exact: true });
+    await expect(recommendation).toBeVisible();
+    await detailsBtn.click();
+    await expect(recommendation.locator("p")).toBeVisible();
+    await expect(recommendation.getByRole("button", { name: "Hide details", exact: true })).toHaveAttribute("aria-expanded", "true");
+
+    resumeChat();
+    await chatResponse;
+    const expandedDetailsBtn = recommendation.getByRole("button", { name: "Hide details", exact: true });
+    await expect(recommendation).toHaveCount(1);
+    await expect(recommendation.locator("p")).toBeVisible();
+    await expect(expandedDetailsBtn).toHaveAttribute("aria-expanded", "true");
+    await expect(expandedDetailsBtn).toBeFocused();
+
+    await expandedDetailsBtn.click();
+    const collapsedDetailsBtn = recommendation.getByRole("button", { name: "Details", exact: true });
+    await expect(recommendation.locator("p")).toBeHidden();
+    await expect(collapsedDetailsBtn).toHaveAttribute("aria-expanded", "false");
+    await collapsedDetailsBtn.click();
+    await expect(recommendation.locator("p")).toBeVisible();
+    await expect(recommendation.getByRole("button", { name: "Hide details", exact: true })).toHaveAttribute("aria-expanded", "true");
+  } finally {
+    resumeChat();
+  }
 });
 
 test("guest can request restaurant staff from the hotel menu", async ({ page, request }, testInfo) => {

@@ -1,4 +1,5 @@
 import hashlib
+import json
 import sqlite3
 import traceback
 from pathlib import Path
@@ -125,6 +126,30 @@ def test_restore_validation_uses_separate_sqlite_target_and_preserves_source(tmp
     assert manifest["concierge"]["minimum_schema_revision"] <= manifest["concierge"]["schema_revision"]
     assert manifest["concierge"]["schema_revision"] <= manifest["concierge"]["maximum_schema_revision"]
     assert not any("secret" in key.casefold() or "key" in key.casefold() for key in manifest["concierge"])
+
+
+def test_incomplete_backup_is_rejected_before_restore_targets_are_created(tmp_path: Path):
+    archive = tmp_path / "incomplete.zip"
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as saved:
+        saved.writestr(
+            "manifest.json",
+            json.dumps(
+                {
+                    "format_version": 2,
+                    "database_type": "sqlite",
+                    "database": "database.sqlite",
+                    "files": {"database.sqlite": "0" * 64},
+                }
+            ),
+        )
+
+    target_db = tmp_path / "restore-target" / "concierge.db"
+    target_uploads = tmp_path / "restore-target" / "uploads"
+    with pytest.raises(RuntimeError, match="unmanifested archive members"):
+        restore_backup(archive, target_db, target_uploads)
+
+    assert not target_db.exists()
+    assert not target_uploads.exists()
 
 
 def test_postgres_backup_archive_uses_secret_free_argv_and_restores_to_empty_target(tmp_path, monkeypatch):
