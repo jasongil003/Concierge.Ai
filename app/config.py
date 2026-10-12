@@ -112,6 +112,10 @@ class Settings:
     app_debug: bool = _bool("APP_DEBUG", False)
     allow_body_property_selection: bool = _bool("ALLOW_BODY_PROPERTY_SELECTION", False)
     allow_demo_settings: bool = _bool("ALLOW_DEMO_SETTINGS", False)
+    # Global kill switch. Property-level enablement is stored separately in the
+    # property's guest_experience settings. A missing environment setting keeps
+    # the parallel guest interface disabled.
+    intelligent_guest_ui_global_enabled: bool = _bool("INTELLIGENT_GUEST_UI_GLOBAL_ENABLED", False)
 
     ai_provider_mode: str = os.getenv("AI_PROVIDER_MODE", "auto").strip().lower()
     local_ai_enabled: bool = _bool("LOCAL_AI_ENABLED", True)

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f8f7f4">
+  <title>Guest Concierge</title>
+  <link rel="stylesheet" href="/intelligent-ui/styles.css">
+</head>
+<body>
+  <div class="app-shell" id="app-shell">
+    <header class="topbar">
+      <div class="brand" aria-live="polite">
+        <div class="brand-mark" id="brand-mark" aria-hidden="true">C</div>
+        <div class="brand-copy">
+          <strong id="hotel-name">Your hotel</strong>
+          <span id="concierge-name">Guest concierge</span>
+        </div>
+      </div>
+      <button class="new-chat" id="new-conversation" type="button" aria-label="Start a new private conversation">
+        <span aria-hidden="true">＋</span><span>New chat</span>
+      </button>
+    </header>
+
+    <main class="conversation-workspace">
+      <section class="welcome" id="welcome" aria-labelledby="welcome-title">
+        <p class="eyebrow" id="welcome-greeting">Your stay, made easier</p>
+        <h1 id="welcome-title">How can I help with your stay?</h1>
+        <p class="welcome-description" id="welcome-description">Ask a question or tell me what you need.</p>
+        <div class="welcome-suggestions" id="welcome-suggestions" aria-label="Suggested questions"></div>
+      </section>
+
+      <section class="conversation" id="conversation" aria-label="Conversation" hidden>
+        <div class="message-list" id="message-list" role="log" aria-live="polite" aria-relevant="additions text"></div>
+        <div class="conversation-status" id="conversation-status" role="status" aria-live="polite" hidden></div>
+      </section>
+    </main>
+
+    <footer class="composer-dock">
+      <form class="composer" id="composer-form">
+        <label class="sr-only" for="composer-input">Message your concierge</label>
+        <textarea id="composer-input" rows="1" maxlength="2000" enterkeyhint="send" placeholder="Message your concierge" autocomplete="off"></textarea>
+        <button class="send-button" id="send-button" type="submit" aria-label="Send message" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4.8 14-2.7-5.5L5 12Z"/><path d="m11.5 13.5 3.6-3.6"/></svg>
+        </button>
+      </form>
+      <p class="composer-note" id="composer-note">Enter to send <span aria-hidden="true">·</span> Shift+Enter for a new line</p>
+      <p class="privacy-note">Your conversation stays in this browser tab. Start a new chat before sharing this device.</p>
+    </footer>
+  </div>
+  <section class="startup-error" id="startup-error" role="alert" hidden>
+    <div><span class="error-mark" aria-hidden="true">!</span><h1>Concierge is unavailable</h1><p id="startup-error-copy">Please reload to try again.</p><button id="reload-page" type="button">Reload</button></div>
+  </section>
+  <script src="/intelligent-ui/app.js" defer></script>
+</body>
+</html>
