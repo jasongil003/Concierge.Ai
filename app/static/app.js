@@ -1335,6 +1335,14 @@ function placeComposerRegion() {
 function renderMessages() {
   const isConversation = state.activeView === "concierge";
   const isHome = state.activeView === "home";
+  const activeElement = document.activeElement;
+  const focusedRecommendationControl = activeElement instanceof HTMLElement
+    && activeElement.matches("button[data-preserve-message-focus]")
+    ? {
+      messageId: activeElement.dataset.messageId,
+      resultKey: activeElement.dataset.resultKey,
+    }
+    : null;
   $("welcome-state").classList.toggle("hidden", state.messages.length > 0);
   const list = $("message-list");
   const homeList = $("home-message-list");
@@ -1345,6 +1353,12 @@ function renderMessages() {
   placeComposerRegion();
   if (destination) {
     for (const message of state.messages) destination.appendChild(renderMessage(message));
+  }
+  if (focusedRecommendationControl) {
+    const replacement = [...document.querySelectorAll("button[data-preserve-message-focus]")]
+      .find((button) => button.dataset.messageId === focusedRecommendationControl.messageId
+        && button.dataset.resultKey === focusedRecommendationControl.resultKey);
+    replacement?.focus({ preventScroll: true });
   }
   requestAnimationFrame(() => {
     const region = isConversation ? document.querySelector(".conversation-region") : null;
@@ -1360,6 +1374,7 @@ function renderMessages() {
 function renderMessage(message) {
   const row = document.createElement("article");
   row.className = "message-row " + message.role + " " + (message.type || "text");
+  if (message.id) row.dataset.messageId = message.id;
 
   if (message.role === "assistant") {
     const label = document.createElement("div");
@@ -1386,7 +1401,7 @@ function renderMessage(message) {
         row.appendChild(link);
       }
     }
-    row.appendChild(renderRecommendationResults(message.results || []));
+    row.appendChild(renderRecommendationResults(message.results || [], message));
     return row;
   }
 
@@ -1619,10 +1634,23 @@ function renderAuthenticationCard() {
   return card;
 }
 
-function renderRecommendationResults(results) {
+function recommendationResultKey(result, index) {
+  const stableId = result.recommendation_id || result.place_id || result.id;
+  if (stableId !== undefined && stableId !== null && String(stableId)) return String(stableId);
+  return [result.name || "", result.address || "", result.map_url || result.maps_url || "", index]
+    .map(String)
+    .join("\u001f");
+}
+
+function renderRecommendationResults(results, message) {
   const wrap = document.createElement("div");
   wrap.className = "recommendation-list";
-  for (const result of results) {
+  const expandedKeys = message.expandedRecommendationKeys instanceof Set
+    ? message.expandedRecommendationKeys
+    : (message.expandedRecommendationKeys = new Set());
+  const messageId = message.id || "recommendation-message";
+  for (const [index, result] of results.entries()) {
+    const resultKey = recommendationResultKey(result, index);
     const card = document.createElement("article");
     card.className = "recommendation-card";
 
@@ -1633,7 +1661,8 @@ function renderRecommendationResults(results) {
     meta.textContent = [result.category, result.address, result.open_now === true ? "Open now" : result.open_now === false ? "Closed now" : ""].filter(Boolean).join(" · ");
 
     const detail = document.createElement("p");
-    detail.hidden = true;
+    detail.id = `recommendation-detail-${messageId}-${index}`;
+    detail.hidden = !expandedKeys.has(resultKey);
     detail.textContent = result.description || result.detail || "No additional description supplied.";
 
     const actions = document.createElement("div");
@@ -1647,10 +1676,18 @@ function renderRecommendationResults(results) {
     });
     const detailsBtn = document.createElement("button");
     detailsBtn.type = "button";
-    detailsBtn.textContent = "Details";
+    detailsBtn.dataset.preserveMessageFocus = "true";
+    detailsBtn.dataset.messageId = messageId;
+    detailsBtn.dataset.resultKey = resultKey;
+    detailsBtn.setAttribute("aria-controls", detail.id);
+    detailsBtn.setAttribute("aria-expanded", String(!detail.hidden));
+    detailsBtn.textContent = detail.hidden ? "Details" : "Hide details";
     detailsBtn.addEventListener("click", () => {
       detail.hidden = !detail.hidden;
+      if (detail.hidden) expandedKeys.delete(resultKey);
+      else expandedKeys.add(resultKey);
       detailsBtn.textContent = detail.hidden ? "Details" : "Hide details";
+      detailsBtn.setAttribute("aria-expanded", String(!detail.hidden));
     });
     actions.appendChild(directionsBtn);
     actions.appendChild(detailsBtn);
@@ -1869,6 +1906,7 @@ async function sendChat(message, conversationHistory = [], focusComposer = true,
   if (!keepHome) setActiveView("concierge", focusComposer);
   const initialRecommendations = isRestaurantRequest(message) ? state.recommendations : [];
   const thinking = {
+    id: "msg-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2),
     role: "assistant",
     type: initialRecommendations.length ? "recommendation" : "status",
     text: initialRecommendations.length ? "Here are the hotel's verified dining recommendations. I’m also checking for current options." : "Thinking...",
