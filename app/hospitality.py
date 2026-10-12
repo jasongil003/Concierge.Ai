@@ -1708,14 +1708,14 @@ class HospitalityStore:
             events = [self._event_dict(row) for row in db.execute("SELECT * FROM hotel_events WHERE property_id=? AND status='scheduled' ORDER BY starts_at", (property_id,))]
         return {"facilities": facilities, "restaurants": restaurants, "menu_items": menus, "promotions": promotions, "events": events}
 
-    def request_metrics(self, property_id: str) -> dict[str, int]:
+    def request_metrics(self, property_id: str, *, department_name: str | None = None) -> dict[str, int]:
         with self._connect() as db:
             row = db.execute(
                 """SELECT COUNT(*) AS total,
                 SUM(CASE WHEN status NOT IN ('completed','cancelled') THEN 1 ELSE 0 END) AS open_count,
                 SUM(CASE WHEN status NOT IN ('completed','cancelled') AND due_at IS NOT NULL AND due_at<? THEN 1 ELSE 0 END) AS overdue_count
-                FROM service_requests WHERE property_id=?""",
-                (_now(), property_id),
+                FROM service_requests WHERE property_id=? AND (? IS NULL OR department=?)""",
+                (_now(), property_id, department_name, department_name),
             ).fetchone()
         return {"total_requests": int(row["total"] or 0), "open_requests": int(row["open_count"] or 0), "overdue_requests": int(row["overdue_count"] or 0)}
 
@@ -1741,8 +1741,14 @@ class HospitalityStore:
             return False, "promotional_opt_out"
         quiet = policy.get("quiet_hours") or {}
         hour = time.localtime(moment).tm_hour
-        if quiet and (int(quiet.get("start", 22)) <= hour or hour < int(quiet.get("end", 7))):
-            return False, "quiet_hours"
+        if quiet:
+            start = int(quiet.get("start", 22))
+            end = int(quiet.get("end", 7))
+            # Daytime intervals use conjunction; overnight intervals wrap midnight.
+            # Equal boundaries retain the existing full-day suppression behavior.
+            in_quiet_hours = start <= hour < end if start < end else hour >= start or hour < end
+            if in_quiet_hours:
+                return False, "quiet_hours"
         if current_zone_id and current_zone_id == payload.get("destination_zone_id"):
             return False, "already_at_destination"
         if payload.get("facility_status") in {"closed", "temporarily_closed", "full", "maintenance", "private_event"}:
