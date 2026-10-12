@@ -1,0 +1,97 @@
+# Phase 6 disposable integration layer. Compose this with the repository's
+# docker-compose.yml so the app image, proxy, and appliance wiring stay shared.
+services:
+  postgres:
+    image: postgres:16@sha256:f1c3376c26f2609ab9f29f71f824103fe2fcd8ee0346485cb6122a4f93df6f94
+    environment:
+      POSTGRES_USER: concierge
+      POSTGRES_DB: concierge
+      POSTGRES_HOST_AUTH_METHOD: trust
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U concierge -d concierge"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    ports:
+      - "127.0.0.1:${PHASE6_POSTGRES_PORT:-55432}:5432"
+    volumes:
+      - phase6-postgres-data:/var/lib/postgresql/data
+    networks:
+      - backend
+    labels:
+      com.concierge.phase: "6"
+      com.concierge.disposable: "true"
+
+  redis:
+    image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    ports:
+      - "127.0.0.1:${PHASE6_REDIS_PORT:-56379}:6379"
+    volumes:
+      - phase6-redis-data:/data
+    networks:
+      - backend
+    labels:
+      com.concierge.phase: "6"
+      com.concierge.disposable: "true"
+
+  concierge:
+    environment:
+      APP_ENVIRONMENT: staging
+      CONCIERGE_DEPLOYMENT_MODE: appliance
+      DATABASE_URL: postgresql+psycopg://concierge@postgres:5432/concierge
+      REDIS_URL: redis://redis:6379/0
+      PROPERTY_ID: phase6-synthetic
+      ENABLE_BACKGROUND_WORKERS: "false"
+      LOCAL_AI_ENABLED: "false"
+      ANTLABS_MODE: browser_handoff
+      ANTLABS_AUTH_URL: https://gateway.example.test/login/main.ant?c=proc
+      ANTLABS_AUTH_METHOD: POST
+      APP_DEBUG: "false"
+      ADMIN_COOKIE_SECURE: "true"
+      ALLOW_BODY_PROPERTY_SELECTION: "false"
+      ALLOW_DEMO_SETTINGS: "false"
+      INTELLIGENT_GUEST_UI_GLOBAL_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - frontend
+      - backend
+    labels:
+      com.concierge.phase: "6"
+      com.concierge.disposable: "true"
+
+  proxy:
+    ports: !override
+      - "${PHASE6_HTTP_BIND:-127.0.0.1}:${PHASE6_HTTP_PORT:-18082}:80"
+
+networks:
+  # Keep the entire acceptance stack offline except for access through the
+  # loopback-published proxy and loopback-published integration test ports.
+  frontend:
+    internal: true
+  backend:
+    internal: true
+
+volumes:
+  # Override the base appliance volume only to tag it as Phase 6-owned.
+  concierge-state:
+    labels:
+      com.concierge.phase: "6"
+      com.concierge.disposable: "true"
+  phase6-postgres-data:
+    labels:
+      com.concierge.phase: "6"
+      com.concierge.disposable: "true"
+  phase6-redis-data:
+    labels:
+      com.concierge.phase: "6"
+      com.concierge.disposable: "true"
