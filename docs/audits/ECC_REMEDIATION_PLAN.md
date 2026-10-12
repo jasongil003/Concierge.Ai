@@ -1,5 +1,7 @@
 # Concierge.AI ECC Audit — Prioritized Remediation Plan
 
+> Historical pre-Phase 2 plan. Use [ECC_PHASE2_REMEDIATION_BACKLOG.md](ECC_PHASE2_REMEDIATION_BACKLOG.md) for remaining work and [ECC_PHASE2_FINDINGS.md](ECC_PHASE2_FINDINGS.md) for current statuses.
+
 This is an audit backlog only. No remediation was implemented during this read-only audit.
 
 ## P0 — Critical security and data integrity

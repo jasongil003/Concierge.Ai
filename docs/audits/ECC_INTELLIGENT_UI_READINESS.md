@@ -1,5 +1,7 @@
 # Concierge.AI ECC Audit — Intelligent UI Readiness
 
+> Historical pre-Phase 2 snapshot. Current implementation and verified status are recorded in [ECC_PHASE2_FINAL_VERDICT.md](ECC_PHASE2_FINAL_VERDICT.md), [ECC_PHASE2_FINDINGS.md](ECC_PHASE2_FINDINGS.md), and the Phase 2 docs under `docs/intelligent-ui/`.
+
 ## Assessment
 
 The current working tree contains a parallel, feature-gated Intelligent UI implementation. The backend can safely support a **non-streaming internal prototype** based on the reviewed controls and local tests. It is not ready for a controlled guest pilot or production release: release cleanliness, environment acceptance, exact answer-quality checks, streaming requirements, and rollback operations remain incomplete.

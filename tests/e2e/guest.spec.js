@@ -889,12 +889,13 @@ test("guest: restaurant card details button toggles verified details", async ({ 
   await page.getByLabel("Ask your concierge").fill("Recommend somewhere nearby to eat");
   await page.getByRole("button", { name: "Send message" }).click();
 
-  const detailsBtn = page.locator(".recommendation-card").first().getByRole("button", { name: "Details" });
+  const recommendation = page.locator(".recommendation-card").first();
+  const detailsBtn = recommendation.getByRole("button", { name: "Details", exact: true });
   await detailsBtn.click();
-  const details = page.locator(".recommendation-card").first().locator("p");
+  const details = recommendation.locator("p");
   await expect(details).toBeVisible();
   await expect(details).toHaveText("Synthetic test recommendation.");
-  await expect(detailsBtn).toHaveText("Hide details");
+  await expect(recommendation.locator("button").nth(1)).toHaveText("Hide details");
 });
 
 test("guest can request restaurant staff from the hotel menu", async ({ page, request }, testInfo) => {
@@ -1070,19 +1071,122 @@ test("Intelligent UI: property opt-in answers from verified hotel data and keeps
     await page.screenshot({ path: join(screenshotDirectory, `conversation-${testInfo.project.name}.png`), fullPage: true });
 
     const conversationId = await page.evaluate(() => sessionStorage.getItem("concierge-v2-session-id"));
-    await page.route("**/api/guest/intelligent-chat", (route) => route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        schema_version: "1.0", conversation_id: conversationId, turn_id: "ui-test-turn",
+    await page.route("**/api/guest/intelligent-chat/stream", async (route) => {
+      const requestBody = route.request().postDataJSON();
+      const response = {
+        schema_version: "1.0", conversation_id: conversationId, turn_id: requestBody.turn_id,
         blocks: [{ id: "inert-text", type: "text", content: '<img src=x onerror="window.__guestUiXss = true">' }],
-      }),
-    }));
+      };
+      const events = [
+        ["turn.started", { schema_version: "1.0", conversation_id: conversationId, turn_id: requestBody.turn_id }],
+        ["text.completed", { streamed: false, text: response.blocks[0].content }],
+        ["turn.completed", { response }],
+      ];
+      await route.fulfill({
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+        body: events.map(([type, data], index) =>
+          `id: ${requestBody.turn_id}:${index + 1}\nevent: ${type}\ndata: ${JSON.stringify(data)}\n\n`,
+        ).join(""),
+      });
+    });
     await page.getByLabel("Message your concierge").fill("Show me a text example");
     await page.getByRole("button", { name: "Send message" }).click();
     await expect(page.locator(".message-row.assistant .message-text").last()).toContainText("<img src=x");
     expect(await page.locator("#message-list img").count()).toBe(0);
     expect(await page.evaluate(() => window.__guestUiXss || false)).toBe(false);
+  } finally {
+    await setIntelligentUi(request, false);
+  }
+});
+
+test("Intelligent UI: breakfast answer uses the current property's configured hours", async ({ page, request }) => {
+  const csrf = await loginAdmin(request);
+  const propertyResponse = await request.get("/api/admin/properties/e2e-property");
+  expect(propertyResponse.ok()).toBeTruthy();
+  const property = await propertyResponse.json();
+  property.contact_details = {
+    ...(property.contact_details || {}),
+    breakfast: "Breakfast is served daily from 7:00 to 10:00 in the Atrium.",
+  };
+  const saved = await request.put("/api/admin/properties/e2e-property", {
+    headers: { "X-CSRF-Token": csrf },
+    data: property,
+  });
+  expect(saved.ok(), await saved.text()).toBeTruthy();
+
+  await setIntelligentUi(request, true);
+  try {
+    await page.goto("/");
+    await page.getByLabel("Message your concierge").fill("What time is breakfast?");
+    await page.getByRole("button", { name: "Send message" }).click();
+    const answer = page.locator(".message-row.assistant .message-text").last();
+    await expect(answer).toContainText("Breakfast is served daily from 7:00 to 10:00 in the Atrium.");
+    await expect(answer).not.toContainText("Breakfast hours are not available");
+  } finally {
+    await setIntelligentUi(request, false);
+  }
+});
+
+test("Intelligent UI: verified floor maps render interactive markers and a text alternative", async ({ page, request }, testInfo) => {
+  await setIntelligentUi(request, true);
+  try {
+    await page.route(/\/api\/guest\/floor-maps\/test-map\/asset/, (route) => route.fulfill({
+      status: 200,
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100"><rect width="200" height="100" fill="#eee"/><path d="M10 50h180" stroke="#999" stroke-width="4"/></svg>',
+    }));
+    await page.route("**/api/guest/intelligent-chat/stream", async (route) => {
+      const requestBody = route.request().postDataJSON();
+      const conversationId = await page.evaluate(() => sessionStorage.getItem("concierge-v2-session-id"));
+      const mapBlock = {
+        id: "configured-floor-map", type: "map_view", title: "Hotel map · Level 3",
+        map_image_url: "/api/guest/floor-maps/test-map/asset?property_id=e2e-property",
+        map_alt: "Configured Level 3 floor plan. Marked locations: Rooftop Pool, Elevator.",
+        image_width: 200, image_height: 100,
+        markers: [
+          { id: "pool-node", label: "Rooftop Pool", x_percent: 50, y_percent: 50 },
+          { id: "elevator-node", label: "Elevator", x_percent: 10, y_percent: 25 },
+        ],
+      };
+      const response = {
+        schema_version: "1.0", conversation_id: conversationId, turn_id: requestBody.turn_id,
+        blocks: [
+          { id: "map-answer", type: "text", content: "The pool is marked on Level 3." },
+          mapBlock,
+        ],
+      };
+      const events = [
+        ["turn.started", { schema_version: "1.0", conversation_id: conversationId, turn_id: requestBody.turn_id }],
+        ["component.ready", { block: mapBlock }],
+        ["text.completed", { streamed: false, text: response.blocks[0].content }],
+        ["turn.completed", { response }],
+      ];
+      await route.fulfill({
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+        body: events.map(([type, data], index) =>
+          `id: ${requestBody.turn_id}:${index + 1}\nevent: ${type}\ndata: ${JSON.stringify(data)}\n\n`,
+        ).join(""),
+      });
+    });
+    await page.goto("/");
+    await page.getByLabel("Message your concierge").fill("How do I get to the pool?");
+    await page.getByRole("button", { name: "Send message" }).click();
+    const map = page.locator(".map-panel");
+    await expect(map.getByRole("heading", { name: "Hotel map · Level 3" })).toBeVisible();
+    await expect(map.locator(".floor-map-image")).toBeVisible();
+    await expect(map.locator(".floor-map-alternative")).toContainText("Rooftop Pool, Elevator");
+    const poolMarker = map.getByRole("button", { name: "Show location: Rooftop Pool" });
+    await poolMarker.click();
+    await expect(poolMarker).toHaveAttribute("aria-pressed", "true");
+    await expect(map.locator(".floor-map-selection")).toHaveText("Rooftop Pool");
+
+    if (testInfo.project.name === "chromium") {
+      const screenshotDirectory = join(process.cwd(), "docs", "intelligent-ui", "screenshots");
+      mkdirSync(screenshotDirectory, { recursive: true });
+      await map.screenshot({ path: join(screenshotDirectory, "map-chromium.png") });
+    }
   } finally {
     await setIntelligentUi(request, false);
   }

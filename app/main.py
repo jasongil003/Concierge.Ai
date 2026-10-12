@@ -9,6 +9,7 @@ import inspect
 import ipaddress
 import json
 import logging
+import math
 import os
 from pathlib import Path
 import re
@@ -18,17 +19,17 @@ import sqlite3
 import ssl
 import time
 import uuid
-from typing import Any
+from typing import Any, Awaitable, Callable
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from email.message import EmailMessage
 from urllib.parse import quote, urlparse, urlsplit
 
 import httpx
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool
 from prometheus_client import CONTENT_TYPE_LATEST
 
 from .admin_auth import (
@@ -39,7 +40,7 @@ from .admin_auth import (
     AdminPrincipal,
     AuthenticationError,
 )
-from .ai_providers import AIModelService, AIProviderStore
+from .ai_providers import AIModelService, AIProviderStore, ProviderStreamInterrupted
 from .antlabs import AntlabsAdapter
 from .config import settings
 from .database import (
@@ -84,6 +85,7 @@ from .configuration_actions import (
 from .guardrails import (
     AIInputSanitizer,
     AIOutputValidator,
+    AIStreamOutputGuard,
     ActionGuard,
     DEFAULT_GUARDRAILS,
     GuardrailDecision,
@@ -532,6 +534,7 @@ def _intelligent_guest_ui_config(record: PropertyRecord) -> GuestExperienceSetti
 def _intelligent_guest_ui_enabled(record: PropertyRecord) -> bool:
     return bool(
         settings.intelligent_guest_ui_global_enabled
+        and operations.intelligent_ui_global_enabled(default=True)
         and _intelligent_guest_ui_config(record).intelligent_ui.enabled is True
     )
 
@@ -739,6 +742,7 @@ class GuestChatHistoryItem(BaseModel):
 class ChatRequest(BaseModel):
     session_id: str
     message: str = Field(min_length=1, max_length=2000)
+    turn_id: str = Field(default_factory=lambda: uuid.uuid4().hex, min_length=1, max_length=80, pattern=r"^[a-zA-Z0-9_-]+$")
     mode: str = "auto"
     conversation_history: list[GuestChatHistoryItem] = Field(default_factory=list, max_length=10)
 
@@ -902,6 +906,10 @@ class ManagementAccessPayload(BaseModel):
     confirm_overlap: bool = False
     confirm_lockout: bool = False
     confirm_public_exposure: bool = False
+
+
+class IntelligentUiGlobalFlagPayload(BaseModel):
+    enabled: StrictBool
 
 
 class GuestNetworkAccessPayload(BaseModel):
@@ -4629,6 +4637,39 @@ async def get_system_email_settings() -> dict[str, Any]:
     return operations.get_email_settings()
 
 
+@app.get("/api/admin/system/intelligent-ui")
+async def get_intelligent_ui_global_flag() -> dict[str, Any]:
+    return {
+        "enabled": bool(
+            settings.intelligent_guest_ui_global_enabled
+            and operations.intelligent_ui_global_enabled(default=True)
+        ),
+        "environment_master_enabled": settings.intelligent_guest_ui_global_enabled,
+    }
+
+
+@app.put("/api/admin/system/intelligent-ui")
+async def set_intelligent_ui_global_flag(
+    payload: IntelligentUiGlobalFlagPayload, request: Request
+) -> dict[str, Any]:
+    if payload.enabled and not settings.intelligent_guest_ui_global_enabled:
+        raise HTTPException(
+            status_code=409,
+            detail="The deployment environment master flag is disabled. Enable it in the environment before rollout.",
+        )
+    operations.save_intelligent_ui_global_enabled(payload.enabled)
+    principal = _admin_principal(request)
+    admin_auth.audit(
+        principal,
+        "intelligent_ui.global_enabled" if payload.enabled else "intelligent_ui.global_disabled",
+        "feature_flag",
+        "intelligent_ui",
+        ip_address=request.client.host if request.client else "",
+        metadata={"enabled": payload.enabled},
+    )
+    return await get_intelligent_ui_global_flag()
+
+
 @app.put("/api/admin/system/email")
 async def save_system_email_settings(payload: EmailSettingsPayload) -> dict[str, Any]:
     try:
@@ -5969,6 +6010,31 @@ async def resume_session(payload: ResumeSessionRequest, request: Request, respon
     return {"session_id": session.session_id, "expires_after_minutes": policy["guest_session_timeout"]}
 
 
+@app.post("/api/session/end")
+async def end_guest_session(payload: ResumeSessionRequest, request: Request, response: Response) -> dict[str, Any]:
+    candidate = store.peek(payload.session_id)
+    if candidate is None or candidate.client_id != payload.client_id:
+        raise HTTPException(status_code=401, detail="Concierge session expired.")
+    session, _ = _guest_session(request, payload.session_id)
+    store.revoke_guest_credentials(session.session_id)
+    # The request middleware normally refreshes valid guest cookies after a
+    # response. A deliberate end must clear the session cookie and skip renewal.
+    request.state.guest_cookie_refresh = None
+    secure = settings.app_environment in SECURE_ENVIRONMENTS or settings.admin_cookie_secure
+    response.delete_cookie(
+        _guest_cookie_names(session.session_id)[0],
+        path="/", httponly=True, secure=secure, samesite="strict",
+    )
+    response.headers["Cache-Control"] = "no-store"
+    decision = getattr(request.state, "guardrail_decision", None)
+    if decision:
+        security_audit.record(
+            _request_id(request), session.property_id, "guest.session.ended", "recorded",
+            decision.client_ip,
+        )
+    return {"ended": True}
+
+
 @app.post("/api/authenticate")
 async def authenticate(payload: AuthRequest, request: Request) -> dict[str, Any]:
     session, property_record = _guest_session(request, payload.session_id)
@@ -6013,8 +6079,12 @@ async def authenticate(payload: AuthRequest, request: Request) -> dict[str, Any]
     }
 
 
-@app.post("/api/chat")
-async def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
+async def _chat_response(
+    payload: ChatRequest,
+    request: Request,
+    *,
+    stream_callback: Callable[[str], Awaitable[None]] | None = None,
+) -> dict[str, Any]:
     session, property_record = _guest_session(request, payload.session_id)
     decision = getattr(request.state, "guardrail_decision", None)
     client_ip = decision.client_ip if decision else ""
@@ -6225,19 +6295,39 @@ async def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
     live_context = format_places_for_ai(place_results)
 
     try:
-        model_result = await ai_models.concierge_chat(
-            property_id=session.property_id,
-            user_message=sanitized_message,
-            hotel_name=property_record.hotel_name if property_record else knowledge.data["name"],
-            context=context,
-            live_context=live_context,
-            requested_mode=requested_mode,
-            conversation_history=conversation_history,
-            guest_context=guest_context,
-        )
+        if stream_callback is None:
+            model_result = await ai_models.concierge_chat(
+                property_id=session.property_id,
+                user_message=sanitized_message,
+                hotel_name=property_record.hotel_name if property_record else knowledge.data["name"],
+                context=context,
+                live_context=live_context,
+                requested_mode=requested_mode,
+                conversation_history=conversation_history,
+                guest_context=guest_context,
+            )
+        else:
+            stream_result = await ai_models.concierge_chat_stream(
+                property_id=session.property_id,
+                user_message=sanitized_message,
+                hotel_name=property_record.hotel_name if property_record else knowledge.data["name"],
+                context=context,
+                on_delta=stream_callback,
+                live_context=live_context,
+                requested_mode=requested_mode,
+                conversation_history=conversation_history,
+                guest_context=guest_context,
+            )
+            model_result = stream_result.response
         provider = model_result.provider
         model = model_result.model
         answer = model_result.text
+    except ProviderStreamInterrupted:
+        if stream_callback is not None:
+            # Once text has reached the client, a fallback response would
+            # misleadingly append a second answer to a partial turn.
+            raise HTTPException(status_code=502, detail="The response was interrupted. Please retry.")
+        raise
     except Exception as exc:
         # Only the property-scoped provider service may route guest content.
         # A separate legacy router would bypass local-only and fallback settings.
@@ -6274,16 +6364,89 @@ async def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
     }
 
 
-@app.post("/api/guest/intelligent-chat")
-async def intelligent_guest_chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
+@app.post("/api/chat")
+async def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
+    return await _chat_response(payload, request)
+
+
+async def _compose_intelligent_guest_response(
+    payload: ChatRequest,
+    request: Request,
+    *,
+    stream_callback: Callable[[str], Awaitable[None]] | None = None,
+) -> dict[str, Any]:
     """Adapt the established guest chat response into the v1 presentation protocol."""
     session, property_record = _guest_session(request, payload.session_id)
     if not _intelligent_guest_ui_enabled(property_record):
         raise HTTPException(status_code=404, detail="Guest experience not found.")
 
+    if _is_intelligent_map_request(payload.message):
+        floor_map = _intelligent_guest_floor_map_block(session.property_id, payload.message)
+        blocks: list[dict[str, Any]] = [{
+            "id": new_ui_id("text"),
+            "type": "text",
+            "content": (
+                "Here is the hotel's configured floor plan. Select a marker to identify its location. "
+                "A verified route from your current room is not available in this map."
+                if floor_map else
+                "This hotel has no published floor map or verified route for that location. Please contact the Front Desk for directions."
+            ),
+        }]
+        if floor_map:
+            blocks.append(floor_map)
+        return make_intelligent_ui_response(session.session_id, blocks, payload.turn_id)
+
+    if _is_guest_service_request(payload.message):
+        proposal = await propose_guest_service_action(
+            GuestServiceProposalPayload(session_id=session.session_id, message=payload.message),
+            request,
+        )
+        if proposal.get("status") == "proposed":
+            card = proposal["card"]
+            blocks = [{
+                "id": new_ui_id("service-review"),
+                "type": "request_review",
+                "title": str(card.get("title") or "Service request")[:120],
+                "department": str(card.get("department") or "")[:120],
+                "description": str(card.get("description") or payload.message)[:1000],
+                "confirmation_token": proposal["proposal_token"],
+                "confirm_label": "Confirm request",
+            }]
+        elif proposal.get("status") == "ambiguous":
+            choices = [
+                " · ".join(part for part in (str(item.get("name") or ""), str(item.get("department") or "")) if part)
+                for item in proposal.get("choices", [])
+            ]
+            blocks = [{
+                "id": new_ui_id("text"),
+                "type": "text",
+                "content": "I found more than one matching hotel service: " + ", ".join(choices[:4]) + ". Please tell me which one you need.",
+            }]
+        else:
+            services = [
+                str(item.get("name") or "").strip()
+                for item in hospitality.catalog(session.property_id, guest=True).get("services", [])
+                if item.get("enabled") and not item.get("archived") and str(item.get("name") or "").strip()
+            ][:8]
+            detail = ", ".join(services)
+            content = (
+                f"I can't submit that because it isn't in this hotel's configured request list. I can help with: {detail}."
+                if detail else
+                "I can't submit that because it isn't in this hotel's configured request list. Please contact the Front Desk for help."
+            )
+            blocks = [{"id": new_ui_id("text"), "type": "text", "content": content[:6000]}]
+        return make_intelligent_ui_response(session.session_id, blocks, payload.turn_id)
+
     # Keep conversation policy, retrieval, provider selection, and rate limits in
     # the existing handler. The presentation adapter only shapes its response.
-    result = await chat(payload, request)
+    server_history = [
+        item for item in store.recent_messages(session.session_id, session.property_id, limit=10)
+        if str(item.get("content") or "").strip()
+    ]
+    server_payload = payload.model_copy(update={
+        "conversation_history": [GuestChatHistoryItem.model_validate(item) for item in server_history],
+    })
+    result = await _chat_response(server_payload, request, stream_callback=stream_callback)
     answer = str(result.get("answer") or "").strip()
     if result.get("human_takeover"):
         answer = "Your message is with the hotel team. They can reply here when available."
@@ -6297,6 +6460,11 @@ async def intelligent_guest_chat(payload: ChatRequest, request: Request) -> dict
     ]
     if _is_intelligent_dining_request(payload.message):
         facilities = hospitality.guest_facilities(session.property_id)
+        published_restaurant_ids = {
+            str(item.get("restaurant_id") or "")
+            for item in facilities.get("menu_items", [])
+            if item.get("restaurant_id")
+        }
         restaurant_cards = []
         for restaurant in facilities.get("restaurants", [])[:8]:
             if restaurant.get("archived") or restaurant.get("status") in {"disabled", "archived"}:
@@ -6305,6 +6473,9 @@ async def intelligent_guest_chat(payload: ChatRequest, request: Request) -> dict
             hours = opening.get("display", "") if isinstance(opening, dict) else str(opening or "")
             location = str(restaurant.get("location") or "").strip()
             detail = " · ".join(part for part in (location, f"Hours: {hours}" if hours else "") if part)
+            images = restaurant.get("images") or []
+            image_url = str(images[0])[:500] if images and isinstance(images[0], str) else ""
+            reservation_url = str(restaurant.get("external_reservation_url") or "") if restaurant.get("reservation_available") else ""
             restaurant_cards.append({
                 "id": new_ui_id("restaurant"),
                 "type": "restaurant",
@@ -6312,6 +6483,12 @@ async def intelligent_guest_chat(payload: ChatRequest, request: Request) -> dict
                 "subtitle": str(restaurant.get("cuisine") or "")[:120],
                 "description": str(restaurant.get("description") or "")[:500],
                 "detail": detail[:300],
+                "resource_id": str(restaurant.get("restaurant_id") or "")[:80],
+                "image_url": image_url,
+                "location": location[:240],
+                "opening_hours": hours[:160],
+                "menu_available": str(restaurant.get("restaurant_id") or "") in published_restaurant_ids,
+                "reservation_url": reservation_url[:1000],
             })
         if restaurant_cards:
             blocks.append({
@@ -6320,7 +6497,54 @@ async def intelligent_guest_chat(payload: ChatRequest, request: Request) -> dict
                 "title": "Dining at this hotel",
                 "cards": restaurant_cards,
             })
-
+    elif _is_intelligent_facility_request(payload.message):
+        facilities = hospitality.guest_facilities(session.property_id).get("facilities", [])
+        map_overview = zones.overview(session.property_id, guest=True)
+        zone_lookup = {str(item.get("zone_id")): item for item in map_overview.get("zones", [])}
+        floor_lookup = {str(item.get("floor_id")): item for item in map_overview.get("floors", [])}
+        building_lookup = {str(item.get("building_id")): item for item in map_overview.get("buildings", [])}
+        facility_cards = []
+        for facility in facilities[:8]:
+            if facility.get("live_status") in {"maintenance", "private_event"}:
+                continue
+            opening = facility.get("opening_hours") or {}
+            hours = opening.get("display", "") if isinstance(opening, dict) else str(opening or "")
+            status_note = str(facility.get("status_note") or "").strip()
+            status = str(facility.get("live_status") or "").replace("_", " ").strip()
+            zone = zone_lookup.get(str(facility.get("zone_id") or ""), {})
+            floor = floor_lookup.get(str(facility.get("floor_id") or zone.get("floor_id") or ""), {})
+            building = building_lookup.get(str(floor.get("building_id") or facility.get("building_id") or ""), {})
+            location = " · ".join(
+                str(value).strip() for value in (building.get("name"), floor.get("name"), zone.get("name"))
+                if str(value or "").strip()
+            )
+            detail = " · ".join(
+                value for value in (
+                    f"Hours: {hours}" if hours else "",
+                    status_note or (f"Status: {status}" if status and status != "open" else ""),
+                ) if value
+            )
+            images = facility.get("images") or []
+            image_url = str(images[0])[:500] if images and isinstance(images[0], str) else ""
+            facility_cards.append({
+                "id": new_ui_id("facility"),
+                "type": "facility",
+                "title": str(facility.get("name") or "Hotel facility")[:120],
+                "subtitle": str(facility.get("facility_type") or "")[:120],
+                "description": str(facility.get("description") or "")[:500],
+                "detail": detail[:300],
+                "resource_id": str(facility.get("facility_id") or "")[:80],
+                "image_url": image_url,
+                "location": location[:240],
+                "opening_hours": hours[:160],
+            })
+        if facility_cards:
+            blocks.append({
+                "id": new_ui_id("facilities"),
+                "type": "card_collection",
+                "title": "Hotel facilities",
+                "cards": facility_cards,
+            })
     if not result.get("ai_paused") and not result.get("human_takeover"):
         if not payload.conversation_history:
             prompts = _intelligent_guest_ui_config(property_record).suggested_prompts
@@ -6333,19 +6557,327 @@ async def intelligent_guest_chat(payload: ChatRequest, request: Request) -> dict
                 "items": [{"label": prompt[:80], "prompt": prompt[:300]} for prompt in prompts[:4]],
             })
     try:
-        return make_intelligent_ui_response(session.session_id, blocks)
+        return make_intelligent_ui_response(session.session_id, blocks, payload.turn_id)
     except (TypeError, ValueError):
         # A malformed presentation object falls back to one bounded text block.
         return make_intelligent_ui_response(session.session_id, [{
             "id": new_ui_id("text"),
             "type": "text",
             "content": answer[:6000],
-        }])
+        }], payload.turn_id)
+
+
+async def _intelligent_guest_response(
+    payload: ChatRequest,
+    request: Request,
+    *,
+    stream_callback: Callable[[str], Awaitable[None]] | None = None,
+) -> dict[str, Any]:
+    session, property_record = _guest_session(request, payload.session_id)
+    if not _intelligent_guest_ui_enabled(property_record):
+        raise HTTPException(status_code=404, detail="Guest experience not found.")
+    normalized_message = AIInputSanitizer.sanitize_text(payload.message)
+    state, cached = store.claim_guest_ui_turn(
+        session.session_id, session.property_id, payload.turn_id, normalized_message
+    )
+    if state == "complete" and cached:
+        try:
+            response = json.loads(cached)
+            if (
+                response.get("schema_version") == "1.0"
+                and response.get("conversation_id") == session.session_id
+                and response.get("turn_id") == payload.turn_id
+            ):
+                return response
+        except (AttributeError, TypeError, ValueError):
+            pass
+        raise HTTPException(status_code=409, detail="This response can no longer be resumed. Start a new turn.")
+    if state == "mismatch":
+        raise HTTPException(status_code=409, detail="This turn identifier is already bound to a different message.")
+    if state == "pending":
+        raise HTTPException(status_code=409, detail="This turn is already being processed.")
+    if state != "claimed":
+        raise HTTPException(status_code=409, detail="This turn could not be resumed. Start a new turn.")
+
+    store.record_message(session.session_id, session.property_id, "guest", normalized_message)
+    try:
+        response = await _compose_intelligent_guest_response(
+            payload, request, stream_callback=stream_callback
+        )
+        answer = next(
+            (str(block.get("content") or "") for block in response.get("blocks", []) if block.get("type") == "text"),
+            "",
+        )
+        persisted = store.record_ai_message_if_active(
+            session.session_id, session.property_id, answer[:8000],
+            provider="intelligent_ui", model="stream_or_response",
+        )
+        if not persisted:
+            response = make_intelligent_ui_response(session.session_id, [{
+                "id": new_ui_id("text"),
+                "type": "text",
+                "content": "Your message is with the hotel team. They can reply here when available.",
+            }], payload.turn_id)
+        store.complete_guest_ui_turn(
+            session.session_id, session.property_id, payload.turn_id,
+            json.dumps(response, ensure_ascii=False, separators=(",", ":")),
+        )
+        return response
+    except asyncio.CancelledError:
+        store.fail_guest_ui_turn(session.session_id, session.property_id, payload.turn_id)
+        raise
+    except Exception:
+        store.fail_guest_ui_turn(session.session_id, session.property_id, payload.turn_id)
+        raise
+
+
+@app.post("/api/guest/intelligent-chat")
+async def intelligent_guest_chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
+    return await _intelligent_guest_response(payload, request)
+
+
+@app.get("/api/guest/intelligent-history")
+async def intelligent_guest_history(
+    request: Request,
+    session_id: str = Header(alias="X-Concierge-Session", min_length=1, max_length=200),
+) -> dict[str, Any]:
+    session, property_record = _guest_session(request, session_id)
+    if not _intelligent_guest_ui_enabled(property_record):
+        raise HTTPException(status_code=404, detail="Guest experience not found.")
+    return {
+        "schema_version": "1.0",
+        "conversation_id": session.session_id,
+        "turns": store.recent_guest_ui_turns(session.session_id, session.property_id, limit=40),
+    }
+
+
+def _sse_event(turn_id: str, sequence: int, event_type: str, data: dict[str, Any]) -> str:
+    payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    return f"id: {turn_id}:{sequence}\nevent: {event_type}\ndata: {payload}\n\n"
+
+
+@app.post("/api/guest/intelligent-chat/stream")
+async def intelligent_guest_chat_stream(payload: ChatRequest, request: Request) -> StreamingResponse:
+    """Stream validated assistant text and structured components as versioned SSE."""
+    session, property_record = _guest_session(request, payload.session_id)
+    if not _intelligent_guest_ui_enabled(property_record):
+        raise HTTPException(status_code=404, detail="Guest experience not found.")
+
+    async def events():
+        sequence = 0
+
+        def frame(event_type: str, data: dict[str, Any]) -> str:
+            nonlocal sequence
+            sequence += 1
+            return _sse_event(payload.turn_id, sequence, event_type, data)
+
+        yield frame("turn.started", {
+            "schema_version": "1.0",
+            "conversation_id": session.session_id,
+            "turn_id": payload.turn_id,
+        })
+        queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue(maxsize=24)
+        output_guard = AIStreamOutputGuard(max_chars=24_000)
+
+        async def on_delta(chunk: str) -> None:
+            safe = output_guard.feed(chunk)
+            if safe:
+                await queue.put(("delta", safe))
+
+        async def produce() -> None:
+            try:
+                result = await _intelligent_guest_response(
+                    payload, request, stream_callback=on_delta
+                )
+                tail = output_guard.finish()
+                if tail:
+                    await queue.put(("delta", tail))
+                await queue.put(("completed", result))
+            except asyncio.CancelledError:
+                raise
+            except HTTPException as exc:
+                await queue.put(("failed", {
+                    "message": str(exc.detail)[:300],
+                    "retryable": exc.status_code >= 500 or exc.status_code == 429,
+                }))
+            except Exception:
+                await queue.put(("failed", {
+                    "message": "I couldn't complete that reply. Please retry or contact the hotel concierge.",
+                    "retryable": True,
+                }))
+
+        task = asyncio.create_task(produce())
+        try:
+            while True:
+                try:
+                    kind, value = await asyncio.wait_for(queue.get(), timeout=15)
+                except TimeoutError:
+                    # Keep intermediaries from timing out a long provider call.
+                    yield ": keep-alive\n\n"
+                    continue
+                if kind == "delta":
+                    yield frame("text.delta", {"text": value})
+                elif kind == "failed":
+                    yield frame("turn.failed", value)
+                    break
+                else:
+                    response = value
+                    text_block = next(
+                        (block for block in response.get("blocks", []) if block.get("type") == "text"),
+                        {"content": ""},
+                    )
+                    for block in response.get("blocks", []):
+                        if block.get("type") != "text":
+                            event_type = "action.pending" if block.get("type") == "request_review" else "component.ready"
+                            yield frame(event_type, {"block": block})
+                    yield frame("text.completed", {
+                        "streamed": output_guard.has_content,
+                        "text": "" if output_guard.has_content else text_block.get("content", ""),
+                    })
+                    yield frame("turn.completed", {"response": response})
+                    break
+        finally:
+            if not task.done():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 def _is_intelligent_dining_request(message: str) -> bool:
     normalized = str(message or "").casefold()
-    return any(term in normalized for term in ("restaurant", "dining", "dinner", "lunch", "breakfast", "eat", "food", "cafe", "café"))
+    return any(term in normalized for term in (
+        "restaurant", "dining", "dinner", "lunch", "breakfast", "eat", "food", "cafe", "café",
+        "menu", "vegetarian", "vegan", "allergen", "allergy", "cuisine", "reservation",
+        "book a table", "reserve a table",
+    ))
+
+
+def _is_intelligent_facility_request(message: str) -> bool:
+    normalized = str(message or "").casefold()
+    return any(term in normalized for term in (
+        "facility", "facilities", "amenity", "amenities", "pool", "gym", "spa", "fitness",
+        "business center", "parking", "laundry", "sauna",
+    ))
+
+
+def _is_intelligent_map_request(message: str) -> bool:
+    normalized = " ".join(str(message or "").casefold().split())
+    return any(term in normalized for term in ("directions", "route to", "navigate to", "floor map", "show me the map", "map of")) or bool(re.search(
+        r"\b(?:where is|where can i find|where is the way to|how do i get to|how can i reach|directions? to|show me (?:the )?map|is there a map)\b",
+        normalized,
+    ))
+
+
+def _intelligent_guest_floor_map_block(property_id: str, query: str) -> dict[str, Any] | None:
+    """Build an offline map only from this property's published map and nodes."""
+    overview = zones.overview(property_id, guest=True)
+    floors = {str(item.get("floor_id")): item for item in overview.get("floors", [])}
+    buildings = {str(item.get("building_id")): item for item in overview.get("buildings", [])}
+    nodes_by_floor: dict[str, list[dict[str, Any]]] = {}
+    for node in overview.get("navigation_nodes", []):
+        if node.get("guest_visible"):
+            nodes_by_floor.setdefault(str(node.get("floor_id") or ""), []).append(node)
+
+    query_terms = set(re.findall(r"[a-z0-9]+", str(query or "").casefold()))
+    stop_words = {"where", "is", "can", "i", "find", "how", "do", "get", "to", "the", "show", "me", "map", "of", "directions"}
+    target_terms = query_terms - stop_words
+    image_types = {"image/png", "image/jpeg", "image/svg+xml"}
+    for map_record in overview.get("maps", []):
+        if map_record.get("content_type") not in image_types:
+            continue
+        try:
+            width = int(float(map_record.get("width") or 0))
+            height = int(float(map_record.get("height") or 0))
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if not (1 <= width <= 25_000 and 1 <= height <= 25_000):
+            continue
+        floor_id = str(map_record.get("floor_id") or "")
+        floor_nodes = nodes_by_floor.get(floor_id, [])
+        if not floor_nodes:
+            continue
+        matching = [
+            node for node in floor_nodes
+            if target_terms.intersection(re.findall(r"[a-z0-9]+", str(node.get("label") or "").casefold()))
+        ]
+        if target_terms and not matching and "map" not in query_terms:
+            continue
+
+        markers = []
+        for node in floor_nodes[:80]:
+            try:
+                x, y = float(node.get("x")), float(node.get("y"))
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if not math.isfinite(x) or not math.isfinite(y) or not (0 <= x <= width and 0 <= y <= height):
+                continue
+            label = str(node.get("label") or "").strip()[:120]
+            if not label:
+                continue
+            markers.append({
+                "id": str(node.get("node_id") or "")[:80],
+                "label": label,
+                "x_percent": round(x * 100 / width, 3),
+                "y_percent": round(y * 100 / height, 3),
+            })
+        if not markers:
+            continue
+        if target_terms and not any(
+            target_terms.intersection(re.findall(r"[a-z0-9]+", marker["label"].casefold()))
+            for marker in markers
+        ) and "map" not in query_terms:
+            continue
+        floor = floors.get(floor_id, {})
+        building = buildings.get(str(floor.get("building_id") or ""), {})
+        floor_label = " · ".join(
+            str(value).strip() for value in (building.get("name"), floor.get("name")) if str(value or "").strip()
+        )
+        map_id = str(map_record.get("map_id") or "")
+        image_url = f"/api/guest/floor-maps/{quote(map_id, safe='')}/asset?property_id={quote(property_id, safe='')}"
+        title = f"Hotel map{f' · {floor_label}' if floor_label else ''}"
+        labels = ", ".join(marker["label"] for marker in markers)
+        return {
+            "id": new_ui_id("map"),
+            "type": "map_view",
+            "title": title[:120],
+            "map_image_url": image_url[:500],
+            "map_alt": f"Configured floor plan. Marked locations: {labels}"[:500],
+            "image_width": width,
+            "image_height": height,
+            "markers": markers,
+        }
+    return None
+
+
+def _is_guest_service_request(message: str) -> bool:
+    """Route clear staff-action phrasing to the configured, confirmation flow."""
+    normalized = " ".join(str(message or "").casefold().split())
+    patterns = (
+        r"\b(?:could|can|would) someone (?:please )?(?:bring|send|deliver|get|check|repair|look at)\b",
+        r"\bwe(?:'re| are) (?:(?:running )?(?:out|low))(?: on)?\b",
+        r"\b(?:please )?(?:arrange|schedule) (?:housekeeping|maintenance|a service|a repair|someone)\b",
+        r"\bplease (?:bring|send|deliver|get|provide|check|repair|have someone)\b",
+        r"\b(?:could|can|would) you (?:bring|send|deliver|provide|arrange|check|repair)\b",
+        r"\b(?:i|we) need (?:someone to|a|an|two|three|four|some|more|another|\d+)\b",
+        r"\b(?:could|can|may) i (?:have|get) (?:some|more|another|two|three|four|\d+)\b",
+        r"\bcan i (?:get|have) (?:some|more|another|two|three|four|\d+)\b",
+        r"\b(?:the )?(?:air conditioning|aircon|a/?c) (?:is|isn't|doesn't|stopped|won't)\b",
+    )
+    if not any(re.search(pattern, normalized) for pattern in patterns):
+        return False
+    # Dining requests are informational until this property has a real booking integration.
+    return not re.search(r"\b(?:restaurant|dining|menu|reservation|book a table)\b", normalized) and not re.search(
+        r"\b(?:can i|could i|may i) (?:get|have) (?:some )?(?:breakfast|lunch|dinner)\b",
+        normalized,
+    )
 
 
 def _intelligent_followup_prompts(message: str) -> list[str]:
