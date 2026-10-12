@@ -1461,7 +1461,7 @@ function renderFacilities() {
   const list = $("facility-list"); if (!list) return; list.replaceChildren();
   const query = $("facility-search").value.trim().toLocaleLowerCase();
   const facilities = (state.hospitality?.facilities || []).filter((item) =>
-    [item.name, item.facility_type, item.status_note, item.description]
+    [item.name, item.facility_type, item.location, item.status_note, item.description, ...(item.images || []), ...(item.policies || [])]
       .some((value) => String(value || "").toLocaleLowerCase().includes(query))
   );
   const empty = !(state.hospitality?.facilities || []).length;
@@ -1481,7 +1481,7 @@ function renderFacilities() {
   }
   for (const item of facilities) {
     const row = document.createElement("tr");
-    const values = [item.name, item.facility_type, item.status_note, item.opening_hours?.display || "Not set"];
+    const values = [item.name, item.facility_type, item.location || item.status_note, item.opening_hours?.display || "Not set"];
     for (const value of values) {
       const cell = document.createElement("td"); cell.textContent = value || "—"; row.appendChild(cell);
     }
@@ -1500,7 +1500,7 @@ function renderFacilities() {
 function editFacility(item) {
   $("facility-form").reset();
   $("facility-dialog-title").textContent = "Edit Facility";
-  $("facility-id").value = item.facility_id; $("facility-name").value = item.name; $("facility-type").value = item.facility_type; $("facility-location").value = item.status_note || ""; $("facility-hours").value = item.opening_hours?.display || ""; $("facility-status").value = item.live_status; $("facility-description").value = item.description || "";
+  $("facility-id").value = item.facility_id; $("facility-name").value = item.name; $("facility-type").value = item.facility_type; $("facility-location").value = item.location || ""; $("facility-hours").value = item.opening_hours?.display || ""; $("facility-status").value = item.live_status; $("facility-description").value = item.description || ""; $("facility-images").value = (item.images || []).join("\n"); $("facility-policies").value = (item.policies || []).join("\n"); $("facility-status-note").value = item.status_note || "";
   $("facility-dialog-message").textContent = "";
   $("facility-dialog").showModal();
   $("facility-name").focus();
@@ -1520,7 +1520,11 @@ async function saveFacility(event) {
   const name = $("facility-name").value.trim(); if (!name) throw new Error("Facility name is required.");
   const submit = $("save-facility"); submit.disabled = true;
   try {
-    await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/hospitality/facilities`, { method: "PUT", body: JSON.stringify({ data: { facility_id: $("facility-id").value || undefined, name, facility_type: $("facility-type").value.trim() || "amenity", opening_hours: { display: $("facility-hours").value.trim() }, description: $("facility-description").value.trim(), live_status: $("facility-status").value, status_note: $("facility-location").value.trim() } }) });
+    const policies = $("facility-policies").value.split("\n").map((policy) => policy.trim()).filter(Boolean);
+    if (policies.length > 8 || policies.some((policy) => policy.length > 240)) throw new Error("Enter at most 8 policies, each up to 240 characters.");
+    const images = $("facility-images").value.split("\n").map((image) => image.trim()).filter(Boolean);
+    if (images.length > 12 || images.some((image) => image.length > 500)) throw new Error("Enter at most 12 image URLs, each up to 500 characters.");
+    await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/hospitality/facilities`, { method: "PUT", body: JSON.stringify({ data: { facility_id: $("facility-id").value || undefined, name, facility_type: $("facility-type").value.trim() || "amenity", location: $("facility-location").value.trim(), opening_hours: { display: $("facility-hours").value.trim() }, description: $("facility-description").value.trim(), images, live_status: $("facility-status").value, status_note: $("facility-status-note").value.trim(), policies } }) });
     $("facility-dialog").close(); await loadHospitalityManagement(); showToast("Facility saved.");
   } catch (error) {
     $("facility-dialog-message").textContent = error.message;

@@ -77,6 +77,7 @@ class EntityCard(StrictSchema):
     image_url: str = Field(default="", max_length=500)
     location: str = Field(default="", max_length=240)
     opening_hours: str = Field(default="", max_length=160)
+    policies: list[str] = Field(default_factory=list, max_length=8)
     menu_available: StrictBool = False
     reservation_url: str = Field(default="", max_length=1000)
 
@@ -92,6 +93,14 @@ class EntityCard(StrictSchema):
         if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
             raise ValueError("Card URLs must use HTTPS or a safe same-origin path.")
         return value
+
+    @field_validator("policies")
+    @classmethod
+    def validate_policies(cls, values: list[str]) -> list[str]:
+        clean = [value.strip() for value in values]
+        if any(not value or len(value) > 240 for value in clean):
+            raise ValueError("Facility policies must contain 1 to 240 characters.")
+        return clean
 
 
 class EntityCardBlock(StrictSchema):
@@ -124,12 +133,58 @@ class SelectionOption(StrictSchema):
     value: str = Field(min_length=1, max_length=120)
 
 
+class SelectionFormField(StrictSchema):
+    id: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+    label: str = Field(min_length=1, max_length=100)
+    input_type: Literal["date", "time", "quantity", "party_size", "service_option"]
+    required: StrictBool = True
+    options: list[SelectionOption] = Field(default_factory=list, max_length=8)
+    minimum: int | None = Field(default=None, ge=0, le=100000)
+    maximum: int | None = Field(default=None, ge=0, le=100000)
+
+    @model_validator(mode="after")
+    def validate_input_configuration(self) -> "SelectionFormField":
+        if self.input_type == "service_option":
+            if not self.options:
+                raise ValueError("Service option fields require configured choices.")
+            if len({option.value for option in self.options}) != len(self.options):
+                raise ValueError("Service option values must be unique.")
+            if self.minimum is not None or self.maximum is not None:
+                raise ValueError("Numeric limits apply only to quantity fields.")
+        else:
+            if self.options:
+                raise ValueError("Choices are supported only for service option fields.")
+            if self.input_type not in {"quantity", "party_size"} and (
+                self.minimum is not None or self.maximum is not None
+            ):
+                raise ValueError("Numeric limits apply only to quantity fields.")
+        if self.minimum is not None and self.maximum is not None and self.minimum > self.maximum:
+            raise ValueError("A selection field minimum cannot exceed its maximum.")
+        if self.input_type in {"quantity", "party_size"} and self.minimum is None:
+            self.minimum = 1
+        return self
+
+
 class SelectionFormBlock(StrictSchema):
     id: str = Field(min_length=1, max_length=80)
     type: Literal["selection_form"]
     title: str = Field(min_length=1, max_length=120)
-    options: list[SelectionOption] = Field(min_length=1, max_length=8)
-    submit_label: str = Field(default="Continue", min_length=1, max_length=40)
+    # `options` keeps schema 1.0 responses from older servers compatible.
+    options: list[SelectionOption] = Field(default_factory=list, max_length=8)
+    fields: list[SelectionFormField] = Field(default_factory=list, max_length=6)
+    submit_label: str = Field(default="Review selections", min_length=1, max_length=40)
+    continue_label: str = Field(default="Share with concierge", min_length=1, max_length=40)
+    cancel_label: str = Field(default="Cancel selections", min_length=1, max_length=40)
+
+    @model_validator(mode="after")
+    def validate_form_shape(self) -> "SelectionFormBlock":
+        if bool(self.fields) == bool(self.options):
+            raise ValueError("A selection form needs either typed fields or legacy options.")
+        if len({field.id for field in self.fields}) != len(self.fields):
+            raise ValueError("Selection field identifiers must be unique.")
+        if self.options and len({option.value for option in self.options}) != len(self.options):
+            raise ValueError("Selection option values must be unique.")
+        return self
 
 
 class RequestReviewBlock(StrictSchema):

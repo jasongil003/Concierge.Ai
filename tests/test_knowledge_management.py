@@ -120,6 +120,19 @@ def test_pdf_worker_memory_violation_is_terminated_and_reaped(tmp_path: Path):
     worker_pid = int(pid_file.read_text(encoding="utf-8"))
     assert not psutil.pid_exists(worker_pid)
     assert list(tmp_path.iterdir()) == [pid_file]
+    assert "recovered" in _extract_pdf_in_limited_worker(_pdf("recovered after worker termination"))[0]["text"]
+
+
+def test_pdf_page_count_limit_is_enforced_in_isolated_worker():
+    from pypdf import PdfWriter
+
+    writer = PdfWriter()
+    for _ in range(301):
+        writer.add_blank_page(width=612, height=792)
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    with pytest.raises(ValueError, match="configured page limit"):
+        _extract_pdf_in_limited_worker(buffer.getvalue())
 
 
 def test_pdf_worker_timeout_is_terminated_and_reaped(tmp_path: Path):

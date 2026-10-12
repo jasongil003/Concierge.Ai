@@ -133,7 +133,7 @@ test("admin onboarding: create the first property from an empty workspace", asyn
   }
 });
 
-test("facilities panel: empty state, search, and styled CRUD actions work", async ({ page }) => {
+test("facilities panel: empty state, search, and styled CRUD actions work", async ({ page, request }) => {
   await page.goto("/admin");
   await openPanel(page, "Facilities");
   await expect(page.locator("#facility-empty")).toContainText("No facilities configured yet.");
@@ -146,6 +146,8 @@ test("facilities panel: empty state, search, and styled CRUD actions work", asyn
   await page.locator("#facility-location").fill("Level A");
   await page.locator("#facility-hours").fill("All day");
   await page.locator("#facility-description").fill("Test-only facility details.");
+  await page.locator("#facility-images").fill("/uploads/test-facility.webp\nhttps://images.example/facility.webp");
+  await page.locator("#facility-policies").fill("Children must be supervised.\nNo glass containers.");
   await page.locator("#save-facility").click();
 
   const row = page.locator("#facility-list tr").filter({ hasText: "Configured Test Facility" });
@@ -153,16 +155,37 @@ test("facilities panel: empty state, search, and styled CRUD actions work", asyn
   await expect(row.locator("button")).toHaveCount(2);
   await expect(row.locator("button").nth(0)).toHaveClass(/btn-secondary/);
   await expect(row.locator("button").nth(1)).toHaveClass(/btn-danger/);
+  const propertyId = await getFirstPropertyId(request);
+  const hospitality = await request.get(`/api/admin/properties/${propertyId}/hospitality`).then((response) => response.json());
+  const savedFacility = hospitality.facilities.find((item) => item.name === "Configured Test Facility");
+  expect(savedFacility.location).toBe("Level A");
+  expect(savedFacility.images).toEqual(["/uploads/test-facility.webp", "https://images.example/facility.webp"]);
+  expect(savedFacility.policies).toEqual(["Children must be supervised.", "No glass containers."]);
+  await page.goto("/");
+  await page.getByRole("navigation", { name: "Guest navigation" }).getByRole("button", { name: "Explore" }).click();
+  const guestCard = page.locator("#facility-list .guest-card-facility").filter({ hasText: "Configured Test Facility" });
+  await expect(guestCard).toContainText("Location: Level A");
+  await expect(guestCard).toContainText("Hours: All day");
+  await expect(guestCard.locator(".guest-card-policies")).toContainText("No glass containers.");
+  await page.goto("/admin");
+  await openPanel(page, "Facilities");
+
   await page.locator("#facility-search").fill("no matching facility");
   await expect(page.locator("#facility-list")).toContainText("No facilities match your search.");
   await page.locator("#facility-search").fill("");
 
   await row.getByRole("button", { name: "Edit" }).click();
+  await expect(page.locator("#facility-policies")).toHaveValue("Children must be supervised.\nNo glass containers.");
   await page.locator("#facility-location").fill("Level B");
+  await page.locator("#facility-policies").fill("No glass containers.");
   await page.locator("#facility-status").selectOption("maintenance");
   await page.locator("#save-facility").click();
   await expect(row).toContainText("Level B");
   await expect(row).toContainText("maintenance");
+  const updatedHospitality = await request.get(`/api/admin/properties/${propertyId}/hospitality`).then((response) => response.json());
+  const updatedFacility = updatedHospitality.facilities.find((item) => item.name === "Configured Test Facility");
+  expect(updatedFacility.location).toBe("Level B");
+  expect(updatedFacility.policies).toEqual(["No glass containers."]);
 
   page.once("dialog", (dialog) => dialog.accept());
   await row.getByRole("button", { name: "Delete" }).click();
