@@ -9,9 +9,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .ai_providers import SecretBox
 from .config import settings
 from .database import connect_database, enable_foreign_keys, table_columns
+from .transcript_crypto import TranscriptKeyRing
 
 
 @dataclass
@@ -33,10 +33,17 @@ class SessionRecord:
 
 
 class SessionStore:
-    def __init__(self, path: Path, ttl_minutes: int = 30) -> None:
+    def __init__(
+        self,
+        path: Path,
+        ttl_minutes: int = 30,
+        transcript_keys: TranscriptKeyRing | None = None,
+    ) -> None:
         self.path = path
         self.ttl_seconds = ttl_minutes * 60
-        self._conversation_secrets = SecretBox(settings.credential_encryption_secret)
+        self._conversation_secrets = transcript_keys or TranscriptKeyRing.from_environment(
+            settings.credential_encryption_secret
+        )
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
@@ -47,7 +54,7 @@ class SessionStore:
     def _encrypt_conversation_content(self, content: str) -> str:
         if not content:
             return ""
-        return "fernet:v1:" + self._conversation_secrets.encrypt(content[:8000])
+        return self._conversation_secrets.encrypt_message(content[:8000])
 
     @staticmethod
     def _new_message_id() -> str:
@@ -56,11 +63,8 @@ class SessionStore:
         return f"{time.time_ns():020d}-{uuid.uuid4().hex}"
 
     def _decrypt_conversation_content(self, content: str) -> str:
-        if not content.startswith("fernet:v1:"):
-            # Existing rows predate this additive encryption change.
-            return content
         try:
-            return self._conversation_secrets.decrypt(content.removeprefix("fernet:v1:"))
+            return self._conversation_secrets.decrypt(content)
         except Exception:
             return "[Message unavailable]"
 
@@ -642,7 +646,7 @@ class SessionStore:
             message.encode("utf-8"),
             hashlib.sha256,
         ).hexdigest()
-        encrypted_message = self._conversation_secrets.encrypt(message[:2000])
+        encrypted_message = self._conversation_secrets.encrypt_turn_ciphertext(message[:2000])
         # Turn ordering uses milliseconds; session and legacy transcript times
         # remain seconds for backward compatibility.
         now = int(time.time() * 1000)
@@ -665,7 +669,7 @@ class SessionStore:
                 return "claimed", None
             if row["status"] == "complete":
                 try:
-                    return "complete", self._conversation_secrets.decrypt(row["encrypted_response"])
+                    return "complete", self._conversation_secrets.decrypt_ciphertext(row["encrypted_response"])
                 except Exception:
                     return "failed", None
             if row["status"] == "failed":
@@ -688,7 +692,7 @@ class SessionStore:
     def complete_guest_ui_turn(
         self, session_id: str, property_id: str, turn_id: str, response_json: str
     ) -> None:
-        encrypted = self._conversation_secrets.encrypt(response_json[:48_000])
+        encrypted = self._conversation_secrets.encrypt_turn_ciphertext(response_json[:48_000])
         with self._connect() as db:
             db.execute(
                 """UPDATE guest_ui_turns SET status='complete',encrypted_response=?
@@ -719,8 +723,8 @@ class SessionStore:
             try:
                 result.append({
                     "turn_id": row["turn_id"],
-                    "message": self._conversation_secrets.decrypt(row["encrypted_message"]),
-                    "response": json.loads(self._conversation_secrets.decrypt(row["encrypted_response"])),
+                    "message": self._conversation_secrets.decrypt_ciphertext(row["encrypted_message"]),
+                    "response": json.loads(self._conversation_secrets.decrypt_ciphertext(row["encrypted_response"])),
                 })
             except Exception:
                 continue

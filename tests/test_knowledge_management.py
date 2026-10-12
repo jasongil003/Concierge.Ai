@@ -155,6 +155,54 @@ def test_pdf_worker_timeout_is_terminated_and_reaped(tmp_path: Path):
     assert list(tmp_path.iterdir()) == [pid_file]
 
 
+def test_pdf_worker_resource_module_absence_keeps_parent_supervision_available(monkeypatch):
+    import builtins
+    from app.pdf_extraction_worker import _set_resource_limits
+
+    original_import = builtins.__import__
+
+    def without_posix_resource(name, *args, **kwargs):
+        if name == "resource":
+            raise ImportError("resource module is unavailable on this platform")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", without_posix_resource)
+    _set_resource_limits(128 * 1024 * 1024)
+
+
+def test_linux_pdf_worker_address_space_limit_is_kernel_enforced():
+    import json
+    import subprocess
+    import sys
+
+    if not sys.platform.startswith("linux"):
+        pytest.skip("Linux RLIMIT_AS acceptance is platform-specific")
+
+    script = """
+import json, resource
+from app.pdf_extraction_worker import _set_resource_limits
+_set_resource_limits(384 * 1024 * 1024)
+soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+try:
+    bytearray(768 * 1024 * 1024)
+    allocation_blocked = False
+except MemoryError:
+    allocation_blocked = True
+print(json.dumps({"soft": soft, "hard": hard, "blocked": allocation_blocked}))
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    evidence = json.loads(result.stdout)
+    assert evidence["soft"] <= 384 * 1024 * 1024
+    assert evidence["hard"] <= 384 * 1024 * 1024
+    assert evidence["blocked"] is True
+
+
 def test_pdf_worker_memory_error_is_sanitized(monkeypatch):
     from app import knowledge_management as knowledge
 

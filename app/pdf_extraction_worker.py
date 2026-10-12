@@ -38,7 +38,12 @@ def extract_pdf_bytes(data: bytes, max_chars: int) -> list[dict[str, object]]:
 
 
 def _set_resource_limits(memory_limit_bytes: int) -> None:
-    import resource
+    try:
+        import resource
+    except ImportError:
+        # Windows has no POSIX resource module. The parent still enforces a
+        # sampled RSS ceiling and a wall-clock timeout, then kills and reaps.
+        return
 
     for name, limit in (
         ("RLIMIT_CORE", 0),
@@ -52,8 +57,8 @@ def _set_resource_limits(memory_limit_bytes: int) -> None:
         resource.setrlimit(resource_id, (bounded_limit, bounded_limit))
 
     # The parent also monitors RSS and terminates this worker on every platform.
-    # RLIMIT_AS adds a kernel-enforced ceiling in the Linux appliance container;
-    # macOS shared mappings make that limit too restrictive for Python itself.
+    # RLIMIT_AS adds a kernel-enforced address-space ceiling on Linux. macOS
+    # does not provide an equivalent reliable per-process memory ceiling.
     if sys.platform.startswith("linux") and hasattr(resource, "RLIMIT_AS"):
         resource_id = resource.RLIMIT_AS
         _, hard = resource.getrlimit(resource_id)
