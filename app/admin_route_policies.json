@@ -283,6 +283,10 @@
     "authentication": "required",
     "permission": "system.configure"
   },
+  "GET /api/admin/system/intelligent-ui": {
+    "authentication": "required",
+    "permission": "system.configure"
+  },
   "GET /api/admin/system/diagnostics": {
     "authentication": "required",
     "permission": "system.configure"
@@ -712,6 +716,10 @@
     "permission": "roles.manage"
   },
   "PUT /api/admin/system/email": {
+    "authentication": "required",
+    "permission": "system.configure"
+  },
+  "PUT /api/admin/system/intelligent-ui": {
     "authentication": "required",
     "permission": "system.configure"
   },

@@ -1,5 +1,7 @@
 # Concierge.AI ECC Audit — Test and Tool Evidence
 
+> Historical pre-Phase 2 evidence snapshot. Current commands and outcomes are in [ECC_PHASE2_TEST_RESULTS.md](ECC_PHASE2_TEST_RESULTS.md).
+
 ## Execution environment
 
 - Repository: `/Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai`

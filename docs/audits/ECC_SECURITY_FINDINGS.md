@@ -1,5 +1,7 @@
 # Concierge.AI ECC Audit — Security Findings
 
+> Historical pre-Phase 2 snapshot. Current finding states are in [ECC_PHASE2_FINDINGS.md](ECC_PHASE2_FINDINGS.md); the prior open states for `ECC-UI-001` and `ECC-UI-002` were re-evaluated and locally verified as fixed in Phase 2.
+
 **Reviewed checkout:** `fbf9d50635c427f5340098cac48e7bb8eb7ef7a2` plus pre-existing, uncommitted local changes. Review was nondestructive; no external penetration testing was performed.
 
 ## Finding register

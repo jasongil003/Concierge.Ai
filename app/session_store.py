@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .ai_providers import SecretBox
+from .config import settings
 from .database import connect_database, enable_foreign_keys, table_columns
 
 
@@ -34,12 +36,33 @@ class SessionStore:
     def __init__(self, path: Path, ttl_minutes: int = 30) -> None:
         self.path = path
         self.ttl_seconds = ttl_minutes * 60
+        self._conversation_secrets = SecretBox(settings.credential_encryption_secret)
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
         connection = connect_database(self.path)
         enable_foreign_keys(connection)
         return connection
+
+    def _encrypt_conversation_content(self, content: str) -> str:
+        if not content:
+            return ""
+        return "fernet:v1:" + self._conversation_secrets.encrypt(content[:8000])
+
+    @staticmethod
+    def _new_message_id() -> str:
+        # Preserve chronological ordering when several messages share the same
+        # second-resolution legacy created_at timestamp.
+        return f"{time.time_ns():020d}-{uuid.uuid4().hex}"
+
+    def _decrypt_conversation_content(self, content: str) -> str:
+        if not content.startswith("fernet:v1:"):
+            # Existing rows predate this additive encryption change.
+            return content
+        try:
+            return self._conversation_secrets.decrypt(content.removeprefix("fernet:v1:"))
+        except Exception:
+            return "[Message unavailable]"
 
     def _init_db(self) -> None:
         with self._connect() as db:
@@ -130,6 +153,19 @@ class SessionStore:
                     retention_days INTEGER NOT NULL DEFAULT 30,
                     updated_at INTEGER NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS guest_ui_turns (
+                    property_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    turn_id TEXT NOT NULL,
+                    request_hash TEXT NOT NULL,
+                    encrypted_message TEXT NOT NULL,
+                    encrypted_response TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'processing',
+                    created_at INTEGER NOT NULL,
+                    PRIMARY KEY (property_id,session_id,turn_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_guest_ui_turns_session
+                    ON guest_ui_turns(property_id,session_id,created_at DESC);
                 CREATE TABLE IF NOT EXISTS gateway_assertion_nonces (
                     nonce_hash TEXT PRIMARY KEY,
                     property_id TEXT NOT NULL,
@@ -522,6 +558,7 @@ class SessionStore:
         with self._connect() as db:
             db.execute("DELETE FROM conversation_messages WHERE session_id=?", (session_id,))
             db.execute("DELETE FROM conversation_state WHERE session_id=?", (session_id,))
+            db.execute("DELETE FROM guest_ui_turns WHERE session_id=?", (session_id,))
             db.execute("DELETE FROM sessions WHERE session_id=?", (session_id,))
 
     def mark_authenticated(self, session_id: str) -> None:
@@ -535,6 +572,13 @@ class SessionStore:
         cutoff = int(time.time()) - self.ttl_seconds
         now = int(time.time())
         with self._connect() as db:
+            db.execute(
+                "DELETE FROM guest_ui_turns WHERE session_id IN ("
+                "SELECT session_id FROM sessions WHERE "
+                "(guest_token_hash IS NOT NULL AND (guest_token_expires_at IS NULL OR guest_token_expires_at<=?)) "
+                "OR (guest_token_hash IS NULL AND last_seen_at<?))",
+                (now, cutoff),
+            )
             cursor = db.execute(
                 "DELETE FROM sessions WHERE "
                 "(guest_token_hash IS NOT NULL AND (guest_token_expires_at IS NULL OR guest_token_expires_at<=?)) "
@@ -586,8 +630,101 @@ class SessionStore:
                 """INSERT INTO conversation_messages
                 (message_id,property_id,session_id,role,content,provider,model,latency_ms,error,created_at,sender_user_id)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-                (uuid.uuid4().hex, property_id, session_id, role, content[:8000], provider, model, latency_ms, error, int(time.time()), sender_user_id),
+                (self._new_message_id(), property_id, session_id, role, self._encrypt_conversation_content(content), provider, model, latency_ms, error, int(time.time()), sender_user_id),
             )
+
+    def claim_guest_ui_turn(
+        self, session_id: str, property_id: str, turn_id: str, message: str
+    ) -> tuple[str, str | None]:
+        """Claim one idempotent UI turn or return its completed response."""
+        digest = hmac.new(
+            settings.credential_encryption_secret.encode("utf-8"),
+            message.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        encrypted_message = self._conversation_secrets.encrypt(message[:2000])
+        # Turn ordering uses milliseconds; session and legacy transcript times
+        # remain seconds for backward compatibility.
+        now = int(time.time() * 1000)
+        with self._connect() as db:
+            cursor = db.execute(
+                """INSERT INTO guest_ui_turns
+                (property_id,session_id,turn_id,request_hash,encrypted_message,status,created_at)
+                VALUES (?,?,?,?,?,'processing',?)
+                ON CONFLICT(property_id,session_id,turn_id) DO NOTHING""",
+                (property_id, session_id, turn_id, digest, encrypted_message, now),
+            )
+            row = db.execute(
+                """SELECT request_hash,status,encrypted_response FROM guest_ui_turns
+                WHERE property_id=? AND session_id=? AND turn_id=?""",
+                (property_id, session_id, turn_id),
+            ).fetchone()
+            if not row or not hmac.compare_digest(str(row["request_hash"]), digest):
+                return "mismatch", None
+            if cursor.rowcount == 1:
+                return "claimed", None
+            if row["status"] == "complete":
+                try:
+                    return "complete", self._conversation_secrets.decrypt(row["encrypted_response"])
+                except Exception:
+                    return "failed", None
+            if row["status"] == "failed":
+                updated = db.execute(
+                    """UPDATE guest_ui_turns SET status='processing',encrypted_response='',created_at=?
+                    WHERE property_id=? AND session_id=? AND turn_id=? AND status='failed'""",
+                    (now, property_id, session_id, turn_id),
+                )
+                return ("claimed", None) if updated.rowcount == 1 else ("pending", None)
+            if row["status"] == "processing":
+                updated = db.execute(
+                    """UPDATE guest_ui_turns SET created_at=?
+                    WHERE property_id=? AND session_id=? AND turn_id=?
+                    AND status='processing' AND created_at<?""",
+                    (now, property_id, session_id, turn_id, now - 300_000),
+                )
+                return ("claimed", None) if updated.rowcount == 1 else ("pending", None)
+            return "pending", None
+
+    def complete_guest_ui_turn(
+        self, session_id: str, property_id: str, turn_id: str, response_json: str
+    ) -> None:
+        encrypted = self._conversation_secrets.encrypt(response_json[:48_000])
+        with self._connect() as db:
+            db.execute(
+                """UPDATE guest_ui_turns SET status='complete',encrypted_response=?
+                WHERE property_id=? AND session_id=? AND turn_id=? AND status='processing'""",
+                (encrypted, property_id, session_id, turn_id),
+            )
+
+    def fail_guest_ui_turn(self, session_id: str, property_id: str, turn_id: str) -> None:
+        with self._connect() as db:
+            db.execute(
+                """UPDATE guest_ui_turns SET status='failed',encrypted_response=''
+                WHERE property_id=? AND session_id=? AND turn_id=? AND status='processing'""",
+                (property_id, session_id, turn_id),
+            )
+
+    def recent_guest_ui_turns(
+        self, session_id: str, property_id: str, limit: int = 40
+    ) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            rows = db.execute(
+                """SELECT turn_id,encrypted_message,encrypted_response FROM guest_ui_turns
+                WHERE session_id=? AND property_id=? AND status='complete'
+                ORDER BY created_at DESC,turn_id DESC LIMIT ?""",
+                (session_id, property_id, max(1, min(limit, 80))),
+            ).fetchall()
+        result = []
+        for row in reversed(rows):
+            try:
+                result.append({
+                    "turn_id": row["turn_id"],
+                    "message": self._conversation_secrets.decrypt(row["encrypted_message"]),
+                    "response": json.loads(self._conversation_secrets.decrypt(row["encrypted_response"])),
+                })
+            except Exception:
+                continue
+        return result
 
     def record_ai_message_if_active(
         self,
@@ -614,7 +751,7 @@ class SessionStore:
                 """INSERT INTO conversation_messages
                 (message_id,property_id,session_id,role,content,provider,model,latency_ms,error,created_at,sender_user_id)
                 VALUES(?,?,?,'assistant',?,?,?,?,?, ?,NULL)""",
-                (uuid.uuid4().hex, property_id, session_id, content[:8000], provider, model, latency_ms, error, now),
+                (self._new_message_id(), property_id, session_id, self._encrypt_conversation_content(content), provider, model, latency_ms, error, now),
             )
         return True
 
@@ -622,11 +759,14 @@ class SessionStore:
         with self._connect() as db:
             rows = db.execute(
                 """SELECT role,content FROM conversation_messages
-                WHERE session_id=? AND property_id=? AND role IN ('guest','assistant')
+                WHERE session_id=? AND property_id=? AND role IN ('guest','assistant') AND content<>''
                 ORDER BY created_at DESC,message_id DESC LIMIT ?""",
                 (session_id, property_id, max(1, min(limit, 20))),
             ).fetchall()
-        return [dict(row) for row in reversed(rows)]
+        return [
+            {"role": row["role"], "content": self._decrypt_conversation_content(row["content"])}
+            for row in reversed(rows)
+        ]
 
     def metrics(self, property_id: str) -> dict[str, Any]:
         now = int(time.time())
@@ -742,6 +882,12 @@ class SessionStore:
                 ).fetchall()
             ]
             if not session_ids:
+                # A session can remain active while its older turns age out.
+                cursor = db.execute(
+                    "DELETE FROM guest_ui_turns WHERE property_id=? AND created_at<?",
+                    (property_id, cutoff * 1000),
+                )
+                del cursor
                 return 0
             placeholders = ",".join("?" for _ in session_ids)
             params = (property_id, *session_ids)
@@ -749,6 +895,11 @@ class SessionStore:
             db.execute(f"DELETE FROM conversation_messages WHERE property_id=? AND session_id IN ({placeholders})", params)  # nosec B608
             # B608 rationale: only placeholder tokens are generated; property and session IDs are bound.
             db.execute(f"DELETE FROM conversation_state WHERE property_id=? AND session_id IN ({placeholders})", params)  # nosec B608
+            db.execute(
+                "DELETE FROM guest_ui_turns WHERE property_id=? AND (created_at<? OR session_id IN ("
+                "SELECT session_id FROM sessions WHERE property_id=? AND last_seen_at<?))",
+                (property_id, cutoff * 1000, property_id, cutoff),
+            )
         return len(session_ids)
 
     def conversations(self, property_id: str, restaurant_ids: set[str] | None = None) -> list[dict[str, Any]]:
@@ -762,7 +913,7 @@ class SessionStore:
             # B608 rationale: only placeholder tokens are generated; restaurant IDs are bound below.
             restaurant_clause = f"AND cs.restaurant_id IN ({','.join('?' for _ in ordered_ids)})"  # nosec B608
             restaurant_params = tuple(ordered_ids)
-        query = (
+        query_start = (
             """SELECT s.session_id,s.client_id,s.authenticated,s.created_at,s.last_seen_at,
                 COALESCE(cs.status,'open') AS status,COALESCE(cs.human_takeover,0) AS human_takeover,
                 COALESCE(cs.state,'ai_active') AS state,cs.department_type,cs.department_id,cs.restaurant_id,
@@ -771,9 +922,8 @@ class SessionStore:
                 FROM sessions s LEFT JOIN conversation_messages m ON m.session_id=s.session_id AND m.property_id=s.property_id
                 LEFT JOIN conversation_state cs ON cs.session_id=s.session_id AND cs.property_id=s.property_id
                 WHERE s.property_id=? """
-            + restaurant_clause
-            + " GROUP BY s.session_id ORDER BY COALESCE(MAX(m.created_at),s.created_at) DESC"
         )
+        query = query_start + restaurant_clause + " GROUP BY s.session_id ORDER BY COALESCE(MAX(m.created_at),s.created_at) DESC"  # nosec B608 - generated placeholders only; property and restaurant IDs are bound.
         with self._connect() as db:
             # The optional clause consists only of generated placeholders; all restaurant IDs are bound values.
             # B608 rationale: optional clause contains generated placeholders only; restaurant IDs are bound here.
@@ -784,7 +934,12 @@ class SessionStore:
                     "SELECT message_id,role,content,provider,model,latency_ms,error,created_at FROM conversation_messages WHERE property_id=? AND session_id=? ORDER BY created_at,message_id",
                     (property_id, row["session_id"]),
                 ).fetchall()
-                result.append({**dict(row), "authenticated": bool(row["authenticated"]), "human_takeover": bool(row["human_takeover"]), "messages": [dict(item) for item in messages]})
+                message_items = []
+                for item in messages:
+                    rendered = dict(item)
+                    rendered["content"] = self._decrypt_conversation_content(rendered["content"])
+                    message_items.append(rendered)
+                result.append({**dict(row), "authenticated": bool(row["authenticated"]), "human_takeover": bool(row["human_takeover"]), "messages": message_items})
         return result
 
     def set_conversation_state(
@@ -954,7 +1109,7 @@ class SessionStore:
                 """INSERT INTO conversation_messages
                 (message_id,property_id,session_id,role,content,provider,model,latency_ms,error,created_at,sender_user_id)
                 VALUES(?,?,?,'staff',?,'human','staff',NULL,NULL,?,?)""",
-                (message_id, property_id, session_id, content[:8000], now, actor_user_id),
+                (message_id, property_id, session_id, self._encrypt_conversation_content(content), now, actor_user_id),
             )
             db.execute("UPDATE conversation_state SET updated_at=? WHERE session_id=? AND property_id=?", (now, session_id, property_id))
             self._record_conversation_audit(db, property_id, state["restaurant_id"], session_id, actor_user_id, "staff_reply_sent")
@@ -982,7 +1137,12 @@ class SessionStore:
                 "SELECT message_id,content,created_at,sender_user_id FROM conversation_messages WHERE session_id=? AND property_id=? AND role='staff' ORDER BY created_at,message_id",
                 (session_id, property_id),
             ).fetchall()
-        return [dict(row) for row in rows]
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["content"] = self._decrypt_conversation_content(item["content"])
+            result.append(item)
+        return result
 
     def conversation_state(self, session_id: str, property_id: str) -> dict[str, Any]:
         with self._connect() as db:

@@ -1,5 +1,7 @@
 # Concierge.AI ECC Audit — Final Verdict
 
+> Historical pre-Phase 2 snapshot. Its UI streaming and restart-based rollback statuses are superseded by [ECC_PHASE2_FINAL_VERDICT.md](ECC_PHASE2_FINAL_VERDICT.md) and [ECC_PHASE2_FINDINGS.md](ECC_PHASE2_FINDINGS.md). Retained for audit history; use the Phase 2 test-results file for current evidence.
+
 **Assessment date:** 2026-10-12
 
 **Deployment classification: INTERNAL DEMO ONLY**
