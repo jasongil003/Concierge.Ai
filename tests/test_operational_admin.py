@@ -90,6 +90,77 @@ def test_facility_restaurant_and_department_deletes_are_scoped(tmp_path: Path):
     assert store.delete_restaurant("hotel-a", restaurant["restaurant_id"]) is True
 
 
+def test_facility_policy_migration_is_additive_and_preserves_existing_records(tmp_path: Path):
+    import sqlite3
+
+    database_path = tmp_path / "legacy-hospitality.db"
+    with sqlite3.connect(database_path) as database:
+        database.execute("""CREATE TABLE facility_profiles (
+            facility_id TEXT PRIMARY KEY, property_id TEXT NOT NULL, zone_id TEXT,
+            building_id TEXT, floor_id TEXT, name TEXT NOT NULL, facility_type TEXT NOT NULL,
+            opening_hours TEXT NOT NULL DEFAULT '{}', description TEXT NOT NULL DEFAULT '',
+            images TEXT NOT NULL DEFAULT '[]', capacity INTEGER,
+            booking_supported INTEGER NOT NULL DEFAULT 0, live_status TEXT NOT NULL DEFAULT 'open',
+            status_note TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL, created_at INTEGER NOT NULL
+        )""")
+        database.execute("""INSERT INTO facility_profiles VALUES
+            ('pool-1','hotel-a',NULL,NULL,NULL,'Main Pool','pool','{"display":"6 AM–10 PM"}',
+             'Guest pool', '["/uploads/pool.webp"]', 30, 0, 'open', '', 100, 90)""")
+
+    store = HospitalityStore(database_path)
+    with sqlite3.connect(database_path) as database:
+        legacy_columns = [row[1] for row in database.execute("PRAGMA table_info(facility_profiles)")]
+        assert len(legacy_columns) == 16
+        # A positional INSERT from the prior release still works after upgrade.
+        database.execute("""INSERT INTO facility_profiles VALUES
+            ('gym-legacy','hotel-a',NULL,NULL,NULL,'Legacy Gym','gym','{}','Existing record','[]',15,0,'open','',101,91)""")
+    existing = next(item for item in store.guest_facilities("hotel-a")["facilities"] if item["facility_id"] == "pool-1")
+    assert existing["facility_id"] == "pool-1"
+    assert existing["opening_hours"] == {"display": "6 AM–10 PM"}
+    assert existing["images"] == ["/uploads/pool.webp"]
+    assert existing["policies"] == []
+    legacy_gym = next(item for item in store.guest_facilities("hotel-a")["facilities"] if item["facility_id"] == "gym-legacy")
+    assert legacy_gym["location"] == ""
+    assert legacy_gym["policies"] == []
+
+    updated = store.upsert_facility_profile("hotel-a", {
+        "facility_id": "pool-1",
+        "name": "Main Pool",
+        "location": "Level 3, east wing",
+        "images": ["/uploads/pool.webp", "https://images.example/pool.webp"],
+        "policies": ["Children must be supervised."],
+    })
+    assert updated["location"] == "Level 3, east wing"
+    assert updated["images"] == ["/uploads/pool.webp", "https://images.example/pool.webp"]
+    assert updated["policies"] == ["Children must be supervised."]
+    reloaded = next(item for item in store.guest_facilities("hotel-a")["facilities"] if item["facility_id"] == "pool-1")
+    assert reloaded["facility_id"] == "pool-1"
+    assert reloaded["description"] == "Guest pool"
+    assert reloaded["location"] == "Level 3, east wing"
+    assert reloaded["images"] == ["/uploads/pool.webp", "https://images.example/pool.webp"]
+    assert reloaded["policies"] == ["Children must be supervised."]
+
+    with pytest.raises(ValueError, match="identifier is unavailable"):
+        store.upsert_facility_profile("hotel-b", {
+            "facility_id": "pool-1", "name": "Cross-property overwrite", "policies": ["must not move"],
+        })
+    assert store.guest_facilities("hotel-b")["facilities"] == []
+    pool_after_cross_property_attempt = next(
+        item for item in store.guest_facilities("hotel-a")["facilities"] if item["facility_id"] == "pool-1"
+    )
+    assert pool_after_cross_property_attempt["policies"] == ["Children must be supervised."]
+
+    with pytest.raises(ValueError, match="policies"):
+        store.upsert_facility_profile("hotel-a", {
+            "facility_id": "pool-1", "name": "Main Pool", "policies": "public access",
+        })
+    for unsafe_image in ("//attacker.example/image.png", "http://images.example/pool.png", "https://user:pass@images.example/pool.png"):
+        with pytest.raises(ValueError, match="image URLs"):
+            store.upsert_facility_profile("hotel-a", {
+                "facility_id": "pool-1", "name": "Main Pool", "images": [unsafe_image],
+            })
+
+
 def test_operational_endpoints_return_truthful_status(admin_client: TestClient):
     property_id = admin_client.get("/api/admin/properties").json()["properties"][0]["property_id"]
 
