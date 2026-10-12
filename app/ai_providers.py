@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, AsyncIterator, Protocol
+from typing import Any, AsyncIterator, Awaitable, Callable, Protocol
 from urllib.parse import urlsplit
 
 import httpx
@@ -19,6 +19,7 @@ from cryptography.fernet import Fernet
 from .config import settings
 from .database import connect_database
 from .guardrails import AIInputSanitizer, AIOutputValidator
+from .intelligent_ui import MAX_TEXT_CONTENT_CHARS
 from .llm import build_prompt
 from . import metrics
 
@@ -162,6 +163,12 @@ class AIChatResponse:
     output_tokens: int | None = None
 
 
+@dataclass
+class AIChatStreamResult:
+    response: AIChatResponse
+    streamed: bool
+
+
 class AIUsageLimitError(RuntimeError):
     pass
 
@@ -172,6 +179,10 @@ class ProviderCircuitOpen(RuntimeError):
 
 class ProviderBulkheadFull(RuntimeError):
     pass
+
+
+class ProviderStreamInterrupted(RuntimeError):
+    """A provider failed after emitting text; fallback would duplicate a partial answer."""
 
 
 @dataclass
@@ -693,9 +704,11 @@ def sanitize_config(value: Any) -> Any:
 
 def capability_defaults(provider_id: str) -> dict[str, bool]:
     return {
-        "streaming": provider_id != "copilot",
-        "tools": provider_id in {"openai", "openrouter", "gemini", "claude", "groq", "local"},
-        "vision": provider_id in {"openai", "openrouter", "gemini", "claude", "local"},
+        "streaming": provider_id in {"openai", "openrouter", "gemini", "claude", "groq", "local"},
+        # This service sends text-only prompts and does not expose provider tool
+        # schemas. Reporting either feature as enabled would overstate support.
+        "tools": False,
+        "vision": False,
     }
 
 
@@ -703,6 +716,24 @@ def split_messages(messages: list[AIMessage]) -> tuple[str, str]:
     system = "\n".join(message.content for message in messages if message.role == "system").strip()
     user_parts = [message.content for message in messages if message.role != "system"]
     return system, "\n\n".join(user_parts).strip()
+
+
+async def _iter_sse_data(response: httpx.Response) -> AsyncIterator[str]:
+    """Yield complete SSE data fields without interpreting provider payloads."""
+    data_lines: list[str] = []
+    async for line in response.aiter_lines():
+        if not line:
+            if data_lines:
+                yield "\n".join(data_lines)
+                data_lines.clear()
+            continue
+        if line.startswith(":"):
+            continue
+        field, separator, value = line.partition(":")
+        if separator and field == "data":
+            data_lines.append(value[1:] if value.startswith(" ") else value)
+    if data_lines:
+        yield "\n".join(data_lines)
 
 
 class OpenAICompatibleProvider:
@@ -736,8 +767,39 @@ class OpenAICompatibleProvider:
         return AIChatResponse(str(answer).strip(), self.provider_id, request.model, usage.get("prompt_tokens"), usage.get("completion_tokens"))
 
     async def stream_message(self, request: AIChatRequest, credential: dict[str, Any]) -> AsyncIterator[str]:
-        response = await self.send_message(request, credential)
-        yield response.text
+        api_key = credential.get(self.api_key_name) or credential.get("api_key") or ""
+        if self.provider_id != "local" and not api_key:
+            raise RuntimeError("Authentication failed. Add or replace the provider credential.")
+        headers = {"Content-Type": "application/json", "Accept": "text/event-stream"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        payload = {
+            "model": request.model,
+            "messages": [message.__dict__ for message in request.messages],
+            "temperature": request.temperature,
+            "max_tokens": request.max_tokens,
+            "stream": True,
+        }
+        timeout = httpx.Timeout(request.timeout_seconds)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream(
+                "POST", f"{self.base_url}/v1/chat/completions", headers=headers, json=payload
+            ) as response:
+                response.raise_for_status()
+                async for data in _iter_sse_data(response):
+                    if data.strip() == "[DONE]":
+                        return
+                    try:
+                        event = json.loads(data)
+                    except json.JSONDecodeError as exc:
+                        raise RuntimeError("The AI provider returned an invalid stream event.") from exc
+                    choices = event.get("choices") or []
+                    if not choices:
+                        continue
+                    delta = choices[0].get("delta") or {}
+                    content = delta.get("content")
+                    if isinstance(content, str) and content:
+                        yield content
 
     async def list_models(self, config: dict[str, Any], credential: dict[str, Any]) -> list[dict[str, Any]]:
         api_key = credential.get(self.api_key_name) or credential.get("api_key") or ""
@@ -790,8 +852,39 @@ class GeminiProviderAdapter:
         return AIChatResponse(answer, "gemini", request.model, usage.get("promptTokenCount"), usage.get("candidatesTokenCount"))
 
     async def stream_message(self, request: AIChatRequest, credential: dict[str, Any]) -> AsyncIterator[str]:
-        response = await self.send_message(request, credential)
-        yield response.text
+        api_key = credential.get("api_key")
+        access_token = credential.get("oauth_access_token")
+        if not api_key and not access_token:
+            raise RuntimeError("Authentication failed. Connect Google or add a Gemini API key.")
+        system, prompt = split_messages(request.messages)
+        payload = {
+            "systemInstruction": {"parts": [{"text": system}]},
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": request.temperature, "maxOutputTokens": request.max_tokens},
+        }
+        headers = {"Content-Type": "application/json", "Accept": "text/event-stream"}
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{request.model}:streamGenerateContent"
+        params = {"alt": "sse"}
+        if api_key:
+            params["key"] = api_key
+        else:
+            headers["Authorization"] = f"Bearer {access_token}"
+        async with httpx.AsyncClient(timeout=httpx.Timeout(request.timeout_seconds)) as client:
+            async with client.stream("POST", url, params=params, headers=headers, json=payload) as response:
+                response.raise_for_status()
+                async for data in _iter_sse_data(response):
+                    try:
+                        event = json.loads(data)
+                    except json.JSONDecodeError as exc:
+                        raise RuntimeError("The AI provider returned an invalid stream event.") from exc
+                    candidates = event.get("candidates") or []
+                    if not candidates:
+                        continue
+                    parts = (candidates[0].get("content") or {}).get("parts") or []
+                    for part in parts:
+                        text = part.get("text")
+                        if isinstance(text, str) and text:
+                            yield text
 
     async def list_models(self, config: dict[str, Any], credential: dict[str, Any]) -> list[dict[str, Any]]:
         api_key = credential.get("api_key")
@@ -852,8 +945,42 @@ class ClaudeProviderAdapter:
         return AIChatResponse(answer, "claude", request.model, usage.get("input_tokens"), usage.get("output_tokens"))
 
     async def stream_message(self, request: AIChatRequest, credential: dict[str, Any]) -> AsyncIterator[str]:
-        response = await self.send_message(request, credential)
-        yield response.text
+        api_key = credential.get("api_key")
+        if not api_key:
+            raise RuntimeError("Authentication failed. Add or replace the Anthropic credential.")
+        system, prompt = split_messages(request.messages)
+        payload = {
+            "model": request.model,
+            "system": system,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": request.temperature,
+            "max_tokens": request.max_tokens,
+            "stream": True,
+        }
+        headers = {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+        }
+        async with httpx.AsyncClient(timeout=httpx.Timeout(request.timeout_seconds)) as client:
+            async with client.stream(
+                "POST", "https://api.anthropic.com/v1/messages", headers=headers, json=payload
+            ) as response:
+                response.raise_for_status()
+                async for data in _iter_sse_data(response):
+                    if data.strip() == "[DONE]":
+                        return
+                    try:
+                        event = json.loads(data)
+                    except json.JSONDecodeError as exc:
+                        raise RuntimeError("The AI provider returned an invalid stream event.") from exc
+                    if event.get("type") != "content_block_delta":
+                        continue
+                    delta = event.get("delta") or {}
+                    text = delta.get("text")
+                    if delta.get("type") == "text_delta" and isinstance(text, str) and text:
+                        yield text
 
     async def list_models(self, config: dict[str, Any], credential: dict[str, Any]) -> list[dict[str, Any]]:
         return [
@@ -1150,6 +1277,99 @@ class AIModelService:
             metrics.AI_PROVIDER_REQUESTS.labels(provider_id, "failure").inc()
             metrics.AI_PROVIDER_DURATION.labels(provider_id, "failure").observe(elapsed)
             raise last_error
+        except asyncio.CancelledError:
+            await self._release_circuit_probe(provider_id)
+            raise
+        except ProviderBulkheadFull:
+            await self._release_circuit_probe(provider_id)
+            metrics.AI_PROVIDER_REQUESTS.labels(provider_id, "saturated").inc()
+            metrics.AI_PROVIDER_DURATION.labels(provider_id, "saturated").observe(
+                max(0.0, time.perf_counter() - started)
+            )
+            raise
+
+    async def _stream_with_resilience(
+        self,
+        provider_id: str,
+        adapter: AIProvider,
+        request: AIChatRequest,
+        credential: dict[str, Any],
+        on_delta: Callable[[str], Awaitable[None]],
+    ) -> AIChatResponse:
+        started = time.perf_counter()
+        if not await self._circuit_permit(provider_id):
+            metrics.AI_PROVIDER_REQUESTS.labels(provider_id, "circuit_open").inc()
+            raise ProviderCircuitOpen(f"Provider {provider_id} circuit is open.")
+        last_error: Exception | None = None
+        try:
+            for attempt in range(settings.ai_provider_retry_attempts + 1):
+                queue_started = time.perf_counter()
+                try:
+                    slots, distributed_token = await self._acquire_provider_slot(
+                        provider_id, request.timeout_seconds
+                    )
+                except ProviderBulkheadFull:
+                    metrics.AI_PROVIDER_QUEUE_WAIT_DURATION.labels(provider_id).observe(
+                        max(0.0, time.perf_counter() - queue_started)
+                    )
+                    raise
+                metrics.AI_PROVIDER_QUEUE_WAIT_DURATION.labels(provider_id).observe(
+                    max(0.0, time.perf_counter() - queue_started)
+                )
+                pieces: list[str] = []
+                output_chars = 0
+
+                async def consume() -> None:
+                    nonlocal output_chars
+                    iterator = adapter.stream_message(request, credential)
+                    try:
+                        async for piece in iterator:
+                            if not isinstance(piece, str) or not piece:
+                                continue
+                            if output_chars + len(piece) > MAX_TEXT_CONTENT_CHARS:
+                                raise RuntimeError("The AI provider exceeded the response size limit.")
+                            output_chars += len(piece)
+                            pieces.append(piece)
+                            await on_delta(piece)
+                    finally:
+                        close = getattr(iterator, "aclose", None)
+                        if close is not None:
+                            await close()
+
+                try:
+                    await asyncio.wait_for(
+                        consume(), timeout=max(1, min(int(request.timeout_seconds), 120))
+                    )
+                    if not pieces:
+                        raise RuntimeError("The AI provider returned an empty response.")
+                except Exception as exc:
+                    last_error = exc
+                    await self._circuit_failure(provider_id)
+                    if pieces:
+                        raise ProviderStreamInterrupted(
+                            "The provider stream ended after response text was sent."
+                        ) from exc
+                else:
+                    await self._circuit_success(provider_id)
+                    elapsed = max(0.0, time.perf_counter() - started)
+                    metrics.AI_PROVIDER_REQUESTS.labels(provider_id, "success").inc()
+                    metrics.AI_PROVIDER_DURATION.labels(provider_id, "success").observe(elapsed)
+                    return AIChatResponse("".join(pieces), provider_id, request.model)
+                finally:
+                    slots.semaphore.release()
+                    await self._release_distributed_slot(provider_id, distributed_token)
+                if attempt >= settings.ai_provider_retry_attempts or not self._retryable_provider_error(last_error):
+                    break
+                delay = min(5.0, settings.ai_provider_retry_base_seconds * (2 ** attempt))
+                await asyncio.sleep(delay + random.uniform(0.0, delay))
+            assert last_error is not None
+            elapsed = max(0.0, time.perf_counter() - started)
+            metrics.AI_PROVIDER_REQUESTS.labels(provider_id, "failure").inc()
+            metrics.AI_PROVIDER_DURATION.labels(provider_id, "failure").observe(elapsed)
+            raise last_error
+        except asyncio.CancelledError:
+            await self._release_circuit_probe(provider_id)
+            raise
         except ProviderBulkheadFull:
             await self._release_circuit_probe(provider_id)
             metrics.AI_PROVIDER_REQUESTS.labels(provider_id, "saturated").inc()
@@ -1273,6 +1493,100 @@ class AIModelService:
             )
             response.text = AIOutputValidator.validate(response.text)
             return response
+        if failures:
+            raise failures[-1]
+        raise RuntimeError("No enabled AI provider is available for this property.")
+
+    async def concierge_chat_stream(
+        self,
+        property_id: str,
+        user_message: str,
+        hotel_name: str,
+        context: list[dict[str, Any]],
+        on_delta: Callable[[str], Awaitable[None]],
+        live_context: str = "",
+        requested_mode: str = "auto",
+        conversation_history: list[dict[str, Any]] | None = None,
+        guest_context: dict[str, Any] | None = None,
+        system_prompt_override: str | None = None,
+    ) -> AIChatStreamResult:
+        """Stream through the same property provider chain, limits, and bulkheads.
+
+        Providers without real streaming support use the normal request path and
+        return a whole response. Once a provider emits a delta, errors terminate
+        the turn instead of falling back and duplicating partial text.
+        """
+        ai_settings = self.store.get_settings(property_id)
+        self.store.reserve_request(property_id)
+        clean_message = AIInputSanitizer.sanitize_text(user_message)
+        clean_context = AIInputSanitizer.sanitize_context(context)
+        clean_history = AIInputSanitizer.sanitize_context(conversation_history or [])
+        system, prompt = build_prompt(
+            clean_message,
+            hotel_name,
+            clean_context,
+            AIInputSanitizer.sanitize_text(live_context),
+            clean_history,
+            guest_context,
+        )
+        if system_prompt_override:
+            system = system_prompt_override[:8000]
+        failures: list[Exception] = []
+        connections = self.resolve_connections(property_id)
+        for index, connection in enumerate(connections):
+            provider_id = connection["provider_id"]
+            model = connection["selected_model"] or PROVIDER_DEFINITIONS[provider_id]["default_model"]
+            max_tokens = int(connection["max_output_tokens"])
+            if ai_settings["limits"].get("token_budget"):
+                max_tokens = min(max_tokens, int(ai_settings["limits"]["token_budget"]))
+            request = AIChatRequest(
+                property_id=property_id,
+                provider_id=provider_id,
+                model=model,
+                messages=[AIMessage("system", system), AIMessage("user", prompt)],
+                temperature=float(connection["temperature"]),
+                max_tokens=max_tokens,
+                timeout_seconds=max(1, min(int(connection["timeout_seconds"]), 120)),
+            )
+            adapter = self.adapter_for(provider_id, connection["endpoint_url"])
+            credential = self.store.credentials_for(property_id, provider_id)
+            started = time.perf_counter()
+            try:
+                capabilities = getattr(adapter, "get_capabilities", lambda: {})()
+                if capabilities.get("streaming") is True and callable(getattr(adapter, "stream_message", None)):
+                    response = await self._stream_with_resilience(
+                        provider_id, adapter, request, credential, on_delta
+                    )
+                    streamed = True
+                else:
+                    response = await self._send_with_resilience(provider_id, adapter, request, credential)
+                    streamed = False
+            except ProviderStreamInterrupted:
+                elapsed_ms = int((time.perf_counter() - started) * 1000)
+                self.store.record_usage(
+                    property_id, provider_id, model, elapsed_ms, False,
+                    error_type="ProviderStreamInterrupted",
+                )
+                raise
+            except Exception as exc:
+                failures.append(exc)
+                self.store.record_usage(
+                    property_id, provider_id, model,
+                    int((time.perf_counter() - started) * 1000), False,
+                    error_type=exc.__class__.__name__,
+                )
+                if index + 1 < len(connections):
+                    self.store.audit(
+                        property_id, "provider_fallback", provider_id,
+                        {"error_type": exc.__class__.__name__},
+                    )
+                continue
+            self.store.record_usage(
+                property_id, provider_id, model, int((time.perf_counter() - started) * 1000), True,
+                response.input_tokens, response.output_tokens,
+            )
+            response.text = AIOutputValidator.validate(response.text)
+            return AIChatStreamResult(response, streamed)
         if failures:
             raise failures[-1]
         raise RuntimeError("No enabled AI provider is available for this property.")

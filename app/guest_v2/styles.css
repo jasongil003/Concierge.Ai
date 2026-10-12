@@ -142,6 +142,16 @@ button:focus-visible, textarea:focus-visible { outline: 3px solid var(--focus); 
 .entity-card .card-subtitle { margin: 5px 0 0; color: var(--accent); font-size: 12px; }
 .entity-card .card-description { margin: 10px 0 0; color: #55524d; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 .entity-card .card-detail { margin: 10px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.entity-card .card-location, .entity-card .card-hours { margin: 7px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.entity-card-image { display: block; width: 100%; max-height: 190px; margin: -1px 0 12px; border-radius: 10px; object-fit: cover; background: #efede8; }
+.menu-toggle, .reservation-link { display: inline-flex; min-height: 36px; align-items: center; justify-content: center; margin: 12px 8px 0 0; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--ink); font: inherit; font-size: 12px; text-decoration: none; cursor: pointer; }
+.reservation-link { border-color: var(--accent); color: var(--accent); }
+.menu-details { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.menu-details h4 { margin: 8px 0; font-size: 13px; }
+.menu-item { padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+.menu-item strong { font-weight: 620; }
+.menu-price { float: right; color: var(--muted); }
+.menu-item p { margin: 5px 0 0; color: var(--muted); line-height: 1.45; }
 .detail-panel, .request-review, .verified-confirmation, .error-panel, .map-panel, .selection-panel {
   padding: 16px;
   border: 1px solid var(--line);
@@ -154,6 +164,16 @@ button:focus-visible, textarea:focus-visible { outline: 3px solid var(--focus); 
 .detail-list dt { color: var(--muted); font-size: 12px; }
 .detail-list dd { margin: 0; font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
 .request-review p, .verified-confirmation p, .error-panel p, .map-panel p, .selection-panel p { margin: 10px 0 0; color: #55524d; font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
+.floor-map-figure { margin: 12px 0 0; }
+.floor-map-frame { position: relative; width: 100%; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-muted, #f1efeb); }
+.floor-map-image { display: block; width: 100%; height: 100%; object-fit: contain; }
+.floor-map-image[hidden], .floor-map-markers[hidden] { display: none; }
+.floor-map-unavailable { display: grid; place-items: center; min-height: 120px; }
+.floor-map-markers { position: absolute; inset: 0; }
+.floor-map-marker { position: absolute; max-width: 140px; transform: translate(-50%, -50%); padding: 4px 8px; border: 2px solid #fff; border-radius: 999px; background: var(--accent); color: var(--accent-ink); box-shadow: 0 1px 5px #0003; font: inherit; font-size: 11px; line-height: 1.2; cursor: pointer; overflow-wrap: anywhere; }
+.floor-map-marker[aria-pressed="true"] { outline: 3px solid var(--ink); outline-offset: 2px; }
+.floor-map-selection { min-height: 1.5em; font-weight: 600; }
+.floor-map-alternative { color: var(--muted) !important; }
 .request-review .review-department { margin-top: 5px; color: var(--muted); font-size: 12px; }
 .primary-action, .secondary-action {
   min-height: 40px;
@@ -197,6 +217,7 @@ button:focus-visible, textarea:focus-visible { outline: 3px solid var(--focus); 
 .send-button { display: grid; width: 40px; height: 40px; flex: 0 0 40px; place-items: center; border: 0; border-radius: 50%; background: var(--accent); color: var(--accent-ink); cursor: pointer; }
 .send-button:disabled { background: #e8e5df; color: #a09c94; cursor: default; }
 .send-button svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.6; }
+.cancel-response { display: block; margin: 8px auto 0; padding: 6px 12px; border: 1px solid #c9c5bd; border-radius: 999px; background: transparent; color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
 .composer-note, .privacy-note { margin: 9px auto 0; color: var(--muted); text-align: center; font-size: 11px; line-height: 1.5; }
 .privacy-note { margin-top: 3px; color: #929087; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; clip-path: inset(50%); }

@@ -32,7 +32,9 @@
 
       <section class="conversation" id="conversation" aria-label="Conversation" hidden>
         <div class="message-list" id="message-list" role="log" aria-live="polite" aria-relevant="additions text"></div>
-        <div class="conversation-status" id="conversation-status" role="status" aria-live="polite" hidden></div>
+        <div class="conversation-status" id="conversation-status" role="status" aria-live="polite" hidden>
+          <span id="conversation-status-copy">The concierge is checking that for you.</span>
+        </div>
       </section>
     </main>
 
@@ -44,8 +46,9 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4.8 14-2.7-5.5L5 12Z"/><path d="m11.5 13.5 3.6-3.6"/></svg>
         </button>
       </form>
+      <button class="cancel-response" id="cancel-response" type="button" hidden>Stop response</button>
       <p class="composer-note" id="composer-note">Enter to send <span aria-hidden="true">·</span> Shift+Enter for a new line</p>
-      <p class="privacy-note">Your conversation stays in this browser tab. Start a new chat before sharing this device.</p>
+      <p class="privacy-note">Your conversation is saved to this guest session. Start a new private chat before sharing this device.</p>
     </footer>
   </div>
   <section class="startup-error" id="startup-error" role="alert" hidden>

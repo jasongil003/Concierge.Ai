@@ -497,6 +497,56 @@ class AIOutputValidator:
         return text
 
 
+class AIStreamOutputGuard:
+    """Release safe prefixes while retaining enough text to catch unsafe phrases."""
+
+    _HOLD_BACK = 96
+
+    def __init__(self, max_chars: int = 24_000) -> None:
+        self.max_chars = max_chars
+        self._full = ""
+        self._pending = ""
+        self._blocked = False
+
+    @property
+    def blocked(self) -> bool:
+        return self._blocked
+
+    @property
+    def has_content(self) -> bool:
+        return bool(self._full)
+
+    def feed(self, chunk: str) -> str:
+        if self._blocked or not chunk:
+            return ""
+        if len(self._full) + len(chunk) > self.max_chars:
+            self._blocked = True
+            self._pending = ""
+            return "I couldn't safely complete that response. Please contact the hotel concierge."
+        self._full += chunk
+        self._pending += chunk
+        validated = AIOutputValidator.validate(self._full)
+        if validated != self._full:
+            self._blocked = True
+            self._pending = ""
+            return validated
+        if len(self._pending) <= self._HOLD_BACK:
+            return ""
+        safe, self._pending = self._pending[:-self._HOLD_BACK], self._pending[-self._HOLD_BACK:]
+        return safe
+
+    def finish(self) -> str:
+        if self._blocked:
+            return ""
+        validated = AIOutputValidator.validate(self._full)
+        if validated != self._full:
+            self._blocked = True
+            self._pending = ""
+            return validated
+        tail, self._pending = self._pending, ""
+        return tail
+
+
 class InternetGuard:
     @staticmethod
     def validate_url(url: str, allowed_hosts: Iterable[str] | None = None, allow_private: bool = False) -> str:

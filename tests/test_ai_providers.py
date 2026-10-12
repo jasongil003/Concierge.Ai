@@ -13,8 +13,12 @@ from app.ai_providers import (
     AIModelService,
     AIProviderStore,
     AIUsageLimitError,
+    ClaudeProviderAdapter,
+    GeminiProviderAdapter,
+    OpenAICompatibleProvider,
     ProviderBulkheadFull,
     ProviderCircuitOpen,
+    ProviderStreamInterrupted,
 )
 import app.ai_providers as ai_provider_module
 from app.llm import build_prompt
@@ -561,3 +565,208 @@ def test_property_a_usage_not_counted_against_property_b(tmp_path: Path):
         store.reserve_request("hotel-a")
     with pytest.raises(AIUsageLimitError):
         store.reserve_request("hotel-b")
+
+
+@pytest.mark.parametrize(
+    ("provider", "credential", "stream_body", "expected"),
+    [
+        (
+            OpenAICompatibleProvider("openai", "https://provider.test"),
+            {"api_key": "test-key"},
+            'data: {"choices":[{"delta":{"content":"Hello "}}]}\n\n'
+            'data: {"choices":[{"delta":{"content":"world"}}]}\n\n'
+            "data: [DONE]\n\n",
+            ["Hello ", "world"],
+        ),
+        (
+            GeminiProviderAdapter(),
+            {"api_key": "test-key"},
+            'data: {"candidates":[{"content":{"parts":[{"text":"Hello "}]}}]}\n\n'
+            'data: {"candidates":[{"content":{"parts":[{"text":"world"}]}}]}\n\n',
+            ["Hello ", "world"],
+        ),
+        (
+            ClaudeProviderAdapter(),
+            {"api_key": "test-key"},
+            'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Hello "}}\n\n'
+            'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"world"}}\n\n',
+            ["Hello ", "world"],
+        ),
+    ],
+)
+def test_provider_adapters_parse_native_sse_deltas(
+    monkeypatch: pytest.MonkeyPatch,
+    provider,
+    credential: dict,
+    stream_body: str,
+    expected: list[str],
+):
+    import httpx
+
+    requests = []
+    original_client = ai_provider_module.httpx.AsyncClient
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, text=stream_body, headers={"content-type": "text/event-stream"})
+
+    transport = httpx.MockTransport(handler)
+    monkeypatch.setattr(
+        ai_provider_module.httpx,
+        "AsyncClient",
+        lambda *args, **kwargs: original_client(*args, transport=transport, **kwargs),
+    )
+    request = AIChatRequest(
+        "hotel-a", provider.provider_id, "test-model", [AIMessage("user", "Hi")], timeout_seconds=3,
+    )
+
+    async def collect():
+        return [chunk async for chunk in provider.stream_message(request, credential)]
+
+    assert asyncio.run(collect()) == expected
+    assert len(requests) == 1
+    sent = __import__("json").loads(requests[0].content)
+    if provider.provider_id == "openai":
+        assert sent["stream"] is True
+    elif provider.provider_id == "claude":
+        assert sent["stream"] is True
+    else:
+        assert requests[0].url.path.endswith(":streamGenerateContent")
+
+
+class _StreamingFakeAdapter(_FakeAdapter):
+    def __init__(self, provider_id: str, calls: list[str], *, fail_before: bool = False, fail_after: bool = False):
+        super().__init__(provider_id, calls)
+        self.fail_before = fail_before
+        self.fail_after = fail_after
+        self.closed = False
+
+    def get_capabilities(self):
+        return {"streaming": True}
+
+    async def stream_message(self, request, credential):
+        del request, credential
+        self.calls.append(self.provider_id)
+        try:
+            if self.fail_before:
+                raise TimeoutError("provider timed out before first delta")
+            yield "partial "
+            if self.fail_after:
+                raise TimeoutError("provider timed out after a delta")
+            yield "complete"
+        finally:
+            self.closed = True
+
+
+def test_provider_stream_falls_back_only_before_first_delta(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(ai_provider_module, "settings", replace(ai_provider_module.settings, ai_provider_retry_attempts=0))
+    store = AIProviderStore(tmp_path / "stream-fallback.db")
+    for provider_id in ("gemini", "openai"):
+        _enabled_provider(store, "hotel-a", provider_id)
+    store.save_settings("hotel-a", {
+        "default_provider": "gemini", "routing_mode": "automatic", "fallback_chain": ["openai"],
+    })
+    calls: list[str] = []
+    primary = _StreamingFakeAdapter("gemini", calls, fail_before=True)
+    fallback = _FakeAdapter("openai", calls)
+    service = AIModelService(store)
+    monkeypatch.setattr(service, "adapter_for", lambda provider_id, endpoint_url="": primary if provider_id == "gemini" else fallback)
+    chunks = []
+
+    async def on_delta(chunk):
+        chunks.append(chunk)
+
+    result = asyncio.run(service.concierge_chat_stream("hotel-a", "hello", "Hotel A", [], on_delta))
+    assert result.streamed is False
+    assert result.response.provider == "openai"
+    assert chunks == []
+    assert calls == ["gemini", "openai"]
+
+    partial_calls: list[str] = []
+    partial = _StreamingFakeAdapter("gemini", partial_calls)
+    partial.fail_after = True
+    calls.clear()
+    monkeypatch.setattr(service, "adapter_for", lambda provider_id, endpoint_url="": partial if provider_id == "gemini" else fallback)
+    with pytest.raises(ProviderStreamInterrupted):
+        asyncio.run(service.concierge_chat_stream("hotel-a", "hello", "Hotel A", [], on_delta))
+    assert chunks == ["partial "]
+    assert partial_calls == ["gemini"]
+    assert len(fallback.requests) == 1
+    assert partial.closed is True
+
+
+def test_provider_stream_cancellation_closes_provider_and_releases_slot(tmp_path: Path):
+    store = AIProviderStore(tmp_path / "stream-cancel.db")
+    _enabled_provider(store, "hotel-a", "openai")
+    store.save_settings("hotel-a", {"default_provider": "openai", "routing_mode": "fixed"})
+    started = asyncio.Event()
+    closed = asyncio.Event()
+
+    class CancellableAdapter(_FakeAdapter):
+        def get_capabilities(self):
+            return {"streaming": True}
+
+        async def stream_message(self, request, credential):
+            del request, credential
+            try:
+                yield "first"
+                started.set()
+                await asyncio.Event().wait()
+            finally:
+                closed.set()
+
+    service = AIModelService(store)
+    service.adapter_for = lambda provider_id, endpoint_url="": CancellableAdapter(provider_id, [])
+    chunks = []
+    available_before = service._slots_for("openai").semaphore._value
+
+    async def run():
+        async def on_delta(chunk):
+            chunks.append(chunk)
+            started.set()
+            await asyncio.Event().wait()
+
+        task = asyncio.create_task(service.concierge_chat_stream("hotel-a", "hello", "Hotel A", [], on_delta))
+        await asyncio.wait_for(started.wait(), timeout=2)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        return service._slots_for("openai").semaphore._value
+
+    available = asyncio.run(run())
+    assert chunks == ["first"]
+    assert closed.is_set()
+    assert available == available_before
+
+
+def test_provider_stream_stops_at_intelligent_ui_text_protocol_limit(tmp_path: Path):
+    store = AIProviderStore(tmp_path / "stream-limit.db")
+    _enabled_provider(store, "hotel-a", "openai")
+    store.save_settings("hotel-a", {"default_provider": "openai", "routing_mode": "fixed"})
+    delivered: list[str] = []
+    closed = False
+
+    class OversizedAdapter(_FakeAdapter):
+        def get_capabilities(self):
+            return {"streaming": True}
+
+        async def stream_message(self, request, credential):
+            nonlocal closed
+            del request, credential
+            try:
+                yield "a" * 5999
+                yield "b" * 2
+            finally:
+                closed = True
+
+    service = AIModelService(store)
+    service.adapter_for = lambda provider_id, endpoint_url="": OversizedAdapter(provider_id, [])
+
+    async def on_delta(chunk):
+        delivered.append(chunk)
+
+    with pytest.raises(ProviderStreamInterrupted):
+        asyncio.run(service.concierge_chat_stream("hotel-a", "hello", "Hotel A", [], on_delta))
+
+    assert sum(map(len, delivered)) == 5999
+    assert closed is True
