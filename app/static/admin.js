@@ -2320,6 +2320,10 @@ async function loadSystemSettings() {
   const storedApplication = appSettings.application;
   const application = storedApplication && typeof storedApplication === "object" && !Array.isArray(storedApplication)
     ? storedApplication : {};
+  const guestExperience = appSettings.guest_experience && typeof appSettings.guest_experience === "object" && !Array.isArray(appSettings.guest_experience)
+    ? appSettings.guest_experience : {};
+  const intelligentUi = guestExperience.intelligent_ui && typeof guestExperience.intelligent_ui === "object"
+    ? guestExperience.intelligent_ui : {};
   const hasProperty = Boolean(property && hasValidPropertyContext());
   const propertyDefaultsCard = document.querySelector("#system-settings .card");
   if (propertyDefaultsCard) {
@@ -2340,14 +2344,22 @@ async function loadSystemSettings() {
   if (![...$("setting-timezone").options].some((option) => option.value === timezone)) $("setting-timezone").add(new Option(`${timezone} (saved value)`, timezone));
   if (![...$("setting-language").options].some((option) => option.value === language)) $("setting-language").add(new Option(`${language} (saved value)`, language));
   $("setting-language").value = language; $("setting-timezone").value = timezone; $("setting-maintenance").checked = Boolean(application.maintenance_enabled); $("setting-maintenance-message").value = application.maintenance_message || "";
+  $("setting-intelligent-ui").checked = intelligentUi.enabled === true;
+  $("setting-guest-welcome").value = guestExperience.welcome_message || "";
+  $("setting-guest-prompts").value = Array.isArray(guestExperience.suggested_prompts) ? guestExperience.suggested_prompts.join("\n") : "";
   const smtp = await jsonFetch("/api/admin/system/email"); $("smtp-enabled").checked = smtp.enabled; $("smtp-host").value = smtp.host; $("smtp-port").value = smtp.port; $("smtp-security").value = smtp.security; $("smtp-username").value = smtp.username; $("smtp-from").value = smtp.from_address; $("smtp-password").value = ""; $("smtp-password").placeholder = smtp.password_configured ? `Saved securely (${smtp.password_masked})` : "Not configured"; $("smtp-status").textContent = smtp.enabled ? "SMTP enabled. Use Test Connection to verify reachability." : "SMTP is disabled; password-reset requests remain generic and do not send email.";
 }
 async function saveApplicationSettings() {
   if (!hasValidPropertyContext() || !state.property) throw new Error("Select a property before saving property defaults.");
   const application = { default_language: $("setting-language").value.trim() || "en", timezone: $("setting-timezone").value.trim() || "UTC", maintenance_enabled: $("setting-maintenance").checked, maintenance_message: $("setting-maintenance-message").value.trim() };
+  const guestExperience = {
+    intelligent_ui: { enabled: $("setting-intelligent-ui").checked },
+    welcome_message: $("setting-guest-welcome").value.trim(),
+    suggested_prompts: $("setting-guest-prompts").value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean).slice(0, 6),
+  };
   state.property.languages = [...new Set([...(state.property.languages || []), application.default_language])];
   state.property.timezone = application.timezone;
-  state.property.app_settings = { ...(state.property.app_settings || {}), application };
+  state.property.app_settings = { ...(state.property.app_settings || {}), application, guest_experience: guestExperience };
   await savePropertyBasics();
   showToast("Application settings saved.");
 }
@@ -4861,7 +4873,7 @@ function propertyPayload() {
   const currentAppSettings = property.app_settings || {};
   const appSettings = {};
   if (can("properties.edit")) {
-    for (const key of ["locations", "application"]) {
+    for (const key of ["locations", "application", "guest_experience"]) {
       if (Object.hasOwn(currentAppSettings, key)) appSettings[key] = currentAppSettings[key];
     }
   }

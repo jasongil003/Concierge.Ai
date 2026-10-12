@@ -124,6 +124,12 @@ from .outbound_http import OutboundRequestBroker, OutboundRequestError
 from .places import GooglePlaces, format_places_for_ai, rank_places
 from .properties import AUTHENTICATION_RULES, DesignRevisionConflict, PropertyRecord, PropertyStore, default_design_config, validate_design_config
 from .guest_experience import COMPONENT_REGISTRY
+from .intelligent_ui import (
+    GuestExperienceSettings,
+    make_response as make_intelligent_ui_response,
+    new_id as new_ui_id,
+    validate_guest_experience_settings,
+)
 from .reporting import ReportService
 from .rbac import bind_admin_route_policies, matched_admin_policy
 from .session_store import SessionStore
@@ -134,6 +140,8 @@ logger = logging.getLogger(__name__)
 PROCESS_STARTED_MONOTONIC = time.monotonic()
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
+INTELLIGENT_GUEST_UI_DIR = BASE_DIR / "guest_v2"
+INTELLIGENT_GUEST_UI_ASSETS = {"app.js", "styles.css"}
 SAFE_DATABASE_READINESS_DETAILS = {
     "PostgreSQL schema is not migrated; run `alembic upgrade head` before starting the API.",
     "PostgreSQL schema revision is unknown; refusing to serve traffic against unrecognized persisted state.",
@@ -512,6 +520,22 @@ def _guest_property(request: Request, supplied_property_id: str | None = None) -
         raise HTTPException(status_code=404, detail="Property not found.") from exc
 
 
+def _intelligent_guest_ui_config(record: PropertyRecord) -> GuestExperienceSettings:
+    raw = (record.app_settings or {}).get("guest_experience") or {}
+    try:
+        return GuestExperienceSettings.model_validate(raw)
+    except (TypeError, ValueError):
+        # Malformed persisted configuration must fail closed.
+        return GuestExperienceSettings()
+
+
+def _intelligent_guest_ui_enabled(record: PropertyRecord) -> bool:
+    return bool(
+        settings.intelligent_guest_ui_global_enabled
+        and _intelligent_guest_ui_config(record).intelligent_ui.enabled is True
+    )
+
+
 def _enforce_guest_network(request: Request, property_record: PropertyRecord, action_level: int = 1) -> GuardrailDecision:
     direct_ip = request.client.host if request.client else ""
     if property_record.guest_configuration_malformed:
@@ -785,6 +809,7 @@ PROPERTY_FIELD_WRITE_PERMISSIONS: dict[str, tuple[str, ...]] = {
 PROPERTY_APP_SETTINGS_PERMISSIONS: dict[str, tuple[str, ...]] = {
     "locations": ("properties.edit",),
     "application": ("properties.edit",),
+    "guest_experience": ("properties.edit",),
     "deployment": ("domains.configure", "network.manage"),
 }
 PROPERTY_APPLICATION_SETTING_KEYS = frozenset(
@@ -862,6 +887,11 @@ def _require_property_payload_permissions(updates: dict[str, Any], principal: Ad
             unknown = set(setting_value) - PROPERTY_DEPLOYMENT_SETTING_KEYS
             if unknown:
                 _require_config_permissions(principal, ("system.configure",))
+        elif setting_name == "guest_experience":
+            try:
+                validate_guest_experience_settings(setting_value)
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(status_code=422, detail="Invalid guest experience settings.") from exc
 
 
 class ManagementAccessPayload(BaseModel):
@@ -1206,7 +1236,24 @@ async def index(request: Request) -> Response:
         _enforce_guest_network(request, record)
     except GuardrailDenied as exc:
         return FileResponse(STATIC_DIR / "access-restricted.html", status_code=exc.status_code)
-    return FileResponse(STATIC_DIR / "index.html")
+    if _intelligent_guest_ui_enabled(record) and (INTELLIGENT_GUEST_UI_DIR / "index.html").is_file():
+        return FileResponse(
+            INTELLIGENT_GUEST_UI_DIR / "index.html",
+            headers={"Cache-Control": "no-store"},
+        )
+    return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-store"})
+
+
+@app.get("/intelligent-ui/{asset_name}")
+async def intelligent_guest_ui_asset(asset_name: str, request: Request) -> FileResponse:
+    record = _guest_property(request)
+    _enforce_guest_network(request, record)
+    if not _intelligent_guest_ui_enabled(record) or asset_name not in INTELLIGENT_GUEST_UI_ASSETS:
+        raise HTTPException(status_code=404, detail="Asset not found.")
+    path = INTELLIGENT_GUEST_UI_DIR / asset_name
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Asset not found.")
+    return FileResponse(path, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/admin/login")
@@ -1362,6 +1409,26 @@ async def hotel(request: Request) -> dict[str, Any]:
         ]
     profile["property_id"] = property_record.property_id
     return profile
+
+
+@app.get("/api/guest/intelligent-config")
+async def intelligent_guest_ui_config(request: Request) -> Response:
+    property_record = _guest_property(request)
+    _enforce_guest_network(request, property_record)
+    if not _intelligent_guest_ui_enabled(property_record):
+        raise HTTPException(status_code=404, detail="Guest experience not found.")
+    configured = _intelligent_guest_ui_config(property_record)
+    payload = {
+        "welcome_message": configured.welcome_message.strip()
+        or str(property_record.welcome or "").strip()[:300]
+        or "Your personal concierge is here to help with your stay.",
+        "suggested_prompts": configured.suggested_prompts or [
+            "What time is the pool open?",
+            "Where can I have dinner?",
+            "How can I request something for my room?",
+        ],
+    }
+    return JSONResponse(payload, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/guest/zones")
@@ -3728,7 +3795,11 @@ def _active_guest_network_ranges() -> list[str]:
 
 
 def _is_guest_request_path(path: str) -> bool:
-    return path.startswith("/api/guest/") or path in {"/api/session/start", "/api/session/resume", "/api/authenticate", "/api/chat"}
+    return (
+        path.startswith("/api/guest/")
+        or path.startswith("/intelligent-ui/")
+        or path in {"/api/session/start", "/api/session/resume", "/api/authenticate", "/api/chat"}
+    )
 
 
 def _request_is_loopback(request: Request) -> bool:
@@ -6203,6 +6274,89 @@ async def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
     }
 
 
+@app.post("/api/guest/intelligent-chat")
+async def intelligent_guest_chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
+    """Adapt the established guest chat response into the v1 presentation protocol."""
+    session, property_record = _guest_session(request, payload.session_id)
+    if not _intelligent_guest_ui_enabled(property_record):
+        raise HTTPException(status_code=404, detail="Guest experience not found.")
+
+    # Keep conversation policy, retrieval, provider selection, and rate limits in
+    # the existing handler. The presentation adapter only shapes its response.
+    result = await chat(payload, request)
+    answer = str(result.get("answer") or "").strip()
+    if result.get("human_takeover"):
+        answer = "Your message is with the hotel team. They can reply here when available."
+    elif result.get("ai_paused") and not answer:
+        answer = "This conversation is closed. Start a new conversation if you need more help."
+    if not answer:
+        answer = "I couldn't complete that reply. Please try again or contact the hotel concierge."
+
+    blocks: list[dict[str, Any]] = [
+        {"id": new_ui_id("text"), "type": "text", "content": answer[:6000]},
+    ]
+    if _is_intelligent_dining_request(payload.message):
+        facilities = hospitality.guest_facilities(session.property_id)
+        restaurant_cards = []
+        for restaurant in facilities.get("restaurants", [])[:8]:
+            if restaurant.get("archived") or restaurant.get("status") in {"disabled", "archived"}:
+                continue
+            opening = restaurant.get("opening_hours") or {}
+            hours = opening.get("display", "") if isinstance(opening, dict) else str(opening or "")
+            location = str(restaurant.get("location") or "").strip()
+            detail = " · ".join(part for part in (location, f"Hours: {hours}" if hours else "") if part)
+            restaurant_cards.append({
+                "id": new_ui_id("restaurant"),
+                "type": "restaurant",
+                "title": str(restaurant.get("name") or "Dining venue")[:120],
+                "subtitle": str(restaurant.get("cuisine") or "")[:120],
+                "description": str(restaurant.get("description") or "")[:500],
+                "detail": detail[:300],
+            })
+        if restaurant_cards:
+            blocks.append({
+                "id": new_ui_id("cards"),
+                "type": "card_collection",
+                "title": "Dining at this hotel",
+                "cards": restaurant_cards,
+            })
+
+    if not result.get("ai_paused") and not result.get("human_takeover"):
+        if not payload.conversation_history:
+            prompts = _intelligent_guest_ui_config(property_record).suggested_prompts
+        else:
+            prompts = _intelligent_followup_prompts(payload.message)
+        if prompts:
+            blocks.append({
+                "id": new_ui_id("suggestions"),
+                "type": "suggestion_chips",
+                "items": [{"label": prompt[:80], "prompt": prompt[:300]} for prompt in prompts[:4]],
+            })
+    try:
+        return make_intelligent_ui_response(session.session_id, blocks)
+    except (TypeError, ValueError):
+        # A malformed presentation object falls back to one bounded text block.
+        return make_intelligent_ui_response(session.session_id, [{
+            "id": new_ui_id("text"),
+            "type": "text",
+            "content": answer[:6000],
+        }])
+
+
+def _is_intelligent_dining_request(message: str) -> bool:
+    normalized = str(message or "").casefold()
+    return any(term in normalized for term in ("restaurant", "dining", "dinner", "lunch", "breakfast", "eat", "food", "cafe", "café"))
+
+
+def _intelligent_followup_prompts(message: str) -> list[str]:
+    normalized = str(message or "").casefold()
+    if any(term in normalized for term in ("pool", "gym", "spa", "hours", "open")):
+        return ["Where is that located?", "Where can I have dinner?", "How can I request a service?"]
+    if _is_intelligent_dining_request(normalized):
+        return ["What are the pool hours?", "Can I see the restaurant menus?", "How can I request a service?"]
+    return ["Where can I have dinner?", "What hotel services can I request?", "What time is the pool open?"]
+
+
 def _is_authentication_question(message: str) -> bool:
     normalized = message.lower()
     return any(token in normalized for token in ("wi-fi", "wifi", "internet", "connect", "login", "auth"))
@@ -6340,11 +6494,11 @@ def _display_hours(value: str) -> str:
     def replace(match: re.Match[str]) -> str:
         hour = int(match.group(1))
         minute = match.group(2)
-        suffix = "AM" if hour < 12 else "PM"
+        suffix = (match.group(3) or ("AM" if hour < 12 else "PM")).upper()
         display_hour = hour % 12 or 12
         return f"{display_hour}:{minute} {suffix}"
 
-    return re.sub(r"(?<!\d)([01]?\d|2[0-3]):([0-5]\d)(?!\d)", replace, value)
+    return re.sub(r"(?<!\d)([01]?\d|2[0-3]):([0-5]\d)(?:\s*([AaPp][Mm]))?(?!\d)", replace, value)
 
 
 CALL_CONCIERGE_MARKER = "[[CALL_CONCIERGE]]"
@@ -6602,6 +6756,8 @@ def _property_admin_app_settings(
                     visible[key] = app_values
             else:
                 visible[key] = item
+        elif key == "guest_experience" and principal.can("properties.view"):
+            visible[key] = item
         elif key == "deployment" and principal.can("domains.view") and principal.can("network.view"):
             if isinstance(item, dict):
                 deployment = {
