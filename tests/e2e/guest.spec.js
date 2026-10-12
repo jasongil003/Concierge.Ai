@@ -1,4 +1,6 @@
 import { expect, test } from "@playwright/test";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 
 const csrfByRequest = new WeakMap();
 
@@ -131,6 +133,29 @@ async function ensureGuestData(request) {
       data: { data: { name: "Fixture Bistro", category: "Dining", address: "1 Example Road", map_url: "https://maps.example/fixture", description: "Synthetic test recommendation.", enabled: true } },
     });
   }
+}
+
+async function setIntelligentUi(request, enabled, { welcome = "", prompts = [], pool } = {}) {
+  const csrf = await loginAdmin(request);
+  const propertyId = "e2e-property";
+  const propertyResponse = await request.get(`/api/admin/properties/${propertyId}`);
+  expect(propertyResponse.ok()).toBeTruthy();
+  const property = await propertyResponse.json();
+  property.app_settings = {
+    ...(property.app_settings || {}),
+    guest_experience: {
+      ...(property.app_settings?.guest_experience || {}),
+      intelligent_ui: { enabled },
+      welcome_message: welcome,
+      suggested_prompts: prompts,
+    },
+  };
+  if (pool) property.pool = pool;
+  const saved = await request.put(`/api/admin/properties/${propertyId}`, {
+    headers: { "X-CSRF-Token": csrf },
+    data: property,
+  });
+  expect(saved.ok(), await saved.text()).toBeTruthy();
 }
 
 // --- 1. Guest initial load ---
@@ -1007,6 +1032,103 @@ test("guest: new conversation resets messages", async ({ page }) => {
   await openHotelMenu(page);
   await page.getByRole("button", { name: "New conversation" }).click();
   await expect(page.locator(".message-row")).toHaveCount(0);
+});
+
+test("Intelligent UI: property opt-in answers from verified hotel data and keeps AI text inert", async ({ page, request }, testInfo) => {
+  await setIntelligentUi(request, true, {
+    welcome: "A quieter welcome for your stay.",
+    prompts: ["What time is the pool open?", "Where can I have dinner?"],
+    pool: { name: "Pool", location: "Level 3", opening_hours: { display: "6:00 AM to 10:00 PM" } },
+  });
+  try {
+    await page.goto("/?experience=legacy");
+    await expect(page.locator("#app-shell")).toBeVisible();
+    await expect(page.locator("#welcome-description")).toHaveText("A quieter welcome for your stay.");
+    await expect(page.locator("#welcome-suggestions button")).toHaveCount(2);
+    await expect(page.locator("link[rel='stylesheet']")).toHaveAttribute("href", "/intelligent-ui/styles.css");
+
+    const screenshotDirectory = join(process.cwd(), "docs", "intelligent-ui", "screenshots");
+    mkdirSync(screenshotDirectory, { recursive: true });
+    await page.screenshot({ path: join(screenshotDirectory, `welcome-${testInfo.project.name}.png`), fullPage: true });
+
+    for (const width of [320, 375, 390, 430, 768, 1024, 1440, 1920]) {
+      await page.setViewportSize({ width, height: 850 });
+      const metrics = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        viewportWidth: window.innerWidth,
+        composerBottom: document.querySelector("#composer-form").getBoundingClientRect().bottom,
+      }));
+      expect(metrics.scrollWidth, `Intelligent UI overflowed at ${width}px`).toBeLessThanOrEqual(width);
+      expect(metrics.composerBottom, `Intelligent UI composer escaped the viewport at ${width}px`).toBeLessThanOrEqual(851);
+    }
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.getByLabel("Message your concierge").fill("What time is the pool open?");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await expect(page.locator(".message-row.assistant .message-text").last()).toContainText("6:00 AM");
+    await expect(page.locator(".message-row.assistant .message-text").last()).toContainText("Level 3");
+    await page.screenshot({ path: join(screenshotDirectory, `conversation-${testInfo.project.name}.png`), fullPage: true });
+
+    const conversationId = await page.evaluate(() => sessionStorage.getItem("concierge-v2-session-id"));
+    await page.route("**/api/guest/intelligent-chat", (route) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        schema_version: "1.0", conversation_id: conversationId, turn_id: "ui-test-turn",
+        blocks: [{ id: "inert-text", type: "text", content: '<img src=x onerror="window.__guestUiXss = true">' }],
+      }),
+    }));
+    await page.getByLabel("Message your concierge").fill("Show me a text example");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await expect(page.locator(".message-row.assistant .message-text").last()).toContainText("<img src=x");
+    expect(await page.locator("#message-list img").count()).toBe(0);
+    expect(await page.evaluate(() => window.__guestUiXss || false)).toBe(false);
+  } finally {
+    await setIntelligentUi(request, false);
+  }
+});
+
+test("Intelligent UI: service requests wait for explicit confirmation and backend verification", async ({ page, request }) => {
+  await ensureGuestData(request);
+  await setIntelligentUi(request, true);
+  try {
+    await page.goto("/");
+    await page.getByLabel("Message your concierge").fill("Please send two towels to my room");
+    await page.getByRole("button", { name: "Send message" }).click();
+    const review = page.locator(".request-review");
+    await expect(review).toContainText("Towels");
+    const confirmResponse = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === "/api/guest/actions/confirm" && response.request().method() === "POST",
+    );
+    await review.getByRole("button", { name: "Confirm request" }).click();
+    const confirmed = await confirmResponse;
+    expect(confirmed.status()).toBe(200);
+    expect((await confirmed.json()).status).toBe("created");
+    await expect(page.locator(".verified-confirmation")).toContainText("Your request has been sent");
+
+    await page.getByRole("button", { name: "Start a new private conversation" }).click();
+    await expect(page.locator("#welcome")).toBeVisible();
+    await expect(page.locator("#message-list")).toBeEmpty();
+  } finally {
+    await setIntelligentUi(request, false);
+  }
+});
+
+test("Intelligent UI: server-side rollback restores legacy and query parameters cannot enable v2", async ({ page, request }) => {
+  await setIntelligentUi(request, true);
+  try {
+    await page.goto("/");
+    await expect(page.locator("#app-shell")).toBeVisible();
+    await setIntelligentUi(request, false);
+    await page.reload();
+    await expect(page.locator("#concierge-shell")).toBeVisible();
+    await expect(page.locator("link[rel='stylesheet']")).toHaveAttribute("href", /\/static\/styles\.css/);
+    await page.goto("/?intelligent_ui=1");
+    await expect(page.locator("#concierge-shell")).toBeVisible();
+    await expect(page.locator("#app-shell")).toHaveCount(0);
+  } finally {
+    await setIntelligentUi(request, false);
+  }
 });
 
 // --- 8. Mobile layout ---
