@@ -71,7 +71,18 @@ def build_pdf(title: str, subtitle: str, sections: list[tuple[str, list[str]]]) 
                 clean = clean[split:].strip()
             lines.append((clean, 9))
         lines.append(("", 7))
-    pages = [lines[index:index + 55] for index in range(0, len(lines), 55)] or [[]]
+    pages: list[list[tuple[str, int]]] = []
+    page_lines: list[tuple[str, int]] = []
+    baseline = 750
+    for line in lines:
+        if baseline < 42:
+            pages.append(page_lines)
+            page_lines = []
+            baseline = 750
+        page_lines.append(line)
+        baseline -= 20 if line[1] >= 12 else 14
+    if page_lines:
+        pages.append(page_lines)
     objects: list[bytes] = []
     objects.append(b"<< /Type /Catalog /Pages 2 0 R >>")
     page_ids = [4 + index * 2 for index in range(len(pages))]
@@ -83,9 +94,8 @@ def build_pdf(title: str, subtitle: str, sections: list[tuple[str, list[str]]]) 
         y = 750
         commands = ["BT"]
         for text, size in page:
-            commands.append(f"/F1 {size} Tf 46 {y} Td ({_pdf_escape(text)}) Tj")
+            commands.append(f"/F1 {size} Tf 1 0 0 1 46 {y} Tm ({_pdf_escape(text)}) Tj")
             y_delta = 20 if size >= 12 else 14
-            commands.append(f"-46 -{y_delta} Td")
             y -= y_delta
         commands.append("ET")
         stream = "\n".join(commands).encode("latin-1", "replace")

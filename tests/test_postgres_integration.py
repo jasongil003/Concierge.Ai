@@ -506,6 +506,15 @@ def test_service_request_query_uses_high_volume_composite_index():
                 {"property_id": property_id},
             ).scalars().all()
         assert any("idx_service_requests_property_status_created" in line for line in plan), "\n".join(plan)
+        # Exercise both optional department branches with the actual PostgreSQL
+        # bind types; SQLite accepts an untyped NULL that PostgreSQL rejects.
+        from app.hospitality import HospitalityStore
+        hospitality = HospitalityStore("postgres-metrics-ignored.db")
+        assert hospitality.request_metrics(property_id)["total_requests"] == 20
+        with engine.begin() as connection:
+            connection.execute(text("UPDATE service_requests SET department='Housekeeping' WHERE property_id=:property_id"), {"property_id": property_id})
+        assert hospitality.request_metrics(property_id, department_name="Housekeeping")["total_requests"] == 20
+        assert hospitality.request_metrics(property_id, department_name="Front Desk")["total_requests"] == 0
     finally:
         with engine.begin() as connection:
             connection.execute(text("DELETE FROM service_requests WHERE property_id=:property_id"), {"property_id": property_id})
@@ -516,6 +525,7 @@ def test_postgres_guest_zones_knowledge_conflicts_and_service_request_replay(tmp
     _configure()
     from app.hospitality import HospitalityStore
     from app.knowledge_management import KnowledgeStore
+    from app.operations import OperationsStore
     from app.properties import PropertyRecord, PropertyStore
     from app.zones import ZoneStore
 
@@ -565,9 +575,16 @@ def test_postgres_guest_zones_knowledge_conflicts_and_service_request_replay(tmp
         replayed = hospitality.create_service_request(property_id, payload)
         assert replayed["request_id"] == created["request_id"]
         assert replayed["idempotent_replay"] is True
+        operations = OperationsStore(db_path)
+        draft = operations.save_knowledge(property_id, {"kind": "faq", "question": "Synthetic policy?", "answer": "Draft only.", "enabled": False}, allow_publish=False)
+        operations.save_knowledge(property_id, {"kind": "faq", "question": "Synthetic policy?", "answer": "Approved fact.", "enabled": True}, draft["item_id"], allow_publish=True)
+        with pytest.raises(PermissionError, match="knowledge.publish"):
+            operations.save_knowledge(property_id, {"kind": "faq", "question": "Synthetic policy?", "answer": "Unauthorized replacement.", "enabled": False}, draft["item_id"], allow_publish=False)
+        assert operations.search_knowledge(property_id, "Synthetic policy", include_documents=False)[0]["answer"] == "Approved fact."
     finally:
         with connect_database(db_path) as db:
             db.execute("DELETE FROM service_requests WHERE property_id=?", (property_id,))
             db.execute("DELETE FROM km_conflicts WHERE property_id=?", (property_id,))
             db.execute("DELETE FROM floor_maps WHERE property_id=?", (property_id,))
+            db.execute("DELETE FROM knowledge_items WHERE property_id=?", (property_id,))
             db.execute("DELETE FROM properties WHERE property_id=?", (property_id,))

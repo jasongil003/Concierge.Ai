@@ -1714,7 +1714,7 @@ class HospitalityStore:
                 """SELECT COUNT(*) AS total,
                 SUM(CASE WHEN status NOT IN ('completed','cancelled') THEN 1 ELSE 0 END) AS open_count,
                 SUM(CASE WHEN status NOT IN ('completed','cancelled') AND due_at IS NOT NULL AND due_at<? THEN 1 ELSE 0 END) AS overdue_count
-                FROM service_requests WHERE property_id=? AND (? IS NULL OR department=?)""",
+                FROM service_requests WHERE property_id=? AND (CAST(? AS TEXT) IS NULL OR department=?)""",
                 (_now(), property_id, department_name, department_name),
             ).fetchone()
         return {"total_requests": int(row["total"] or 0), "open_requests": int(row["open_count"] or 0), "overdue_requests": int(row["overdue_count"] or 0)}
