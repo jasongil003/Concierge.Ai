@@ -126,8 +126,12 @@ def test_guest_home_and_request_endpoints_are_property_and_session_scoped(admin_
         "name": "Extra Towels", "department_id": department["department_id"], "keywords": ["towel", "towels"],
     })
     hospitality.create_restaurant(property_id, {"name": "Configured Dining", "cuisine": "Japanese"})
-    session_a = admin_client.post("/api/session/start", json={"client_id": "guest-a"}).json()["session_id"]
-    session_b = admin_client.post("/api/session/start", json={"client_id": "guest-b"}).json()["session_id"]
+    session_a = admin_client.post("/api/session/start", json={
+        "client_id": "guest-a", "property_id": property_id,
+    }).json()["session_id"]
+    session_b = admin_client.post("/api/session/start", json={
+        "client_id": "guest-b", "property_id": property_id,
+    }).json()["session_id"]
 
     home = admin_client.get(f"/api/guest/home?session_id={session_a}")
     assert home.status_code == 200, home.text
@@ -140,8 +144,12 @@ def test_guest_home_and_request_endpoints_are_property_and_session_scoped(admin_
     proposal_data = proposal.json()
     assert proposal_data["status"] == "proposed"
     assert proposal_data["card"]["title"] == "Extra Towels"
+    assert proposal_data["card"]["source_ids"] == [f"guest:{property_id}:service:{service['service_id']}"]
     created = admin_client.post("/api/guest/actions/confirm", json={"session_id": session_a, "proposal_token": proposal_data["proposal_token"]})
     assert created.status_code == 200, created.text
+    assert created.json()["source_ids"] == [
+        f"guest:{property_id}:service_request:{created.json()['request']['request_id']}"
+    ]
     request_id = created.json()["request"]["request_id"]
     assert created.json()["request"]["department"] == "Configured Team"
 

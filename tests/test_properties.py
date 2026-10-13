@@ -789,7 +789,8 @@ def test_design_validation_rejects_bad_theme(tmp_path: Path):
 def test_guest_hotel_api_uses_published_design(admin_client: TestClient):
     client = admin_client
     properties_response = client.get("/api/admin/properties")
-    property_id = properties_response.json()["properties"][0]["property_id"]
+    property_id = main_module.settings.property_id
+    assert any(item["property_id"] == property_id for item in properties_response.json()["properties"])
     design_response = client.get(f"/api/admin/properties/{property_id}/design").json()
     original_published = design_response["published"]
     design = design_response["draft"]

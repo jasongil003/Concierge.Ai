@@ -76,6 +76,7 @@ class GooglePlaces:
                 distance_meters = round(_distance_meters(latitude, longitude, float(point["latitude"]), float(point["longitude"])))
             results.append(
                 {
+                    "place_id": place.get("id"),
                     "name": place.get("displayName", {}).get("text"),
                     "address": place.get("formattedAddress"),
                     "rating": place.get("rating"),

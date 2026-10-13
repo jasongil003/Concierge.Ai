@@ -21,6 +21,13 @@ class StrictSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+def _validate_source_ids(values: list[str]) -> list[str]:
+    clean = list(dict.fromkeys(value.strip() for value in values))
+    if len(clean) > 16 or any(not value or len(value) > 256 or not value.startswith("guest:") for value in clean):
+        raise ValueError("Source references must be bounded guest-visible record IDs.")
+    return clean
+
+
 class IntelligentUIFlag(StrictSchema):
     enabled: StrictBool = False
 
@@ -53,6 +60,27 @@ class TextBlock(StrictSchema):
     id: str = Field(min_length=1, max_length=80)
     type: Literal["text"]
     content: str = Field(max_length=MAX_TEXT_CONTENT_CHARS)
+    source_ids: list[str] = Field(default_factory=list, max_length=16)
+
+    @field_validator("source_ids")
+    @classmethod
+    def validate_sources(cls, values: list[str]) -> list[str]:
+        return _validate_source_ids(values)
+
+
+class GroundedClaimBlock(StrictSchema):
+    id: str = Field(min_length=1, max_length=80)
+    type: Literal["grounded_claim"]
+    content: str = Field(min_length=1, max_length=1200)
+    source_ids: list[str] = Field(min_length=1, max_length=16)
+
+    @field_validator("source_ids")
+    @classmethod
+    def validate_sources(cls, values: list[str]) -> list[str]:
+        clean = _validate_source_ids(values)
+        if not clean:
+            raise ValueError("Factual claims require at least one source reference.")
+        return clean
 
 
 class SuggestionItem(StrictSchema):
@@ -68,7 +96,7 @@ class SuggestionChipsBlock(StrictSchema):
 
 class EntityCard(StrictSchema):
     id: str = Field(min_length=1, max_length=80)
-    type: Literal["restaurant", "facility"]
+    type: Literal["restaurant", "facility", "service", "place"]
     title: str = Field(min_length=1, max_length=120)
     subtitle: str = Field(default="", max_length=120)
     description: str = Field(default="", max_length=500)
@@ -80,8 +108,11 @@ class EntityCard(StrictSchema):
     policies: list[str] = Field(default_factory=list, max_length=8)
     menu_available: StrictBool = False
     reservation_url: str = Field(default="", max_length=1000)
+    maps_url: str = Field(default="", max_length=1000)
+    open_now: StrictBool | None = None
+    source_ids: list[str] = Field(default_factory=list, max_length=16)
 
-    @field_validator("image_url", "reservation_url")
+    @field_validator("image_url", "reservation_url", "maps_url")
     @classmethod
     def validate_card_url(cls, value: str) -> str:
         value = value.strip()
@@ -93,6 +124,11 @@ class EntityCard(StrictSchema):
         if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
             raise ValueError("Card URLs must use HTTPS or a safe same-origin path.")
         return value
+
+    @field_validator("source_ids")
+    @classmethod
+    def validate_sources(cls, values: list[str]) -> list[str]:
+        return _validate_source_ids(values)
 
     @field_validator("policies")
     @classmethod
@@ -119,6 +155,12 @@ class CardCollectionBlock(StrictSchema):
 class DetailField(StrictSchema):
     label: str = Field(min_length=1, max_length=60)
     value: str = Field(max_length=300)
+    source_ids: list[str] = Field(default_factory=list, max_length=16)
+
+    @field_validator("source_ids")
+    @classmethod
+    def validate_sources(cls, values: list[str]) -> list[str]:
+        return _validate_source_ids(values)
 
 
 class DetailsPanelBlock(StrictSchema):
@@ -126,6 +168,12 @@ class DetailsPanelBlock(StrictSchema):
     type: Literal["details_panel"]
     title: str = Field(min_length=1, max_length=100)
     fields: list[DetailField] = Field(min_length=1, max_length=12)
+    source_ids: list[str] = Field(default_factory=list, max_length=16)
+
+    @field_validator("source_ids")
+    @classmethod
+    def validate_sources(cls, values: list[str]) -> list[str]:
+        return _validate_source_ids(values)
 
 
 class SelectionOption(StrictSchema):
@@ -195,6 +243,12 @@ class RequestReviewBlock(StrictSchema):
     description: str = Field(min_length=1, max_length=1000)
     confirmation_token: str = Field(min_length=20, max_length=3000)
     confirm_label: str = Field(default="Confirm request", min_length=1, max_length=40)
+    source_ids: list[str] = Field(default_factory=list, max_length=16)
+
+    @field_validator("source_ids")
+    @classmethod
+    def validate_sources(cls, values: list[str]) -> list[str]:
+        return _validate_source_ids(values)
 
 
 class VerifiedConfirmationBlock(StrictSchema):
@@ -202,6 +256,12 @@ class VerifiedConfirmationBlock(StrictSchema):
     type: Literal["verified_confirmation"]
     title: str = Field(min_length=1, max_length=120)
     detail: str = Field(default="", max_length=500)
+    source_ids: list[str] = Field(default_factory=list, max_length=16)
+
+    @field_validator("source_ids")
+    @classmethod
+    def validate_sources(cls, values: list[str]) -> list[str]:
+        return _validate_source_ids(values)
 
 
 class MapMarker(StrictSchema):
@@ -209,6 +269,12 @@ class MapMarker(StrictSchema):
     label: str = Field(min_length=1, max_length=120)
     x_percent: float = Field(ge=0, le=100)
     y_percent: float = Field(ge=0, le=100)
+    source_ids: list[str] = Field(default_factory=list, max_length=16)
+
+    @field_validator("source_ids")
+    @classmethod
+    def validate_sources(cls, values: list[str]) -> list[str]:
+        return _validate_source_ids(values)
 
 
 class MapViewBlock(StrictSchema):
@@ -223,6 +289,12 @@ class MapViewBlock(StrictSchema):
     image_width: int | None = Field(default=None, ge=1, le=25000)
     image_height: int | None = Field(default=None, ge=1, le=25000)
     markers: list[MapMarker] = Field(default_factory=list, max_length=80)
+    source_ids: list[str] = Field(default_factory=list, max_length=16)
+
+    @field_validator("source_ids")
+    @classmethod
+    def validate_sources(cls, values: list[str]) -> list[str]:
+        return _validate_source_ids(values)
 
     @field_validator("map_image_url")
     @classmethod
@@ -264,6 +336,7 @@ class ErrorStateBlock(StrictSchema):
 PresentationBlock = Annotated[
     Union[
         TextBlock,
+        GroundedClaimBlock,
         SuggestionChipsBlock,
         EntityCardBlock,
         CardCollectionBlock,

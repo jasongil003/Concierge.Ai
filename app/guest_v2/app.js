@@ -345,9 +345,19 @@
     return typeof value === "string" && value.length <= maximum;
   }
 
+  function validSourceIds(value) {
+    const ids = Array.isArray(value) ? value : [];
+    return ids.length <= 16 && ids.every((id) => validText(id, 256) && id.startsWith("guest:"));
+  }
+
+  function attachSourceIds(node, value) {
+    if (Array.isArray(value) && value.length) node.dataset.sourceIds = value.join(" ");
+    return node;
+  }
+
   function validateEntityCard(card) {
     return card && typeof card === "object"
-      && ["restaurant", "facility"].includes(card.type)
+      && ["restaurant", "facility", "service", "place"].includes(card.type)
       && validText(card.id, 80) && validText(card.title, 120) && card.title.trim()
       && validText(card.subtitle || "", 120) && validText(card.description || "", 500)
       && validText(card.detail || "", 300)
@@ -358,7 +368,11 @@
       && (card.policies || []).every((policy) => validText(policy, 240) && policy.trim())
       && typeof (card.menu_available ?? false) === "boolean"
       && validText(card.reservation_url || "", 1000)
-      && (!card.reservation_url || safeApprovedHttpsUrl(card.reservation_url));
+      && (!card.reservation_url || safeApprovedHttpsUrl(card.reservation_url))
+      && validText(card.maps_url || "", 1000)
+      && (!card.maps_url || safeApprovedHttpsUrl(card.maps_url))
+      && (card.open_now == null || typeof card.open_now === "boolean")
+      && validSourceIds(card.source_ids);
   }
 
   function validSelectionOption(option) {
@@ -406,7 +420,12 @@
       return { id: newId(), type: "unknown" };
     }
     switch (block.type) {
-      case "text": return validText(block.content) ? block : { id: block.id, type: "unknown" };
+      case "text": return validText(block.content) && validSourceIds(block.source_ids)
+        ? block : { id: block.id, type: "unknown" };
+      case "grounded_claim":
+        return validText(block.content, 1200) && block.content.trim()
+          && Array.isArray(block.source_ids) && block.source_ids.length > 0 && validSourceIds(block.source_ids)
+          ? block : { id: block.id, type: "unknown" };
       case "suggestion_chips":
         return Array.isArray(block.items) && block.items.length <= 6 && block.items.every((item) => validText(item?.label, 80) && item.label && validText(item.prompt, 300) && item.prompt)
           ? block : { id: block.id, type: "unknown" };
@@ -416,17 +435,19 @@
           ? block : { id: block.id, type: "unknown" };
       case "details_panel":
         return validText(block.title, 100) && Array.isArray(block.fields) && block.fields.length <= 12
-          && block.fields.every((item) => validText(item?.label, 60) && item.label && validText(item?.value, 300))
+          && validSourceIds(block.source_ids)
+          && block.fields.every((item) => validText(item?.label, 60) && item.label && validText(item?.value, 300) && validSourceIds(item.source_ids))
           ? block : { id: block.id, type: "unknown" };
       case "selection_form":
         return validSelectionForm(block) ? block : { id: block.id, type: "unknown" };
       case "request_review":
         return validText(block.title, 120) && validText(block.department || "", 120)
           && validText(block.description, 1000) && validText(block.confirmation_token, 3000)
+          && validSourceIds(block.source_ids)
           && validText(block.confirm_label || "Confirm request", 40)
           ? block : { id: block.id, type: "unknown" };
       case "verified_confirmation":
-        return validText(block.title, 120) && validText(block.detail || "", 500)
+        return validText(block.title, 120) && validText(block.detail || "", 500) && validSourceIds(block.source_ids)
           ? block : { id: block.id, type: "unknown" };
       case "map_view":
         {
@@ -442,9 +463,11 @@
             && mapMarkers.every((marker) => validText(marker?.id, 80) && marker.id
               && validText(marker?.label, 120) && marker.label
               && Number.isFinite(marker?.x_percent) && marker.x_percent >= 0 && marker.x_percent <= 100
-              && Number.isFinite(marker?.y_percent) && marker.y_percent >= 0 && marker.y_percent <= 100);
+              && Number.isFinite(marker?.y_percent) && marker.y_percent >= 0 && marker.y_percent <= 100
+              && validSourceIds(marker.source_ids));
           return validText(block.title, 120) && validText(block.label || "", 120)
             && validText(block.map_alt || "", 500) && (hasCoordinates || hasFloorPlan)
+            && validSourceIds(block.source_ids)
             && (!block.map_image_url || hasFloorPlan) && markersValid
             ? block : { id: block.id, type: "unknown" };
         }
@@ -473,7 +496,7 @@
   }
 
   function appendEntityCard(parent, card) {
-    const article = element("article", `entity-card entity-card-${card.type}`);
+    const article = attachSourceIds(element("article", "entity-card entity-card-" + card.type), card.source_ids);
     const imageUrl = safeApprovedHttpsUrl(card.image_url);
     if (imageUrl) {
       const image = document.createElement("img");
@@ -513,9 +536,9 @@
             const result = await api(`/api/guest/restaurants/${encodeURIComponent(card.resource_id)}/menus`);
             menuRegion.replaceChildren();
             for (const menu of (Array.isArray(result.menus) ? result.menus : []).slice(0, 8)) {
-              menuRegion.appendChild(element("h4", "", [menu.name, menu.meal_period].filter(Boolean).join(" · ")));
+              menuRegion.appendChild(attachSourceIds(element("h4", "", [menu.name, menu.meal_period].filter(Boolean).join(" · ")), menu.source_ids));
               for (const item of (Array.isArray(menu.items) ? menu.items : []).slice(0, 40)) {
-                const entry = element("div", "menu-item");
+                const entry = attachSourceIds(element("div", "menu-item"), item.source_ids);
                 entry.appendChild(element("strong", "", String(item.name || "Menu item").slice(0, 160)));
                 if (item.price) entry.appendChild(element("span", "menu-price", String(item.price).slice(0, 40)));
                 if (item.description) entry.appendChild(element("p", "", String(item.description).slice(0, 500)));
@@ -550,11 +573,28 @@
       link.referrerPolicy = "no-referrer";
       article.appendChild(link);
     }
+    if (card.type === "place" && card.open_now != null) {
+      article.appendChild(element("p", "card-detail", card.open_now ? "Listed as open now" : "Not listed as open now"));
+    }
+    if (card.type === "place" && card.maps_url) {
+      const directions = element("a", "reservation-link", "Directions");
+      directions.href = safeApprovedHttpsUrl(card.maps_url);
+      directions.target = "_blank";
+      directions.rel = "noopener noreferrer";
+      directions.referrerPolicy = "no-referrer";
+      article.appendChild(directions);
+    }
+    if (card.type === "service") {
+      const request = element("button", "reservation-link", "Request with concierge");
+      request.type = "button";
+      request.addEventListener("click", () => sendMessage("Can you provide " + card.title + "?"));
+      article.appendChild(request);
+    }
     parent.appendChild(article);
   }
 
   function renderRequestReview(parent, block) {
-    const card = element("section", "request-review");
+    const card = attachSourceIds(element("section", "request-review"), block.source_ids);
     card.appendChild(element("h3", "", block.title));
     if (block.department) card.appendChild(element("p", "review-department", block.department));
     card.appendChild(element("p", "", block.description));
@@ -698,6 +738,9 @@
     const wrapper = element("div", "message-block");
     switch (block.type) {
       case "text": wrapper.appendChild(element("p", "message-text", block.content)); break;
+      case "grounded_claim":
+        wrapper.appendChild(attachSourceIds(element("p", "message-text grounded-claim", block.content), block.source_ids));
+        break;
       case "suggestion_chips": appendSuggestionButtons(wrapper, block.items); break;
       case "entity_card": appendEntityCard(wrapper, block.card); break;
       case "card_collection": {
@@ -708,11 +751,12 @@
         break;
       }
       case "details_panel": {
-        const panel = element("section", "detail-panel");
+        const panel = attachSourceIds(element("section", "detail-panel"), block.source_ids);
         panel.appendChild(element("h3", "", block.title));
         const list = element("dl", "detail-list");
         for (const item of block.fields) {
           const row = element("div", "");
+          attachSourceIds(row, item.source_ids);
           row.append(element("dt", "", item.label), element("dd", "", item.value));
           list.appendChild(row);
         }
@@ -726,7 +770,7 @@
       }
       case "request_review": renderRequestReview(wrapper, block); break;
       case "verified_confirmation": {
-        const panel = element("section", "verified-confirmation");
+        const panel = attachSourceIds(element("section", "verified-confirmation"), block.source_ids);
         panel.appendChild(element("span", "confirmation-mark", "✓"));
         panel.appendChild(element("h3", "", block.title));
         if (block.detail) panel.appendChild(element("p", "", block.detail));
@@ -734,7 +778,7 @@
         break;
       }
       case "map_view": {
-        const panel = element("section", "map-panel");
+        const panel = attachSourceIds(element("section", "map-panel"), block.source_ids);
         panel.appendChild(element("h3", "", block.title));
         if (block.map_image_url && block.image_width && block.image_height) {
           const figure = element("figure", "floor-map-figure");
@@ -752,6 +796,7 @@
           selectedLocation.setAttribute("aria-live", "polite");
           for (const marker of (Array.isArray(block.markers) ? block.markers : [])) {
             const button = element("button", "floor-map-marker", marker.label);
+            attachSourceIds(button, marker.source_ids);
             button.type = "button";
             button.style.left = `${marker.x_percent}%`;
             button.style.top = `${marker.y_percent}%`;
@@ -848,6 +893,7 @@
         id: newId(), type: "verified_confirmation",
         title: result.status === "existing" ? "Your request is already with the hotel team" : "Your request has been sent",
         detail: [requestType, detail].filter(Boolean).join(" · "),
+        source_ids: Array.isArray(result.source_ids) ? result.source_ids : [],
       }];
       persistMessages();
       renderMessages();
