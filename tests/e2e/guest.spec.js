@@ -126,6 +126,18 @@ async function ensureGuestData(request) {
       data: { data: { name: "Towels", department_id: department.department_id, keywords: ["towel", "towels"], sla_minutes: 15 } },
     });
   }
+  for (const service of [
+    { name: "Extra Pillow", keywords: ["extra pillow", "pillow"] },
+    { name: "Housekeeping Visit", keywords: ["housekeeping", "clean my room"] },
+  ]) {
+    if (!catalog.services.some((item) => item.name === service.name)) {
+      const response = await request.put(`/api/admin/properties/${propertyId}/service-catalog`, {
+        headers: { "X-CSRF-Token": csrf },
+        data: { data: { ...service, department_id: department.department_id, sla_minutes: 15 } },
+      });
+      expect(response.ok(), await response.text()).toBeTruthy();
+    }
+  }
   const recommendations = await (await request.get(`/api/admin/properties/${propertyId}/recommendations`)).json();
   if (!recommendations.recommendations.some((item) => item.name === "Fixture Bistro")) {
     await request.put(`/api/admin/properties/${propertyId}/recommendations`, {
@@ -1269,6 +1281,64 @@ test("Intelligent UI: sourced restaurant cards show configured status at mobile 
   }
 });
 
+test("Intelligent UI: dinner menu cards show only published available items and prices", async ({ page, request }) => {
+  const csrf = await loginAdmin(request);
+  const restaurantName = `Published Dinner ${Date.now()}`;
+  const createdRestaurant = await request.post("/api/admin/properties/e2e-property/restaurants", {
+    headers: { "X-CSRF-Token": csrf },
+    data: { data: { name: restaurantName, meal_periods: ["dinner"], status: "open" } },
+  });
+  expect(createdRestaurant.ok(), await createdRestaurant.text()).toBeTruthy();
+  const restaurant = await createdRestaurant.json();
+  let menuId = "";
+  try {
+    const createdMenu = await request.post(`/api/admin/properties/e2e-property/restaurants/${restaurant.restaurant_id}/menus`, {
+      headers: { "X-CSRF-Token": csrf },
+      data: { data: { name: "Dinner Menu", meal_period: "dinner" } },
+    });
+    expect(createdMenu.ok(), await createdMenu.text()).toBeTruthy();
+    const menu = await createdMenu.json();
+    menuId = menu.menu_id;
+    const createdItem = await request.post(`/api/admin/properties/e2e-property/menus/${menuId}/items`, {
+      headers: { "X-CSRF-Token": csrf },
+      data: { data: {
+        name: "Grilled Salmon", description: "Served with local vegetables.", price: "PHP 850",
+      } },
+    });
+    expect(createdItem.ok(), await createdItem.text()).toBeTruthy();
+    const createdUnavailableItem = await request.post(`/api/admin/properties/e2e-property/menus/${menuId}/items`, {
+      headers: { "X-CSRF-Token": csrf },
+      data: { data: { name: "Unavailable Dessert", price: "PHP 1", available: false } },
+    });
+    expect(createdUnavailableItem.ok(), await createdUnavailableItem.text()).toBeTruthy();
+    for (const action of ["approve", "publish"]) {
+      const changed = await request.post(`/api/admin/properties/e2e-property/menus/${menuId}/${action}`, {
+        headers: { "X-CSRF-Token": csrf },
+      });
+      expect(changed.ok(), await changed.text()).toBeTruthy();
+    }
+
+    await setIntelligentUi(request, true, { welcome: "Welcome to the dining guide." });
+    await page.goto("/?experience=legacy");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByLabel("Message your concierge").fill("What is on the dinner menu?");
+    await page.getByRole("button", { name: "Send message" }).click();
+    const panel = page.locator(".detail-panel");
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText("Grilled Salmon");
+    await expect(panel).toContainText("Served with local vegetables.");
+    await expect(panel).toContainText("PHP 850");
+    await expect(panel).not.toContainText("Unavailable Dessert");
+    await expect(page.locator(".entity-card-restaurant").filter({ hasText: restaurantName })).toBeVisible();
+  } finally {
+    await setIntelligentUi(request, false);
+    const archived = await request.put(`/api/admin/properties/e2e-property/restaurants/${restaurant.restaurant_id}`, {
+      headers: { "X-CSRF-Token": csrf }, data: { data: { status: "archived" } },
+    });
+    expect(archived.ok(), await archived.text()).toBeTruthy();
+  }
+});
+
 test("Intelligent UI: breakfast answer uses the current property's configured hours", async ({ page, request }) => {
   const csrf = await loginAdmin(request);
   const propertyResponse = await request.get("/api/admin/properties/e2e-property");
@@ -1524,9 +1594,35 @@ test("Intelligent UI: service requests wait for explicit confirmation and backen
     expect((await confirmed.json()).status).toBe("created");
     await expect(page.locator(".verified-confirmation")).toContainText("Your request has been sent");
 
-    await page.getByRole("button", { name: "Start a new private conversation" }).click();
-    await expect(page.locator("#welcome")).toBeVisible();
-    await expect(page.locator("#message-list")).toBeEmpty();
+    const confirmationPosts = [];
+    page.on("request", (requestEvent) => {
+      if (new URL(requestEvent.url()).pathname === "/api/guest/actions/confirm" && requestEvent.method() === "POST") {
+        confirmationPosts.push(requestEvent);
+      }
+    });
+    let confirmedServiceRequests = 0;
+    for (const [message, expectedService] of [
+      ["Could you bring an extra pillow?", "Extra Pillow"],
+      ["Please arrange housekeeping for my room", "Housekeeping Visit"],
+    ]) {
+      await page.getByLabel("Message your concierge").fill(message);
+      await page.getByRole("button", { name: "Send message" }).click();
+      const requestReview = page.locator(".request-review");
+      await expect(requestReview).toContainText(expectedService);
+      expect(confirmationPosts).toHaveLength(confirmedServiceRequests);
+      await expect(page.locator(".verified-confirmation")).toHaveCount(confirmedServiceRequests + 1);
+      const serviceConfirmResponse = page.waitForResponse((response) =>
+        new URL(response.url()).pathname === "/api/guest/actions/confirm" && response.request().method() === "POST",
+      );
+      await requestReview.getByRole("button", { name: "Confirm request" }).click();
+      const serviceConfirmed = await serviceConfirmResponse;
+      expect(serviceConfirmed.status()).toBe(200);
+      expect((await serviceConfirmed.json()).status).toBe("created");
+      confirmedServiceRequests += 1;
+      await expect(page.locator(".verified-confirmation")).toHaveCount(confirmedServiceRequests + 1);
+      await expect(page.locator(".verified-confirmation").last()).toContainText("Your request has been sent");
+    }
+
   } finally {
     await setIntelligentUi(request, false);
   }
