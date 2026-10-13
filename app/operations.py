@@ -134,7 +134,9 @@ class OperationsStore:
                 ).fetchall()
         return [self._knowledge_row(row) for row in rows]
 
-    def save_knowledge(self, property_id: str, payload: dict[str, Any], item_id: str | None = None) -> dict[str, Any]:
+    def save_knowledge(self, property_id: str, payload: dict[str, Any], item_id: str | None = None, *, allow_publish: bool = True) -> dict[str, Any]:
+        if payload.get("enabled", True) and not allow_publish:
+            raise PermissionError("Permission required: knowledge.publish")
         kind = str(payload.get("kind", "entry")).strip().lower()
         if kind not in {"entry", "faq"}:
             raise ValueError("Knowledge kind must be entry or faq.")
@@ -157,7 +159,7 @@ class OperationsStore:
             ).fetchone()
             if current is None and payload.get("item_id"):
                 raise KeyError("Knowledge item not found.")
-            db.execute(
+            cursor = db.execute(
                 """
                 INSERT INTO knowledge_items (
                     item_id, property_id, kind, title, question, answer, body, source_name,
@@ -167,9 +169,13 @@ class OperationsStore:
                     title = excluded.title, question = excluded.question, answer = excluded.answer,
                     body = excluded.body, status = 'ready', error = '', enabled = excluded.enabled,
                     updated_at = excluded.updated_at
+                WHERE knowledge_items.property_id = excluded.property_id
+                  AND (? OR knowledge_items.enabled = 0)
                 """,
-                (item_id, property_id, kind, title, question, answer, body, 1 if payload.get("enabled", True) else 0, now, now),
+                (item_id, property_id, kind, title, question, answer, body, 1 if payload.get("enabled", True) else 0, now, now, allow_publish),
             )
+            if cursor.rowcount == 0:
+                raise PermissionError("Permission required: knowledge.publish")
             row = db.execute("SELECT * FROM knowledge_items WHERE item_id = ?", (item_id,)).fetchone()
         return self._knowledge_row(row)
 
