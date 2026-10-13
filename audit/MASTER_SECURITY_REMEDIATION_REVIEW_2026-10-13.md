@@ -118,7 +118,7 @@ Playwright-generated screenshots and the generated control inventory were restor
 | PostgreSQL/Redis integration and recovery | **PASS** — 16 integration tests and seven restart/interruption/reconnect phases. |
 | PostgreSQL backup/clean-database restore | **PASS** — `tests/test_postgres_backup_integration.py`, 1 passed using PostgreSQL 16 tools in a disposable container. |
 | Docker runtime | **PASS** — fresh build, production-settings validation, writes/health, and volume recreation persistence. |
-| Full GitHub PR CI for this remediation | **PENDING** until the pushed branch workflow finishes. The latest main run above had only the secret-scan job fail. |
+| Full GitHub PR CI for remediation head `f7b6b97833b34f392073dad4cf2b8634be464a5a` (run `38331637137`) | **PASS** — all 10 jobs succeeded, including backend, browser, dependency, Docker, deployment, database, static security, and Gitleaks checks. The report-only commit recording this result is a later head and has its own workflow run. |
 | GitHub required-check enforcement on `main` | **FAIL / BLOCKED** — repository metadata shows protection disabled and zero required status checks; no settings write tool was available. |
 
 No load result in this review proves 30,000-user capacity. No live provider, hotel/customer data, property production infrastructure, or external credential was used or modified. The native hotel host, live TLS/reverse-proxy chain, controller/PMS integrations, off-host backup/key recovery, and representative capacity/soak checks remain unverified.
