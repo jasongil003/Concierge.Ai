@@ -49,7 +49,9 @@ def test_guest_confirmation_creates_trackable_request(admin_client, tmp_path: Pa
     )
     assert service.status_code == 200, service.text
 
-    session = admin_client.post("/api/session/start", json={"client_id": "guest-device"}).json()
+    session = admin_client.post("/api/session/start", json={
+        "client_id": "guest-device", "property_id": property_id,
+    }).json()
     created = admin_client.post(
         "/api/guest/service-requests",
         json={"session_id": session["session_id"], "service_id": service.json()["service_id"], "description": "Please send a crib", "room": "412", "confirmed": True},
@@ -73,7 +75,9 @@ def test_guest_service_request_is_idempotent(admin_client, tmp_path: Path, monke
     monkeypatch.setattr(main_module, "hospitality", hospitality)
     property_id = admin_client.get("/api/admin/properties").json()["properties"][0]["property_id"]
     service = hospitality.upsert_service(property_id, {"name": "Spa booking", "keywords": ["spa"]})
-    session = admin_client.post("/api/session/start", json={"client_id": "idempotent-guest"}).json()
+    session = admin_client.post("/api/session/start", json={
+        "client_id": "idempotent-guest", "property_id": property_id,
+    }).json()
     payload = {
         "session_id": session["session_id"],
         "service_id": service["service_id"],

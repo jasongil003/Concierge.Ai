@@ -114,19 +114,23 @@ def test_guest_chat_updates_and_uses_only_its_authenticated_stay(admin_client, t
 
     monkeypatch.setattr(main_module.ai_models, "concierge_chat", fake_chat)
     monkeypatch.setattr(main_module.places, "search", no_places)
-    for message in ("I prefer quiet restaurants.", "Where should we eat?"):
+    for message in ("I prefer quiet restaurants.", "Hello, can you help me?"):
         response = admin_client.post("/api/chat", json={"session_id": session_id, "message": message})
         assert response.status_code == 200, response.text
 
     context = captured[-1]["guest_context"]
     assert context["personalization_level"] == "stay"
-    assert any("quiet restaurants" in item.casefold() for item in context["preferences"])
+    assert context["preferences"] == []
+    assert any(
+        "quiet restaurants" in item["value"].casefold()
+        for item in personalization.list_preferences(property_id, session_id)
+    )
     assert context["open_requests"] == []
     assert context["room"] is None
     assert stay["stay_id"] not in str(context) and "device-hash-only" not in str(context)
 
 
-def test_guest_local_attraction_query_uses_live_place_context(admin_client, monkeypatch):
+def test_guest_local_attraction_query_returns_sourced_live_listings_without_ai_claims(admin_client, monkeypatch):
     started = admin_client.post("/api/session/start", json={
         "client_id": "local-attractions-guest", "property_id": main_module.settings.property_id,
     })
@@ -162,8 +166,10 @@ def test_guest_local_attraction_query_uses_live_place_context(admin_client, monk
     assert response.status_code == 200, response.text
     assert len(place_calls) == 1
     assert "nearby" in place_calls[0]["query"].casefold()
-    assert len(model_calls) == 1
-    assert model_calls[0]["property_id"] == main_module.settings.property_id
-    assert "Synthetic Art Walk" in model_calls[0]["live_context"]
-    assert response.json()["places"][0]["place_id"] == "synthetic-art-walk"
+    assert model_calls == []
+    assert response.json()["answer"].startswith("I found these nearby places")
+    place = response.json()["places"][0]
+    assert place["place_id"] == "synthetic-art-walk"
+    assert place["source_ids"][0].startswith(f"guest:{main_module.settings.property_id}:external_place:")
+    assert place["open_now"] is True
     assert response.json()["live_places_used"] is True

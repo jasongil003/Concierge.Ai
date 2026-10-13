@@ -242,7 +242,7 @@ class OperationsStore:
             score = len(terms & haystack_terms)
             if score:
                 answer = item["answer"] or item["body"][:1800]
-                scored.append((score, {"title": item["title"], "answer": answer}))
+                scored.append((score, {"item_id": item["item_id"], "title": item["title"], "answer": answer}))
         scored.sort(key=lambda value: value[0], reverse=True)
         return [value for _, value in scored[:limit]]
 

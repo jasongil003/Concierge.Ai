@@ -107,6 +107,7 @@ from .guardrails import (
     property_guest_hostnames,
     public_guardrails,
 )
+from .guest_grounding import source_id as guest_source_id, unsupported_hotel_claim
 from .hospitality import HospitalityStore
 from .intro import IntroExperienceStore
 from .location_analytics import LocationAnalyticsStore
@@ -1521,9 +1522,17 @@ async def guest_restaurant_menus(restaurant_id: str, request: Request, property_
     menus = hospitality.restaurant_menus(record.property_id, restaurant_id, guest=True)
     safe_menus = [{
         "name": menu.get("name", ""), "meal_period": menu.get("meal_period", ""),
-        "items": [{key: value for key, value in item.items() if key in {"name", "description", "price", "ingredients", "allergens", "dietary_tags", "available"}} for item in menu.get("items", [])],
+        "source_ids": [guest_source_id(record.property_id, "menu", str(menu.get("menu_id") or "unknown"))],
+        "items": [{
+            **{key: value for key, value in item.items() if key in {"name", "description", "price", "ingredients", "allergens", "dietary_tags", "available"}},
+            "source_ids": [guest_source_id(record.property_id, "menu_item", str(item.get("menu_item_id") or "unknown"))],
+        } for item in menu.get("items", [])],
     } for menu in menus]
-    return {"restaurant": {"name": restaurant.get("name", ""), "cuisine": restaurant.get("cuisine", "")}, "menus": safe_menus}
+    return {
+        "restaurant": {"name": restaurant.get("name", ""), "cuisine": restaurant.get("cuisine", "")},
+        "source_ids": [guest_source_id(record.property_id, "restaurant", restaurant_id)],
+        "menus": safe_menus,
+    }
 
 
 @app.get("/api/guest/service-catalog")
@@ -1680,6 +1689,7 @@ async def propose_guest_service_action(payload: GuestServiceProposalPayload, req
             "type": "service_request", "title": service.get("name", "Service request"),
             "department": department.get("name", "") if department else "",
             "description": description,
+            "source_ids": [guest_source_id(session.property_id, "service", str(service.get("service_id") or "unknown"))],
         },
     }
 
@@ -1726,7 +1736,11 @@ async def confirm_guest_service_action(payload: GuestServiceConfirmationPayload,
     if not replayed:
         metrics.SERVICE_REQUESTS.labels("created").inc()
         await _dispatch_webhooks(session.property_id, "guest.request.created", {"request": record})
-    return {"status": "existing" if replayed else "created", "request": record}
+    return {
+        "status": "existing" if replayed else "created",
+        "request": record,
+        "source_ids": [guest_source_id(session.property_id, "service_request", str(record.get("request_id") or "unknown"))],
+    }
 
 
 @app.post("/api/guest/service-requests")
@@ -6220,13 +6234,18 @@ async def _chat_response(
         security_audit.record(_request_id(request), session.property_id, safety_reason, "blocked", getattr(request.state, "guardrail_decision").client_ip)
     # Fast answers must match the current turn. Using contextual_query here let
     # a previous topic hijack an unrelated follow-up or greeting.
-    fast_answer = (PrivacyGuard.safe_response(safety_reason) if safety_reason else None) or _safety_fast_answer(sanitized_message) or _property_fast_answer(property_record, sanitized_message)
-    if fast_answer and (safety_reason or (requested_mode != "advanced" and not uses_guest_recommendations)):
+    fast_answer = (PrivacyGuard.safe_response(safety_reason) if safety_reason else None) or _safety_fast_answer(sanitized_message)
+    grounded_fast = None if fast_answer else _property_fast_answer_with_sources(property_record, sanitized_message)
+    if grounded_fast:
+        fast_answer = grounded_fast["answer"]
+    if fast_answer and (safety_reason or grounded_fast is not None or (requested_mode != "advanced" and not uses_guest_recommendations)):
         answer = fast_answer
         if _is_authentication_question(sanitized_message):
             answer = f"{answer}\n\n{_authentication_guidance(auth_types)}"
         contact_concierge = safety_reason == "privacy" or CALL_CONCIERGE_MARKER in answer
         answer = answer.replace(CALL_CONCIERGE_MARKER, "").strip()
+        if stream_callback is not None:
+            await stream_callback(answer)
         store.record_ai_activity(
             session.session_id, session.property_id, provider="fast_path", model="none",
             latency_ms=int((time.perf_counter() - started_at) * 1000),
@@ -6240,10 +6259,48 @@ async def _chat_response(
             "escalated": False,
             "contact_concierge": contact_concierge,
             "concierge_phone": _concierge_phone(property_record) if contact_concierge else "",
+            "grounded_claims": (grounded_fast or {}).get("claims", []),
         }
 
-    context = knowledge_management.search(session.property_id, contextual_query, guest=True) + operations.search_knowledge(session.property_id, contextual_query, include_documents=False)
+    published_knowledge = knowledge_management.search(session.property_id, contextual_query, guest=True)
+    legacy_published_knowledge = operations.search_knowledge(
+        session.property_id, contextual_query, include_documents=False,
+    )
+    grounded_knowledge = [
+        {**item, "_grounding_type": "knowledge"}
+        for item in published_knowledge
+    ] + [
+        {**item, "_grounding_type": "legacy_knowledge"}
+        for item in legacy_published_knowledge
+    ]
+    context = published_knowledge + legacy_published_knowledge
     context.extend(_property_ai_context(property_record))
+    grounded_answer = _grounded_hotel_fact_answer(
+        session.property_id, property_record, sanitized_message, grounded_knowledge,
+    )
+    preserve_recommendation_reasoning = (
+        _is_intelligent_dining_request(sanitized_message)
+        and (requested_mode == "advanced" or uses_guest_recommendations)
+    )
+    if grounded_answer is not None and not preserve_recommendation_reasoning:
+        store.record_ai_activity(
+            session.session_id, session.property_id, provider="guest_records", model="grounded-retrieval",
+            latency_ms=int((time.perf_counter() - started_at) * 1000),
+        )
+        if stream_callback is not None:
+            await stream_callback(grounded_answer["answer"])
+        return {
+            "answer": grounded_answer["answer"],
+            "source": "grounded_property_data" if grounded_answer["claims"] or grounded_answer.get("details") else "concierge_contact",
+            "provider": "none",
+            "model": "grounded-retrieval",
+            "mode": "fast",
+            "escalated": False,
+            "contact_concierge": not bool(grounded_answer["claims"] or grounded_answer.get("details")),
+            "concierge_phone": _concierge_phone(property_record),
+            "grounded_claims": grounded_answer["claims"],
+            "grounded_details": grounded_answer.get("details", []),
+        }
     if auth_types:
         context.append(
             {
@@ -6312,33 +6369,61 @@ async def _chat_response(
     if policy["internet_search_enabled"] and personalization_policy["allow_internet_recommendations"] and any(policy[key] for key in ("restaurant_search_enabled", "attractions_enabled")):
         place_results = await places.search(place_query, location.get("latitude"), location.get("longitude"), open_now=prefer_open_now)
         place_results = rank_places(place_results, personalization_context.get("preferences"), conversation_history, prefer_open_now=prefer_open_now)
+    if activity_request:
+        for item in place_results:
+            provider_place_id = str(item.get("place_id") or item.get("maps_url") or item.get("name") or "unidentified")
+            item["source_ids"] = [guest_source_id(session.property_id, "external_place", provider_place_id)]
+        if place_results:
+            answer = "I found these nearby places in the current listings. Please check the listing for the latest opening information before you go."
+            grounded_claims = [
+                {
+                    "content": str(item.get("name") or "Nearby place"),
+                    "source_ids": item["source_ids"],
+                }
+                for item in place_results[:8]
+            ]
+            answer_source = "places_search"
+        else:
+            answer = "I don't have verified nearby listings available right now. Please ask the hotel concierge for current local recommendations."
+            grounded_claims = []
+            answer_source = "concierge_contact"
+        store.record_ai_activity(
+            session.session_id, session.property_id, provider="places_search", model="grounded-listings",
+            latency_ms=int((time.perf_counter() - started_at) * 1000),
+        )
+        if stream_callback is not None:
+            await stream_callback(answer)
+        return {
+            "answer": answer,
+            "source": answer_source,
+            "provider": "places_search" if place_results else "none",
+            "model": "grounded-listings",
+            "mode": "fast",
+            "escalated": False,
+            "contact_concierge": not bool(place_results),
+            "concierge_phone": _concierge_phone(property_record),
+            "live_places_used": bool(place_results),
+            "personalized_recommendations": uses_guest_recommendations,
+            "places": place_results,
+            "context_titles": [item.get("title") for item in context],
+            "grounded_claims": grounded_claims,
+        }
     live_context = format_places_for_ai(place_results)
 
     try:
-        if stream_callback is None:
-            model_result = await ai_models.concierge_chat(
-                property_id=session.property_id,
-                user_message=sanitized_message,
-                hotel_name=property_record.hotel_name if property_record else knowledge.data["name"],
-                context=context,
-                live_context=live_context,
-                requested_mode=requested_mode,
-                conversation_history=conversation_history,
-                guest_context=guest_context,
-            )
-        else:
-            stream_result = await ai_models.concierge_chat_stream(
-                property_id=session.property_id,
-                user_message=sanitized_message,
-                hotel_name=property_record.hotel_name if property_record else knowledge.data["name"],
-                context=context,
-                on_delta=stream_callback,
-                live_context=live_context,
-                requested_mode=requested_mode,
-                conversation_history=conversation_history,
-                guest_context=guest_context,
-            )
-            model_result = stream_result.response
+        # Buffer provider output until the grounded-claim validator has approved
+        # it. Streaming unreviewed fragments could expose a fabricated price or
+        # operating hour before the completed response can be rejected.
+        model_result = await ai_models.concierge_chat(
+            property_id=session.property_id,
+            user_message=sanitized_message,
+            hotel_name=property_record.hotel_name if property_record else knowledge.data["name"],
+            context=context,
+            live_context=live_context,
+            requested_mode=requested_mode,
+            conversation_history=conversation_history,
+            guest_context=guest_context,
+        )
         provider = model_result.provider
         model = model_result.model
         answer = model_result.text
@@ -6362,6 +6447,16 @@ async def _chat_response(
         }
 
     answer = AIOutputValidator.validate(answer)
+    answer_source = "ai"
+    evidence_text = _guest_grounding_evidence(
+        session.property_id, property_record, published_knowledge, legacy_published_knowledge,
+    ) + "\n" + live_context
+    if unsupported_hotel_claim(answer, evidence_text):
+        answer = _concierge_fallback(property_record)
+        answer_source = "concierge_contact"
+    if stream_callback is not None:
+        for offset in range(0, len(answer), 120):
+            await stream_callback(answer[offset : offset + 120])
     contact_concierge = CALL_CONCIERGE_MARKER in answer
     answer = answer.replace(CALL_CONCIERGE_MARKER, "").strip()
     store.record_ai_activity(
@@ -6370,7 +6465,7 @@ async def _chat_response(
     )
     return {
         "answer": answer,
-        "source": "ai",
+        "source": answer_source,
         "provider": provider,
         "model": model,
         "mode": requested_mode,
@@ -6381,6 +6476,7 @@ async def _chat_response(
         "personalized_recommendations": uses_guest_recommendations,
         "places": place_results,
         "context_titles": [item.get("title") for item in context],
+        "grounded_claims": [],
     }
 
 
@@ -6431,6 +6527,7 @@ async def _compose_intelligent_guest_response(
                 "description": str(card.get("description") or payload.message)[:1000],
                 "confirmation_token": proposal["proposal_token"],
                 "confirm_label": "Confirm request",
+                "source_ids": card.get("source_ids", []),
             }]
         elif proposal.get("status") == "ambiguous":
             choices = [
@@ -6475,9 +6572,32 @@ async def _compose_intelligent_guest_response(
     if not answer:
         answer = "I couldn't complete that reply. Please try again or contact the hotel concierge."
 
-    blocks: list[dict[str, Any]] = [
-        {"id": new_ui_id("text"), "type": "text", "content": answer[:6000]},
+    grounded_claims = [
+        item for item in result.get("grounded_claims", [])
+        if isinstance(item, dict) and str(item.get("content") or "").strip()
+        and isinstance(item.get("source_ids"), list) and item["source_ids"]
     ]
+    blocks: list[dict[str, Any]] = [{
+        "id": new_ui_id("text"),
+        "type": "text",
+        "content": ("Here is the verified information I found." if grounded_claims else answer)[:6000],
+    }]
+    for item in grounded_claims[:16]:
+        blocks.append({
+            "id": new_ui_id("claim"),
+            "type": "grounded_claim",
+            "content": str(item["content"])[:1200],
+            "source_ids": item["source_ids"][:16],
+        })
+    details = [item for item in result.get("grounded_details", []) if isinstance(item, dict) and item.get("label") and item.get("value")]
+    if details:
+        blocks.append({
+            "id": new_ui_id("hotel-info"),
+            "type": "details_panel",
+            "title": "Hotel information",
+            "fields": details[:12],
+            "source_ids": [source for item in details for source in item.get("source_ids", [])][:16],
+        })
     if _is_intelligent_dining_request(payload.message):
         facilities = hospitality.guest_facilities(session.property_id)
         published_restaurant_ids = {
@@ -6486,13 +6606,19 @@ async def _compose_intelligent_guest_response(
             if item.get("restaurant_id")
         }
         restaurant_cards = []
-        for restaurant in facilities.get("restaurants", [])[:8]:
+        relevant_restaurants = _guest_relevant_restaurants(
+            [item for item in facilities.get("restaurants", [])
+             if not item.get("archived") and item.get("status") not in {"disabled", "archived"}],
+            payload.message,
+        )
+        for restaurant in relevant_restaurants[:8]:
             if restaurant.get("archived") or restaurant.get("status") in {"disabled", "archived"}:
                 continue
             opening = restaurant.get("opening_hours") or {}
             hours = opening.get("display", "") if isinstance(opening, dict) else str(opening or "")
             location = str(restaurant.get("location") or "").strip()
-            detail = " · ".join(part for part in (location, f"Hours: {hours}" if hours else "") if part)
+            status_detail = _restaurant_guest_status_detail(restaurant)
+            detail = " · ".join(part for part in (location, f"Hours: {hours}" if hours else "", status_detail) if part)
             images = restaurant.get("images") or []
             image_url = str(images[0])[:500] if images and isinstance(images[0], str) else ""
             reservation_url = str(restaurant.get("external_reservation_url") or "") if restaurant.get("reservation_available") else ""
@@ -6509,6 +6635,14 @@ async def _compose_intelligent_guest_response(
                 "opening_hours": hours[:160],
                 "menu_available": str(restaurant.get("restaurant_id") or "") in published_restaurant_ids,
                 "reservation_url": reservation_url[:1000],
+                "source_ids": [
+                    guest_source_id(session.property_id, "restaurant", str(restaurant.get("restaurant_id") or "unknown")),
+                    *[
+                        guest_source_id(session.property_id, "menu_item", str(item.get("menu_item_id") or "unknown"))
+                        for item in facilities.get("menu_items", [])
+                        if item.get("restaurant_id") == restaurant.get("restaurant_id")
+                    ][:8],
+                ],
             })
         if restaurant_cards:
             blocks.append({
@@ -6518,7 +6652,10 @@ async def _compose_intelligent_guest_response(
                 "cards": restaurant_cards,
             })
     elif _is_intelligent_facility_request(payload.message):
-        facilities = hospitality.guest_facilities(session.property_id).get("facilities", [])
+        facilities = [
+            item for item in hospitality.guest_facilities(session.property_id).get("facilities", [])
+            if not item.get("archived") and item.get("status") not in {"disabled", "archived"}
+        ]
         map_overview = zones.overview(session.property_id, guest=True)
         zone_lookup = {str(item.get("zone_id")): item for item in map_overview.get("zones", [])}
         floor_lookup = {str(item.get("floor_id")): item for item in map_overview.get("floors", [])}
@@ -6559,6 +6696,7 @@ async def _compose_intelligent_guest_response(
                 "location": location[:240],
                 "opening_hours": hours[:160],
                 "policies": [item[:240] for item in facility.get("policies", [])[:8] if isinstance(item, str)] if isinstance(facility.get("policies"), list) else [],
+                "source_ids": [guest_source_id(session.property_id, "facility", str(facility.get("facility_id") or "unknown"))],
             })
         if facility_cards:
             blocks.append({
@@ -6566,6 +6704,69 @@ async def _compose_intelligent_guest_response(
                 "type": "card_collection",
                 "title": "Hotel facilities",
                 "cards": facility_cards,
+            })
+        floor_map = _intelligent_guest_floor_map_block(session.property_id, payload.message)
+        if floor_map:
+            blocks.append(floor_map)
+    elif _is_intelligent_attraction_request(payload.message):
+        place_cards = []
+        for place in (result.get("places") or [])[:8]:
+            name = str(place.get("name") or "").strip()
+            if not name:
+                continue
+            place_ref = str((place.get("source_ids") or [""])[0] or "")
+            if not place_ref:
+                place_ref = guest_source_id(
+                    session.property_id,
+                    "external_place",
+                    str(place.get("place_id") or place.get("maps_url") or name),
+                )
+            opening_hours = place.get("opening_hours") or []
+            place_cards.append({
+                "id": new_ui_id("place"),
+                "type": "place",
+                "title": name[:120],
+                "subtitle": str(place.get("category") or "Nearby place")[:120],
+                "description": str(place.get("description") or "")[:500],
+                "detail": " · ".join(
+                    part for part in (
+                        f"Distance: {place.get('distance_meters')} m" if place.get("distance_meters") is not None else "",
+                        " · ".join(str(item) for item in opening_hours[:3] if item) if isinstance(opening_hours, list) else str(opening_hours or ""),
+                    ) if part
+                )[:300],
+                "location": str(place.get("address") or "")[:240],
+                "opening_hours": " · ".join(str(item) for item in opening_hours[:3] if item)[:160] if isinstance(opening_hours, list) else str(opening_hours or "")[:160],
+                "maps_url": str(place.get("maps_url") or "")[:1000],
+                "open_now": place.get("open_now") if isinstance(place.get("open_now"), bool) else None,
+                "source_ids": [place_ref],
+            })
+        if place_cards:
+            blocks.append({
+                "id": new_ui_id("nearby-places"),
+                "type": "card_collection",
+                "title": "Nearby places",
+                "cards": place_cards,
+            })
+    elif "service" in payload.message.casefold() and not _is_guest_service_request(payload.message):
+        services = [
+            item for item in hospitality.catalog(session.property_id, guest=True).get("services", [])
+            if item.get("enabled") and not item.get("archived") and str(item.get("name") or "").strip()
+        ][:8]
+        if services:
+            blocks.append({
+                "id": new_ui_id("services"),
+                "type": "card_collection",
+                "title": "Guest services",
+                "cards": [{
+                    "id": new_ui_id("service"),
+                    "type": "service",
+                    "title": str(item.get("name") or "Hotel service")[:120],
+                    "subtitle": str(hospitality.get_department(session.property_id, str(item.get("department_id") or "")).get("name") or "")
+                    if item.get("department_id") and hospitality.get_department(session.property_id, str(item.get("department_id") or "")) else "",
+                    "description": str(item.get("description") or "")[:500],
+                    "resource_id": str(item.get("service_id") or "")[:80],
+                    "source_ids": [guest_source_id(session.property_id, "service", str(item.get("service_id") or "unknown"))],
+                } for item in services],
             })
     if not result.get("ai_paused") and not result.get("human_takeover"):
         if not payload.conversation_history:
@@ -6775,11 +6976,67 @@ async def intelligent_guest_chat_stream(payload: ChatRequest, request: Request) 
 
 def _is_intelligent_dining_request(message: str) -> bool:
     normalized = str(message or "").casefold()
-    return any(term in normalized for term in (
+    if any(term in normalized for term in (
         "restaurant", "dining", "dinner", "lunch", "breakfast", "eat", "food", "cafe", "café",
-        "menu", "vegetarian", "vegan", "allergen", "allergy", "cuisine", "reservation",
-        "book a table", "reserve a table",
+        "menu", "cuisine", "reservation", "book a table", "reserve a table",
+    )):
+        return True
+    dietary_query = any(term in normalized for term in (
+        "vegetarian", "vegan", "allergen", "allergy", "gluten-free", "gluten free",
     ))
+    return dietary_query and bool(re.search(
+        r"\b(?:options?|choices|dishes|meals?|menu|serve|accommodate|can i eat|do you have|any)\b",
+        normalized,
+    ))
+
+
+def _guest_relevant_restaurants(restaurants: list[dict[str, Any]], message: str) -> list[dict[str, Any]]:
+    """Filter meal-specific queries using only configured restaurant service periods."""
+    query = " ".join(re.findall(r"[a-z0-9]+", str(message or "").casefold()))
+    requested: set[str] = set()
+    if "breakfast" in query:
+        requested.add("breakfast")
+    if "brunch" in query:
+        requested.add("brunch")
+    if "lunch" in query:
+        requested.add("lunch")
+    if "dinner" in query or "supper" in query:
+        requested.add("dinner")
+    if not requested:
+        return restaurants
+
+    aliases = {"dinner": {"dinner", "supper"}}
+    relevant: list[dict[str, Any]] = []
+    for restaurant in restaurants:
+        periods = restaurant.get("meal_periods") or []
+        if isinstance(periods, str):
+            periods = [periods]
+        configured = {
+            " ".join(re.findall(r"[a-z0-9]+", str(period).casefold()))
+            for period in periods if str(period).strip()
+        }
+        if configured.intersection({"all day", "all day dining", "all day service"}):
+            relevant.append(restaurant)
+            continue
+        supported = set(configured)
+        for period, values in aliases.items():
+            if any(value in configured for value in values):
+                supported.add(period)
+        if requested.intersection(supported):
+            relevant.append(restaurant)
+    return relevant
+
+
+def _restaurant_guest_status_detail(restaurant: dict[str, Any]) -> str:
+    status = str(restaurant.get("live_status") or restaurant.get("status") or "").casefold().replace(" ", "_")
+    labels = {
+        "closed": "Currently closed",
+        "temporarily_closed": "Temporarily closed",
+        "full": "Currently at capacity",
+        "maintenance": "Temporarily unavailable for maintenance",
+        "private_event": "Unavailable during a private event",
+    }
+    return labels.get(status, "")
 
 
 def _is_intelligent_facility_request(message: str) -> bool:
@@ -6787,6 +7044,14 @@ def _is_intelligent_facility_request(message: str) -> bool:
     return any(term in normalized for term in (
         "facility", "facilities", "amenity", "amenities", "pool", "gym", "spa", "fitness",
         "business center", "parking", "laundry", "sauna",
+    ))
+
+
+def _is_intelligent_attraction_request(message: str) -> bool:
+    normalized = str(message or "").casefold()
+    return any(term in normalized for term in (
+        "attraction", "things to do", "local places", "nearby places", "nearby activities",
+        "what to do nearby", "what to do near", "places to visit", "local sights", "tour",
     ))
 
 
@@ -6849,6 +7114,7 @@ def _intelligent_guest_floor_map_block(property_id: str, query: str) -> dict[str
                 "label": label,
                 "x_percent": round(x * 100 / width, 3),
                 "y_percent": round(y * 100 / height, 3),
+                "source_ids": [guest_source_id(property_id, "map_node", str(node.get("node_id") or "unknown"))],
             })
         if not markers:
             continue
@@ -6875,6 +7141,7 @@ def _intelligent_guest_floor_map_block(property_id: str, query: str) -> dict[str
             "image_width": width,
             "image_height": height,
             "markers": markers,
+            "source_ids": [guest_source_id(property_id, "floor_map", map_id)],
         }
     return None
 
@@ -6941,7 +7208,7 @@ def _safety_fast_answer(message: str) -> str | None:
 
 def _facility_direct_answer(facility: dict[str, Any]) -> str:
     name = str(facility.get("name") or "Facility")
-    status = str(facility.get("live_status") or facility.get("status") or "open").casefold().replace(" ", "_")
+    status = str(facility.get("live_status") or facility.get("status") or "").casefold().replace(" ", "_")
     unavailable = {
         "full": "currently at capacity",
         "closed": "currently closed",
@@ -6959,89 +7226,335 @@ def _facility_direct_answer(facility: dict[str, Any]) -> str:
     return f"{name}: {'; '.join(facts)}." if facts else f"{name} information is available from the concierge."
 
 
-def _property_fast_answer(property_record: PropertyRecord | None, message: str) -> str | None:
+def _property_fast_answer_with_sources(property_record: PropertyRecord | None, message: str) -> dict[str, Any] | None:
     if property_record is None:
         return None
     lowered = message.lower()
+    is_price_query = any(term in lowered for term in ("price", "cost", "how much", "fee", "charge"))
     contact = property_record.contact_details or {}
-    if "breakfast" in lowered and contact.get("breakfast"):
-        return str(contact["breakfast"])
-    if "breakfast" in lowered:
+    if "breakfast" in lowered and not is_price_query and contact.get("breakfast"):
+        answer = str(contact["breakfast"])
+        ref = guest_source_id(property_record.property_id, "profile", "contact", "breakfast")
+        return {"answer": answer, "claims": [{"content": answer, "source_ids": [ref]}]}
+    if "breakfast" in lowered and not is_price_query:
         restaurants = [
             item for item in hospitality.guest_facilities(property_record.property_id).get("restaurants", [])
+            if not item.get("archived") and item.get("status") not in {"disabled", "archived"}
             if any("breakfast" in str(period).casefold() for period in item.get("meal_periods", []))
         ]
         if restaurants:
-            venues = []
-            hours_available = True
+            venues: list[str] = []
+            claims: list[dict[str, Any]] = []
             for item in restaurants:
-                hours = (item.get("opening_hours") or {}).get("display", "")
-                hours_available = hours_available and bool(hours)
+                opening = item.get("opening_hours") or {}
+                hours = opening.get("display", "") if isinstance(opening, dict) else ""
                 location = str(item.get("location") or "").strip()
-                details = [str(item.get("name") or "Dining venue"), location, f"hours: {hours}" if hours else ""]
-                venues.append(" — ".join(value for value in details if value))
+                details = [
+                    str(item.get("name") or "Dining venue"), location,
+                    f"hours: {hours}" if hours else "",
+                    _restaurant_guest_status_detail(item),
+                ]
+                claim = " — ".join(value for value in details if value)
+                venues.append(claim)
+                claims.append({
+                    "content": claim,
+                    "source_ids": [guest_source_id(property_record.property_id, "restaurant", str(item.get("restaurant_id") or "unknown"))],
+                })
             answer = "Breakfast is listed at " + "; ".join(venues) + "."
-            if not hours_available:
+            if any(not ((item.get("opening_hours") or {}).get("display") if isinstance(item.get("opening_hours") or {}, dict) else "") for item in restaurants):
                 answer += " Verified breakfast hours are not available; please confirm them with the Front Desk."
-            return answer
+            return {"answer": answer, "claims": claims}
+    if any(term in lowered for term in ("checkin", "check-in", "check in", "arrival")):
+        checkin = next((contact.get(key) for key in ("checkin", "check_in", "checkin_time", "check_in_time") if contact.get(key)), None)
+        if checkin:
+            answer = f"Standard check-in is {checkin}."
+            ref = guest_source_id(property_record.property_id, "profile", "contact", "checkin")
+            return {"answer": answer, "claims": [{"content": answer, "source_ids": [ref]}]}
     if any(term in lowered for term in ("checkout", "check out", "departure")) and contact.get("checkout"):
-        return f"Standard checkout is {contact['checkout']}."
+        answer = f"Standard checkout is {contact['checkout']}."
+        ref = guest_source_id(property_record.property_id, "profile", "contact", "checkout")
+        return {"answer": answer, "claims": [{"content": answer, "source_ids": [ref]}]}
     if any(term in lowered for term in ("wifi", "wi-fi", "internet")) and contact.get("wifi_guidance"):
-        return str(contact["wifi_guidance"])
-    requested_facilities: list[dict[str, Any]] = []
+        answer = str(contact["wifi_guidance"])
+        ref = guest_source_id(property_record.property_id, "profile", "contact", "wifi_guidance")
+        return {"answer": answer, "claims": [{"content": answer, "source_ids": [ref]}]}
+    requested_facilities: list[tuple[dict[str, Any], str]] = []
     configured_facilities = {
         "pool": property_record.pool,
         "gym": property_record.gym,
         "spa": property_record.spa,
     }
-    saved_facilities: list[dict[str, Any]] | None = None
+    aliases = {
+        "pool": ("pool", "swimming"),
+        "gym": ("gym", "fitness"),
+        "spa": ("spa", "wellness"),
+        "parking": ("parking",),
+        "business center": ("business center", "business centre", "business"),
+    }
+    published_facilities: list[dict[str, Any]] | None = None
     for term, facility in configured_facilities.items():
         if term not in lowered:
             continue
         if facility:
-            requested_facilities.append(facility)
+            requested_facilities.append((facility, f"profile-{term}"))
             continue
-        if saved_facilities is None:
-            saved_facilities = hospitality.overview(property_record.property_id).get("facilities", [])
-        aliases = {
-            "pool": ("pool", "swimming"),
-            "gym": ("gym", "fitness"),
-            "spa": ("spa", "wellness"),
-        }[term]
-        saved = next(
-            (
-                item for item in saved_facilities
-                if any(alias in f"{item.get('name', '')} {item.get('facility_type', '')}".casefold() for alias in aliases)
-            ),
-            None,
-        )
-        if saved:
-            requested_facilities.append({
-                "name": saved.get("name"),
-                "location": saved.get("status_note") or saved.get("description"),
-                "opening_hours": saved.get("opening_hours"),
-                "live_status": saved.get("live_status"),
-            })
+        if published_facilities is None:
+            published_facilities = hospitality.guest_facilities(property_record.property_id).get("facilities", [])
+        match = next((item for item in published_facilities if not item.get("archived")
+                      and item.get("status") not in {"disabled", "archived"}
+                      and any(alias in f"{item.get('name', '')} {item.get('facility_type', '')}".casefold()
+                              for alias in aliases[term])), None)
+        if match:
+            requested_facilities.append((match, str(match.get("facility_id") or "unknown")))
     if requested_facilities:
-        return " ".join(_facility_direct_answer(facility) for facility in requested_facilities)
-    facility_aliases = {
-        "parking": ("parking",),
-        "business center": ("business center", "business"),
-    }
-    if any(term in lowered for term in facility_aliases):
-        overview = hospitality.overview(property_record.property_id)
-        for term, aliases in facility_aliases.items():
-            if term not in lowered:
+        claims = []
+        for facility, record_id in requested_facilities:
+            record_type = "profile_facility" if record_id.startswith("profile-") else "facility"
+            claims.append({
+                "content": _facility_direct_answer(facility),
+                "source_ids": [guest_source_id(property_record.property_id, record_type, record_id)],
+            })
+        return {"answer": " ".join(item["content"] for item in claims), "claims": claims}
+    if any(term in lowered for term in aliases):
+        if published_facilities is None:
+            published_facilities = hospitality.guest_facilities(property_record.property_id).get("facilities", [])
+        for term, terms in aliases.items():
+            if not any(alias in lowered for alias in terms):
                 continue
-            facility = next((item for item in overview.get("facilities", []) if any(alias in f"{item.get('name', '')} {item.get('facility_type', '')}".lower() for alias in aliases)), None)
+            facility = next((item for item in published_facilities if not item.get("archived")
+                             and item.get("status") not in {"disabled", "archived"}
+                             and any(alias in f"{item.get('name', '')} {item.get('facility_type', '')}".casefold()
+                                     for alias in terms)), None)
             if facility:
-                return _facility_direct_answer(facility)
+                answer = _facility_direct_answer(facility)
+                claim = {"content": answer, "source_ids": [guest_source_id(property_record.property_id, "facility", str(facility.get("facility_id") or "unknown"))]}
+                return {"answer": answer, "claims": [claim]}
     for location in (property_record.app_settings or {}).get("locations", []):
         if location.get("guest_visible", True) and str(location.get("name", "")).lower() in lowered:
             description = str(location.get("description") or "").strip()
             location_type = str(location.get("type") or "location").replace("_", " ")
-            return description or f"{location['name']} is listed as a {location_type}."
+            answer = description or f"{location['name']} is listed as a {location_type}."
+            ref = guest_source_id(property_record.property_id, "guest_location", str(location.get("name") or "location"))
+            return {"answer": answer, "claims": [{"content": answer, "source_ids": [ref]}]}
     return None
+
+
+def _property_fast_answer(property_record: PropertyRecord | None, message: str) -> str | None:
+    """Compatibility wrapper for existing callers that need only readable text."""
+    result = _property_fast_answer_with_sources(property_record, message)
+    return str(result["answer"]) if result else None
+
+
+def _grounded_hotel_fact_answer(
+    property_id: str,
+    property_record: PropertyRecord | None,
+    message: str,
+    published_knowledge: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Answer property-fact intents only from guest-visible published records."""
+    lowered = " ".join(str(message or "").casefold().split())
+    if not lowered or _is_guest_service_request(message):
+        return None
+
+    dining_query = _is_intelligent_dining_request(message)
+    facility_query = _is_intelligent_facility_request(message)
+    service_query = any(term in lowered for term in ("service", "housekeeping", "extra pillow", "extra towel", "laundry", "room service"))
+    property_fact_terms = (
+        "address", "check-in", "check in", "checkin", "check-out", "check out",
+        "checkout", "opening hour", "operating hour", "wifi", "wi-fi", "internet", "policy", "policies",
+        "fee", "price", "cost", "rate", "available", "hours", "hotel information", "hotel info",
+        "property information", "about the hotel",
+    )
+    is_property_fact_question = any(term in lowered for term in property_fact_terms) or bool(
+        re.search(r"\b(?:what|where|when|how|tell me|describe|show|give me)\b.{0,50}\b(?:hotel|property)\b.{0,30}\b(?:info|information|address|policy|policies|hours|details)\b", lowered)
+    )
+    if not any((dining_query, facility_query, service_query, is_property_fact_question)):
+        return None
+
+    facilities_payload = hospitality.guest_facilities(property_id)
+    restaurants = [item for item in facilities_payload.get("restaurants", [])
+                   if not item.get("archived") and item.get("status") not in {"disabled", "archived"}]
+    restaurants = _guest_relevant_restaurants(restaurants, message)
+    relevant_restaurant_ids = {
+        str(item.get("restaurant_id") or "") for item in restaurants if item.get("restaurant_id")
+    }
+    menu_items = [
+        item for item in facilities_payload.get("menu_items", [])
+        if str(item.get("restaurant_id") or "") in relevant_restaurant_ids
+    ]
+    facilities = [item for item in facilities_payload.get("facilities", [])
+                  if not item.get("archived") and item.get("status") not in {"disabled", "archived"}]
+    service_catalog = hospitality.catalog(property_id, guest=True)
+    services = [item for item in service_catalog.get("services", [])
+                if item.get("enabled") and not item.get("archived")]
+
+    def claim(content: str, record_type: str, record_id: str, field: str = "") -> dict[str, Any]:
+        return {"content": content, "source_ids": [guest_source_id(property_id, record_type, record_id, field)]}
+
+    if any(term in lowered for term in ("price", "cost", "how much", "fee", "charge")):
+        query_terms = {term for term in re.findall(r"[a-z0-9]+", lowered)
+                       if term not in {"how", "much", "what", "is", "the", "price", "cost", "of", "for", "a", "an", "does", "this", "item", "hotel", "restaurant", "menu"}}
+        matches = []
+        for item in menu_items:
+            name_terms = set(re.findall(r"[a-z0-9]+", str(item.get("name") or "").casefold()))
+            if query_terms and query_terms.intersection(name_terms) and item.get("price") not in (None, ""):
+                matches.append(item)
+        if matches:
+            claims = [claim(f"{item.get('name')}: {item.get('price')}", "menu_item", str(item.get("menu_item_id") or "unknown"), "price")
+                      for item in matches[:6]]
+            return {"answer": "Here is the published menu pricing I found: " + "; ".join(item["content"] for item in claims) + ".", "claims": claims}
+        return {
+            "answer": "I don't have verified pricing for that item in the hotel's published information. Please confirm the price with hotel staff.",
+            "claims": [],
+        }
+
+    if dining_query:
+        if not restaurants:
+            return {"answer": _concierge_fallback(property_record), "claims": []}
+        claims = []
+        for item in restaurants[:8]:
+            facts = [str(item.get("name") or "Dining venue")]
+            if item.get("cuisine"):
+                facts.append(str(item["cuisine"]))
+            if item.get("location"):
+                facts.append(str(item["location"]))
+            opening = item.get("opening_hours") or {}
+            hours = opening.get("display") if isinstance(opening, dict) else ""
+            if hours:
+                facts.append(f"Hours: {hours}")
+            status_detail = _restaurant_guest_status_detail(item)
+            if status_detail:
+                facts.append(status_detail)
+            claims.append(claim(" · ".join(facts), "restaurant", str(item.get("restaurant_id") or "unknown")))
+        asks_for_menu = any(term in lowered for term in ("allerg", "dietary", "vegan", "vegetarian", "gluten", "menu"))
+        menu_sources = [claim(str(item.get("name") or "Published menu"), "menu_item", str(item.get("menu_item_id") or "unknown"))
+                        for item in menu_items[:8]] if asks_for_menu else []
+        if asks_for_menu:
+            if not menu_sources:
+                return {"answer": "I don't have verified menu or dietary information for this hotel yet. Please confirm directly with restaurant staff.", "claims": []}
+            return {"answer": "I found the hotel's published dining options below. Please confirm allergy and dietary details directly with restaurant staff.", "claims": claims + menu_sources}
+        return {"answer": "Here are the dining options currently listed for this hotel.", "claims": claims + menu_sources}
+
+    if facility_query:
+        if not facilities:
+            return {"answer": _concierge_fallback(property_record), "claims": []}
+        claims = []
+        for item in facilities[:8]:
+            details = [str(item.get("name") or "Hotel facility")]
+            opening = item.get("opening_hours") or {}
+            hours = opening.get("display") if isinstance(opening, dict) else ""
+            if hours:
+                details.append(f"Hours: {hours}")
+            if item.get("location"):
+                details.append(f"Location: {item['location']}")
+            claims.append(claim(" · ".join(details), "facility", str(item.get("facility_id") or "unknown")))
+        return {"answer": "Here are the facilities currently listed for this hotel.", "claims": claims}
+
+    if service_query:
+        if not services:
+            return {"answer": _concierge_fallback(property_record), "claims": []}
+        claims = [claim(str(item.get("name") or "Hotel service"), "service", str(item.get("service_id") or "unknown"))
+                  for item in services[:8]]
+        return {"answer": "These are the guest services currently available to request.", "claims": claims}
+
+    if published_knowledge:
+        claims = [
+            claim(
+                str(item.get("answer") or "").strip(),
+                str(item.get("_grounding_type") or "knowledge"),
+                str(item.get("item_id") or item.get("source_id") or "published"),
+            )
+            for item in published_knowledge[:3]
+            if str(item.get("answer") or "").strip()
+        ]
+        if claims:
+            return {"answer": "\n\n".join(item["content"] for item in claims), "claims": claims}
+
+    if property_record is not None and any(term in lowered for term in ("about the hotel", "hotel information", "hotel info", "property information", "address", "where is the hotel", "tell me about")):
+        details: list[dict[str, Any]] = []
+        profile_fields = [
+            ("Hotel", property_record.hotel_name, "hotel_name"),
+            ("About", property_record.description, "description"),
+            ("Address", property_record.address, "address"),
+            ("Concierge", _concierge_phone(property_record), "concierge_phone"),
+        ]
+        for label, value, field_name in profile_fields:
+            if value:
+                details.append({
+                    "label": label,
+                    "value": str(value)[:300],
+                    "source_ids": [guest_source_id(property_id, "profile", "public", field_name)],
+                })
+        if details:
+            return {"answer": "Here is the hotel's published information.", "claims": [], "details": details}
+
+    phone = _concierge_phone(property_record)
+    fallback_claims = [claim(phone, "profile", "contact", "phone")] if phone else []
+    return {"answer": _concierge_fallback(property_record), "claims": fallback_claims}
+
+
+def _guest_grounding_evidence(
+    property_id: str,
+    property_record: PropertyRecord | None,
+    published_knowledge: list[dict[str, Any]],
+    legacy_published_knowledge: list[dict[str, Any]],
+) -> str:
+    """Serialize only records already visible through guest property APIs."""
+    facilities_payload = hospitality.guest_facilities(property_id)
+    guest_facilities_data = [
+        item for item in facilities_payload.get("facilities", [])
+        if not item.get("archived") and item.get("status") not in {"disabled", "archived"}
+    ]
+    guest_restaurants = [
+        item for item in facilities_payload.get("restaurants", [])
+        if not item.get("archived") and item.get("status") not in {"disabled", "archived"}
+    ]
+    guest_services = [
+        item for item in hospitality.catalog(property_id, guest=True).get("services", [])
+        if item.get("enabled") and not item.get("archived")
+    ]
+    profile: dict[str, Any] = {}
+    if property_record:
+        contact = property_record.contact_details or {}
+        profile = {
+            "hotel_name": property_record.hotel_name,
+            "description": property_record.description,
+            "address": property_record.address,
+            "timezone": property_record.timezone,
+            "contact": {
+                key: contact[key] for key in (
+                    "phone", "breakfast", "checkin", "check_in", "checkin_time",
+                    "check_in_time", "checkout", "wifi_guidance",
+                ) if contact.get(key)
+            },
+            "facilities": property_record.facilities,
+            "dining": property_record.dining,
+            "pool": property_record.pool,
+            "gym": property_record.gym,
+            "spa": property_record.spa,
+            "guest_locations": [
+                item for item in (property_record.app_settings or {}).get("locations", [])
+                if item.get("guest_visible", True)
+            ],
+        }
+    return json.dumps({
+        "property_id": property_id,
+        "public_profile": profile,
+        "published_knowledge": [
+            {key: item.get(key) for key in ("title", "answer", "category", "item_id", "source_id")}
+            for item in published_knowledge
+        ],
+        "legacy_published_knowledge": [
+            {key: item.get(key) for key in ("title", "answer", "item_id")}
+            for item in legacy_published_knowledge
+        ],
+        "guest_facilities": guest_facilities_data,
+        "guest_restaurants": guest_restaurants,
+        "published_menu_items": facilities_payload.get("menu_items", []),
+        "published_promotions": facilities_payload.get("promotions", []),
+        "scheduled_events": facilities_payload.get("events", []),
+        "guest_services": guest_services,
+    }, ensure_ascii=False)[:120_000]
 
 
 def _display_hours(value: str) -> str:

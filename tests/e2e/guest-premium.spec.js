@@ -60,6 +60,11 @@ async function installEmptyProperty(page, themeSource = THEMES[0], configureProf
     contentType: "application/json",
     body: JSON.stringify(EMPTY_HOME),
   }));
+  await page.route("**/api/guest/service-catalog", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ services: [] }),
+  }));
   await page.route("**/api/hotel", async (route) => {
     const response = await route.fetch();
     const profile = await response.json();

@@ -1219,6 +1219,56 @@ test("Intelligent UI: property opt-in answers from verified hotel data and keeps
   }
 });
 
+test("Intelligent UI: sourced restaurant cards show configured status at mobile and desktop widths", async ({ page, request }) => {
+  const csrf = await loginAdmin(request);
+  const name = `Synthetic Dinner ${Date.now()}`;
+  const created = await request.post("/api/admin/properties/e2e-property/restaurants", {
+    headers: { "X-CSRF-Token": csrf },
+    data: { data: {
+      name,
+      cuisine: "Synthetic test cuisine",
+      meal_periods: ["dinner"],
+      opening_hours: { display: "5:00 PM–10:00 PM" },
+      location: "Lobby level",
+      status: "temporarily_closed",
+    } },
+  });
+  expect(created.ok(), await created.text()).toBeTruthy();
+  const restaurant = await created.json();
+  try {
+    await setIntelligentUi(request, true, { welcome: "Welcome to the dining guide." });
+    await page.goto("/?experience=legacy");
+    await page.setViewportSize({ width: 320, height: 844 });
+    await page.getByLabel("Message your concierge").fill("Where can I have dinner?");
+    await page.getByRole("button", { name: "Send message" }).click();
+    const card = page.locator(".entity-card-restaurant").filter({ hasText: name });
+    await expect(card).toBeVisible();
+    await expect(card).toContainText("Temporarily closed");
+    await expect(card).toHaveAttribute("data-source-ids", `guest:e2e-property:restaurant:${restaurant.restaurant_id}`);
+
+    for (const width of [320, 390, 1440]) {
+      await page.setViewportSize({ width, height: width < 500 ? 844 : 900 });
+      await expect(card).toBeVisible();
+      await expect(card).toContainText("Temporarily closed");
+      const dimensions = await page.evaluate(() => ({
+        viewport: window.innerWidth,
+        document: document.documentElement.scrollWidth,
+        card: document.querySelector(".entity-card-restaurant").getBoundingClientRect(),
+      }));
+      expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport + 1);
+      expect(dimensions.card.left).toBeGreaterThanOrEqual(0);
+      expect(dimensions.card.right).toBeLessThanOrEqual(dimensions.viewport + 1);
+    }
+  } finally {
+    await setIntelligentUi(request, false);
+    const archived = await request.put(`/api/admin/properties/e2e-property/restaurants/${restaurant.restaurant_id}`, {
+      headers: { "X-CSRF-Token": csrf },
+      data: { data: { status: "archived" } },
+    });
+    expect(archived.ok(), await archived.text()).toBeTruthy();
+  }
+});
+
 test("Intelligent UI: breakfast answer uses the current property's configured hours", async ({ page, request }) => {
   const csrf = await loginAdmin(request);
   const propertyResponse = await request.get("/api/admin/properties/e2e-property");
