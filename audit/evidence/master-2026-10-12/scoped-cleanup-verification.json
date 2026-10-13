@@ -1,0 +1,11 @@
+{
+  "containers": [],
+  "volumes": [],
+  "networks": [],
+  "runtime_env_removed": true,
+  "audit_images_removed": [
+    "concierge-master-audit-tests:d2d09ba9",
+    "concierge-master-audit-tests:pg16-d2d09ba9",
+    "concierge-ai:phase6-local"
+  ]
+}

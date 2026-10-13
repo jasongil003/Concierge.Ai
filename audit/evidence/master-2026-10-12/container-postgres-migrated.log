@@ -1,0 +1,121 @@
+.............F                                                           [100%]------------------ Persistent SQLite safety check: unchanged -------------------
+/work/state/concierge.db: (8544256, 1791281898673543275, 'a682599b6e28da3051909d14d0018bf8825e80d663607ae579af35347f980e78')
+/work/state/concierge.db-journal: None
+/work/state/concierge.db-shm: None
+/work/state/concierge.db-wal: None
+
+=================================== FAILURES ===================================
+_______ test_postgres_backup_restores_expected_records_to_clean_database _______
+
+tmp_path = PosixPath('/tmp/pytest-of-concierge/pytest-0/test_postgres_backup_restores_0')
+
+>   ???
+
+/Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/tests/test_postgres_backup_integration.py:65: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+archive_path = PosixPath('/tmp/pytest-of-concierge/pytest-0/test_postgres_backup_restores_0/concierge-postgres-backup.zip')
+db_path = PosixPath('/tmp/pytest-of-concierge/pytest-0/test_postgres_backup_restores_0/unused.sqlite')
+upload_root = PosixPath('/tmp/pytest-of-concierge/pytest-0/test_postgres_backup_restores_0/restored-uploads')
+replace = False
+database_url = postgresql+psycopg://concierge@127.0.0.1:5432/restore_038722b489c4
+
+    def restore_backup(
+        archive_path: Path,
+        db_path: Path,
+        upload_root: Path,
+        *,
+        replace: bool = False,
+        database_url: str = "",
+    ) -> dict[str, object]:
+        verification = verify_backup(archive_path, database_url=database_url)
+        db_path = db_path.resolve()
+        upload_root = _safe_restore_root(upload_root)
+        postgres = verification["database_type"] == "postgresql"
+        if postgres and not database_url:
+            raise RuntimeError("DATABASE_URL is required for PostgreSQL restore.")
+        if not postgres and database_url and _parse_database_url(database_url).get_backend_name() == "postgresql":
+            raise RuntimeError("The archive contains SQLite data but DATABASE_URL selects PostgreSQL.")
+        if not postgres and (db_path.exists() or upload_root.exists()) and not replace:
+            raise FileExistsError("Restore targets already exist; pass replace=True after stopping the application.")
+        if postgres and upload_root.exists() and not replace:
+            raise FileExistsError("Restore upload target already exists; pass replace=True after stopping the application.")
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        upload_root.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="concierge-restore-", dir=upload_root.parent) as temporary:
+            stage = Path(temporary)
+            manifest_member = DATABASE_MEMBER
+            staged_uploads = stage / "uploads"
+            with zipfile.ZipFile(archive_path.resolve()) as archive:
+                manifest = json.loads(archive.read(MANIFEST_MEMBER))
+                manifest_member = manifest.get("database", DATABASE_MEMBER)
+                staged_db = stage / manifest_member
+                with archive.open(manifest_member) as source, staged_db.open("wb") as destination:
+                    shutil.copyfileobj(source, destination, length=1024 * 1024)
+                for member in archive.namelist():
+                    if not member.startswith("uploads/") or member.endswith("/"):
+                        continue
+                    relative = Path(member).relative_to("uploads")
+                    target = (staged_uploads / relative).resolve()
+                    if staged_uploads.resolve() not in target.parents:
+                        raise RuntimeError("Backup contains an unsafe upload path.")
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    with archive.open(member) as source, target.open("wb") as destination:
+                        shutil.copyfileobj(source, destination, length=1024 * 1024)
+            if postgres:
+                _assert_empty_postgres_database(database_url)
+                switches, environment = _postgres_environment(database_url)
+                database_name = _parse_database_url(database_url).database
+                if not database_name:
+                    raise RuntimeError("DATABASE_URL must include a PostgreSQL database name for restore.")
+                try:
+                    result = subprocess.run(
+                        [
+                            "pg_restore",
+                            "--exit-on-error",
+                            "--single-transaction",
+                            "--no-owner",
+                            "--no-acl",
+                            f"--dbname={unquote(database_name)}",
+                            str(staged_db),
+                        ]
+                        + switches,
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                        timeout=PG_TOOL_TIMEOUT_SECONDS,
+                        env=environment,
+                    )
+                except FileNotFoundError as exc:
+                    raise RuntimeError("PostgreSQL backup tools (pg_dump and pg_restore) are required on this host.") from exc
+                except subprocess.TimeoutExpired as exc:
+                    raise RuntimeError("PostgreSQL restore exceeded its configured time limit.") from exc
+                if result.returncode:
+>                   raise RuntimeError(f"PostgreSQL restore failed with exit code {result.returncode}; the transaction was rolled back.")
+E                   RuntimeError: PostgreSQL restore failed with exit code 1; the transaction was rolled back.
+
+app/backup.py:435: RuntimeError
+=============================== warnings summary ===============================
+../usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1
+  /usr/local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+../usr/local/lib/python3.12/site-packages/starlette/testclient.py:53
+  /usr/local/lib/python3.12/site-packages/starlette/testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
+
+tests/test_postgres_sqlite_migration.py::test_existing_sqlite_property_data_copies_into_migrated_postgres
+tests/test_postgres_integration.py::test_guest_credential_migration_upgrades_schema_at_0003_with_duplicate_rows
+tests/test_postgres_integration.py::test_guest_credential_migration_upgrades_schema_at_0003_with_duplicate_rows
+tests/test_postgres_integration.py::test_ordering_migration_upgrades_existing_postgres_rows
+tests/test_postgres_integration.py::test_ordering_migration_upgrades_existing_postgres_rows
+tests/test_postgres_integration.py::test_ordering_migration_upgrades_existing_postgres_rows
+tests/test_postgres_integration.py::test_ordering_migration_widens_existing_postgres_integer_timestamp
+tests/test_postgres_integration.py::test_ordering_migration_widens_existing_postgres_integer_timestamp
+  /usr/local/lib/python3.12/site-packages/alembic/config.py:612: DeprecationWarning: No path_separator found in configuration; falling back to legacy splitting on spaces, commas, and colons for prepend_sys_path.  Consider adding path_separator=os to Alembic config.
+    util.warn_deprecated(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_postgres_backup_integration.py::test_postgres_backup_restores_expected_records_to_clean_database
+1 failed, 13 passed, 10 warnings in 3.41s

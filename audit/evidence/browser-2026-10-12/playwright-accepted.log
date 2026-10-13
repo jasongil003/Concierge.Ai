@@ -1,0 +1,415 @@
+[WebServer] INFO:     Started server process [97960]
+[WebServer] INFO:     Waiting for application startup.
+[WebServer] INFO:     Application startup complete.
+[WebServer] INFO:     Uvicorn running on http://127.0.0.1:8092 (Press CTRL+C to quit)
+
+Running 318 tests using 1 worker
+
+(node:97988) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓    1 [chromium] › tests/e2e/admin-actions.spec.js:31:1 › admin data buttons: catalog, request, and recommendation workflows (1.9s)
+  ✓    2 [chromium] › tests/e2e/admin-actions.spec.js:90:1 › room types can be created, edited, and deleted with confirmation (840ms)
+  ✓    3 [chromium] › tests/e2e/admin-actions.spec.js:116:1 › admin restaurant workflow creates, approves, publishes, edits, and archives venue content (1.7s)
+  ✓    4 [chromium] › tests/e2e/admin-actions.spec.js:171:1 › admin restaurant assignment checkboxes save only the selected restaurant ids (1.3s)
+  ✓    5 [chromium] › tests/e2e/admin-actions.spec.js:224:1 › admin operations buttons: map, stay memory, location, and intro (1.8s)
+  ✓    6 [chromium] › tests/e2e/admin-actions.spec.js:317:1 › admin account buttons: create, edit, reset, status, activity, revoke, and delete (2.3s)
+  ✓    7 [chromium] › tests/e2e/admin-actions.spec.js:393:1 › admin role buttons create and edit a custom role (829ms)
+  ✓    8 [chromium] › tests/e2e/admin-actions.spec.js:413:1 › admin conversation buttons: takeover, staff response, and close (956ms)
+  ✓    9 [chromium] › tests/e2e/admin-actions.spec.js:454:1 › admin conversation queue can assign an escalated conversation to staff (874ms)
+  ✓   10 [chromium] › tests/e2e/admin-actions.spec.js:505:1 › admin AI settings and usage reporting work (968ms)
+  ✓   11 [chromium] › tests/e2e/admin-auth.spec.js:4:1 › unauthenticated admin access redirects to username login (155ms)
+  ✓   12 [chromium] › tests/e2e/admin-auth.spec.js:17:1 › password reset link shows only the reset form (116ms)
+  ✓   13 [chromium] › tests/e2e/admin-auth.spec.js:29:1 › invalid username and password remain on login (222ms)
+  ✓   14 [chromium] › tests/e2e/admin-auth.spec.js:38:1 › password visibility button toggles the password field (202ms)
+  ✓   15 [chromium] › tests/e2e/admin-auth.spec.js:51:1 › password recovery buttons open, submit, and close the dialog (274ms)
+  ✓   16 [chromium] › tests/e2e/admin-auth.spec.js:65:1 › username login opens admin and logout revokes the session (657ms)
+  ✓   17 [chromium] › tests/e2e/admin.spec.js:65:1 › admin onboarding: create the first property from an empty workspace (1.4s)
+  ✓   18 [chromium] › tests/e2e/admin.spec.js:136:1 › facilities panel: empty state, search, and styled CRUD actions work (1.5s)
+  ✓   19 [chromium] › tests/e2e/admin.spec.js:207:1 › hotel assistant composer keeps its input and helper text in separate rows (610ms)
+  ✓   20 [chromium] › tests/e2e/admin.spec.js:236:1 › hotel knowledge composer uses Enter, Shift+Enter, and one in-flight request (930ms)
+  ✓   21 [chromium] › tests/e2e/admin.spec.js:257:1 › document upload creates reviewable knowledge without publishing (776ms)
+  ✓   22 [chromium] › tests/e2e/admin.spec.js:270:1 › topbar: publish state, Save Draft, Publish, Discard, Open guest app (662ms)
+  ✓   23 [chromium] › tests/e2e/admin.spec.js:296:1 › topbar: sidebar and profile buttons perform their actions (737ms)
+  -   24 [chromium] › tests/e2e/admin.spec.js:332:5 › responsive sidebar toggle state › mobile drawer › labels, accessibility state, focus, and breakpoint changes stay in sync
+  ✓   25 [chromium] › tests/e2e/admin.spec.js:420:5 › responsive sidebar toggle state › desktop sidebar › labels match expanded state and the saved preference survives reload (1.0s)
+  ✓   26 [chromium] › tests/e2e/admin.spec.js:471:1 › sidebar: all navigation items are visible and clickable (2.5s)
+  ✓   27 [chromium] › tests/e2e/admin.spec.js:509:1 › integration directory links open the separate working setup pages (679ms)
+  ✓   28 [chromium] › tests/e2e/admin.spec.js:519:1 › webhooks can be created, edited, canceled, and deleted with confirmation (1.1s)
+  ✓   29 [chromium] › tests/e2e/admin.spec.js:568:1 › management report download uses the period selected on its page (637ms)
+  ✓   30 [chromium] › tests/e2e/admin.spec.js:582:1 › analytics rejects a backwards custom date range (709ms)
+  ✓   31 [chromium] › tests/e2e/admin.spec.js:592:1 › system settings use a timezone list and persist the selected zone (1.2s)
+  ✓   32 [chromium] › tests/e2e/admin.spec.js:638:1 › sidebar: each visible navigation item has a feature status (692ms)
+  ✓   33 [chromium] › tests/e2e/admin.spec.js:660:1 › guardrails panel exposes security controls and network diagnostics (701ms)
+  ✓   34 [chromium] › tests/e2e/admin.spec.js:670:1 › Network Access saves exact guest hosts (4.8s)
+  ✓   35 [chromium] › tests/e2e/admin.spec.js:751:1 › overview panel: operational health is visible and configuration moved out (658ms)
+  ✓   36 [chromium] › tests/e2e/admin.spec.js:770:1 › system health shows a fresh status summary and refreshes checks (844ms)
+  ✓   37 [chromium] › tests/e2e/admin.spec.js:791:1 › hotel check-in and checkout are time pickers and persist their values (706ms)
+  ✓   38 [chromium] › tests/e2e/admin.spec.js:817:1 › Alerts show their evaluated timeframe and refresh the current view (838ms)
+  ✓   39 [chromium] › tests/e2e/admin.spec.js:870:1 › appearance panel: one builder owns page theme controls and updates the canvas (847ms)
+  ✓   40 [chromium] › tests/e2e/admin.spec.js:903:1 › appearance panel: one editor switches between components, layers, page settings, and section settings (867ms)
+  ✓   41 [chromium] › tests/e2e/admin.spec.js:950:1 › appearance panel: logo uploader shows selected-file status and previews the image (689ms)
+  ✓   42 [chromium] › tests/e2e/admin.spec.js:968:1 › appearance panel: center canvas device buttons resize the live page (1.1s)
+  ✓   43 [chromium] › tests/e2e/admin.spec.js:982:1 › appearance panel: add and remove prompt buttons work (772ms)
+  ✓   44 [chromium] › tests/e2e/admin.spec.js:996:1 › guest experience panel: modules can be managed (619ms)
+  ✓   45 [chromium] › tests/e2e/admin.spec.js:1004:1 › preview controls are interactive and intro settings save (1.9s)
+  -   46 [chromium] › tests/e2e/admin.spec.js:1257:3 › admin navigation at a 375px viewport › every visible admin tab opens with page-specific guidance
+  ✓   47 [chromium] › tests/e2e/admin.spec.js:1267:3 › admin navigation at a 1440px desktop viewport › every visible admin tab opens with page-specific guidance (8.0s)
+  ✓   48 [chromium] › tests/e2e/admin.spec.js:1274:1 › design actions require concierge.edit in the UI and on the server (749ms)
+  ✓   49 [chromium] › tests/e2e/admin.spec.js:1327:1 › admin: visual builder renders guest sections and supports direct editing, history, templates, devices, and draft save (2.0s)
+  ✓   50 [chromium] › tests/e2e/admin.spec.js:1439:1 › admin: builder visual evidence covers devices, inspector tabs, image upload, and drag reorder (7.2s)
+  ✓   51 [chromium] › tests/e2e/admin.spec.js:1733:1 › admin: page help uses an accessible question-mark icon (544ms)
+  ✓   52 [chromium] › tests/e2e/admin.spec.js:1746:1 › admin: local property recommendations can be given home-card images (707ms)
+  ✓   53 [chromium] › tests/e2e/admin.spec.js:1774:1 › admin: long workflow guidance is collapsed until requested (1.3s)
+  ✓   54 [chromium] › tests/e2e/admin.spec.js:1787:1 › every visible admin page fits the tablet layout (2.3s)
+  ✓   55 [chromium] › tests/e2e/admin.spec.js:1817:1 › AI providers panel: provider management controls are available (633ms)
+  ✓   56 [chromium] › tests/e2e/admin.spec.js:1830:1 › AI provider configure and drawer close buttons work (689ms)
+  ✓   57 [chromium] › tests/e2e/admin.spec.js:1839:1 › zones map toolbar buttons switch tools and execute safely (975ms)
+  ✓   58 [chromium] › tests/e2e/admin.spec.js:1857:1 › map workspace adapts to a short desktop viewport (629ms)
+  ✓   59 [chromium] › tests/e2e/admin.spec.js:1873:1 › obsolete product sections are removed from navigation (315ms)
+  ✓   60 [chromium] › tests/e2e/admin.spec.js:1881:1 › knowledge panel exposes managed source controls (659ms)
+  ✓   61 [chromium] › tests/e2e/admin.spec.js:1889:1 › wifi panel: truthful status and manual test are available (649ms)
+  ✓   62 [chromium] › tests/e2e/admin.spec.js:1896:1 › authentication type panel: toggles are available (704ms)
+  ✓   63 [chromium] › tests/e2e/admin.spec.js:1920:1 › authentication master switch saves and reloads independently of method choices (1.1s)
+  ✓   64 [chromium] › tests/e2e/admin.spec.js:1945:1 › requests panel: service request controls are available (656ms)
+  ✓   65 [chromium] › tests/e2e/admin.spec.js:1955:1 › requests panel: operational summary counts and filters use property-local dates (793ms)
+  ✓   66 [chromium] › tests/e2e/admin.spec.js:1986:1 › operations assistant formats evidence, completes the first reply, and keeps follow-up context (2.6s)
+  ✓   67 [chromium] › tests/e2e/admin.spec.js:2034:1 › deployment panel: status info displayed (1.1s)
+  ✓   68 [chromium] › tests/e2e/admin.spec.js:2042:1 › users and access panels expose username-first management (883ms)
+  ✓   69 [chromium] › tests/e2e/admin.spec.js:2063:1 › role dialog and audit action buttons work (852ms)
+  ✓   70 [chromium] › tests/e2e/admin.spec.js:2085:3 › config workflow (serial) › full config workflow: change, save draft, preview unchanged, publish, persist (1.4s)
+  ✓   71 [chromium] › tests/e2e/admin.spec.js:2163:3 › config workflow (serial) › discard: resets draft to published (941ms)
+  ✓   72 [chromium] › tests/e2e/admin.spec.js:2195:3 › config workflow (serial) › version restore: restores previous version to draft (1.3s)
+  ✓   73 [chromium] › tests/e2e/admin.spec.js:2250:3 › config workflow (serial) › property save: hotel name persists via API (782ms)
+  ✓   74 [chromium] › tests/e2e/admin.spec.js:2284:1 › admin: no horizontal overflow at 1440px (279ms)
+  ✓   75 [chromium] › tests/e2e/admin.spec.js:2291:1 › admin: no horizontal overflow at 1280px (283ms)
+  ✓   76 [chromium] › tests/e2e/admin.spec.js:2298:1 › admin: no horizontal overflow at tablet (768px) (280ms)
+  ✓   77 [chromium] › tests/e2e/admin.spec.js:2305:1 › admin: no horizontal overflow at mobile (375px) (285ms)
+  ✓   78 [chromium] › tests/e2e/admin.spec.js:2312:1 › admin: all nav items reachable at mobile (2.0s)
+  ✓   79 [chromium] › tests/e2e/admin.spec.js:2331:1 › security: no API keys in client JS (412ms)
+  ✓   80 [chromium] › tests/e2e/guest-privacy.spec.js:6:1 › guest privacy explains staff access and retained conversations truthfully (795ms)
+  ✓   81 [chromium] › tests/e2e/guest-scrollbar.spec.js:6:1 › guest home and concierge retain aligned content with classic scrollbars (822ms)
+  ✓   82 [chromium] › tests/e2e/guest.spec.js:163:1 › guest: opens on the personal stay home, with chat available separately (342ms)
+  ✘   83 [chromium] › tests/e2e/guest.spec.js:174:1 › guest: empty property home hides empty sections and unsupported routes (5.5s)
+(node:98817) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   84 [chromium] › tests/e2e/guest.spec.js:206:1 › guest: optional catalog outages do not prevent a concierge session from starting (321ms)
+  ✓   85 [chromium] › tests/e2e/guest.spec.js:228:1 › guest: bottom navigation switches between stay, explore, requests, and concierge (576ms)
+  ✓   86 [chromium] › tests/e2e/guest.spec.js:243:1 › guest: Explore and My Stay use configured property content (447ms)
+  ✓   87 [chromium] › tests/e2e/guest.spec.js:254:1 › guest: hotel name and concierge name are displayed (251ms)
+  ✓   88 [chromium] › tests/e2e/guest.spec.js:260:1 › guest: property branding and home prompts use the published property design (467ms)
+  ✓   89 [chromium] › tests/e2e/guest.spec.js:343:1 › guest: home shows four configured actions first, then real supported routes in See all (379ms)
+  ✓   90 [chromium] › tests/e2e/guest.spec.js:390:1 › guest: home suggestion cards use property images and gracefully fall back for unsafe images (699ms)
+  ✓   91 [chromium] › tests/e2e/guest.spec.js:438:1 › guest: missing suggestion image falls back to its property content (301ms)
+  ✓   92 [chromium] › tests/e2e/guest.spec.js:472:1 › guest: composer shortcuts open a supported guest view (510ms)
+  ✓   93 [chromium] › tests/e2e/guest.spec.js:512:1 › guest: unsafe configured hero image URLs fall back without loading (335ms)
+  ✓   94 [chromium] › tests/e2e/guest.spec.js:528:1 › guest: property-configured hero image loads inside the home hero (463ms)
+  ✓   95 [chromium] › tests/e2e/guest.spec.js:551:1 › guest: chat submit works with direct input (570ms)
+  ✓   96 [chromium] › tests/e2e/guest.spec.js:560:1 › guest: responsive shell keeps the concierge composer attached without horizontal overflow (2.4s)
+  ✓   97 [chromium] › tests/e2e/guest.spec.js:670:1 › guest: submitted message stays in the composer when session startup fails (584ms)
+  ✓   98 [chromium] › tests/e2e/guest.spec.js:689:1 › guest: failed chat request keeps the submitted draft (572ms)
+  ✓   99 [chromium] › tests/e2e/guest.spec.js:705:1 › guest: empty submit is prevented (248ms)
+  ✓  100 [chromium] › tests/e2e/guest.spec.js:714:1 › guest: multiline composer with shift+enter (245ms)
+  ✓  101 [chromium] › tests/e2e/guest.spec.js:725:1 › guest: Enter submits message (239ms)
+  ✓  102 [chromium] › tests/e2e/guest.spec.js:738:1 › wi-fi authentication flow › guest: wi-fi flow shows only the enabled authentication type and its fields (577ms)
+  ✓  103 [chromium] › tests/e2e/guest.spec.js:750:1 › wi-fi authentication flow › guest: wi-fi flow validates empty fields (535ms)
+  ✓  104 [chromium] › tests/e2e/guest.spec.js:760:1 › wi-fi authentication flow › guest: wi-fi flow authenticates successfully in mock mode (797ms)
+  ✓  105 [chromium] › tests/e2e/guest.spec.js:773:1 › wi-fi authentication flow › guest: wi-fi flow only lists enabled non-PMS methods (526ms)
+  ✓  106 [chromium] › tests/e2e/guest.spec.js:785:1 › wi-fi authentication flow › guest API rejects an authentication type disabled for the property (193ms)
+  ✓  107 [chromium] › tests/e2e/guest.spec.js:799:1 › wi-fi authentication flow › master switch hides guest sign-in and rejects direct authentication requests (556ms)
+  ✓  108 [chromium] › tests/e2e/guest.spec.js:823:1 › wi-fi authentication flow › guest login selector contains every enabled authentication type and no disabled type (535ms)
+  ✓  109 [chromium] › tests/e2e/guest.spec.js:836:1 › wi-fi authentication flow › guest mock flow accepts each enabled authentication type (278ms)
+  ✓  110 [chromium] › tests/e2e/guest.spec.js:868:1 › guest: nearby dining shows persisted recommendation cards (513ms)
+  ✓  111 [chromium] › tests/e2e/guest.spec.js:878:1 › guest: restaurant card directions button opens configured map (865ms)
+  ✓  112 [chromium] › tests/e2e/guest.spec.js:895:1 › guest: restaurant card details button toggles verified details (875ms)
+  ✓  113 [chromium] › tests/e2e/guest.spec.js:918:1 › guest: expanded restaurant details survive a chat response rerender (828ms)
+  ✓  114 [chromium] › tests/e2e/guest.spec.js:964:1 › guest can request restaurant staff from the hotel menu (815ms)
+  ✓  115 [chromium] › tests/e2e/guest.spec.js:999:1 › guest: configured service request shows confirmation card (566ms)
+  ✓  116 [chromium] › tests/e2e/guest.spec.js:1009:1 › guest: a configured service can be requested directly without opening chat (795ms)
+  ✓  117 [chromium] › tests/e2e/guest.spec.js:1022:1 › guest: confirm request persists and returns a request id (882ms)
+  ✓  118 [chromium] › tests/e2e/guest.spec.js:1033:1 › guest: confirmed service request appears in My Requests (917ms)
+  ✓  119 [chromium] › tests/e2e/guest.spec.js:1049:1 › guest: menu opens and closes (688ms)
+  ✓  120 [chromium] › tests/e2e/guest.spec.js:1058:1 › guest: options button opens the same working menu (843ms)
+  ✓  121 [chromium] › tests/e2e/guest.spec.js:1066:1 › guest: hotel information menu action responds with configured property details (687ms)
+  ✓  122 [chromium] › tests/e2e/guest.spec.js:1081:3 › guest: language menu action responds (750ms)
+  ✓  123 [chromium] › tests/e2e/guest.spec.js:1081:3 › guest: accessibility menu action responds (794ms)
+  ✓  124 [chromium] › tests/e2e/guest.spec.js:1081:3 › guest: privacy menu action responds (768ms)
+  ✓  125 [chromium] › tests/e2e/guest.spec.js:1081:3 › guest: help menu action responds (785ms)
+  ✓  126 [chromium] › tests/e2e/guest.spec.js:1090:1 › guest: new conversation resets messages (988ms)
+  ✓  127 [chromium] › tests/e2e/guest.spec.js:1101:1 › Intelligent UI: property opt-in answers from verified hotel data and keeps AI text inert (532ms)
+  ✓  128 [chromium] › tests/e2e/guest.spec.js:1166:1 › Intelligent UI: breakfast answer uses the current property's configured hours (433ms)
+  ✓  129 [chromium] › tests/e2e/guest.spec.js:1194:1 › Intelligent UI: verified floor maps render interactive markers and a text alternative (717ms)
+  ✓  130 [chromium] › tests/e2e/guest.spec.js:1273:1 › Intelligent UI: typed selections validate, support edit and cancel, and do not book (1.1s)
+  ✓  131 [chromium] › tests/e2e/guest.spec.js:1351:1 › Intelligent UI: sharing reviewed selections sends one concierge turn without creating a reservation (685ms)
+  ✓  132 [chromium] › tests/e2e/guest.spec.js:1403:1 › Intelligent UI: service requests wait for explicit confirmation and backend verification (541ms)
+  ✓  133 [chromium] › tests/e2e/guest.spec.js:1429:1 › Intelligent UI: server-side rollback restores legacy and query parameters cannot enable v2 (434ms)
+  ✓  134 [chromium] › tests/e2e/guest.spec.js:1448:1 › guest: requested desktop, tablet, and mobile widths have no overflow or footer overlap (272ms)
+  ✓  135 [chromium] › tests/e2e/guest.spec.js:1470:1 › guest: mobile layout shows all core elements (222ms)
+  ✓  136 [chromium] › tests/e2e/guest.spec.js:1480:1 › guest: composer input uses the available width (242ms)
+  ✓  137 [chromium] › tests/e2e/guest.spec.js:1491:1 › guest: document upload control is not exposed (239ms)
+  ✓  138 [chromium] › tests/e2e/guest.spec.js:1499:1 › guest: dark mode renders without errors (247ms)
+  ✓  139 [chromium] › tests/e2e/guest.spec.js:1509:1 › guest: no console errors on load (827ms)
+  ✓  140 [chromium] › tests/e2e/guest.spec.js:1522:1 › admin: no console errors on load (1.0s)
+{"controlInventoryPath":"/Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/audit/evidence/CONTROL_INVENTORY_2026-10-12.json","adminDestinations":42,"guestViews":5,"visibleControlInstances":2122,"focusableControls":2088,"enabledControlsNotFocusable":0,"controlsMissingAccessibleName":0,"invalidCompositeWidgets":[],"nonFocusableControls":[],"controlsMissingNames":[],"behaviorStatus":"INVENTORY_WITH_KEYBOARD_ENTRY_VALIDATION; interactive behavior is covered by named Playwright workflows, not generically clicked."}
+  ✓  141 [chromium] › tests/e2e/manual-qa-control-inventory.spec.js:422:1 › manual QA inventories visible controls on every admin destination and guest view (5.4s)
+  ✓  142 [chromium] › tests/e2e/manual-qa-control-inventory.spec.js:492:1 › control inventory validates normal focus, disabled controls, names, and composite entry points (123ms)
+  ✓  143 [chromium] › tests/e2e/manual-qa-responsive.spec.js:67:1 › manual QA responsive matrix covers every admin destination at 1920x1080 (4.6s)
+  ✓  144 [chromium] › tests/e2e/manual-qa-responsive.spec.js:67:1 › manual QA responsive matrix covers every admin destination at 1440x900 (4.5s)
+  ✓  145 [chromium] › tests/e2e/manual-qa-responsive.spec.js:67:1 › manual QA responsive matrix covers every admin destination at 1280x720 (4.5s)
+  ✓  146 [chromium] › tests/e2e/manual-qa-responsive.spec.js:67:1 › manual QA responsive matrix covers every admin destination at 1024x768 (4.5s)
+  ✓  147 [chromium] › tests/e2e/manual-qa-responsive.spec.js:67:1 › manual QA responsive matrix covers every admin destination at 768x1024 (4.5s)
+  ✓  148 [chromium] › tests/e2e/manual-qa-responsive.spec.js:67:1 › manual QA responsive matrix covers every admin destination at 430x932 (6.8s)
+  ✓  149 [chromium] › tests/e2e/manual-qa-responsive.spec.js:67:1 › manual QA responsive matrix covers every admin destination at 390x844 (7.6s)
+  ✓  150 [chromium] › tests/e2e/manual-qa-responsive.spec.js:67:1 › manual QA responsive matrix covers every admin destination at 375x812 (7.3s)
+  ✓  151 [chromium] › tests/e2e/manual-qa-responsive.spec.js:67:1 › manual QA responsive matrix covers every admin destination at 320x720 (7.2s)
+  ✓  152 [chromium] › tests/e2e/operations-console.spec.js:22:1 › role-aware overview renders truthful telemetry and alerts (448ms)
+  ✓  153 [chromium] › tests/e2e/operations-console.spec.js:31:1 › alert investigation opens the unified assistant with a prepared question (430ms)
+  ✓  154 [chromium] › tests/e2e/operations-console.spec.js:65:1 › health, analytics, reports, and assistant pages are navigable (591ms)
+  ✓  155 [chromium] › tests/e2e/property-context.spec.js:13:1 › property-scoped pages and settings stay safe when no property exists (322ms)
+  ✓  156 [chromium] › tests/e2e/property-context.spec.js:63:1 › health API failures and incomplete checks render unavailable (718ms)
+  ✓  157 [chromium] › tests/e2e/visual.spec.js:40:1 › guest home visual baseline @visual (610ms)
+  ✓  158 [chromium] › tests/e2e/visual.spec.js:118:1 › admin design panel visual baseline @visual (743ms)
+  ✓  159 [chromium] › tests/e2e/xss-guard.spec.js:22:1 › guest-supplied service request text is rendered as inert text (stored XSS guard) (682ms)
+(node:322) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  -  160 [mobile-chrome] › tests/e2e/admin-actions.spec.js:31:1 › admin data buttons: catalog, request, and recommendation workflows
+  -  161 [mobile-chrome] › tests/e2e/admin-actions.spec.js:90:1 › room types can be created, edited, and deleted with confirmation
+  -  162 [mobile-chrome] › tests/e2e/admin-actions.spec.js:116:1 › admin restaurant workflow creates, approves, publishes, edits, and archives venue content
+  -  163 [mobile-chrome] › tests/e2e/admin-actions.spec.js:171:1 › admin restaurant assignment checkboxes save only the selected restaurant ids
+  -  164 [mobile-chrome] › tests/e2e/admin-actions.spec.js:224:1 › admin operations buttons: map, stay memory, location, and intro
+  -  165 [mobile-chrome] › tests/e2e/admin-actions.spec.js:317:1 › admin account buttons: create, edit, reset, status, activity, revoke, and delete
+  -  166 [mobile-chrome] › tests/e2e/admin-actions.spec.js:393:1 › admin role buttons create and edit a custom role
+  -  167 [mobile-chrome] › tests/e2e/admin-actions.spec.js:413:1 › admin conversation buttons: takeover, staff response, and close
+  -  168 [mobile-chrome] › tests/e2e/admin-actions.spec.js:454:1 › admin conversation queue can assign an escalated conversation to staff
+  -  169 [mobile-chrome] › tests/e2e/admin-actions.spec.js:505:1 › admin AI settings and usage reporting work
+  ✓  170 [mobile-chrome] › tests/e2e/admin-auth.spec.js:4:1 › unauthenticated admin access redirects to username login (167ms)
+  ✓  171 [mobile-chrome] › tests/e2e/admin-auth.spec.js:17:1 › password reset link shows only the reset form (156ms)
+  ✓  172 [mobile-chrome] › tests/e2e/admin-auth.spec.js:29:1 › invalid username and password remain on login (252ms)
+  ✓  173 [mobile-chrome] › tests/e2e/admin-auth.spec.js:38:1 › password visibility button toggles the password field (218ms)
+  ✓  174 [mobile-chrome] › tests/e2e/admin-auth.spec.js:51:1 › password recovery buttons open, submit, and close the dialog (327ms)
+  ✓  175 [mobile-chrome] › tests/e2e/admin-auth.spec.js:65:1 › username login opens admin and logout revokes the session (695ms)
+  ✓  176 [mobile-chrome] › tests/e2e/admin.spec.js:65:1 › admin onboarding: create the first property from an empty workspace (1.9s)
+  ✓  177 [mobile-chrome] › tests/e2e/admin.spec.js:136:1 › facilities panel: empty state, search, and styled CRUD actions work (2.0s)
+  ✓  178 [mobile-chrome] › tests/e2e/admin.spec.js:207:1 › hotel assistant composer keeps its input and helper text in separate rows (833ms)
+  ✓  179 [mobile-chrome] › tests/e2e/admin.spec.js:236:1 › hotel knowledge composer uses Enter, Shift+Enter, and one in-flight request (1.7s)
+  ✓  180 [mobile-chrome] › tests/e2e/admin.spec.js:257:1 › document upload creates reviewable knowledge without publishing (1.3s)
+  ✓  181 [mobile-chrome] › tests/e2e/admin.spec.js:270:1 › topbar: publish state, Save Draft, Publish, Discard, Open guest app (534ms)
+  ✓  182 [mobile-chrome] › tests/e2e/admin.spec.js:296:1 › topbar: sidebar and profile buttons perform their actions (812ms)
+  ✓  183 [mobile-chrome] › tests/e2e/admin.spec.js:332:5 › responsive sidebar toggle state › mobile drawer › labels, accessibility state, focus, and breakpoint changes stay in sync (1.5s)
+  -  184 [mobile-chrome] › tests/e2e/admin.spec.js:420:5 › responsive sidebar toggle state › desktop sidebar › labels match expanded state and the saved preference survives reload
+  ✓  185 [mobile-chrome] › tests/e2e/admin.spec.js:471:1 › sidebar: all navigation items are visible and clickable (3.7s)
+  ✓  186 [mobile-chrome] › tests/e2e/admin.spec.js:509:1 › integration directory links open the separate working setup pages (958ms)
+  ✓  187 [mobile-chrome] › tests/e2e/admin.spec.js:519:1 › webhooks can be created, edited, canceled, and deleted with confirmation (1.3s)
+  ✓  188 [mobile-chrome] › tests/e2e/admin.spec.js:568:1 › management report download uses the period selected on its page (935ms)
+  ✓  189 [mobile-chrome] › tests/e2e/admin.spec.js:582:1 › analytics rejects a backwards custom date range (928ms)
+  ✓  190 [mobile-chrome] › tests/e2e/admin.spec.js:592:1 › system settings use a timezone list and persist the selected zone (1.7s)
+  ✓  191 [mobile-chrome] › tests/e2e/admin.spec.js:638:1 › sidebar: each visible navigation item has a feature status (787ms)
+  -  192 [mobile-chrome] › tests/e2e/admin.spec.js:660:1 › guardrails panel exposes security controls and network diagnostics
+  -  193 [mobile-chrome] › tests/e2e/admin.spec.js:670:1 › Network Access saves exact guest hosts
+  ✓  194 [mobile-chrome] › tests/e2e/admin.spec.js:751:1 › overview panel: operational health is visible and configuration moved out (951ms)
+  ✓  195 [mobile-chrome] › tests/e2e/admin.spec.js:770:1 › system health shows a fresh status summary and refreshes checks (1.1s)
+  -  196 [mobile-chrome] › tests/e2e/admin.spec.js:791:1 › hotel check-in and checkout are time pickers and persist their values
+  ✓  197 [mobile-chrome] › tests/e2e/admin.spec.js:817:1 › Alerts show their evaluated timeframe and refresh the current view (1.1s)
+  ✓  198 [mobile-chrome] › tests/e2e/admin.spec.js:870:1 › appearance panel: one builder owns page theme controls and updates the canvas (1.1s)
+  ✓  199 [mobile-chrome] › tests/e2e/admin.spec.js:903:1 › appearance panel: one editor switches between components, layers, page settings, and section settings (1.1s)
+  ✓  200 [mobile-chrome] › tests/e2e/admin.spec.js:950:1 › appearance panel: logo uploader shows selected-file status and previews the image (988ms)
+  ✓  201 [mobile-chrome] › tests/e2e/admin.spec.js:968:1 › appearance panel: center canvas device buttons resize the live page (1.2s)
+  ✓  202 [mobile-chrome] › tests/e2e/admin.spec.js:982:1 › appearance panel: add and remove prompt buttons work (1.0s)
+  ✓  203 [mobile-chrome] › tests/e2e/admin.spec.js:996:1 › guest experience panel: modules can be managed (867ms)
+  ✓  204 [mobile-chrome] › tests/e2e/admin.spec.js:1004:1 › preview controls are interactive and intro settings save (2.4s)
+  ✓  205 [mobile-chrome] › tests/e2e/admin.spec.js:1257:3 › admin navigation at a 375px viewport › every visible admin tab opens with page-specific guidance (24.7s)
+  -  206 [mobile-chrome] › tests/e2e/admin.spec.js:1267:3 › admin navigation at a 1440px desktop viewport › every visible admin tab opens with page-specific guidance
+  ✓  207 [mobile-chrome] › tests/e2e/admin.spec.js:1274:1 › design actions require concierge.edit in the UI and on the server (1.0s)
+  -  208 [mobile-chrome] › tests/e2e/admin.spec.js:1327:1 › admin: visual builder renders guest sections and supports direct editing, history, templates, devices, and draft save
+  -  209 [mobile-chrome] › tests/e2e/admin.spec.js:1439:1 › admin: builder visual evidence covers devices, inspector tabs, image upload, and drag reorder
+  ✓  210 [mobile-chrome] › tests/e2e/admin.spec.js:1733:1 › admin: page help uses an accessible question-mark icon (581ms)
+  ✓  211 [mobile-chrome] › tests/e2e/admin.spec.js:1746:1 › admin: local property recommendations can be given home-card images (1.0s)
+  ✓  212 [mobile-chrome] › tests/e2e/admin.spec.js:1774:1 › admin: long workflow guidance is collapsed until requested (2.6s)
+  -  213 [mobile-chrome] › tests/e2e/admin.spec.js:1787:1 › every visible admin page fits the tablet layout
+  ✓  214 [mobile-chrome] › tests/e2e/admin.spec.js:1817:1 › AI providers panel: provider management controls are available (897ms)
+  ✓  215 [mobile-chrome] › tests/e2e/admin.spec.js:1830:1 › AI provider configure and drawer close buttons work (1.0s)
+  ✓  216 [mobile-chrome] › tests/e2e/admin.spec.js:1839:1 › zones map toolbar buttons switch tools and execute safely (1.2s)
+  ✓  217 [mobile-chrome] › tests/e2e/admin.spec.js:1857:1 › map workspace adapts to a short desktop viewport (640ms)
+  ✓  218 [mobile-chrome] › tests/e2e/admin.spec.js:1873:1 › obsolete product sections are removed from navigation (368ms)
+  ✓  219 [mobile-chrome] › tests/e2e/admin.spec.js:1881:1 › knowledge panel exposes managed source controls (915ms)
+  ✓  220 [mobile-chrome] › tests/e2e/admin.spec.js:1889:1 › wifi panel: truthful status and manual test are available (900ms)
+  ✓  221 [mobile-chrome] › tests/e2e/admin.spec.js:1896:1 › authentication type panel: toggles are available (1.0s)
+  ✓  222 [mobile-chrome] › tests/e2e/admin.spec.js:1920:1 › authentication master switch saves and reloads independently of method choices (1.6s)
+  ✓  223 [mobile-chrome] › tests/e2e/admin.spec.js:1945:1 › requests panel: service request controls are available (870ms)
+  ✓  224 [mobile-chrome] › tests/e2e/admin.spec.js:1955:1 › requests panel: operational summary counts and filters use property-local dates (1.1s)
+  ✓  225 [mobile-chrome] › tests/e2e/admin.spec.js:1986:1 › operations assistant formats evidence, completes the first reply, and keeps follow-up context (2.5s)
+  ✓  226 [mobile-chrome] › tests/e2e/admin.spec.js:2034:1 › deployment panel: status info displayed (886ms)
+  ✓  227 [mobile-chrome] › tests/e2e/admin.spec.js:2042:1 › users and access panels expose username-first management (1.6s)
+  ✓  228 [mobile-chrome] › tests/e2e/admin.spec.js:2063:1 › role dialog and audit action buttons work (1.4s)
+  -  229 [mobile-chrome] › tests/e2e/admin.spec.js:2085:3 › config workflow (serial) › full config workflow: change, save draft, preview unchanged, publish, persist
+  -  230 [mobile-chrome] › tests/e2e/admin.spec.js:2163:3 › config workflow (serial) › discard: resets draft to published
+  -  231 [mobile-chrome] › tests/e2e/admin.spec.js:2195:3 › config workflow (serial) › version restore: restores previous version to draft
+  -  232 [mobile-chrome] › tests/e2e/admin.spec.js:2250:3 › config workflow (serial) › property save: hotel name persists via API
+  ✓  233 [mobile-chrome] › tests/e2e/admin.spec.js:2284:1 › admin: no horizontal overflow at 1440px (443ms)
+  ✓  234 [mobile-chrome] › tests/e2e/admin.spec.js:2291:1 › admin: no horizontal overflow at 1280px (392ms)
+  ✓  235 [mobile-chrome] › tests/e2e/admin.spec.js:2298:1 › admin: no horizontal overflow at tablet (768px) (374ms)
+  ✓  236 [mobile-chrome] › tests/e2e/admin.spec.js:2305:1 › admin: no horizontal overflow at mobile (375px) (340ms)
+  ✓  237 [mobile-chrome] › tests/e2e/admin.spec.js:2312:1 › admin: all nav items reachable at mobile (2.0s)
+  ✓  238 [mobile-chrome] › tests/e2e/admin.spec.js:2331:1 › security: no API keys in client JS (506ms)
+  ✓  239 [mobile-chrome] › tests/e2e/guest-privacy.spec.js:6:1 › guest privacy explains staff access and retained conversations truthfully (844ms)
+  ✓  240 [mobile-chrome] › tests/e2e/guest-scrollbar.spec.js:6:1 › guest home and concierge retain aligned content with classic scrollbars (1.1s)
+  ✓  241 [mobile-chrome] › tests/e2e/guest.spec.js:163:1 › guest: opens on the personal stay home, with chat available separately (441ms)
+  ✘  242 [mobile-chrome] › tests/e2e/guest.spec.js:174:1 › guest: empty property home hides empty sections and unsupported routes (5.5s)
+(node:1319) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  243 [mobile-chrome] › tests/e2e/guest.spec.js:206:1 › guest: optional catalog outages do not prevent a concierge session from starting (462ms)
+  ✓  244 [mobile-chrome] › tests/e2e/guest.spec.js:228:1 › guest: bottom navigation switches between stay, explore, requests, and concierge (603ms)
+  ✓  245 [mobile-chrome] › tests/e2e/guest.spec.js:243:1 › guest: Explore and My Stay use configured property content (599ms)
+  ✓  246 [mobile-chrome] › tests/e2e/guest.spec.js:254:1 › guest: hotel name and concierge name are displayed (316ms)
+  ✓  247 [mobile-chrome] › tests/e2e/guest.spec.js:260:1 › guest: property branding and home prompts use the published property design (636ms)
+  ✓  248 [mobile-chrome] › tests/e2e/guest.spec.js:343:1 › guest: home shows four configured actions first, then real supported routes in See all (465ms)
+  ✓  249 [mobile-chrome] › tests/e2e/guest.spec.js:390:1 › guest: home suggestion cards use property images and gracefully fall back for unsafe images (695ms)
+  ✓  250 [mobile-chrome] › tests/e2e/guest.spec.js:438:1 › guest: missing suggestion image falls back to its property content (402ms)
+  ✓  251 [mobile-chrome] › tests/e2e/guest.spec.js:472:1 › guest: composer shortcuts open a supported guest view (677ms)
+  ✓  252 [mobile-chrome] › tests/e2e/guest.spec.js:512:1 › guest: unsafe configured hero image URLs fall back without loading (441ms)
+  ✓  253 [mobile-chrome] › tests/e2e/guest.spec.js:528:1 › guest: property-configured hero image loads inside the home hero (532ms)
+  ✓  254 [mobile-chrome] › tests/e2e/guest.spec.js:551:1 › guest: chat submit works with direct input (629ms)
+  ✓  255 [mobile-chrome] › tests/e2e/guest.spec.js:560:1 › guest: responsive shell keeps the concierge composer attached without horizontal overflow (2.7s)
+  ✓  256 [mobile-chrome] › tests/e2e/guest.spec.js:670:1 › guest: submitted message stays in the composer when session startup fails (645ms)
+  ✓  257 [mobile-chrome] › tests/e2e/guest.spec.js:689:1 › guest: failed chat request keeps the submitted draft (626ms)
+  ✓  258 [mobile-chrome] › tests/e2e/guest.spec.js:705:1 › guest: empty submit is prevented (318ms)
+  ✓  259 [mobile-chrome] › tests/e2e/guest.spec.js:714:1 › guest: multiline composer with shift+enter (321ms)
+  ✓  260 [mobile-chrome] › tests/e2e/guest.spec.js:725:1 › guest: Enter submits message (309ms)
+  ✓  261 [mobile-chrome] › tests/e2e/guest.spec.js:738:1 › wi-fi authentication flow › guest: wi-fi flow shows only the enabled authentication type and its fields (578ms)
+  ✓  262 [mobile-chrome] › tests/e2e/guest.spec.js:750:1 › wi-fi authentication flow › guest: wi-fi flow validates empty fields (665ms)
+  ✓  263 [mobile-chrome] › tests/e2e/guest.spec.js:760:1 › wi-fi authentication flow › guest: wi-fi flow authenticates successfully in mock mode (730ms)
+  ✓  264 [mobile-chrome] › tests/e2e/guest.spec.js:773:1 › wi-fi authentication flow › guest: wi-fi flow only lists enabled non-PMS methods (576ms)
+  ✓  265 [mobile-chrome] › tests/e2e/guest.spec.js:785:1 › wi-fi authentication flow › guest API rejects an authentication type disabled for the property (203ms)
+  ✓  266 [mobile-chrome] › tests/e2e/guest.spec.js:799:1 › wi-fi authentication flow › master switch hides guest sign-in and rejects direct authentication requests (621ms)
+  ✓  267 [mobile-chrome] › tests/e2e/guest.spec.js:823:1 › wi-fi authentication flow › guest login selector contains every enabled authentication type and no disabled type (678ms)
+  ✓  268 [mobile-chrome] › tests/e2e/guest.spec.js:836:1 › wi-fi authentication flow › guest mock flow accepts each enabled authentication type (317ms)
+  ✓  269 [mobile-chrome] › tests/e2e/guest.spec.js:868:1 › guest: nearby dining shows persisted recommendation cards (593ms)
+  ✓  270 [mobile-chrome] › tests/e2e/guest.spec.js:878:1 › guest: restaurant card directions button opens configured map (726ms)
+  ✓  271 [mobile-chrome] › tests/e2e/guest.spec.js:895:1 › guest: restaurant card details button toggles verified details (993ms)
+  ✓  272 [mobile-chrome] › tests/e2e/guest.spec.js:918:1 › guest: expanded restaurant details survive a chat response rerender (933ms)
+  -  273 [mobile-chrome] › tests/e2e/guest.spec.js:964:1 › guest can request restaurant staff from the hotel menu
+  ✓  274 [mobile-chrome] › tests/e2e/guest.spec.js:999:1 › guest: configured service request shows confirmation card (638ms)
+  ✓  275 [mobile-chrome] › tests/e2e/guest.spec.js:1009:1 › guest: a configured service can be requested directly without opening chat (781ms)
+  ✓  276 [mobile-chrome] › tests/e2e/guest.spec.js:1022:1 › guest: confirm request persists and returns a request id (1.0s)
+  ✓  277 [mobile-chrome] › tests/e2e/guest.spec.js:1033:1 › guest: confirmed service request appears in My Requests (1.1s)
+  ✓  278 [mobile-chrome] › tests/e2e/guest.spec.js:1049:1 › guest: menu opens and closes (889ms)
+  ✓  279 [mobile-chrome] › tests/e2e/guest.spec.js:1058:1 › guest: options button opens the same working menu (871ms)
+  ✓  280 [mobile-chrome] › tests/e2e/guest.spec.js:1066:1 › guest: hotel information menu action responds with configured property details (864ms)
+  ✓  281 [mobile-chrome] › tests/e2e/guest.spec.js:1081:3 › guest: language menu action responds (807ms)
+  ✓  282 [mobile-chrome] › tests/e2e/guest.spec.js:1081:3 › guest: accessibility menu action responds (856ms)
+  ✓  283 [mobile-chrome] › tests/e2e/guest.spec.js:1081:3 › guest: privacy menu action responds (904ms)
+  ✓  284 [mobile-chrome] › tests/e2e/guest.spec.js:1081:3 › guest: help menu action responds (871ms)
+  ✓  285 [mobile-chrome] › tests/e2e/guest.spec.js:1090:1 › guest: new conversation resets messages (1.1s)
+  ✓  286 [mobile-chrome] › tests/e2e/guest.spec.js:1101:1 › Intelligent UI: property opt-in answers from verified hotel data and keeps AI text inert (742ms)
+  ✓  287 [mobile-chrome] › tests/e2e/guest.spec.js:1166:1 › Intelligent UI: breakfast answer uses the current property's configured hours (481ms)
+  ✓  288 [mobile-chrome] › tests/e2e/guest.spec.js:1194:1 › Intelligent UI: verified floor maps render interactive markers and a text alternative (442ms)
+  ✓  289 [mobile-chrome] › tests/e2e/guest.spec.js:1273:1 › Intelligent UI: typed selections validate, support edit and cancel, and do not book (803ms)
+  ✓  290 [mobile-chrome] › tests/e2e/guest.spec.js:1351:1 › Intelligent UI: sharing reviewed selections sends one concierge turn without creating a reservation (729ms)
+  ✓  291 [mobile-chrome] › tests/e2e/guest.spec.js:1403:1 › Intelligent UI: service requests wait for explicit confirmation and backend verification (526ms)
+  ✓  292 [mobile-chrome] › tests/e2e/guest.spec.js:1429:1 › Intelligent UI: server-side rollback restores legacy and query parameters cannot enable v2 (572ms)
+  ✓  293 [mobile-chrome] › tests/e2e/guest.spec.js:1448:1 › guest: requested desktop, tablet, and mobile widths have no overflow or footer overlap (549ms)
+  ✓  294 [mobile-chrome] › tests/e2e/guest.spec.js:1470:1 › guest: mobile layout shows all core elements (320ms)
+  ✓  295 [mobile-chrome] › tests/e2e/guest.spec.js:1480:1 › guest: composer input uses the available width (337ms)
+  ✓  296 [mobile-chrome] › tests/e2e/guest.spec.js:1491:1 › guest: document upload control is not exposed (336ms)
+  ✓  297 [mobile-chrome] › tests/e2e/guest.spec.js:1499:1 › guest: dark mode renders without errors (310ms)
+  ✓  298 [mobile-chrome] › tests/e2e/guest.spec.js:1509:1 › guest: no console errors on load (894ms)
+  ✓  299 [mobile-chrome] › tests/e2e/guest.spec.js:1522:1 › admin: no console errors on load (976ms)
+  -  300 [mobile-chrome] › tests/e2e/manual-qa-control-inventory.spec.js:422:1 › manual QA inventories visible controls on every admin destination and guest view
+  ✓  301 [mobile-chrome] › tests/e2e/manual-qa-control-inventory.spec.js:492:1 › control inventory validates normal focus, disabled controls, names, and composite entry points (132ms)
+  -  302 [mobile-chrome] › tests/e2e/manual-qa-responsive.spec.js:67:1 › manual QA responsive matrix covers every admin destination at 1920x1080
+  -  303 [mobile-chrome] › tests/e2e/manual-qa-responsive.spec.js:67:1 › manual QA responsive matrix covers every admin destination at 1440x900
+  -  304 [mobile-chrome] › tests/e2e/manual-qa-responsive.spec.js:67:1 › manual QA responsive matrix covers every admin destination at 1280x720
+  -  305 [mobile-chrome] › tests/e2e/manual-qa-responsive.spec.js:67:1 › manual QA responsive matrix covers every admin destination at 1024x768
+  -  306 [mobile-chrome] › tests/e2e/manual-qa-responsive.spec.js:67:1 › manual QA responsive matrix covers every admin destination at 768x1024
+  -  307 [mobile-chrome] › tests/e2e/manual-qa-responsive.spec.js:67:1 › manual QA responsive matrix covers every admin destination at 430x932
+  -  308 [mobile-chrome] › tests/e2e/manual-qa-responsive.spec.js:67:1 › manual QA responsive matrix covers every admin destination at 390x844
+  -  309 [mobile-chrome] › tests/e2e/manual-qa-responsive.spec.js:67:1 › manual QA responsive matrix covers every admin destination at 375x812
+  -  310 [mobile-chrome] › tests/e2e/manual-qa-responsive.spec.js:67:1 › manual QA responsive matrix covers every admin destination at 320x720
+  ✓  311 [mobile-chrome] › tests/e2e/operations-console.spec.js:22:1 › role-aware overview renders truthful telemetry and alerts (483ms)
+  ✓  312 [mobile-chrome] › tests/e2e/operations-console.spec.js:31:1 › alert investigation opens the unified assistant with a prepared question (474ms)
+  ✓  313 [mobile-chrome] › tests/e2e/operations-console.spec.js:65:1 › health, analytics, reports, and assistant pages are navigable (982ms)
+  ✓  314 [mobile-chrome] › tests/e2e/property-context.spec.js:13:1 › property-scoped pages and settings stay safe when no property exists (362ms)
+  ✓  315 [mobile-chrome] › tests/e2e/property-context.spec.js:63:1 › health API failures and incomplete checks render unavailable (770ms)
+  ✓  316 [mobile-chrome] › tests/e2e/visual.spec.js:40:1 › guest home visual baseline @visual (573ms)
+  ✓  317 [mobile-chrome] › tests/e2e/visual.spec.js:118:1 › admin design panel visual baseline @visual (836ms)
+  ✓  318 [mobile-chrome] › tests/e2e/xss-guard.spec.js:22:1 › guest-supplied service request text is rendered as inert text (stored XSS guard) (892ms)
+[WebServer] INFO:     Shutting down
+[WebServer] INFO:     Waiting for application shutdown.
+[WebServer] INFO:     Application shutdown complete.
+[WebServer] INFO:     Finished server process [97960]
+
+
+  1) [chromium] › tests/e2e/guest.spec.js:174:1 › guest: empty property home hides empty sections and unsupported routes 
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  locator('.experience-quick_actions')
+    Expected: 0
+    Received: 1
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toHaveCount" locator('.experience-quick_actions') with timeout 5000ms
+      - waiting for locator('.experience-quick_actions')
+        14 × locator resolved to 1 element
+           - unexpected value "1"
+
+
+      196 |   await expect(page.locator(".experience-hero")).toBeVisible();
+      197 |
+    > 198 |   await expect(page.locator(".experience-quick_actions")).toHaveCount(0);
+          |                                                           ^
+      199 |   await expect(page.locator(".experience-card-grid")).toHaveCount(0);
+      200 |   await expect(page.locator("#home-actions-section")).toBeHidden();
+      201 |   await expect(page.locator("#home-cards-section")).toBeHidden();
+        at /Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/tests/e2e/guest.spec.js:198:59
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    audit/evidence/browser-2026-10-12/accepted-results/guest-guest-empty-property-c1241-ions-and-unsupported-routes-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    audit/evidence/browser-2026-10-12/accepted-results/guest-guest-empty-property-c1241-ions-and-unsupported-routes-chromium/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: audit/evidence/browser-2026-10-12/accepted-results/guest-guest-empty-property-c1241-ions-and-unsupported-routes-chromium/error-context.md
+
+  2) [mobile-chrome] › tests/e2e/guest.spec.js:174:1 › guest: empty property home hides empty sections and unsupported routes 
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  locator('.experience-quick_actions')
+    Expected: 0
+    Received: 1
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toHaveCount" locator('.experience-quick_actions') with timeout 5000ms
+      - waiting for locator('.experience-quick_actions')
+        14 × locator resolved to 1 element
+           - unexpected value "1"
+
+
+      196 |   await expect(page.locator(".experience-hero")).toBeVisible();
+      197 |
+    > 198 |   await expect(page.locator(".experience-quick_actions")).toHaveCount(0);
+          |                                                           ^
+      199 |   await expect(page.locator(".experience-card-grid")).toHaveCount(0);
+      200 |   await expect(page.locator("#home-actions-section")).toBeHidden();
+      201 |   await expect(page.locator("#home-cards-section")).toBeHidden();
+        at /Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/tests/e2e/guest.spec.js:198:59
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    audit/evidence/browser-2026-10-12/accepted-results/guest-guest-empty-property-c1241-ions-and-unsupported-routes-mobile-chrome/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    audit/evidence/browser-2026-10-12/accepted-results/guest-guest-empty-property-c1241-ions-and-unsupported-routes-mobile-chrome/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: audit/evidence/browser-2026-10-12/accepted-results/guest-guest-empty-property-c1241-ions-and-unsupported-routes-mobile-chrome/error-context.md
+
+  2 failed
+    [chromium] › tests/e2e/guest.spec.js:174:1 › guest: empty property home hides empty sections and unsupported routes 
+    [mobile-chrome] › tests/e2e/guest.spec.js:174:1 › guest: empty property home hides empty sections and unsupported routes 
+  35 skipped
+  281 passed (5.7m)

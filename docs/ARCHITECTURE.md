@@ -70,9 +70,9 @@ The guest sees a simple Fast / Auto / Advanced mode switch. Provider names remai
 
 See [AI providers and routing](AI_PROVIDERS.md).
 
-Guest chat history stays in the open browser session and is sent with each request only to provide short-term AI context. Raw guest and assistant message text is not written to the application database or exposed in staff analytics. If the concierge cannot verify an answer, it directs the guest to call the hotel's configured concierge number; confirmed service requests remain a separate, explicit workflow.
+Guest and assistant conversation records are persisted encrypted at rest by `SessionStore.record_message`. Authorized staff with conversation access can review the property-scoped history, take over a conversation, and reply to the guest. Conversation retention is configurable from 1–365 days (30 days by default); closing a browser or expiring guest credentials does not by itself delete the retained transcript. Optional preference memory has separate guest controls. If the concierge cannot verify an answer, it directs the guest to the hotel's configured concierge contact; confirmed service requests remain an explicit workflow.
 
-PMS-aware tools, semantic cache, and an intent router remain future work.
+Real PMS integration and semantic/vector retrieval/cache remain future work. Intent decisions and authorized structured guest actions exist; their local acceptance and remaining gaps are recorded in [the current master matrix](../audit/MASTER_FEATURE_ACCEPTANCE_MATRIX.md).
 
 ## Session lifecycle
 

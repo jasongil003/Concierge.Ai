@@ -1,0 +1,14 @@
+ImportError while loading conftest '/work/tests/conftest.py'.
+/Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/tests/conftest.py:48: in <module>
+    ???
+app/main.py:43: in <module>
+    from .ai_providers import AIModelService, AIProviderStore, ProviderStreamInterrupted
+app/ai_providers.py:19: in <module>
+    from .config import settings
+app/config.py:381: in <module>
+    validate_production_settings(settings)
+app/config.py:248: in validate_production_settings
+    _validate_test_state_paths(value)
+app/config.py:218: in _validate_test_state_paths
+    raise RuntimeError("Test mode permits PostgreSQL only on loopback with a non-production database name.")
+E   RuntimeError: Test mode permits PostgreSQL only on loopback with a non-production database name.

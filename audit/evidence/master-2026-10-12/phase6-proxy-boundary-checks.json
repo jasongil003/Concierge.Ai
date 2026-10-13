@@ -1,0 +1,26 @@
+[
+  {
+    "case": "health",
+    "status": 200
+  },
+  {
+    "case": "login",
+    "status": 200
+  },
+  {
+    "case": "anonymous_admin",
+    "status": 401
+  },
+  {
+    "case": "spoofed_forwarded_admin",
+    "status": 426
+  },
+  {
+    "case": "spoofed_untrusted_peer_admin",
+    "status": 426
+  },
+  {
+    "case": "unconfigured_host",
+    "status": 400
+  }
+]

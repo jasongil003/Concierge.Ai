@@ -1,0 +1,53 @@
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 162B done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/concierge-ai:phase6-local
+#2 DONE 0.0s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [1/3] FROM docker.io/library/concierge-ai:phase6-local@sha256:21fe2eeba75ce6f4d75c692b615f0870e55a879421f70fa8f2cf419052eaae38
+#4 resolve docker.io/library/concierge-ai:phase6-local@sha256:21fe2eeba75ce6f4d75c692b615f0870e55a879421f70fa8f2cf419052eaae38 done
+#4 DONE 0.0s
+
+#5 [2/3] RUN python -m pip install --no-cache-dir pytest==9.1.1
+#5 0.965 Collecting pytest==9.1.1
+#5 1.138   Downloading pytest-9.1.1-py3-none-any.whl.metadata (7.6 kB)
+#5 1.200 Collecting iniconfig>=1.0.1 (from pytest==9.1.1)
+#5 1.237   Downloading iniconfig-2.3.1-py3-none-any.whl.metadata (2.8 kB)
+#5 1.244 Requirement already satisfied: packaging>=22 in /usr/local/lib/python3.12/site-packages (from pytest==9.1.1) (26.3)
+#5 1.284 Collecting pluggy<2,>=1.5 (from pytest==9.1.1)
+#5 1.335   Downloading pluggy-1.6.0-py3-none-any.whl.metadata (4.8 kB)
+#5 1.412 Collecting pygments>=2.7.2 (from pytest==9.1.1)
+#5 1.492   Downloading pygments-2.21.0-py3-none-any.whl.metadata (2.5 kB)
+#5 1.540 Downloading pytest-9.1.1-py3-none-any.whl (386 kB)
+#5 1.773 Downloading iniconfig-2.3.1-py3-none-any.whl (7.6 kB)
+#5 1.816 Downloading pluggy-1.6.0-py3-none-any.whl (20 kB)
+#5 1.855 Downloading pygments-2.21.0-py3-none-any.whl (1.3 MB)
+#5 2.434    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.3/1.3 MB 2.4 MB/s eta 0:00:00
+#5 2.485 Installing collected packages: pygments, pluggy, iniconfig, pytest
+#5 3.081 Successfully installed iniconfig-2.3.1 pluggy-1.6.0 pygments-2.21.0 pytest-9.1.1
+#5 3.081 WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+#5 3.264 
+#5 3.264 [notice] A new release of pip is available: 25.0.1 -> 26.2.1
+#5 3.264 [notice] To update, run: pip install --upgrade pip
+#5 DONE 3.3s
+
+#6 [3/3] WORKDIR /work
+#6 DONE 0.0s
+
+#7 exporting to image
+#7 exporting layers
+#7 exporting layers 0.3s done
+#7 exporting manifest sha256:4941ee3935c42460df4873e2739827ad5d5c4ed22fa651708f4b151dcf248768 done
+#7 exporting config sha256:5af0761d6484f0a00afa79859dac9ef7ace92a715565679c2464562b4591e14b done
+#7 exporting attestation manifest sha256:ad0baf0c98d513319579d7eab2ee7e9ee9267cfe396ec41892d33e6489d42b29 done
+#7 exporting manifest list sha256:94abecb819fc5c9c3d7259bc27daded875563be1626c47f1c3f9e9b6c94f72f3 done
+#7 naming to docker.io/library/concierge-master-audit-tests:d2d09ba9 done
+#7 unpacking to docker.io/library/concierge-master-audit-tests:d2d09ba9 0.1s done
+#7 DONE 0.4s

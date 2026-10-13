@@ -1,0 +1,37 @@
+
+Running 1 test using 1 worker
+
+(node:90946) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 tests/e2e/guest-scrollbar.spec.js:3:1 › guest home and concierge retain aligned content with classic scrollbars (510ms)
+
+
+  1) tests/e2e/guest-scrollbar.spec.js:3:1 › guest home and concierge retain aligned content with classic scrollbars 
+
+    Error: page.addStyleTag: Applying inline style violates the following Content Security Policy directive 'style-src 'self''. Either the 'unsafe-inline' keyword, a hash ('sha256-d1KtQjI57tiQB/Tmt24XwhFYWdOQ90tvmjBfPOtM1pM='), or a nonce ('nonce-...') is required to enable inline execution. The action has been blocked.
+
+       6 |   await expect(page.locator(".experience-configured-navigation")).toBeVisible();
+       7 |   // Explicit widths reproduce non-overlay Linux/Windows scrollbars on macOS too.
+    >  8 |   await page.addStyleTag({ content: ".guest-view::-webkit-scrollbar { width: 15px; }" });
+         |              ^
+       9 |   for (const width of [320, 375, 768, 1024, 1440, 1920]) {
+      10 |     await page.setViewportSize({ width, height: 900 });
+      11 |     await page.locator(".experience-configured-navigation").getByRole("button", { name: "Home", exact: true }).click();
+        at /Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/tests/e2e/guest-scrollbar.spec.js:8:14
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    audit/evidence/browser-2026-10-12/scrollbar-before/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: audit/evidence/browser-2026-10-12/scrollbar-before/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    audit/evidence/browser-2026-10-12/scrollbar-before/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars/trace.zip
+    Usage:
+
+        npx playwright show-trace audit/evidence/browser-2026-10-12/scrollbar-before/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    tests/e2e/guest-scrollbar.spec.js:3:1 › guest home and concierge retain aligned content with classic scrollbars 

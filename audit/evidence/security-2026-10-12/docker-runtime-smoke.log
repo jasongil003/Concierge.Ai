@@ -1,0 +1,1 @@
+{"status": "passed", "phases": ["fresh_image_build", "production_settings_validation", "runtime_writes_and_health", "container_recreation_persistence"], "image": "concierge-ai:qa-27b661523515"}

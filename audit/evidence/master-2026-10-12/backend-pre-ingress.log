@@ -1,0 +1,32 @@
+................................................s....................... [  6%]
+........................................................................ [ 12%]
+........................................................................ [ 18%]
+........................................................................ [ 25%]
+........................................................................ [ 31%]
+........................................................................ [ 37%]
+..........s............................................................. [ 43%]
+........................................................................ [ 50%]
+......ssssssssssssss.................................................... [ 56%]
+........................................................................ [ 62%]
+........................................................................ [ 69%]
+........................................................................ [ 75%]
+........................................................................ [ 81%]
+........................................................................ [ 87%]
+.......s................................................................ [ 94%]
+.................................s.................................      [100%]------------------ Persistent SQLite safety check: unchanged -------------------
+/Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/state/concierge.db: (8544256, 1791281898673543275, 'a682599b6e28da3051909d14d0018bf8825e80d663607ae579af35347f980e78')
+/Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/state/concierge.db-journal: None
+/Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/state/concierge.db-shm: None
+/Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/state/concierge.db-wal: None
+
+=============================== warnings summary ===============================
+.venv/lib/python3.11/site-packages/fastapi/testclient.py:1
+  /Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/.venv/lib/python3.11/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+.venv/lib/python3.11/site-packages/starlette/testclient.py:53
+  /Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/.venv/lib/python3.11/site-packages/starlette/testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1129 passed, 18 skipped, 2 warnings in 43.21s

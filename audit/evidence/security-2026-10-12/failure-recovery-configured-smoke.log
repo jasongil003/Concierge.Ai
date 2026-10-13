@@ -1,0 +1,57 @@
+API diagnostic tail:
+INFO:     Started server process [10280]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:59960 (Press CTRL+C to quit)
+INFO:     127.0.0.1:59963 - "GET /health/ready HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59965 - "POST /api/admin/auth/login HTTP/1.1" 401 Unauthorized
+PostgreSQL diagnostic tail:
+CREATE DATABASE
+
+
+/usr/local/bin/docker-entrypoint.sh: ignoring /docker-entrypoint-initdb.d/*
+
+waiting for server to shut down....2026-10-12 13:17:14.238 UTC [55] LOG:  received fast shutdown request
+2026-10-12 13:17:14.238 UTC [55] LOG:  aborting any active transactions
+2026-10-12 13:17:14.239 UTC [55] LOG:  background worker "logical replication launcher" (PID 61) exited with exit code 1
+2026-10-12 13:17:14.239 UTC [56] LOG:  shutting down
+2026-10-12 13:17:14.240 UTC [56] LOG:  checkpoint starting: shutdown immediate
+2026-10-12 13:17:14.264 UTC [56] LOG:  checkpoint complete: wrote 926 buffers (5.7%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.010 s, sync=0.013 s, total=0.025 s; sync files=301, longest=0.005 s, average=0.001 s; distance=4273 kB, estimate=4273 kB; lsn=0/191F010, redo lsn=0/191F010
+2026-10-12 13:17:14.268 UTC [55] LOG:  database system is shut down
+ done
+server stopped
+
+PostgreSQL init process complete; ready for start up.
+
+********************************************************************************
+WARNING: POSTGRES_HOST_AUTH_METHOD has been set to "trust". This will allow
+         anyone with access to the Postgres port to access your database without
+         a password, even if POSTGRES_PASSWORD is set. See PostgreSQL
+         documentation about "trust":
+         https://www.postgresql.org/docs/current/auth-trust.html
+         In Docker's default configuration, this is effectively any other
+         container on the same system.
+
+         It is not recommended to use POSTGRES_HOST_AUTH_METHOD=trust. Replace
+         it with "-e POSTGRES_PASSWORD=password" instead to set a password in
+         "docker run".
+********************************************************************************
+initdb: warning: enabling "trust" authentication for local connections
+initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
+2026-10-12 13:17:14.354 UTC [1] LOG:  starting PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+2026-10-12 13:17:14.355 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-10-12 13:17:14.355 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+2026-10-12 13:17:14.356 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2026-10-12 13:17:14.358 UTC [71] LOG:  database system was shut down at 2026-10-12 13:17:14 UTC
+2026-10-12 13:17:14.360 UTC [1] LOG:  database system is ready to accept connections
+2026-10-12 13:17:20.703 UTC [84] ERROR:  relation "table_that_does_not_exist" does not exist at character 13
+2026-10-12 13:17:20.703 UTC [84] STATEMENT:  INSERT INTO table_that_does_not_exist(id) VALUES ($1)
+Traceback (most recent call last):
+  File "/Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/scripts/failure_recovery_smoke.py", line 305, in <module>
+    main()
+  File "/Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/scripts/failure_recovery_smoke.py", line 222, in main
+    opener, csrf = _login(base_url, password)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/scripts/failure_recovery_smoke.py", line 128, in _login
+    raise RuntimeError(f"Admin login failed during recovery smoke (HTTP {status}).")
+RuntimeError: Admin login failed during recovery smoke (HTTP 401).

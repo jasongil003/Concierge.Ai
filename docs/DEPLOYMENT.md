@@ -1,5 +1,16 @@
 # On-Prem Deployment
 
+The container's backup tools default to PostgreSQL major 16, matching the tested
+PostgreSQL 16 service. They are installed from the PostgreSQL project's signed
+[Debian package repository](https://www.postgresql.org/download/linux/debian/).
+For a different server major, rebuild with `--build-arg POSTGRES_CLIENT_MAJOR=<major>`
+and repeat the actual dump/restore drill. A newer client is not proof that a
+dump restores to an older server: the audit reproduced a client-17/server-16
+failure on `SET transaction_timeout`. Current backup ZIP archives provide
+checksums and encrypted transcript/credential fields, but the archive itself
+is not encrypted; independently controlled encrypted off-host storage and key
+recovery remain deployment acceptance requirements.
+
 For appliance installation on Ubuntu Server or an Apple Silicon Mac mini, follow
 the [Appliance Installation](APPLIANCE_INSTALLATION.md) guide. That guide covers
 machine services, backup/recovery, releases, local AI, and the mandatory real
@@ -294,3 +305,9 @@ and ANTlabs walled-garden policy before a guest pilot. The included Compose
 listener is loopback-only. Do not expose the app or its HTTP proxy directly to
 the public Internet or connect it to production PMS data until the remaining
 security milestones in the roadmap are complete.
+
+### Phase6 local bridge acceptance
+
+The Phase6 overlay keeps app/database/cache networks internal and attaches only Nginx to a separate ingress bridge, with its host listener restricted to127.0.0.1. Repeated start releases only this test project's app/proxy endpoints before running migrations/seeding. The trusted app-side proxy address remains172.29.0.2.
+
+On Docker Desktop29.7.2, PostgreSQL/Redis listeners declared on internal bridges were not reachable through their host loopback published ports. Consequently the native-host `acceptance.sh test` command path is not accepted in this environment. This audit ran real service integration in separate non-root, read-only container runners sharing each owned service network namespace and using loopback test URLs. See `audit/MASTER_TEST_RESULTS.md` for exact results and receipts. A portable container execution path for that command remains follow-up work; do not expose database/cache to an external network to make it pass.

@@ -1,0 +1,10 @@
+{
+  "app/admin_configuration_actions.py": true,
+  "app/hospitality.py": true,
+  "app/main.py": true,
+  "app/operations.py": true,
+  "app/reporting.py": true,
+  "app/static/app.js": true,
+  "app/static/index.html": true,
+  "app/static/styles.css": true
+}

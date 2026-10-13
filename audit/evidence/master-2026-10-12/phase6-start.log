@@ -1,0 +1,1331 @@
+ Image postgres:16@sha256:f1c3376c26f2609ab9f29f71f824103fe2fcd8ee0346485cb6122a4f93df6f94 Pulling 
+ daeef00fd6aa Pulling fs layer 0B
+ ca8b58d10fb7 Pulling fs layer 0B
+ 4f28b201a80c Pulling fs layer 0B
+ bf7af0229701 Pulling fs layer 0B
+ 6437d6ec8fee Pulling fs layer 0B
+ 3e1f39995a92 Pulling fs layer 0B
+ ebe3b74b62b8 Pulling fs layer 0B
+ 1a59b8215a09 Pulling fs layer 0B
+ 93eeac19656f Pulling fs layer 0B
+ 3d9d92530136 Pulling fs layer 0B
+ 4e582dc1d360 Pulling fs layer 0B
+ 1b1a24f650cf Pulling fs layer 0B
+ a4818e049c44 Pulling fs layer 0B
+ f72fc08c8aac Pulling fs layer 0B
+ ca8b58d10fb7 Download complete 0B
+ 4f28b201a80c Download complete 0B
+ bf7af0229701 Downloading 1.049MB
+ bf7af0229701 Downloading 2.097MB
+ bf7af0229701 Downloading 2.097MB
+ bf7af0229701 Downloading 3.146MB
+ bf7af0229701 Downloading 3.146MB
+ bf7af0229701 Downloading 4.194MB
+ bf7af0229701 Downloading 4.194MB
+ bf7af0229701 Downloading 5.243MB
+ bf7af0229701 Downloading 5.243MB
+ bf7af0229701 Downloading 6.291MB
+ bf7af0229701 Downloading 7.34MB
+ bf7af0229701 Downloading 7.34MB
+ bf7af0229701 Downloading 8.389MB
+ bf7af0229701 Downloading 9.437MB
+ bf7af0229701 Downloading 9.437MB
+ 3e1f39995a92 Downloading 1.049MB
+ 3e1f39995a92 Downloading 1.049MB
+ bf7af0229701 Downloading 10.49MB
+ 3e1f39995a92 Downloading 1.049MB
+ bf7af0229701 Downloading 10.49MB
+ 3e1f39995a92 Downloading 1.049MB
+ bf7af0229701 Downloading 11.53MB
+ 3e1f39995a92 Downloading 1.049MB
+ bf7af0229701 Downloading 12.58MB
+ bf7af0229701 Downloading 12.58MB
+ 3e1f39995a92 Downloading 1.049MB
+ bf7af0229701 Downloading 13.63MB
+ 3e1f39995a92 Downloading 1.049MB
+ bf7af0229701 Downloading 13.63MB
+ 3e1f39995a92 Downloading 1.049MB
+ 3d9d92530136 Download complete 0B
+ bf7af0229701 Downloading 14.68MB
+ 3e1f39995a92 Downloading 1.049MB
+ bf7af0229701 Downloading 14.68MB
+ 3e1f39995a92 Downloading 1.049MB
+ bf7af0229701 Downloading 15.73MB
+ 3e1f39995a92 Downloading 2.097MB
+ bf7af0229701 Downloading 16.78MB
+ 3e1f39995a92 Downloading 2.097MB
+ 3e1f39995a92 Downloading 2.097MB
+ bf7af0229701 Downloading 16.78MB
+ bf7af0229701 Downloading 17.83MB
+ 3e1f39995a92 Downloading 2.097MB
+ bf7af0229701 Downloading 18.87MB
+ 3e1f39995a92 Downloading 2.097MB
+ 3e1f39995a92 Downloading 2.097MB
+ bf7af0229701 Downloading 18.87MB
+ bf7af0229701 Downloading 19.92MB
+ 3e1f39995a92 Downloading 2.097MB
+ bf7af0229701 Downloading 19.92MB
+ 3e1f39995a92 Downloading 2.097MB
+ 3e1f39995a92 Downloading 2.097MB
+ bf7af0229701 Downloading 20.97MB
+ bf7af0229701 Downloading 20.97MB
+ 3e1f39995a92 Downloading 3.146MB
+ bf7af0229701 Downloading 22.02MB
+ 3e1f39995a92 Downloading 3.146MB
+ bf7af0229701 Downloading 22.02MB
+ 3e1f39995a92 Downloading 3.146MB
+ bf7af0229701 Downloading 23.07MB
+ 3e1f39995a92 Downloading 3.146MB
+ bf7af0229701 Downloading 23.07MB
+ ebe3b74b62b8 Downloading 1.049MB
+ 3e1f39995a92 Downloading 3.146MB
+ bf7af0229701 Downloading 24.12MB
+ ebe3b74b62b8 Download complete 0B
+ 3e1f39995a92 Downloading 3.146MB
+ bf7af0229701 Downloading 24.12MB
+ 3e1f39995a92 Downloading 3.146MB
+ bf7af0229701 Downloading 25.17MB
+ 3e1f39995a92 Downloading 3.146MB
+ bf7af0229701 Downloading 26.21MB
+ 3e1f39995a92 Downloading 3.146MB
+ 3e1f39995a92 Downloading 3.146MB
+ bf7af0229701 Downloading 26.21MB
+ 3e1f39995a92 Downloading 3.146MB
+ bf7af0229701 Downloading 27.26MB
+ bf7af0229701 Downloading 27.26MB
+ 3e1f39995a92 Downloading 3.146MB
+ bf7af0229701 Downloading 27.26MB
+ 3e1f39995a92 Downloading 4.194MB
+ bf7af0229701 Downloading 27.26MB
+ 3e1f39995a92 Downloading 4.194MB
+ bf7af0229701 Downloading 28.31MB
+ 3e1f39995a92 Downloading 4.194MB
+ bf7af0229701 Downloading 28.31MB
+ 3e1f39995a92 Downloading 4.194MB
+ bf7af0229701 Downloading 29.36MB
+ 3e1f39995a92 Downloading 4.194MB
+ bf7af0229701 Downloading 29.36MB
+ 3e1f39995a92 Downloading 4.194MB
+ bf7af0229701 Download complete 0B
+ 1a59b8215a09 Downloading 1.049MB
+ 3e1f39995a92 Downloading 4.194MB
+ bf7af0229701 Extracting 1B
+ 3e1f39995a92 Downloading 4.194MB
+ 1a59b8215a09 Downloading 1.049MB
+ bf7af0229701 Extracting 1B
+ 1a59b8215a09 Downloading 1.049MB
+ 3e1f39995a92 Downloading 4.194MB
+ bf7af0229701 Extracting 1B
+ 6437d6ec8fee Download complete 0B
+ 1a59b8215a09 Downloading 2.097MB
+ 3e1f39995a92 Downloading 4.194MB
+ bf7af0229701 Extracting 1B
+ 1a59b8215a09 Downloading 2.097MB
+ 3e1f39995a92 Downloading 5.243MB
+ bf7af0229701 Extracting 1B
+ 1a59b8215a09 Downloading 2.097MB
+ 3e1f39995a92 Downloading 5.243MB
+ bf7af0229701 Pull complete 0B
+ 6437d6ec8fee Pull complete 0B
+ 3e1f39995a92 Downloading 5.243MB
+ 1a59b8215a09 Downloading 2.097MB
+ 1a59b8215a09 Downloading 2.097MB
+ 3e1f39995a92 Downloading 5.243MB
+ 1a59b8215a09 Downloading 3.146MB
+ 3e1f39995a92 Downloading 5.243MB
+ 1a59b8215a09 Downloading 3.146MB
+ 93eeac19656f Downloading 1.049MB
+ 3e1f39995a92 Downloading 5.243MB
+ 1a59b8215a09 Downloading 3.146MB
+ 93eeac19656f Download complete 0B
+ 3e1f39995a92 Downloading 5.243MB
+ 1a59b8215a09 Downloading 4.194MB
+ 3e1f39995a92 Downloading 5.243MB
+ 1a59b8215a09 Downloading 4.194MB
+ 3e1f39995a92 Download complete 0B
+ 3e1f39995a92 Extracting 1B
+ 1a59b8215a09 Downloading 4.194MB
+ daeef00fd6aa Download complete 0B
+ ebe3b74b62b8 Pull complete 0B
+ 3e1f39995a92 Pull complete 0B
+ 1a59b8215a09 Downloading 5.243MB
+ f72fc08c8aac Download complete 0B
+ 1a59b8215a09 Downloading 5.243MB
+ 1b1a24f650cf Download complete 0B
+ 1a59b8215a09 Downloading 6.291MB
+ 1a59b8215a09 Downloading 6.291MB
+ 1a59b8215a09 Downloading 6.291MB
+ 1a59b8215a09 Downloading 7.34MB
+ 4e582dc1d360 Download complete 0B
+ 1a59b8215a09 Downloading 7.34MB
+ 1a59b8215a09 Download complete 0B
+ 1a59b8215a09 Extracting 1B
+ 93eeac19656f Extracting 1B
+ 1a59b8215a09 Pull complete 0B
+ 4f28b201a80c Pull complete 0B
+ 93eeac19656f Pull complete 0B
+ 4e582dc1d360 Pull complete 0B
+ a0a73c3aa84b Downloading 1.049MB
+ a4818e049c44 Downloading 1.049MB
+ a0a73c3aa84b Downloading 1.049MB
+ a4818e049c44 Downloading 1.049MB
+ a0a73c3aa84b Downloading 2.097MB
+ a4818e049c44 Downloading 1.049MB
+ a0a73c3aa84b Downloading 2.097MB
+ a4818e049c44 Downloading 1.049MB
+ a4818e049c44 Downloading 1.049MB
+ a0a73c3aa84b Downloading 3.146MB
+ a4818e049c44 Downloading 1.049MB
+ a0a73c3aa84b Downloading 3.146MB
+ a0a73c3aa84b Downloading 4.194MB
+ a4818e049c44 Downloading 1.049MB
+ a0a73c3aa84b Downloading 4.194MB
+ a4818e049c44 Downloading 2.097MB
+ a0a73c3aa84b Downloading 5.243MB
+ a4818e049c44 Downloading 2.097MB
+ 87e6df60873c Download complete 0B
+ a0a73c3aa84b Download complete 0B
+ a4818e049c44 Downloading 2.097MB
+ a4818e049c44 Downloading 2.097MB
+ a4818e049c44 Downloading 2.097MB
+ a4818e049c44 Downloading 2.097MB
+ a4818e049c44 Downloading 3.146MB
+ a4818e049c44 Downloading 3.146MB
+ a4818e049c44 Downloading 3.146MB
+ a4818e049c44 Downloading 3.146MB
+ a4818e049c44 Downloading 3.146MB
+ a4818e049c44 Downloading 4.194MB
+ a4818e049c44 Downloading 4.194MB
+ a4818e049c44 Downloading 4.194MB
+ a4818e049c44 Downloading 4.194MB
+ a4818e049c44 Downloading 4.194MB
+ a4818e049c44 Downloading 4.194MB
+ a4818e049c44 Downloading 5.243MB
+ a4818e049c44 Downloading 5.243MB
+ a4818e049c44 Downloading 5.243MB
+ a4818e049c44 Downloading 5.243MB
+ a4818e049c44 Downloading 6.291MB
+ a4818e049c44 Downloading 6.291MB
+ a4818e049c44 Downloading 6.291MB
+ a4818e049c44 Downloading 6.291MB
+ a4818e049c44 Downloading 7.34MB
+ a4818e049c44 Downloading 7.34MB
+ a4818e049c44 Downloading 7.34MB
+ a4818e049c44 Downloading 7.34MB
+ a4818e049c44 Downloading 8.389MB
+ a4818e049c44 Downloading 8.389MB
+ a4818e049c44 Downloading 8.389MB
+ a4818e049c44 Downloading 8.389MB
+ a4818e049c44 Downloading 9.437MB
+ a4818e049c44 Downloading 9.437MB
+ a4818e049c44 Downloading 9.437MB
+ a4818e049c44 Downloading 10.49MB
+ a4818e049c44 Downloading 10.49MB
+ a4818e049c44 Downloading 10.49MB
+ a4818e049c44 Downloading 11.53MB
+ a4818e049c44 Downloading 11.53MB
+ a4818e049c44 Downloading 12.58MB
+ a4818e049c44 Downloading 12.58MB
+ a4818e049c44 Downloading 12.58MB
+ a4818e049c44 Downloading 13.63MB
+ a4818e049c44 Downloading 13.63MB
+ a4818e049c44 Downloading 14.68MB
+ a4818e049c44 Downloading 14.68MB
+ a4818e049c44 Downloading 15.73MB
+ a4818e049c44 Downloading 15.73MB
+ a4818e049c44 Downloading 16.78MB
+ a4818e049c44 Downloading 16.78MB
+ a4818e049c44 Downloading 17.83MB
+ a4818e049c44 Downloading 17.83MB
+ a4818e049c44 Downloading 18.87MB
+ a4818e049c44 Downloading 19.92MB
+ a4818e049c44 Downloading 19.92MB
+ a4818e049c44 Downloading 20.97MB
+ a4818e049c44 Downloading 20.97MB
+ a4818e049c44 Downloading 22.02MB
+ a4818e049c44 Downloading 22.02MB
+ a4818e049c44 Downloading 23.07MB
+ a4818e049c44 Downloading 23.07MB
+ a4818e049c44 Downloading 24.12MB
+ a4818e049c44 Downloading 25.17MB
+ a4818e049c44 Downloading 25.17MB
+ a4818e049c44 Downloading 26.21MB
+ a4818e049c44 Downloading 27.26MB
+ a4818e049c44 Downloading 28.31MB
+ a4818e049c44 Downloading 28.31MB
+ a4818e049c44 Downloading 29.36MB
+ a4818e049c44 Downloading 29.36MB
+ a4818e049c44 Downloading 30.41MB
+ a4818e049c44 Downloading 31.46MB
+ a4818e049c44 Downloading 31.46MB
+ a4818e049c44 Downloading 32.51MB
+ a4818e049c44 Downloading 32.51MB
+ a4818e049c44 Downloading 33.55MB
+ a4818e049c44 Downloading 33.55MB
+ a4818e049c44 Downloading 34.6MB
+ a4818e049c44 Downloading 35.65MB
+ a4818e049c44 Downloading 35.65MB
+ a4818e049c44 Downloading 36.7MB
+ a4818e049c44 Downloading 36.7MB
+ a4818e049c44 Downloading 37.75MB
+ a4818e049c44 Downloading 38.8MB
+ a4818e049c44 Downloading 38.8MB
+ a4818e049c44 Downloading 39.85MB
+ a4818e049c44 Downloading 39.85MB
+ a4818e049c44 Downloading 40.89MB
+ a4818e049c44 Downloading 41.94MB
+ a4818e049c44 Downloading 41.94MB
+ a4818e049c44 Downloading 42.99MB
+ a4818e049c44 Downloading 44.04MB
+ a4818e049c44 Downloading 44.04MB
+ a4818e049c44 Downloading 45.09MB
+ a4818e049c44 Downloading 46.14MB
+ a4818e049c44 Downloading 46.14MB
+ a4818e049c44 Downloading 47.19MB
+ a4818e049c44 Downloading 48.23MB
+ a4818e049c44 Downloading 48.23MB
+ a4818e049c44 Downloading 49.28MB
+ a4818e049c44 Downloading 50.33MB
+ a4818e049c44 Downloading 50.33MB
+ a4818e049c44 Downloading 51.38MB
+ a4818e049c44 Downloading 52.43MB
+ a4818e049c44 Downloading 52.43MB
+ a4818e049c44 Downloading 53.48MB
+ a4818e049c44 Downloading 53.48MB
+ a4818e049c44 Downloading 54.53MB
+ a4818e049c44 Downloading 55.57MB
+ a4818e049c44 Downloading 55.57MB
+ a4818e049c44 Downloading 56.62MB
+ a4818e049c44 Downloading 56.62MB
+ a4818e049c44 Downloading 57.67MB
+ a4818e049c44 Downloading 58.72MB
+ a4818e049c44 Downloading 58.72MB
+ a4818e049c44 Downloading 59.77MB
+ a4818e049c44 Downloading 59.77MB
+ a4818e049c44 Downloading 60.82MB
+ a4818e049c44 Downloading 61.87MB
+ a4818e049c44 Downloading 61.87MB
+ a4818e049c44 Downloading 62.91MB
+ a4818e049c44 Downloading 62.91MB
+ a4818e049c44 Downloading 62.91MB
+ a4818e049c44 Downloading 62.91MB
+ a4818e049c44 Downloading 63.96MB
+ a4818e049c44 Downloading 65.01MB
+ a4818e049c44 Downloading 65.01MB
+ a4818e049c44 Downloading 66.06MB
+ a4818e049c44 Downloading 67.11MB
+ a4818e049c44 Downloading 67.11MB
+ a4818e049c44 Downloading 68.16MB
+ a4818e049c44 Downloading 69.21MB
+ a4818e049c44 Downloading 70.25MB
+ a4818e049c44 Downloading 70.25MB
+ a4818e049c44 Downloading 71.3MB
+ a4818e049c44 Downloading 72.35MB
+ a4818e049c44 Downloading 72.35MB
+ a4818e049c44 Downloading 73.4MB
+ a4818e049c44 Downloading 74.45MB
+ a4818e049c44 Downloading 74.45MB
+ a4818e049c44 Downloading 75.5MB
+ a4818e049c44 Downloading 76.55MB
+ a4818e049c44 Downloading 77.59MB
+ a4818e049c44 Downloading 78.64MB
+ a4818e049c44 Downloading 78.64MB
+ a4818e049c44 Downloading 79.69MB
+ a4818e049c44 Downloading 80.74MB
+ a4818e049c44 Downloading 80.74MB
+ a4818e049c44 Downloading 81.79MB
+ a4818e049c44 Downloading 81.79MB
+ a4818e049c44 Downloading 81.79MB
+ a4818e049c44 Downloading 81.79MB
+ a4818e049c44 Downloading 81.79MB
+ a4818e049c44 Downloading 81.79MB
+ a4818e049c44 Downloading 81.79MB
+ a4818e049c44 Downloading 81.79MB
+ a4818e049c44 Downloading 83.89MB
+ a4818e049c44 Downloading 84.93MB
+ a4818e049c44 Downloading 85.98MB
+ a4818e049c44 Downloading 87.03MB
+ a4818e049c44 Downloading 88.08MB
+ a4818e049c44 Downloading 88.08MB
+ a4818e049c44 Downloading 89.13MB
+ a4818e049c44 Downloading 90.18MB
+ a4818e049c44 Downloading 90.18MB
+ a4818e049c44 Downloading 91.23MB
+ a4818e049c44 Downloading 91.23MB
+ a4818e049c44 Downloading 91.23MB
+ a4818e049c44 Downloading 92.27MB
+ a4818e049c44 Downloading 92.27MB
+ a4818e049c44 Downloading 93.32MB
+ a4818e049c44 Downloading 94.37MB
+ a4818e049c44 Downloading 94.37MB
+ a4818e049c44 Downloading 95.42MB
+ a4818e049c44 Downloading 96.47MB
+ a4818e049c44 Downloading 96.47MB
+ a4818e049c44 Downloading 97.52MB
+ a4818e049c44 Downloading 97.52MB
+ a4818e049c44 Downloading 98.57MB
+ a4818e049c44 Downloading 99.61MB
+ a4818e049c44 Downloading 100.7MB
+ a4818e049c44 Downloading 100.7MB
+ a4818e049c44 Downloading 101.7MB
+ a4818e049c44 Downloading 102.8MB
+ a4818e049c44 Downloading 102.8MB
+ a4818e049c44 Downloading 103.8MB
+ a4818e049c44 Downloading 104.9MB
+ a4818e049c44 Downloading 105.9MB
+ a4818e049c44 Downloading 105.9MB
+ a4818e049c44 Downloading 107MB
+ a4818e049c44 Downloading 107MB
+ a4818e049c44 Downloading 108MB
+ a4818e049c44 Downloading 109.1MB
+ a4818e049c44 Downloading 110.1MB
+ a4818e049c44 Downloading 110.1MB
+ a4818e049c44 Downloading 111.1MB
+ a4818e049c44 Downloading 111.8MB
+ a4818e049c44 Download complete 0B
+ a4818e049c44 Extracting 1B
+ a4818e049c44 Extracting 1B
+ a4818e049c44 Extracting 1B
+ a4818e049c44 Extracting 1B
+ a4818e049c44 Extracting 1B
+ a4818e049c44 Extracting 1B
+ a4818e049c44 Extracting 1B
+ a4818e049c44 Extracting 1B
+ a4818e049c44 Extracting 1B
+ a4818e049c44 Extracting 1B
+ a4818e049c44 Extracting 2B
+ a4818e049c44 Extracting 2B
+ a4818e049c44 Extracting 2B
+ ca8b58d10fb7 Pull complete 0B
+ 3d9d92530136 Pull complete 0B
+ daeef00fd6aa Pull complete 0B
+ f72fc08c8aac Pull complete 0B
+ 1b1a24f650cf Pull complete 0B
+ a4818e049c44 Pull complete 0B
+ Image postgres:16@sha256:f1c3376c26f2609ab9f29f71f824103fe2fcd8ee0346485cb6122a4f93df6f94 Pulled 
+ Network concierge-phase6-d2d09ba9_backend Creating 
+ Volume concierge-phase6-d2d09ba9_phase6-redis-data Creating 
+ Volume concierge-phase6-d2d09ba9_phase6-redis-data Creating 
+ Volume concierge-phase6-d2d09ba9_phase6-postgres-data Creating 
+ Volume concierge-phase6-d2d09ba9_phase6-postgres-data Creating 
+ Network concierge-phase6-d2d09ba9_backend Creating 
+ Volume concierge-phase6-d2d09ba9_phase6-redis-data Created 
+ Volume concierge-phase6-d2d09ba9_phase6-redis-data Created 
+ Volume concierge-phase6-d2d09ba9_phase6-postgres-data Created 
+ Volume concierge-phase6-d2d09ba9_phase6-postgres-data Created 
+ Network concierge-phase6-d2d09ba9_backend Created 
+ Network concierge-phase6-d2d09ba9_backend Created 
+ Container concierge-phase6-d2d09ba9-redis-1 Creating 
+ Container concierge-phase6-d2d09ba9-postgres-1 Creating 
+ Container concierge-phase6-d2d09ba9-redis-1 Created 
+ Container concierge-phase6-d2d09ba9-postgres-1 Created 
+ Container concierge-phase6-d2d09ba9-postgres-1 Starting 
+ Container concierge-phase6-d2d09ba9-redis-1 Starting 
+ Container concierge-phase6-d2d09ba9-postgres-1 Started 
+ Container concierge-phase6-d2d09ba9-redis-1 Started 
+ Volume concierge-phase6-d2d09ba9_concierge-state Creating 
+ Volume concierge-phase6-d2d09ba9_concierge-state Creating 
+ Network concierge-phase6-d2d09ba9_frontend Creating 
+ Network concierge-phase6-d2d09ba9_frontend Creating 
+ Volume concierge-phase6-d2d09ba9_concierge-state Created 
+ Volume concierge-phase6-d2d09ba9_concierge-state Created 
+ Network concierge-phase6-d2d09ba9_frontend Created 
+ Network concierge-phase6-d2d09ba9_frontend Created 
+ Image concierge-ai:phase6-local Pulling 
+ Image concierge-ai:phase6-local pull access denied for concierge-ai, repository does not exist or may require 'docker login' 
+ Image concierge-ai:phase6-local Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 762B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.39kB done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/python:3.12-slim@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f
+#3 DONE 0.0s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 153B done
+#4 DONE 0.0s
+
+#5 [ 1/11] FROM docker.io/library/python:3.12-slim@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f
+#5 resolve docker.io/library/python:3.12-slim@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f done
+#5 CACHED
+
+#6 [internal] load build context
+#6 transferring context: 6.66MB 0.1s done
+#6 DONE 0.1s
+
+#7 [ 2/11] RUN groupadd --system --gid 10001 concierge && useradd --system --uid 10001 --gid concierge --home-dir /app --shell /usr/sbin/nologin concierge
+#7 0.184 useradd warning: concierge's uid 10001 is greater than SYS_UID_MAX 999
+#7 DONE 0.2s
+
+#8 [ 3/11] WORKDIR /app
+#8 DONE 0.0s
+
+#9 [ 4/11] RUN apt-get update     && apt-get upgrade -y --no-install-recommends     && apt-get install -y --no-install-recommends tesseract-ocr postgresql-client     && rm -rf /var/lib/apt/lists/*
+#9 0.537 Hit:1 http://deb.debian.org/debian trixie InRelease
+#9 0.545 Get:2 http://deb.debian.org/debian trixie-updates InRelease [47.3 kB]
+#9 0.835 Get:3 http://deb.debian.org/debian-security trixie-security InRelease [43.4 kB]
+#9 0.863 Get:4 http://deb.debian.org/debian trixie/main arm64 Packages [9614 kB]
+#9 2.945 Get:5 http://deb.debian.org/debian trixie-updates/main arm64 Packages [4424 B]
+#9 2.989 Get:6 http://deb.debian.org/debian-security trixie-security/main arm64 Packages [267 kB]
+#9 3.709 Fetched 9976 kB in 4s (2781 kB/s)
+#9 3.709 Reading package lists...
+#9 4.061 Reading package lists...
+#9 4.405 Building dependency tree...
+#9 4.509 Reading state information...
+#9 4.581 Calculating upgrade...
+#9 4.710 The following packages will be upgraded:
+#9 4.711   liblzma5 libpcre2-8-0 libssl3t64 openssl openssl-provider-legacy
+#9 4.798 5 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.
+#9 4.798 Need to get 5122 kB of archives.
+#9 4.798 After this operation, 0 B of additional disk space will be used.
+#9 4.798 Get:1 http://deb.debian.org/debian-security trixie-security/main arm64 liblzma5 arm64 5.8.1-1+deb13u2 [303 kB]
+#9 5.057 Get:2 http://deb.debian.org/debian-security trixie-security/main arm64 libpcre2-8-0 arm64 10.46-1~deb13u3 [263 kB]
+#9 5.244 Get:3 http://deb.debian.org/debian-security trixie-security/main arm64 openssl-provider-legacy arm64 3.5.7-1~deb13u3 [314 kB]
+#9 5.374 Get:4 http://deb.debian.org/debian-security trixie-security/main arm64 libssl3t64 arm64 3.5.7-1~deb13u3 [2770 kB]
+#9 6.461 Get:5 http://deb.debian.org/debian-security trixie-security/main arm64 openssl arm64 3.5.7-1~deb13u3 [1473 kB]
+#9 7.050 debconf: unable to initialize frontend: Dialog
+#9 7.050 debconf: (TERM is not set, so the dialog frontend is not usable.)
+#9 7.050 debconf: falling back to frontend: Readline
+#9 7.050 debconf: unable to initialize frontend: Readline
+#9 7.050 debconf: (Can't locate Term/ReadLine.pm in @INC (you may need to install the Term::ReadLine module) (@INC entries checked: /etc/perl /usr/local/lib/aarch64-linux-gnu/perl/5.40.1 /usr/local/share/perl/5.40.1 /usr/lib/aarch64-linux-gnu/perl5/5.40 /usr/share/perl5 /usr/lib/aarch64-linux-gnu/perl-base /usr/lib/aarch64-linux-gnu/perl/5.40 /usr/share/perl/5.40 /usr/local/lib/site_perl) at /usr/share/perl5/Debconf/FrontEnd/Readline.pm line 8, <STDIN> line 5.)
+#9 7.050 debconf: falling back to frontend: Teletype
+#9 7.052 debconf: unable to initialize frontend: Teletype
+#9 7.052 debconf: (This frontend requires a controlling tty.)
+#9 7.052 debconf: falling back to frontend: Noninteractive
+#9 7.418 Fetched 5122 kB in 2s (2315 kB/s)
+#9 7.432 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 5657 files and directories currently installed.)
+#9 7.447 Preparing to unpack .../liblzma5_5.8.1-1+deb13u2_arm64.deb ...
+#9 7.452 Unpacking liblzma5:arm64 (5.8.1-1+deb13u2) over (5.8.1-1+deb13u1) ...
+#9 7.475 Setting up liblzma5:arm64 (5.8.1-1+deb13u2) ...
+#9 7.487 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 5657 files and directories currently installed.)
+#9 7.491 Preparing to unpack .../libpcre2-8-0_10.46-1~deb13u3_arm64.deb ...
+#9 7.494 Unpacking libpcre2-8-0:arm64 (10.46-1~deb13u3) over (10.46-1~deb13u2) ...
+#9 7.520 Setting up libpcre2-8-0:arm64 (10.46-1~deb13u3) ...
+#9 7.530 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 5657 files and directories currently installed.)
+#9 7.532 Preparing to unpack .../openssl-provider-legacy_3.5.7-1~deb13u3_arm64.deb ...
+#9 7.535 Unpacking openssl-provider-legacy (3.5.7-1~deb13u3) over (3.5.7-1~deb13u2) ...
+#9 7.550 Setting up openssl-provider-legacy (3.5.7-1~deb13u3) ...
+#9 7.563 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 5657 files and directories currently installed.)
+#9 7.566 Preparing to unpack .../libssl3t64_3.5.7-1~deb13u3_arm64.deb ...
+#9 7.569 Unpacking libssl3t64:arm64 (3.5.7-1~deb13u3) over (3.5.7-1~deb13u2) ...
+#9 7.694 Setting up libssl3t64:arm64 (3.5.7-1~deb13u3) ...
+#9 7.706 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 5657 files and directories currently installed.)
+#9 7.710 Preparing to unpack .../openssl_3.5.7-1~deb13u3_arm64.deb ...
+#9 7.713 Unpacking openssl (3.5.7-1~deb13u3) over (3.5.7-1~deb13u2) ...
+#9 7.790 Setting up openssl (3.5.7-1~deb13u3) ...
+#9 7.796 Processing triggers for libc-bin (2.41-12+deb13u4) ...
+#9 7.839 Reading package lists...
+#9 8.164 Building dependency tree...
+#9 8.251 Reading state information...
+#9 8.385 The following additional packages will be installed:
+#9 8.385   fontconfig fontconfig-config fonts-dejavu-core fonts-dejavu-mono
+#9 8.385   libarchive13t64 libatomic1 libbrotli1 libcairo2 libcom-err2 libcurl4t64
+#9 8.385   libdatrie1 libdeflate0 libexpat1 libfontconfig1 libfreetype6 libfribidi0
+#9 8.385   libgdbm-compat4t64 libgif7 libglib2.0-0t64 libgnutls30t64 libgomp1
+#9 8.385   libgraphite2-3 libgssapi-krb5-2 libharfbuzz0b libicu76 libidn2-0 libjbig0
+#9 8.385   libjpeg62-turbo libk5crypto3 libkeyutils1 libkrb5-3 libkrb5support0 libldap2
+#9 8.385   libleptonica6 liblerc4 libnghttp2-14 libnghttp3-9 libopenjp2-7 libp11-kit0
+#9 8.385   libpango-1.0-0 libpangocairo-1.0-0 libpangoft2-1.0-0 libperl5.40
+#9 8.385   libpixman-1-0 libpng16-16t64 libpq5 libpsl5t64 librtmp1 libsasl2-2
+#9 8.385   libsasl2-modules-db libsharpyuv0 libssh2-1t64 libtasn1-6 libtesseract5
+#9 8.385   libthai-data libthai0 libtiff6 libunistring5 libwebp7 libwebpmux3 libx11-6
+#9 8.385   libx11-data libxau6 libxcb-render0 libxcb-shm0 libxcb1 libxdmcp6 libxext6
+#9 8.386   libxml2 libxrender1 perl perl-modules-5.40 postgresql-client-17
+#9 8.386   postgresql-client-common sensible-utils tesseract-ocr-eng tesseract-ocr-osd
+#9 8.387 Suggested packages:
+#9 8.387   lrzip low-memory-monitor gnutls-bin krb5-doc krb5-user perl-doc
+#9 8.387   libterm-readline-gnu-perl | libterm-readline-perl-perl make
+#9 8.387   libtap-harness-archive-perl postgresql-17 postgresql-doc-17
+#9 8.387 Recommended packages:
+#9 8.387   libglib2.0-data shared-mime-info xdg-user-dirs krb5-locales libldap-common
+#9 8.387   publicsuffix libsasl2-modules
+#9 8.688 The following NEW packages will be installed:
+#9 8.689   fontconfig fontconfig-config fonts-dejavu-core fonts-dejavu-mono
+#9 8.689   libarchive13t64 libatomic1 libbrotli1 libcairo2 libcom-err2 libcurl4t64
+#9 8.689   libdatrie1 libdeflate0 libexpat1 libfontconfig1 libfreetype6 libfribidi0
+#9 8.689   libgdbm-compat4t64 libgif7 libglib2.0-0t64 libgnutls30t64 libgomp1
+#9 8.689   libgraphite2-3 libgssapi-krb5-2 libharfbuzz0b libicu76 libidn2-0 libjbig0
+#9 8.689   libjpeg62-turbo libk5crypto3 libkeyutils1 libkrb5-3 libkrb5support0 libldap2
+#9 8.689   libleptonica6 liblerc4 libnghttp2-14 libnghttp3-9 libopenjp2-7 libp11-kit0
+#9 8.689   libpango-1.0-0 libpangocairo-1.0-0 libpangoft2-1.0-0 libperl5.40
+#9 8.689   libpixman-1-0 libpng16-16t64 libpq5 libpsl5t64 librtmp1 libsasl2-2
+#9 8.689   libsasl2-modules-db libsharpyuv0 libssh2-1t64 libtasn1-6 libtesseract5
+#9 8.689   libthai-data libthai0 libtiff6 libunistring5 libwebp7 libwebpmux3 libx11-6
+#9 8.689   libx11-data libxau6 libxcb-render0 libxcb-shm0 libxcb1 libxdmcp6 libxext6
+#9 8.689   libxml2 libxrender1 perl perl-modules-5.40 postgresql-client
+#9 8.689   postgresql-client-17 postgresql-client-common sensible-utils tesseract-ocr
+#9 8.689   tesseract-ocr-eng tesseract-ocr-osd
+#9 8.761 0 upgraded, 79 newly installed, 0 to remove and 0 not upgraded.
+#9 8.761 Need to get 41.6 MB of archives.
+#9 8.761 After this operation, 174 MB of additional disk space will be used.
+#9 8.761 Get:1 http://deb.debian.org/debian trixie/main arm64 libexpat1 arm64 2.8.3-1~deb13u1 [109 kB]
+#9 8.984 Get:2 http://deb.debian.org/debian trixie/main arm64 sensible-utils all 0.0.25 [25.0 kB]
+#9 9.050 Get:3 http://deb.debian.org/debian trixie/main arm64 perl-modules-5.40 all 5.40.1-6+deb13u1 [3014 kB]
+#9 9.734 Get:4 http://deb.debian.org/debian trixie/main arm64 libgdbm-compat4t64 arm64 1.24-2 [50.3 kB]
+#9 9.735 Get:5 http://deb.debian.org/debian trixie/main arm64 libperl5.40 arm64 5.40.1-6+deb13u1 [4138 kB]
+#9 10.46 Get:6 http://deb.debian.org/debian trixie/main arm64 perl arm64 5.40.1-6+deb13u1 [268 kB]
+#9 10.56 Get:7 http://deb.debian.org/debian trixie/main arm64 libbrotli1 arm64 1.1.0-2+b7 [308 kB]
+#9 10.65 Get:8 http://deb.debian.org/debian-security trixie-security/main arm64 libpng16-16t64 arm64 1.6.48-1+deb13u6 [275 kB]
+#9 10.72 Get:9 http://deb.debian.org/debian trixie/main arm64 libfreetype6 arm64 2.13.3+dfsg-1+deb13u1 [422 kB]
+#9 10.80 Get:10 http://deb.debian.org/debian trixie/main arm64 fonts-dejavu-mono all 2.37-8 [489 kB]
+#9 10.93 Get:11 http://deb.debian.org/debian trixie/main arm64 fonts-dejavu-core all 2.37-8 [840 kB]
+#9 11.13 Get:12 http://deb.debian.org/debian trixie/main arm64 fontconfig-config arm64 2.15.0-2.3 [318 kB]
+#9 11.32 Get:13 http://deb.debian.org/debian trixie/main arm64 libfontconfig1 arm64 2.15.0-2.3 [387 kB]
+#9 11.40 Get:14 http://deb.debian.org/debian trixie/main arm64 fontconfig arm64 2.15.0-2.3 [463 kB]
+#9 11.61 Get:15 http://deb.debian.org/debian trixie/main arm64 libxml2 arm64 2.12.7+dfsg+really2.9.14-2.1+deb13u3 [631 kB]
+#9 11.79 Get:16 http://deb.debian.org/debian trixie/main arm64 libarchive13t64 arm64 3.7.4-4+deb13u1 [324 kB]
+#9 11.82 Get:17 http://deb.debian.org/debian trixie/main arm64 libatomic1 arm64 14.2.0-19 [10.1 kB]
+#9 11.88 Get:18 http://deb.debian.org/debian trixie/main arm64 libpixman-1-0 arm64 0.44.0-3 [168 kB]
+#9 11.90 Get:19 http://deb.debian.org/debian trixie/main arm64 libxau6 arm64 1:1.0.11-1 [20.6 kB]
+#9 11.90 Get:20 http://deb.debian.org/debian trixie/main arm64 libxdmcp6 arm64 1:1.1.5-1 [27.8 kB]
+#9 11.94 Get:21 http://deb.debian.org/debian trixie/main arm64 libxcb1 arm64 1.17.0-2+b1 [143 kB]
+#9 11.97 Get:22 http://deb.debian.org/debian trixie/main arm64 libx11-data all 2:1.8.12-1 [343 kB]
+#9 12.07 Get:23 http://deb.debian.org/debian trixie/main arm64 libx11-6 arm64 2:1.8.12-1 [795 kB]
+#9 12.30 Get:24 http://deb.debian.org/debian trixie/main arm64 libxcb-render0 arm64 1.17.0-2+b1 [115 kB]
+#9 12.36 Get:25 http://deb.debian.org/debian trixie/main arm64 libxcb-shm0 arm64 1.17.0-2+b1 [105 kB]
+#9 12.37 Get:26 http://deb.debian.org/debian trixie/main arm64 libxext6 arm64 2:1.3.4-1+b3 [49.2 kB]
+#9 12.60 Get:27 http://deb.debian.org/debian trixie/main arm64 libxrender1 arm64 1:0.9.12-1 [27.0 kB]
+#9 12.64 Get:28 http://deb.debian.org/debian trixie/main arm64 libcairo2 arm64 1.18.4-1+b1 [483 kB]
+#9 12.73 Get:29 http://deb.debian.org/debian trixie/main arm64 libcom-err2 arm64 1.47.2-3+b12 [24.9 kB]
+#9 12.73 Get:30 http://deb.debian.org/debian trixie/main arm64 libkrb5support0 arm64 1.21.3-5+deb13u1 [32.5 kB]
+#9 12.74 Get:31 http://deb.debian.org/debian trixie/main arm64 libk5crypto3 arm64 1.21.3-5+deb13u1 [81.4 kB]
+#9 12.75 Get:32 http://deb.debian.org/debian trixie/main arm64 libkeyutils1 arm64 1.6.3-6 [9716 B]
+#9 12.81 Get:33 http://deb.debian.org/debian trixie/main arm64 libkrb5-3 arm64 1.21.3-5+deb13u1 [308 kB]
+#9 12.91 Get:34 http://deb.debian.org/debian trixie/main arm64 libgssapi-krb5-2 arm64 1.21.3-5+deb13u1 [128 kB]
+#9 13.05 Get:35 http://deb.debian.org/debian trixie/main arm64 libunistring5 arm64 1.3-2 [453 kB]
+#9 13.12 Get:36 http://deb.debian.org/debian trixie/main arm64 libidn2-0 arm64 2.3.8-2 [107 kB]
+#9 13.13 Get:37 http://deb.debian.org/debian trixie/main arm64 libsasl2-modules-db arm64 2.1.28+dfsg1-9 [20.1 kB]
+#9 13.13 Get:38 http://deb.debian.org/debian trixie/main arm64 libsasl2-2 arm64 2.1.28+dfsg1-9 [55.6 kB]
+#9 13.17 Get:39 http://deb.debian.org/debian trixie/main arm64 libldap2 arm64 2.6.10+dfsg-1 [179 kB]
+#9 13.32 Get:40 http://deb.debian.org/debian trixie/main arm64 libnghttp2-14 arm64 1.64.0-1.1+deb13u1 [71.6 kB]
+#9 13.33 Get:41 http://deb.debian.org/debian trixie/main arm64 libnghttp3-9 arm64 1.8.0-1 [63.2 kB]
+#9 13.36 Get:42 http://deb.debian.org/debian trixie/main arm64 libpsl5t64 arm64 0.21.2-1.1+b1 [57.1 kB]
+#9 13.39 Get:43 http://deb.debian.org/debian trixie/main arm64 libp11-kit0 arm64 0.25.5-3 [409 kB]
+#9 13.48 Get:44 http://deb.debian.org/debian trixie/main arm64 libtasn1-6 arm64 4.20.0-2+deb13u1 [47.3 kB]
+#9 13.49 Get:45 http://deb.debian.org/debian trixie/main arm64 libgnutls30t64 arm64 3.8.9-3+deb13u4 [1379 kB]
+#9 13.80 Get:46 http://deb.debian.org/debian trixie/main arm64 librtmp1 arm64 2.4+20151223.gitfa8646d.1-2+b5 [56.8 kB]
+#9 13.85 Get:47 http://deb.debian.org/debian trixie/main arm64 libssh2-1t64 arm64 1.11.1-1+deb13u2 [236 kB]
+#9 13.95 Get:48 http://deb.debian.org/debian trixie/main arm64 libcurl4t64 arm64 8.14.1-2+deb13u5 [360 kB]
+#9 14.04 Get:49 http://deb.debian.org/debian trixie/main arm64 libdatrie1 arm64 0.2.13-3+b1 [37.6 kB]
+#9 14.04 Get:50 http://deb.debian.org/debian trixie/main arm64 libdeflate0 arm64 1.23-2 [42.4 kB]
+#9 14.04 Get:51 http://deb.debian.org/debian trixie/main arm64 libfribidi0 arm64 1.0.16-1 [26.5 kB]
+#9 14.04 Get:52 http://deb.debian.org/debian trixie/main arm64 libgif7 arm64 5.2.2-1+deb13u1 [44.1 kB]
+#9 14.10 Get:53 http://deb.debian.org/debian trixie/main arm64 libglib2.0-0t64 arm64 2.84.4-3~deb13u5 [1429 kB]
+#9 14.37 Get:54 http://deb.debian.org/debian trixie/main arm64 libgomp1 arm64 14.2.0-19 [124 kB]
+#9 14.44 Get:55 http://deb.debian.org/debian trixie/main arm64 libgraphite2-3 arm64 1.3.14-2+deb13u1 [70.3 kB]
+#9 14.58 Get:56 http://deb.debian.org/debian trixie/main arm64 libharfbuzz0b arm64 10.2.0-1+deb13u1 [442 kB]
+#9 14.70 Get:57 http://deb.debian.org/debian trixie/main arm64 libicu76 arm64 76.1-4 [9524 kB]
+#9 16.42 Get:58 http://deb.debian.org/debian trixie/main arm64 libjbig0 arm64 2.1-6.1+b2 [30.4 kB]
+#9 16.46 Get:59 http://deb.debian.org/debian trixie/main arm64 libjpeg62-turbo arm64 1:2.1.5-4 [173 kB]
+#9 16.47 Get:60 http://deb.debian.org/debian trixie/main arm64 libopenjp2-7 arm64 2.5.3-2.1~deb13u2 [189 kB]
+#9 16.53 Get:61 http://deb.debian.org/debian trixie/main arm64 liblerc4 arm64 4.0.0+ds-5 [146 kB]
+#9 16.61 Get:62 http://deb.debian.org/debian trixie/main arm64 libsharpyuv0 arm64 1.5.0-0.1 [114 kB]
+#9 16.69 Get:63 http://deb.debian.org/debian trixie/main arm64 libwebp7 arm64 1.5.0-0.1 [271 kB]
+#9 16.75 Get:64 http://deb.debian.org/debian trixie/main arm64 libtiff6 arm64 4.7.0-3+deb13u3 [325 kB]
+#9 16.85 Get:65 http://deb.debian.org/debian trixie/main arm64 libwebpmux3 arm64 1.5.0-0.1 [125 kB]
+#9 16.89 Get:66 http://deb.debian.org/debian trixie/main arm64 libleptonica6 arm64 1.84.1-4 [994 kB]
+#9 17.10 Get:67 http://deb.debian.org/debian trixie/main arm64 libthai-data all 0.1.29-2 [168 kB]
+#9 17.13 Get:68 http://deb.debian.org/debian trixie/main arm64 libthai0 arm64 0.1.29-2+b1 [48.4 kB]
+#9 17.13 Get:69 http://deb.debian.org/debian trixie/main arm64 libpango-1.0-0 arm64 1.56.3-1 [213 kB]
+#9 17.16 Get:70 http://deb.debian.org/debian trixie/main arm64 libpangoft2-1.0-0 arm64 1.56.3-1 [52.9 kB]
+#9 17.19 Get:71 http://deb.debian.org/debian trixie/main arm64 libpangocairo-1.0-0 arm64 1.56.3-1 [33.7 kB]
+#9 17.22 Get:72 http://deb.debian.org/debian trixie/main arm64 libpq5 arm64 17.11-0+deb13u1 [230 kB]
+#9 17.33 Get:73 http://deb.debian.org/debian trixie/main arm64 libtesseract5 arm64 5.5.0-1+b1 [1237 kB]
+#9 17.75 Get:74 http://deb.debian.org/debian trixie/main arm64 postgresql-client-common all 278 [47.1 kB]
+#9 17.79 Get:75 http://deb.debian.org/debian trixie/main arm64 postgresql-client-17 arm64 17.11-0+deb13u1 [2019 kB]
+#9 18.16 Get:76 http://deb.debian.org/debian trixie/main arm64 postgresql-client all 17+278 [14.0 kB]
+#9 18.19 Get:77 http://deb.debian.org/debian trixie/main arm64 tesseract-ocr-eng all 1:4.1.0-2 [1594 kB]
+#9 18.49 Get:78 http://deb.debian.org/debian trixie/main arm64 tesseract-ocr-osd all 1:4.1.0-2 [2992 kB]
+#9 18.98 Get:79 http://deb.debian.org/debian trixie/main arm64 tesseract-ocr arm64 5.5.0-1+b1 [389 kB]
+#9 19.12 debconf: unable to initialize frontend: Dialog
+#9 19.12 debconf: (TERM is not set, so the dialog frontend is not usable.)
+#9 19.12 debconf: falling back to frontend: Readline
+#9 19.12 debconf: unable to initialize frontend: Readline
+#9 19.12 debconf: (Can't locate Term/ReadLine.pm in @INC (you may need to install the Term::ReadLine module) (@INC entries checked: /etc/perl /usr/local/lib/aarch64-linux-gnu/perl/5.40.1 /usr/local/share/perl/5.40.1 /usr/lib/aarch64-linux-gnu/perl5/5.40 /usr/share/perl5 /usr/lib/aarch64-linux-gnu/perl-base /usr/lib/aarch64-linux-gnu/perl/5.40 /usr/share/perl/5.40 /usr/local/lib/site_perl) at /usr/share/perl5/Debconf/FrontEnd/Readline.pm line 8, <STDIN> line 79.)
+#9 19.12 debconf: falling back to frontend: Teletype
+#9 19.13 debconf: unable to initialize frontend: Teletype
+#9 19.13 debconf: (This frontend requires a controlling tty.)
+#9 19.13 debconf: falling back to frontend: Noninteractive
+#9 20.15 Preconfiguring packages ...
+#9 20.18 Fetched 41.6 MB in 10s (4027 kB/s)
+#9 20.19 Selecting previously unselected package libexpat1:arm64.
+#9 20.19 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 5657 files and directories currently installed.)
+#9 20.20 Preparing to unpack .../00-libexpat1_2.8.3-1~deb13u1_arm64.deb ...
+#9 20.20 Unpacking libexpat1:arm64 (2.8.3-1~deb13u1) ...
+#9 20.21 Selecting previously unselected package sensible-utils.
+#9 20.21 Preparing to unpack .../01-sensible-utils_0.0.25_all.deb ...
+#9 20.22 Unpacking sensible-utils (0.0.25) ...
+#9 20.23 Selecting previously unselected package perl-modules-5.40.
+#9 20.23 Preparing to unpack .../02-perl-modules-5.40_5.40.1-6+deb13u1_all.deb ...
+#9 20.23 Unpacking perl-modules-5.40 (5.40.1-6+deb13u1) ...
+#9 20.43 Selecting previously unselected package libgdbm-compat4t64:arm64.
+#9 20.43 Preparing to unpack .../03-libgdbm-compat4t64_1.24-2_arm64.deb ...
+#9 20.44 Unpacking libgdbm-compat4t64:arm64 (1.24-2) ...
+#9 20.45 Selecting previously unselected package libperl5.40:arm64.
+#9 20.45 Preparing to unpack .../04-libperl5.40_5.40.1-6+deb13u1_arm64.deb ...
+#9 20.45 Unpacking libperl5.40:arm64 (5.40.1-6+deb13u1) ...
+#9 20.68 Selecting previously unselected package perl.
+#9 20.68 Preparing to unpack .../05-perl_5.40.1-6+deb13u1_arm64.deb ...
+#9 20.68 Unpacking perl (5.40.1-6+deb13u1) ...
+#9 20.71 Selecting previously unselected package libbrotli1:arm64.
+#9 20.71 Preparing to unpack .../06-libbrotli1_1.1.0-2+b7_arm64.deb ...
+#9 20.71 Unpacking libbrotli1:arm64 (1.1.0-2+b7) ...
+#9 20.74 Selecting previously unselected package libpng16-16t64:arm64.
+#9 20.74 Preparing to unpack .../07-libpng16-16t64_1.6.48-1+deb13u6_arm64.deb ...
+#9 20.74 Unpacking libpng16-16t64:arm64 (1.6.48-1+deb13u6) ...
+#9 20.76 Selecting previously unselected package libfreetype6:arm64.
+#9 20.76 Preparing to unpack .../08-libfreetype6_2.13.3+dfsg-1+deb13u1_arm64.deb ...
+#9 20.76 Unpacking libfreetype6:arm64 (2.13.3+dfsg-1+deb13u1) ...
+#9 20.79 Selecting previously unselected package fonts-dejavu-mono.
+#9 20.80 Preparing to unpack .../09-fonts-dejavu-mono_2.37-8_all.deb ...
+#9 20.80 Unpacking fonts-dejavu-mono (2.37-8) ...
+#9 20.84 Selecting previously unselected package fonts-dejavu-core.
+#9 20.84 Preparing to unpack .../10-fonts-dejavu-core_2.37-8_all.deb ...
+#9 20.85 Unpacking fonts-dejavu-core (2.37-8) ...
+#9 20.91 Selecting previously unselected package fontconfig-config.
+#9 20.91 Preparing to unpack .../11-fontconfig-config_2.15.0-2.3_arm64.deb ...
+#9 20.91 Unpacking fontconfig-config (2.15.0-2.3) ...
+#9 20.93 Selecting previously unselected package libfontconfig1:arm64.
+#9 20.93 Preparing to unpack .../12-libfontconfig1_2.15.0-2.3_arm64.deb ...
+#9 20.93 Unpacking libfontconfig1:arm64 (2.15.0-2.3) ...
+#9 20.95 Selecting previously unselected package fontconfig.
+#9 20.95 Preparing to unpack .../13-fontconfig_2.15.0-2.3_arm64.deb ...
+#9 20.95 Unpacking fontconfig (2.15.0-2.3) ...
+#9 20.97 Selecting previously unselected package libxml2:arm64.
+#9 20.97 Preparing to unpack .../14-libxml2_2.12.7+dfsg+really2.9.14-2.1+deb13u3_arm64.deb ...
+#9 20.98 Unpacking libxml2:arm64 (2.12.7+dfsg+really2.9.14-2.1+deb13u3) ...
+#9 21.02 Selecting previously unselected package libarchive13t64:arm64.
+#9 21.02 Preparing to unpack .../15-libarchive13t64_3.7.4-4+deb13u1_arm64.deb ...
+#9 21.02 Unpacking libarchive13t64:arm64 (3.7.4-4+deb13u1) ...
+#9 21.04 Selecting previously unselected package libatomic1:arm64.
+#9 21.05 Preparing to unpack .../16-libatomic1_14.2.0-19_arm64.deb ...
+#9 21.05 Unpacking libatomic1:arm64 (14.2.0-19) ...
+#9 21.06 Selecting previously unselected package libpixman-1-0:arm64.
+#9 21.06 Preparing to unpack .../17-libpixman-1-0_0.44.0-3_arm64.deb ...
+#9 21.06 Unpacking libpixman-1-0:arm64 (0.44.0-3) ...
+#9 21.08 Selecting previously unselected package libxau6:arm64.
+#9 21.08 Preparing to unpack .../18-libxau6_1%3a1.0.11-1_arm64.deb ...
+#9 21.08 Unpacking libxau6:arm64 (1:1.0.11-1) ...
+#9 21.09 Selecting previously unselected package libxdmcp6:arm64.
+#9 21.09 Preparing to unpack .../19-libxdmcp6_1%3a1.1.5-1_arm64.deb ...
+#9 21.09 Unpacking libxdmcp6:arm64 (1:1.1.5-1) ...
+#9 21.10 Selecting previously unselected package libxcb1:arm64.
+#9 21.11 Preparing to unpack .../20-libxcb1_1.17.0-2+b1_arm64.deb ...
+#9 21.11 Unpacking libxcb1:arm64 (1.17.0-2+b1) ...
+#9 21.12 Selecting previously unselected package libx11-data.
+#9 21.12 Preparing to unpack .../21-libx11-data_2%3a1.8.12-1_all.deb ...
+#9 21.12 Unpacking libx11-data (2:1.8.12-1) ...
+#9 21.15 Selecting previously unselected package libx11-6:arm64.
+#9 21.15 Preparing to unpack .../22-libx11-6_2%3a1.8.12-1_arm64.deb ...
+#9 21.15 Unpacking libx11-6:arm64 (2:1.8.12-1) ...
+#9 21.20 Selecting previously unselected package libxcb-render0:arm64.
+#9 21.20 Preparing to unpack .../23-libxcb-render0_1.17.0-2+b1_arm64.deb ...
+#9 21.20 Unpacking libxcb-render0:arm64 (1.17.0-2+b1) ...
+#9 21.22 Selecting previously unselected package libxcb-shm0:arm64.
+#9 21.22 Preparing to unpack .../24-libxcb-shm0_1.17.0-2+b1_arm64.deb ...
+#9 21.22 Unpacking libxcb-shm0:arm64 (1.17.0-2+b1) ...
+#9 21.23 Selecting previously unselected package libxext6:arm64.
+#9 21.24 Preparing to unpack .../25-libxext6_2%3a1.3.4-1+b3_arm64.deb ...
+#9 21.24 Unpacking libxext6:arm64 (2:1.3.4-1+b3) ...
+#9 21.25 Selecting previously unselected package libxrender1:arm64.
+#9 21.25 Preparing to unpack .../26-libxrender1_1%3a0.9.12-1_arm64.deb ...
+#9 21.25 Unpacking libxrender1:arm64 (1:0.9.12-1) ...
+#9 21.26 Selecting previously unselected package libcairo2:arm64.
+#9 21.26 Preparing to unpack .../27-libcairo2_1.18.4-1+b1_arm64.deb ...
+#9 21.27 Unpacking libcairo2:arm64 (1.18.4-1+b1) ...
+#9 21.31 Selecting previously unselected package libcom-err2:arm64.
+#9 21.31 Preparing to unpack .../28-libcom-err2_1.47.2-3+b12_arm64.deb ...
+#9 21.31 Unpacking libcom-err2:arm64 (1.47.2-3+b12) ...
+#9 21.32 Selecting previously unselected package libkrb5support0:arm64.
+#9 21.32 Preparing to unpack .../29-libkrb5support0_1.21.3-5+deb13u1_arm64.deb ...
+#9 21.32 Unpacking libkrb5support0:arm64 (1.21.3-5+deb13u1) ...
+#9 21.34 Selecting previously unselected package libk5crypto3:arm64.
+#9 21.34 Preparing to unpack .../30-libk5crypto3_1.21.3-5+deb13u1_arm64.deb ...
+#9 21.34 Unpacking libk5crypto3:arm64 (1.21.3-5+deb13u1) ...
+#9 21.36 Selecting previously unselected package libkeyutils1:arm64.
+#9 21.36 Preparing to unpack .../31-libkeyutils1_1.6.3-6_arm64.deb ...
+#9 21.36 Unpacking libkeyutils1:arm64 (1.6.3-6) ...
+#9 21.37 Selecting previously unselected package libkrb5-3:arm64.
+#9 21.37 Preparing to unpack .../32-libkrb5-3_1.21.3-5+deb13u1_arm64.deb ...
+#9 21.37 Unpacking libkrb5-3:arm64 (1.21.3-5+deb13u1) ...
+#9 21.40 Selecting previously unselected package libgssapi-krb5-2:arm64.
+#9 21.40 Preparing to unpack .../33-libgssapi-krb5-2_1.21.3-5+deb13u1_arm64.deb ...
+#9 21.40 Unpacking libgssapi-krb5-2:arm64 (1.21.3-5+deb13u1) ...
+#9 21.42 Selecting previously unselected package libunistring5:arm64.
+#9 21.42 Preparing to unpack .../34-libunistring5_1.3-2_arm64.deb ...
+#9 21.42 Unpacking libunistring5:arm64 (1.3-2) ...
+#9 21.46 Selecting previously unselected package libidn2-0:arm64.
+#9 21.46 Preparing to unpack .../35-libidn2-0_2.3.8-2_arm64.deb ...
+#9 21.46 Unpacking libidn2-0:arm64 (2.3.8-2) ...
+#9 21.48 Selecting previously unselected package libsasl2-modules-db:arm64.
+#9 21.48 Preparing to unpack .../36-libsasl2-modules-db_2.1.28+dfsg1-9_arm64.deb ...
+#9 21.48 Unpacking libsasl2-modules-db:arm64 (2.1.28+dfsg1-9) ...
+#9 21.49 Selecting previously unselected package libsasl2-2:arm64.
+#9 21.49 Preparing to unpack .../37-libsasl2-2_2.1.28+dfsg1-9_arm64.deb ...
+#9 21.49 Unpacking libsasl2-2:arm64 (2.1.28+dfsg1-9) ...
+#9 21.50 Selecting previously unselected package libldap2:arm64.
+#9 21.50 Preparing to unpack .../38-libldap2_2.6.10+dfsg-1_arm64.deb ...
+#9 21.51 Unpacking libldap2:arm64 (2.6.10+dfsg-1) ...
+#9 21.53 Selecting previously unselected package libnghttp2-14:arm64.
+#9 21.53 Preparing to unpack .../39-libnghttp2-14_1.64.0-1.1+deb13u1_arm64.deb ...
+#9 21.53 Unpacking libnghttp2-14:arm64 (1.64.0-1.1+deb13u1) ...
+#9 21.55 Selecting previously unselected package libnghttp3-9:arm64.
+#9 21.55 Preparing to unpack .../40-libnghttp3-9_1.8.0-1_arm64.deb ...
+#9 21.56 Unpacking libnghttp3-9:arm64 (1.8.0-1) ...
+#9 21.58 Selecting previously unselected package libpsl5t64:arm64.
+#9 21.58 Preparing to unpack .../41-libpsl5t64_0.21.2-1.1+b1_arm64.deb ...
+#9 21.58 Unpacking libpsl5t64:arm64 (0.21.2-1.1+b1) ...
+#9 21.62 Selecting previously unselected package libp11-kit0:arm64.
+#9 21.62 Preparing to unpack .../42-libp11-kit0_0.25.5-3_arm64.deb ...
+#9 21.62 Unpacking libp11-kit0:arm64 (0.25.5-3) ...
+#9 21.66 Selecting previously unselected package libtasn1-6:arm64.
+#9 21.66 Preparing to unpack .../43-libtasn1-6_4.20.0-2+deb13u1_arm64.deb ...
+#9 21.66 Unpacking libtasn1-6:arm64 (4.20.0-2+deb13u1) ...
+#9 21.68 Selecting previously unselected package libgnutls30t64:arm64.
+#9 21.68 Preparing to unpack .../44-libgnutls30t64_3.8.9-3+deb13u4_arm64.deb ...
+#9 21.68 Unpacking libgnutls30t64:arm64 (3.8.9-3+deb13u4) ...
+#9 21.74 Selecting previously unselected package librtmp1:arm64.
+#9 21.74 Preparing to unpack .../45-librtmp1_2.4+20151223.gitfa8646d.1-2+b5_arm64.deb ...
+#9 21.74 Unpacking librtmp1:arm64 (2.4+20151223.gitfa8646d.1-2+b5) ...
+#9 21.76 Selecting previously unselected package libssh2-1t64:arm64.
+#9 21.76 Preparing to unpack .../46-libssh2-1t64_1.11.1-1+deb13u2_arm64.deb ...
+#9 21.76 Unpacking libssh2-1t64:arm64 (1.11.1-1+deb13u2) ...
+#9 21.78 Selecting previously unselected package libcurl4t64:arm64.
+#9 21.78 Preparing to unpack .../47-libcurl4t64_8.14.1-2+deb13u5_arm64.deb ...
+#9 21.78 Unpacking libcurl4t64:arm64 (8.14.1-2+deb13u5) ...
+#9 21.81 Selecting previously unselected package libdatrie1:arm64.
+#9 21.81 Preparing to unpack .../48-libdatrie1_0.2.13-3+b1_arm64.deb ...
+#9 21.81 Unpacking libdatrie1:arm64 (0.2.13-3+b1) ...
+#9 21.83 Selecting previously unselected package libdeflate0:arm64.
+#9 21.83 Preparing to unpack .../49-libdeflate0_1.23-2_arm64.deb ...
+#9 21.83 Unpacking libdeflate0:arm64 (1.23-2) ...
+#9 21.84 Selecting previously unselected package libfribidi0:arm64.
+#9 21.84 Preparing to unpack .../50-libfribidi0_1.0.16-1_arm64.deb ...
+#9 21.84 Unpacking libfribidi0:arm64 (1.0.16-1) ...
+#9 21.85 Selecting previously unselected package libgif7:arm64.
+#9 21.85 Preparing to unpack .../51-libgif7_5.2.2-1+deb13u1_arm64.deb ...
+#9 21.86 Unpacking libgif7:arm64 (5.2.2-1+deb13u1) ...
+#9 21.87 Selecting previously unselected package libglib2.0-0t64:arm64.
+#9 21.87 Preparing to unpack .../52-libglib2.0-0t64_2.84.4-3~deb13u5_arm64.deb ...
+#9 21.88 Unpacking libglib2.0-0t64:arm64 (2.84.4-3~deb13u5) ...
+#9 21.95 Selecting previously unselected package libgomp1:arm64.
+#9 21.95 Preparing to unpack .../53-libgomp1_14.2.0-19_arm64.deb ...
+#9 21.95 Unpacking libgomp1:arm64 (14.2.0-19) ...
+#9 21.97 Selecting previously unselected package libgraphite2-3:arm64.
+#9 21.97 Preparing to unpack .../54-libgraphite2-3_1.3.14-2+deb13u1_arm64.deb ...
+#9 21.97 Unpacking libgraphite2-3:arm64 (1.3.14-2+deb13u1) ...
+#9 21.99 Selecting previously unselected package libharfbuzz0b:arm64.
+#9 21.99 Preparing to unpack .../55-libharfbuzz0b_10.2.0-1+deb13u1_arm64.deb ...
+#9 21.99 Unpacking libharfbuzz0b:arm64 (10.2.0-1+deb13u1) ...
+#9 22.02 Selecting previously unselected package libicu76:arm64.
+#9 22.02 Preparing to unpack .../56-libicu76_76.1-4_arm64.deb ...
+#9 22.02 Unpacking libicu76:arm64 (76.1-4) ...
+#9 22.40 Selecting previously unselected package libjbig0:arm64.
+#9 22.40 Preparing to unpack .../57-libjbig0_2.1-6.1+b2_arm64.deb ...
+#9 22.41 Unpacking libjbig0:arm64 (2.1-6.1+b2) ...
+#9 22.42 Selecting previously unselected package libjpeg62-turbo:arm64.
+#9 22.43 Preparing to unpack .../58-libjpeg62-turbo_1%3a2.1.5-4_arm64.deb ...
+#9 22.43 Unpacking libjpeg62-turbo:arm64 (1:2.1.5-4) ...
+#9 22.46 Selecting previously unselected package libopenjp2-7:arm64.
+#9 22.46 Preparing to unpack .../59-libopenjp2-7_2.5.3-2.1~deb13u2_arm64.deb ...
+#9 22.46 Unpacking libopenjp2-7:arm64 (2.5.3-2.1~deb13u2) ...
+#9 22.48 Selecting previously unselected package liblerc4:arm64.
+#9 22.48 Preparing to unpack .../60-liblerc4_4.0.0+ds-5_arm64.deb ...
+#9 22.48 Unpacking liblerc4:arm64 (4.0.0+ds-5) ...
+#9 22.49 Selecting previously unselected package libsharpyuv0:arm64.
+#9 22.50 Preparing to unpack .../61-libsharpyuv0_1.5.0-0.1_arm64.deb ...
+#9 22.50 Unpacking libsharpyuv0:arm64 (1.5.0-0.1) ...
+#9 22.51 Selecting previously unselected package libwebp7:arm64.
+#9 22.51 Preparing to unpack .../62-libwebp7_1.5.0-0.1_arm64.deb ...
+#9 22.52 Unpacking libwebp7:arm64 (1.5.0-0.1) ...
+#9 22.54 Selecting previously unselected package libtiff6:arm64.
+#9 22.54 Preparing to unpack .../63-libtiff6_4.7.0-3+deb13u3_arm64.deb ...
+#9 22.54 Unpacking libtiff6:arm64 (4.7.0-3+deb13u3) ...
+#9 22.56 Selecting previously unselected package libwebpmux3:arm64.
+#9 22.56 Preparing to unpack .../64-libwebpmux3_1.5.0-0.1_arm64.deb ...
+#9 22.56 Unpacking libwebpmux3:arm64 (1.5.0-0.1) ...
+#9 22.58 Selecting previously unselected package libleptonica6:arm64.
+#9 22.58 Preparing to unpack .../65-libleptonica6_1.84.1-4_arm64.deb ...
+#9 22.58 Unpacking libleptonica6:arm64 (1.84.1-4) ...
+#9 22.64 Selecting previously unselected package libthai-data.
+#9 22.64 Preparing to unpack .../66-libthai-data_0.1.29-2_all.deb ...
+#9 22.64 Unpacking libthai-data (0.1.29-2) ...
+#9 22.66 Selecting previously unselected package libthai0:arm64.
+#9 22.66 Preparing to unpack .../67-libthai0_0.1.29-2+b1_arm64.deb ...
+#9 22.67 Unpacking libthai0:arm64 (0.1.29-2+b1) ...
+#9 22.68 Selecting previously unselected package libpango-1.0-0:arm64.
+#9 22.68 Preparing to unpack .../68-libpango-1.0-0_1.56.3-1_arm64.deb ...
+#9 22.68 Unpacking libpango-1.0-0:arm64 (1.56.3-1) ...
+#9 22.70 Selecting previously unselected package libpangoft2-1.0-0:arm64.
+#9 22.70 Preparing to unpack .../69-libpangoft2-1.0-0_1.56.3-1_arm64.deb ...
+#9 22.70 Unpacking libpangoft2-1.0-0:arm64 (1.56.3-1) ...
+#9 22.72 Selecting previously unselected package libpangocairo-1.0-0:arm64.
+#9 22.72 Preparing to unpack .../70-libpangocairo-1.0-0_1.56.3-1_arm64.deb ...
+#9 22.72 Unpacking libpangocairo-1.0-0:arm64 (1.56.3-1) ...
+#9 22.73 Selecting previously unselected package libpq5:arm64.
+#9 22.73 Preparing to unpack .../71-libpq5_17.11-0+deb13u1_arm64.deb ...
+#9 22.73 Unpacking libpq5:arm64 (17.11-0+deb13u1) ...
+#9 22.76 Selecting previously unselected package libtesseract5:arm64.
+#9 22.76 Preparing to unpack .../72-libtesseract5_5.5.0-1+b1_arm64.deb ...
+#9 22.76 Unpacking libtesseract5:arm64 (5.5.0-1+b1) ...
+#9 22.84 Selecting previously unselected package postgresql-client-common.
+#9 22.84 Preparing to unpack .../73-postgresql-client-common_278_all.deb ...
+#9 22.84 Unpacking postgresql-client-common (278) ...
+#9 22.86 Selecting previously unselected package postgresql-client-17.
+#9 22.86 Preparing to unpack .../74-postgresql-client-17_17.11-0+deb13u1_arm64.deb ...
+#9 22.86 Unpacking postgresql-client-17 (17.11-0+deb13u1) ...
+#9 22.98 Selecting previously unselected package postgresql-client.
+#9 22.98 Preparing to unpack .../75-postgresql-client_17+278_all.deb ...
+#9 22.98 Unpacking postgresql-client (17+278) ...
+#9 22.99 Selecting previously unselected package tesseract-ocr-eng.
+#9 22.99 Preparing to unpack .../76-tesseract-ocr-eng_1%3a4.1.0-2_all.deb ...
+#9 22.99 Unpacking tesseract-ocr-eng (1:4.1.0-2) ...
+#9 23.08 Selecting previously unselected package tesseract-ocr-osd.
+#9 23.08 Preparing to unpack .../77-tesseract-ocr-osd_1%3a4.1.0-2_all.deb ...
+#9 23.09 Unpacking tesseract-ocr-osd (1:4.1.0-2) ...
+#9 23.25 Selecting previously unselected package tesseract-ocr.
+#9 23.25 Preparing to unpack .../78-tesseract-ocr_5.5.0-1+b1_arm64.deb ...
+#9 23.25 Unpacking tesseract-ocr (5.5.0-1+b1) ...
+#9 23.30 Setting up libexpat1:arm64 (2.8.3-1~deb13u1) ...
+#9 23.30 Setting up libgraphite2-3:arm64 (1.3.14-2+deb13u1) ...
+#9 23.30 Setting up libpixman-1-0:arm64 (0.44.0-3) ...
+#9 23.31 Setting up libsharpyuv0:arm64 (1.5.0-0.1) ...
+#9 23.31 Setting up libxau6:arm64 (1:1.0.11-1) ...
+#9 23.32 Setting up libxdmcp6:arm64 (1:1.1.5-1) ...
+#9 23.32 Setting up libkeyutils1:arm64 (1.6.3-6) ...
+#9 23.32 Setting up libxcb1:arm64 (1.17.0-2+b1) ...
+#9 23.32 Setting up liblerc4:arm64 (4.0.0+ds-5) ...
+#9 23.34 Setting up libdatrie1:arm64 (0.2.13-3+b1) ...
+#9 23.34 Setting up libgdbm-compat4t64:arm64 (1.24-2) ...
+#9 23.35 Setting up libxcb-render0:arm64 (1.17.0-2+b1) ...
+#9 23.36 Setting up libbrotli1:arm64 (1.1.0-2+b7) ...
+#9 23.37 Setting up libnghttp2-14:arm64 (1.64.0-1.1+deb13u1) ...
+#9 23.37 Setting up libdeflate0:arm64 (1.23-2) ...
+#9 23.38 Setting up tesseract-ocr-eng (1:4.1.0-2) ...
+#9 23.38 Setting up libxcb-shm0:arm64 (1.17.0-2+b1) ...
+#9 23.39 Setting up libcom-err2:arm64 (1.47.2-3+b12) ...
+#9 23.39 Setting up libgomp1:arm64 (14.2.0-19) ...
+#9 23.39 Setting up libjbig0:arm64 (2.1-6.1+b2) ...
+#9 23.39 Setting up libkrb5support0:arm64 (1.21.3-5+deb13u1) ...
+#9 23.40 Setting up libsasl2-modules-db:arm64 (2.1.28+dfsg1-9) ...
+#9 23.40 Setting up libjpeg62-turbo:arm64 (1:2.1.5-4) ...
+#9 23.40 Setting up libx11-data (2:1.8.12-1) ...
+#9 23.41 Setting up libfribidi0:arm64 (1.0.16-1) ...
+#9 23.41 Setting up libp11-kit0:arm64 (0.25.5-3) ...
+#9 23.41 Setting up libunistring5:arm64 (1.3-2) ...
+#9 23.41 Setting up fonts-dejavu-mono (2.37-8) ...
+#9 23.42 Setting up libpng16-16t64:arm64 (1.6.48-1+deb13u6) ...
+#9 23.43 Setting up libatomic1:arm64 (14.2.0-19) ...
+#9 23.43 Setting up fonts-dejavu-core (2.37-8) ...
+#9 23.45 Setting up libk5crypto3:arm64 (1.21.3-5+deb13u1) ...
+#9 23.45 Setting up libsasl2-2:arm64 (2.1.28+dfsg1-9) ...
+#9 23.46 Setting up libnghttp3-9:arm64 (1.8.0-1) ...
+#9 23.46 Setting up libwebp7:arm64 (1.5.0-0.1) ...
+#9 23.46 Setting up libgif7:arm64 (5.2.2-1+deb13u1) ...
+#9 23.47 Setting up perl-modules-5.40 (5.40.1-6+deb13u1) ...
+#9 23.47 Setting up sensible-utils (0.0.25) ...
+#9 23.47 Setting up libtiff6:arm64 (4.7.0-3+deb13u3) ...
+#9 23.47 Setting up libtasn1-6:arm64 (4.20.0-2+deb13u1) ...
+#9 23.48 Setting up libopenjp2-7:arm64 (2.5.3-2.1~deb13u2) ...
+#9 23.48 Setting up libx11-6:arm64 (2:1.8.12-1) ...
+#9 23.49 Setting up libthai-data (0.1.29-2) ...
+#9 23.49 Setting up libkrb5-3:arm64 (1.21.3-5+deb13u1) ...
+#9 23.49 Setting up libicu76:arm64 (76.1-4) ...
+#9 23.50 Setting up tesseract-ocr-osd (1:4.1.0-2) ...
+#9 23.50 Setting up libssh2-1t64:arm64 (1.11.1-1+deb13u2) ...
+#9 23.50 Setting up libwebpmux3:arm64 (1.5.0-0.1) ...
+#9 23.50 Setting up libxml2:arm64 (2.12.7+dfsg+really2.9.14-2.1+deb13u3) ...
+#9 23.51 Setting up libldap2:arm64 (2.6.10+dfsg-1) ...
+#9 23.51 Setting up libxrender1:arm64 (1:0.9.12-1) ...
+#9 23.51 Setting up fontconfig-config (2.15.0-2.3) ...
+#9 23.55 debconf: unable to initialize frontend: Dialog
+#9 23.55 debconf: (TERM is not set, so the dialog frontend is not usable.)
+#9 23.55 debconf: falling back to frontend: Readline
+#9 23.55 debconf: unable to initialize frontend: Readline
+#9 23.55 debconf: (This frontend requires a controlling tty.)
+#9 23.55 debconf: falling back to frontend: Teletype
+#9 23.55 debconf: unable to initialize frontend: Teletype
+#9 23.55 debconf: (This frontend requires a controlling tty.)
+#9 23.55 debconf: falling back to frontend: Noninteractive
+#9 23.57 Setting up libxext6:arm64 (2:1.3.4-1+b3) ...
+#9 23.58 Setting up libleptonica6:arm64 (1.84.1-4) ...
+#9 23.58 Setting up libidn2-0:arm64 (2.3.8-2) ...
+#9 23.58 Setting up libperl5.40:arm64 (5.40.1-6+deb13u1) ...
+#9 23.59 Setting up libthai0:arm64 (0.1.29-2+b1) ...
+#9 23.59 Setting up perl (5.40.1-6+deb13u1) ...
+#9 23.60 Setting up libglib2.0-0t64:arm64 (2.84.4-3~deb13u5) ...
+#9 23.61 No schema files found: doing nothing.
+#9 23.61 Setting up libfreetype6:arm64 (2.13.3+dfsg-1+deb13u1) ...
+#9 23.61 Setting up libgssapi-krb5-2:arm64 (1.21.3-5+deb13u1) ...
+#9 23.61 Setting up libharfbuzz0b:arm64 (10.2.0-1+deb13u1) ...
+#9 23.62 Setting up libfontconfig1:arm64 (2.15.0-2.3) ...
+#9 23.62 Setting up libarchive13t64:arm64 (3.7.4-4+deb13u1) ...
+#9 23.62 Setting up libgnutls30t64:arm64 (3.8.9-3+deb13u4) ...
+#9 23.63 Setting up postgresql-client-common (278) ...
+#9 23.63 Setting up fontconfig (2.15.0-2.3) ...
+#9 23.64 Regenerating fonts cache... done.
+#9 25.66 Setting up libpango-1.0-0:arm64 (1.56.3-1) ...
+#9 25.66 Setting up libpsl5t64:arm64 (0.21.2-1.1+b1) ...
+#9 25.67 Setting up libpq5:arm64 (17.11-0+deb13u1) ...
+#9 25.67 Setting up libcairo2:arm64 (1.18.4-1+b1) ...
+#9 25.68 Setting up librtmp1:arm64 (2.4+20151223.gitfa8646d.1-2+b5) ...
+#9 25.68 Setting up libpangoft2-1.0-0:arm64 (1.56.3-1) ...
+#9 25.68 Setting up libpangocairo-1.0-0:arm64 (1.56.3-1) ...
+#9 25.69 Setting up libcurl4t64:arm64 (8.14.1-2+deb13u5) ...
+#9 25.69 Setting up postgresql-client-17 (17.11-0+deb13u1) ...
+#9 25.86 update-alternatives: using /usr/share/postgresql/17/man/man1/psql.1.gz to provide /usr/share/man/man1/psql.1.gz (psql.1.gz) in auto mode
+#9 25.87 Setting up libtesseract5:arm64 (5.5.0-1+b1) ...
+#9 25.88 Setting up postgresql-client (17+278) ...
+#9 25.88 Setting up tesseract-ocr (5.5.0-1+b1) ...
+#9 25.89 Processing triggers for libc-bin (2.41-12+deb13u4) ...
+#9 DONE 26.1s
+
+#10 [ 5/11] COPY requirements.txt .
+#10 DONE 0.0s
+
+#11 [ 6/11] RUN pip install --no-cache-dir -r requirements.txt
+#11 1.061 Collecting fastapi==0.141.1 (from -r requirements.txt (line 1))
+#11 1.260   Downloading fastapi-0.141.1-py3-none-any.whl.metadata (27 kB)
+#11 1.334 Collecting starlette==1.3.1 (from -r requirements.txt (line 2))
+#11 1.371   Downloading starlette-1.3.1-py3-none-any.whl.metadata (6.4 kB)
+#11 1.423 Collecting uvicorn==0.35.0 (from uvicorn[standard]==0.35.0->-r requirements.txt (line 3))
+#11 1.468   Downloading uvicorn-0.35.0-py3-none-any.whl.metadata (6.5 kB)
+#11 1.530 Collecting httpx==0.28.1 (from -r requirements.txt (line 4))
+#11 1.559   Downloading httpx-0.28.1-py3-none-any.whl.metadata (7.1 kB)
+#11 1.617 Collecting python-dotenv==1.2.3 (from -r requirements.txt (line 5))
+#11 1.653   Downloading python_dotenv-1.2.3-py3-none-any.whl.metadata (29 kB)
+#11 2.268 Collecting cryptography==50.0.1 (from -r requirements.txt (line 6))
+#11 2.534   Downloading cryptography-50.0.1-cp311-abi3-manylinux_2_34_aarch64.whl.metadata (4.3 kB)
+#11 2.603 Collecting pypdf==6.19.0 (from -r requirements.txt (line 7))
+#11 2.672   Downloading pypdf-6.19.0-py3-none-any.whl.metadata (7.5 kB)
+#11 2.724 Collecting python-docx==1.2.0 (from -r requirements.txt (line 8))
+#11 2.805   Downloading python_docx-1.2.0-py3-none-any.whl.metadata (2.0 kB)
+#11 2.870 Collecting openpyxl==3.1.5 (from -r requirements.txt (line 9))
+#11 2.899   Downloading openpyxl-3.1.5-py2.py3-none-any.whl.metadata (2.5 kB)
+#11 2.979 Collecting python-pptx==1.0.2 (from -r requirements.txt (line 10))
+#11 3.020   Downloading python_pptx-1.0.2-py3-none-any.whl.metadata (2.5 kB)
+#11 3.274 Collecting Pillow==12.3.0 (from -r requirements.txt (line 11))
+#11 3.329   Downloading pillow-12.3.0-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl.metadata (9.1 kB)
+#11 3.359 Collecting defusedxml==0.7.1 (from -r requirements.txt (line 12))
+#11 3.392   Downloading defusedxml-0.7.1-py2.py3-none-any.whl.metadata (32 kB)
+#11 3.484 Collecting pytesseract==0.3.13 (from -r requirements.txt (line 13))
+#11 3.512   Downloading pytesseract-0.3.13-py3-none-any.whl.metadata (11 kB)
+#11 3.796 Collecting SQLAlchemy==2.0.54 (from -r requirements.txt (line 14))
+#11 3.832   Downloading sqlalchemy-2.0.54-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl.metadata (9.7 kB)
+#11 3.878 Collecting alembic==1.18.5 (from -r requirements.txt (line 15))
+#11 3.922   Downloading alembic-1.18.5-py3-none-any.whl.metadata (7.2 kB)
+#11 3.993 Collecting psycopg==3.3.6 (from psycopg[binary]==3.3.6->-r requirements.txt (line 16))
+#11 4.025   Downloading psycopg-3.3.6-py3-none-any.whl.metadata (4.4 kB)
+#11 4.120 Collecting redis==8.1.0 (from -r requirements.txt (line 17))
+#11 4.171   Downloading redis-8.1.0-py3-none-any.whl.metadata (16 kB)
+#11 4.237 Collecting prometheus-client==0.25.0 (from -r requirements.txt (line 18))
+#11 4.281   Downloading prometheus_client-0.25.0-py3-none-any.whl.metadata (2.1 kB)
+#11 4.433 Collecting psutil==7.2.2 (from -r requirements.txt (line 19))
+#11 4.501   Downloading psutil-7.2.2-cp36-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl.metadata (22 kB)
+#11 4.724 Collecting pydantic>=2.9.0 (from fastapi==0.141.1->-r requirements.txt (line 1))
+#11 4.788   Downloading pydantic-2.14.1-py3-none-any.whl.metadata (133 kB)
+#11 4.902 Collecting typing-extensions>=4.8.0 (from fastapi==0.141.1->-r requirements.txt (line 1))
+#11 4.982   Downloading typing_extensions-4.16.0-py3-none-any.whl.metadata (3.3 kB)
+#11 5.017 Collecting typing-inspection>=0.4.2 (from fastapi==0.141.1->-r requirements.txt (line 1))
+#11 5.061   Downloading typing_inspection-0.4.4-py3-none-any.whl.metadata (2.6 kB)
+#11 5.109 Collecting annotated-doc>=0.0.2 (from fastapi==0.141.1->-r requirements.txt (line 1))
+#11 5.136   Downloading annotated_doc-0.0.5-py3-none-any.whl.metadata (6.5 kB)
+#11 5.192 Collecting anyio<5,>=3.6.2 (from starlette==1.3.1->-r requirements.txt (line 2))
+#11 5.218   Downloading anyio-4.15.1-py3-none-any.whl.metadata (4.7 kB)
+#11 5.290 Collecting click>=7.0 (from uvicorn==0.35.0->uvicorn[standard]==0.35.0->-r requirements.txt (line 3))
+#11 5.329   Downloading click-8.5.0-py3-none-any.whl.metadata (2.6 kB)
+#11 5.378 Collecting h11>=0.8 (from uvicorn==0.35.0->uvicorn[standard]==0.35.0->-r requirements.txt (line 3))
+#11 5.419   Downloading h11-0.16.0-py3-none-any.whl.metadata (8.3 kB)
+#11 5.496 Collecting certifi (from httpx==0.28.1->-r requirements.txt (line 4))
+#11 5.526   Downloading certifi-2026.7.22-py3-none-any.whl.metadata (2.5 kB)
+#11 5.594 Collecting httpcore==1.* (from httpx==0.28.1->-r requirements.txt (line 4))
+#11 5.645   Downloading httpcore-1.0.9-py3-none-any.whl.metadata (21 kB)
+#11 5.699 Collecting idna (from httpx==0.28.1->-r requirements.txt (line 4))
+#11 5.735   Downloading idna-3.20-py3-none-any.whl.metadata (7.2 kB)
+#11 5.901 Collecting cffi>=2.0.0 (from cryptography==50.0.1->-r requirements.txt (line 6))
+#11 5.948   Downloading cffi-2.1.1-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.whl.metadata (2.5 kB)
+#11 6.212 Collecting lxml>=3.1.0 (from python-docx==1.2.0->-r requirements.txt (line 8))
+#11 6.272   Downloading lxml-6.1.3-cp312-cp312-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl.metadata (3.3 kB)
+#11 6.359 Collecting et-xmlfile (from openpyxl==3.1.5->-r requirements.txt (line 9))
+#11 6.411   Downloading et_xmlfile-2.0.0-py3-none-any.whl.metadata (2.7 kB)
+#11 6.490 Collecting XlsxWriter>=0.5.7 (from python-pptx==1.0.2->-r requirements.txt (line 10))
+#11 6.529   Downloading xlsxwriter-3.2.9-py3-none-any.whl.metadata (2.7 kB)
+#11 6.593 Collecting packaging>=21.3 (from pytesseract==0.3.13->-r requirements.txt (line 13))
+#11 6.621   Downloading packaging-26.3-py3-none-any.whl.metadata (3.5 kB)
+#11 6.794 Collecting greenlet>=1 (from SQLAlchemy==2.0.54->-r requirements.txt (line 14))
+#11 6.853   Downloading greenlet-3.5.6-cp312-cp312-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl.metadata (3.8 kB)
+#11 6.905 Collecting Mako (from alembic==1.18.5->-r requirements.txt (line 15))
+#11 6.935   Downloading mako-1.4.3-py3-none-any.whl.metadata (2.9 kB)
+#11 7.113 Collecting psycopg-binary==3.3.6 (from psycopg[binary]==3.3.6->-r requirements.txt (line 16))
+#11 7.156   Downloading psycopg_binary-3.3.6-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl.metadata (2.7 kB)
+#11 7.287 Collecting httptools>=0.6.3 (from uvicorn[standard]==0.35.0->-r requirements.txt (line 3))
+#11 7.320   Downloading httptools-0.9.0-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl.metadata (3.5 kB)
+#11 7.398 Collecting pyyaml>=5.1 (from uvicorn[standard]==0.35.0->-r requirements.txt (line 3))
+#11 7.427   Downloading pyyaml-6.0.3-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl.metadata (2.4 kB)
+#11 7.484 Collecting uvloop>=0.15.1 (from uvicorn[standard]==0.35.0->-r requirements.txt (line 3))
+#11 7.518   Downloading uvloop-0.23.0-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl.metadata (5.1 kB)
+#11 7.621 Collecting watchfiles>=0.13 (from uvicorn[standard]==0.35.0->-r requirements.txt (line 3))
+#11 7.655   Downloading watchfiles-1.3.0-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl.metadata (4.9 kB)
+#11 7.803 Collecting websockets>=10.4 (from uvicorn[standard]==0.35.0->-r requirements.txt (line 3))
+#11 7.830   Downloading websockets-17.2-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl.metadata (6.3 kB)
+#11 7.864 Collecting pycparser (from cffi>=2.0.0->cryptography==50.0.1->-r requirements.txt (line 6))
+#11 7.911   Downloading pycparser-3.11-py3-none-any.whl.metadata (8.2 kB)
+#11 7.949 Collecting annotated-types>=0.6.0 (from pydantic>=2.9.0->fastapi==0.141.1->-r requirements.txt (line 1))
+#11 7.986   Downloading annotated_types-0.8.0-py3-none-any.whl.metadata (15 kB)
+#11 8.876 Collecting pydantic-core==2.50.1 (from pydantic>=2.9.0->fastapi==0.141.1->-r requirements.txt (line 1))
+#11 8.939   Downloading pydantic_core-2.50.1-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl.metadata (6.5 kB)
+#11 9.049 Collecting MarkupSafe>=2.0 (from Mako->alembic==1.18.5->-r requirements.txt (line 15))
+#11 9.087   Downloading markupsafe-3.0.4-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl.metadata (2.7 kB)
+#11 9.187 Downloading fastapi-0.141.1-py3-none-any.whl (131 kB)
+#11 9.290 Downloading starlette-1.3.1-py3-none-any.whl (73 kB)
+#11 9.379 Downloading uvicorn-0.35.0-py3-none-any.whl (66 kB)
+#11 9.451 Downloading httpx-0.28.1-py3-none-any.whl (73 kB)
+#11 9.523 Downloading python_dotenv-1.2.3-py3-none-any.whl (22 kB)
+#11 9.574 Downloading cryptography-50.0.1-cp311-abi3-manylinux_2_34_aarch64.whl (4.7 MB)
+#11 11.22    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 4.7/4.7 MB 2.9 MB/s eta 0:00:00
+#11 11.27 Downloading pypdf-6.19.0-py3-none-any.whl (395 kB)
+#11 11.40 Downloading python_docx-1.2.0-py3-none-any.whl (252 kB)
+#11 11.52 Downloading openpyxl-3.1.5-py2.py3-none-any.whl (250 kB)
+#11 11.84 Downloading python_pptx-1.0.2-py3-none-any.whl (472 kB)
+#11 12.04 Downloading pillow-12.3.0-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl (6.3 MB)
+#11 13.42    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 6.3/6.3 MB 4.5 MB/s eta 0:00:00
+#11 13.46 Downloading defusedxml-0.7.1-py2.py3-none-any.whl (25 kB)
+#11 13.54 Downloading pytesseract-0.3.13-py3-none-any.whl (14 kB)
+#11 13.57 Downloading sqlalchemy-2.0.54-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl (3.4 MB)
+#11 14.30    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 3.4/3.4 MB 5.3 MB/s eta 0:00:00
+#11 14.36 Downloading alembic-1.18.5-py3-none-any.whl (264 kB)
+#11 14.46 Downloading psycopg-3.3.6-py3-none-any.whl (215 kB)
+#11 14.53 Downloading redis-8.1.0-py3-none-any.whl (560 kB)
+#11 14.62    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 560.6/560.6 kB 5.9 MB/s eta 0:00:00
+#11 14.65 Downloading prometheus_client-0.25.0-py3-none-any.whl (64 kB)
+#11 14.71 Downloading psutil-7.2.2-cp36-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl (156 kB)
+#11 14.80 Downloading httpcore-1.0.9-py3-none-any.whl (78 kB)
+#11 14.93 Downloading psycopg_binary-3.3.6-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl (6.8 MB)
+#11 16.35    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 6.8/6.8 MB 5.0 MB/s eta 0:00:00
+#11 16.41 Downloading annotated_doc-0.0.5-py3-none-any.whl (5.3 kB)
+#11 16.44 Downloading anyio-4.15.1-py3-none-any.whl (132 kB)
+#11 16.55 Downloading cffi-2.1.1-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.whl (222 kB)
+#11 16.61 Downloading click-8.5.0-py3-none-any.whl (125 kB)
+#11 16.96 Downloading greenlet-3.5.6-cp312-cp312-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl (611 kB)
+#11 17.14    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 611.7/611.7 kB 5.3 MB/s eta 0:00:00
+#11 17.18 Downloading h11-0.16.0-py3-none-any.whl (37 kB)
+#11 17.22 Downloading httptools-0.9.0-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl (549 kB)
+#11 17.30    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 549.2/549.2 kB 5.9 MB/s eta 0:00:00
+#11 17.36 Downloading idna-3.20-py3-none-any.whl (69 kB)
+#11 17.40 Downloading lxml-6.1.3-cp312-cp312-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl (5.0 MB)
+#11 18.29    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 5.0/5.0 MB 5.5 MB/s eta 0:00:00
+#11 18.33 Downloading packaging-26.3-py3-none-any.whl (129 kB)
+#11 18.39 Downloading pydantic-2.14.1-py3-none-any.whl (488 kB)
+#11 18.52 Downloading pydantic_core-2.50.1-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl (2.0 MB)
+#11 18.92    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.0/2.0 MB 5.0 MB/s eta 0:00:00
+#11 18.95 Downloading pyyaml-6.0.3-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl (775 kB)
+#11 19.10    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 775.1/775.1 kB 6.2 MB/s eta 0:00:00
+#11 19.14 Downloading typing_extensions-4.16.0-py3-none-any.whl (45 kB)
+#11 19.19 Downloading typing_inspection-0.4.4-py3-none-any.whl (14 kB)
+#11 19.23 Downloading uvloop-0.23.0-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl (4.4 MB)
+#11 20.31    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 4.4/4.4 MB 4.2 MB/s eta 0:00:00
+#11 20.37 Downloading watchfiles-1.3.0-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl (454 kB)
+#11 20.60 Downloading websockets-17.2-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl (226 kB)
+#11 21.31 Downloading xlsxwriter-3.2.9-py3-none-any.whl (175 kB)
+#11 21.42 Downloading certifi-2026.7.22-py3-none-any.whl (136 kB)
+#11 21.48 Downloading et_xmlfile-2.0.0-py3-none-any.whl (18 kB)
+#11 21.53 Downloading mako-1.4.3-py3-none-any.whl (80 kB)
+#11 21.58 Downloading annotated_types-0.8.0-py3-none-any.whl (13 kB)
+#11 21.63 Downloading markupsafe-3.0.4-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl (24 kB)
+#11 21.67 Downloading pycparser-3.11-py3-none-any.whl (51 kB)
+#11 21.79 Installing collected packages: XlsxWriter, websockets, uvloop, typing-extensions, redis, pyyaml, python-dotenv, pypdf, pycparser, psycopg-binary, psutil, prometheus-client, Pillow, packaging, MarkupSafe, lxml, idna, httptools, h11, greenlet, et-xmlfile, defusedxml, click, certifi, annotated-types, annotated-doc, uvicorn, typing-inspection, SQLAlchemy, python-pptx, python-docx, pytesseract, pydantic-core, psycopg, openpyxl, Mako, httpcore, cffi, anyio, watchfiles, starlette, pydantic, httpx, cryptography, alembic, fastapi
+#11 25.38 Successfully installed Mako-1.4.3 MarkupSafe-3.0.4 Pillow-12.3.0 SQLAlchemy-2.0.54 XlsxWriter-3.2.9 alembic-1.18.5 annotated-doc-0.0.5 annotated-types-0.8.0 anyio-4.15.1 certifi-2026.7.22 cffi-2.1.1 click-8.5.0 cryptography-50.0.1 defusedxml-0.7.1 et-xmlfile-2.0.0 fastapi-0.141.1 greenlet-3.5.6 h11-0.16.0 httpcore-1.0.9 httptools-0.9.0 httpx-0.28.1 idna-3.20 lxml-6.1.3 openpyxl-3.1.5 packaging-26.3 prometheus-client-0.25.0 psutil-7.2.2 psycopg-3.3.6 psycopg-binary-3.3.6 pycparser-3.11 pydantic-2.14.1 pydantic-core-2.50.1 pypdf-6.19.0 pytesseract-0.3.13 python-docx-1.2.0 python-dotenv-1.2.3 python-pptx-1.0.2 pyyaml-6.0.3 redis-8.1.0 starlette-1.3.1 typing-extensions-4.16.0 typing-inspection-0.4.4 uvicorn-0.35.0 uvloop-0.23.0 watchfiles-1.3.0 websockets-17.2
+#11 25.38 WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+#11 25.85 
+#11 25.85 [notice] A new release of pip is available: 25.0.1 -> 26.2.1
+#11 25.85 [notice] To update, run: pip install --upgrade pip
+#11 DONE 26.2s
+
+#12 [ 7/11] COPY app ./app
+#12 DONE 0.1s
+
+#13 [ 8/11] COPY scripts/migrate_sqlite_to_postgres.py ./scripts/migrate_sqlite_to_postgres.py
+#13 DONE 0.0s
+
+#14 [ 9/11] COPY migrations ./migrations
+#14 DONE 0.0s
+
+#15 [10/11] COPY alembic.ini ./alembic.ini
+#15 DONE 0.0s
+
+#16 [11/11] RUN mkdir -p /state && chown -R concierge:concierge /state
+#16 DONE 0.2s
+
+#17 exporting to image
+#17 exporting layers
+#17 exporting layers 4.7s done
+#17 exporting manifest sha256:7ce02cd7938af1d27403a94a15293479ded4e26e295ec358754ee535cf005455 done
+#17 exporting config sha256:606c81f1eb3a2e759307d1aae72f4730065f022430bea8df1e942baeb070e1a7 done
+#17 exporting attestation manifest sha256:739a5faae30d712b094fa6ffa183ee56384f2fc545794369b0d32902934eed78 done
+#17 exporting manifest list sha256:8f55559e6e6246a4316ee6dc942ad7c686ed8403df3077815c590c19e7df7d9b done
+#17 naming to docker.io/library/concierge-ai:phase6-local done
+#17 unpacking to docker.io/library/concierge-ai:phase6-local
+#17 unpacking to docker.io/library/concierge-ai:phase6-local 2.0s done
+#17 DONE 6.8s
+
+#18 resolving provenance for metadata file
+#18 DONE 0.0s
+ Image concierge-ai:phase6-local Built 
+ Container concierge-phase6-d2d09ba9-concierge-run-c8b8bc0c0a7a Creating 
+ Container concierge-phase6-d2d09ba9-concierge-run-c8b8bc0c0a7a Created 
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> 20260926_0001, Create the PostgreSQL baseline schema for Concierge.AI.
+INFO  [alembic.runtime.migration] Running upgrade 20260926_0001 -> 20260926_0002, Add indexes for high-volume tenant, request, conversation, and audit reads.
+INFO  [alembic.runtime.migration] Running upgrade 20260926_0002 -> 20260928_0001, Track one-time initialization of starter service catalogs.
+INFO  [alembic.runtime.migration] Running upgrade 20260928_0001 -> 20260928_0002, Add expiring, single-use Admin AI action proposals.
+INFO  [alembic.runtime.migration] Running upgrade 20260928_0002 -> 20260928_0003, Add hashed browser credentials for guest sessions.
+INFO  [alembic.runtime.migration] Running upgrade 20260928_0003 -> 20260928_0004, Ensure a browser credential pair can belong to only one guest session.
+INFO  [alembic.runtime.migration] Running upgrade 20260928_0004 -> 20260929_0005, Use timestamps instead of UUID ordering for knowledge conflicts and floor maps.
+INFO  [alembic.runtime.migration] Running upgrade 20260929_0005 -> 20260929_0006, Promote deployed PostgreSQL conflict timestamps to BIGINT.
+INFO  [alembic.runtime.migration] Running upgrade 20260929_0006 -> 20260930_0007, Remove the retired automatic starter service catalog seed state.
+INFO  [alembic.runtime.migration] Running upgrade 20260930_0007 -> 20261005_0001, Repair legacy property identity fields and complete the property schema.
+ Container concierge-phase6-d2d09ba9-concierge-run-6cc42531c3d8 Creating 
+ Container concierge-phase6-d2d09ba9-concierge-run-6cc42531c3d8 Created 
+ Image nginx:1.29-alpine@sha256:72ba65eb42c10344912a84ff42408db7d34f2feb642204570ab8fc5ffd29f1d3 Pulling 
+ badda8760139 Pulling fs layer 0B
+ accee44535cd Pulling fs layer 0B
+ 9592924c961c Pulling fs layer 0B
+ d6c1262595ab Pulling fs layer 0B
+ 1791812138bb Pulling fs layer 0B
+ 853498d24c3c Pulling fs layer 0B
+ 2123acec2175 Pulling fs layer 0B
+ d6c1262595ab Download complete 0B
+ badda8760139 Downloading 1.049MB
+ 9592924c961c Download complete 0B
+ badda8760139 Downloading 1.049MB
+ badda8760139 Downloading 1.049MB
+ badda8760139 Downloading 2.097MB
+ 853498d24c3c Download complete 0B
+ badda8760139 Downloading 2.097MB
+ badda8760139 Downloading 2.097MB
+ badda8760139 Downloading 3.146MB
+ badda8760139 Downloading 3.146MB
+ badda8760139 Downloading 3.146MB
+ accee44535cd Downloading 1.049MB
+ 2123acec2175 Download complete 0B
+ badda8760139 Downloading 3.146MB
+ accee44535cd Downloading 1.049MB
+ badda8760139 Downloading 4.194MB
+ accee44535cd Downloading 1.049MB
+ badda8760139 Downloading 4.194MB
+ accee44535cd Downloading 1.049MB
+ 1791812138bb Download complete 0B
+ badda8760139 Downloading 4.194MB
+ accee44535cd Downloading 1.049MB
+ badda8760139 Downloading 5.243MB
+ accee44535cd Downloading 1.049MB
+ badda8760139 Downloading 5.243MB
+ accee44535cd Downloading 1.049MB
+ accee44535cd Downloading 1.049MB
+ badda8760139 Downloading 5.243MB
+ accee44535cd Downloading 1.049MB
+ badda8760139 Downloading 5.243MB
+ badda8760139 Downloading 6.291MB
+ accee44535cd Downloading 1.049MB
+ badda8760139 Downloading 6.291MB
+ accee44535cd Downloading 2.097MB
+ badda8760139 Downloading 6.291MB
+ accee44535cd Downloading 2.097MB
+ badda8760139 Downloading 6.291MB
+ accee44535cd Downloading 2.097MB
+ badda8760139 Downloading 7.34MB
+ accee44535cd Downloading 2.097MB
+ badda8760139 Downloading 7.34MB
+ accee44535cd Downloading 2.097MB
+ accee44535cd Downloading 2.097MB
+ badda8760139 Downloading 7.34MB
+ badda8760139 Downloading 7.34MB
+ accee44535cd Downloading 2.097MB
+ badda8760139 Downloading 8.389MB
+ accee44535cd Downloading 2.097MB
+ badda8760139 Downloading 8.389MB
+ accee44535cd Downloading 2.097MB
+ badda8760139 Downloading 8.389MB
+ accee44535cd Downloading 2.097MB
+ badda8760139 Downloading 8.389MB
+ accee44535cd Downloading 3.146MB
+ badda8760139 Downloading 9.437MB
+ accee44535cd Downloading 3.146MB
+ badda8760139 Downloading 9.437MB
+ accee44535cd Downloading 3.146MB
+ badda8760139 Downloading 9.437MB
+ accee44535cd Downloading 3.146MB
+ badda8760139 Downloading 10.49MB
+ accee44535cd Downloading 3.146MB
+ badda8760139 Downloading 10.49MB
+ accee44535cd Downloading 3.146MB
+ badda8760139 Downloading 10.49MB
+ accee44535cd Downloading 3.146MB
+ badda8760139 Downloading 10.49MB
+ accee44535cd Downloading 3.146MB
+ badda8760139 Downloading 11.53MB
+ accee44535cd Downloading 4.194MB
+ badda8760139 Downloading 11.53MB
+ accee44535cd Downloading 4.194MB
+ badda8760139 Downloading 11.53MB
+ accee44535cd Downloading 4.194MB
+ badda8760139 Downloading 11.53MB
+ accee44535cd Downloading 4.194MB
+ badda8760139 Downloading 11.53MB
+ accee44535cd Downloading 4.194MB
+ badda8760139 Downloading 12.58MB
+ accee44535cd Download complete 0B
+ accee44535cd Extracting 1B
+ badda8760139 Downloading 12.58MB
+ accee44535cd Extracting 1B
+ badda8760139 Downloading 13.63MB
+ accee44535cd Pull complete 0B
+ badda8760139 Downloading 13.63MB
+ d6c1262595ab Pull complete 0B
+ 9592924c961c Pull complete 0B
+ 853498d24c3c Pull complete 0B
+ 2123acec2175 Pull complete 0B
+ 1791812138bb Pull complete 0B
+ badda8760139 Downloading 13.63MB
+ badda8760139 Downloading 14.68MB
+ badda8760139 Downloading 14.68MB
+ a855f9d558c0 Download complete 0B
+ badda8760139 Downloading 14.68MB
+ badda8760139 Downloading 15.73MB
+ badda8760139 Downloading 15.73MB
+ badda8760139 Downloading 15.73MB
+ badda8760139 Downloading 15.73MB
+ badda8760139 Downloading 16.78MB
+ badda8760139 Downloading 16.78MB
+ badda8760139 Downloading 17.83MB
+ badda8760139 Downloading 17.83MB
+ badda8760139 Downloading 17.83MB
+ badda8760139 Downloading 17.83MB
+ c4f99b055a72 Download complete 0B
+ badda8760139 Downloading 18.87MB
+ badda8760139 Downloading 18.87MB
+ badda8760139 Downloading 19.92MB
+ badda8760139 Download complete 0B
+ badda8760139 Extracting 1B
+ badda8760139 Extracting 1B
+ badda8760139 Pull complete 0B
+ Image nginx:1.29-alpine@sha256:72ba65eb42c10344912a84ff42408db7d34f2feb642204570ab8fc5ffd29f1d3 Pulled 
+ Container concierge-phase6-d2d09ba9-postgres-1 Running 
+ Container concierge-phase6-d2d09ba9-redis-1 Running 
+ Container concierge-phase6-d2d09ba9-concierge-1 Creating 
+ Container concierge-phase6-d2d09ba9-concierge-1 Created 
+ Container concierge-phase6-d2d09ba9-proxy-1 Creating 
+ Container concierge-phase6-d2d09ba9-proxy-1 Created 
+ Container concierge-phase6-d2d09ba9-postgres-1 Waiting 
+ Container concierge-phase6-d2d09ba9-redis-1 Waiting 
+ Container concierge-phase6-d2d09ba9-redis-1 Healthy 
+ Container concierge-phase6-d2d09ba9-postgres-1 Healthy 
+ Container concierge-phase6-d2d09ba9-concierge-1 Starting 
+ Container concierge-phase6-d2d09ba9-concierge-1 Started 
+ Container concierge-phase6-d2d09ba9-proxy-1 Starting 
+Error response from daemon: failed to set up container networking: Address already in use

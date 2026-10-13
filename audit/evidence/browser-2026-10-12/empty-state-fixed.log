@@ -1,0 +1,25 @@
+[WebServer] INFO:     Started server process [2127]
+[WebServer] INFO:     Waiting for application startup.
+[WebServer] INFO:     Application startup complete.
+[WebServer] INFO:     Uvicorn running on http://127.0.0.1:8092 (Press CTRL+C to quit)
+
+Running 8 tests using 1 worker
+
+(node:2148) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [chromium] › tests/e2e/guest.spec.js:174:1 › guest: empty property home hides empty sections and unsupported routes (694ms)
+  ✓  2 [chromium] › tests/e2e/guest.spec.js:260:1 › guest: property branding and home prompts use the published property design (525ms)
+  ✓  3 [chromium] › tests/e2e/guest.spec.js:343:1 › guest: home shows four configured actions first, then real supported routes in See all (429ms)
+  ✓  4 [chromium] › tests/e2e/guest.spec.js:560:1 › guest: responsive shell keeps the concierge composer attached without horizontal overflow (2.3s)
+(node:2201) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  5 [mobile-chrome] › tests/e2e/guest.spec.js:174:1 › guest: empty property home hides empty sections and unsupported routes (454ms)
+  ✓  6 [mobile-chrome] › tests/e2e/guest.spec.js:260:1 › guest: property branding and home prompts use the published property design (690ms)
+  ✓  7 [mobile-chrome] › tests/e2e/guest.spec.js:343:1 › guest: home shows four configured actions first, then real supported routes in See all (615ms)
+  ✓  8 [mobile-chrome] › tests/e2e/guest.spec.js:560:1 › guest: responsive shell keeps the concierge composer attached without horizontal overflow (3.0s)
+[WebServer] INFO:     Shutting down
+[WebServer] INFO:     Waiting for application shutdown.
+[WebServer] INFO:     Application shutdown complete.
+[WebServer] INFO:     Finished server process [2127]
+
+  8 passed (10.9s)

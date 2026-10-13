@@ -1,0 +1,48 @@
+FF                                                                       [100%]------------------ Persistent SQLite safety check: unchanged -------------------
+/Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/state/concierge.db: (8544256, 1791281898673543275, 'a682599b6e28da3051909d14d0018bf8825e80d663607ae579af35347f980e78')
+/Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/state/concierge.db-journal: None
+/Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/state/concierge.db-shm: None
+/Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/state/concierge.db-wal: None
+
+=================================== FAILURES ===================================
+___________ test_recovery_bootstrap_identity_matches_its_admin_login ___________
+
+captured_recovery_environments = ({'BROWSER_USE_ACCESS_VERIFYING_IDENTITY': 'MCowBQYDK2VwAyEAjB3ojuqa5h3qJO1aWdtvb9iauDMIdwk77mN35A0A2Ys=', 'CODEX_APP_...', 'CODEX_CLI_PATH': '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex', ...}])
+
+    def test_recovery_bootstrap_identity_matches_its_admin_login(captured_recovery_environments):
+        runtime, integration, _ = captured_recovery_environments
+>       assert runtime.get("ADMIN_BOOTSTRAP_USERNAME") == "admin"
+E       AssertionError: assert None == 'admin'
+E        +  where None = <built-in method get of dict object at 0x10ca1e640>('ADMIN_BOOTSTRAP_USERNAME')
+E        +    where <built-in method get of dict object at 0x10ca1e640> = {'BROWSER_USE_ACCESS_VERIFYING_IDENTITY': 'MCowBQYDK2VwAyEAjB3ojuqa5h3qJO1aWdtvb9iauDMIdwk77mN35A0A2Ys=', 'CODEX_APP_T...'1', 'CODEX_CLI_PATH': '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex', ...}.get
+
+tests/test_failure_recovery_harness.py:43: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"status": "passed", "phases": ["postgresql_redis_repository_integration_tests", "initial_service_start_and_property_write", "application_process_restart", "postgresql_interruption_returns_unready_but_live", "postgresql_reconnect_and_data_integrity", "redis_interruption_returns_unready_but_live", "redis_reconnect_and_data_integrity"], "postgres_redis_tests": "8 passed"}
+___ test_pytest_bootstrap_and_rate_limits_are_isolated_from_recovery_runtime ___
+
+captured_recovery_environments = ({'BROWSER_USE_ACCESS_VERIFYING_IDENTITY': 'MCowBQYDK2VwAyEAjB3ojuqa5h3qJO1aWdtvb9iauDMIdwk77mN35A0A2Ys=', 'CODEX_APP_...', 'CODEX_CLI_PATH': '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex', ...}])
+
+    def test_pytest_bootstrap_and_rate_limits_are_isolated_from_recovery_runtime(captured_recovery_environments):
+        runtime, integration, migrations = captured_recovery_environments
+>       assert integration["DATABASE_URL"] != runtime["DATABASE_URL"], "Pytest changes its bootstrap password and must never seed the live recovery database"
+E       AssertionError: Pytest changes its bootstrap password and must never seed the live recovery database
+E       assert 'postgresql+psycopg://concierge@127.0.0.1:55001/concierge' != 'postgresql+psycopg://concierge@127.0.0.1:55001/concierge'
+
+tests/test_failure_recovery_harness.py:49: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"status": "passed", "phases": ["postgresql_redis_repository_integration_tests", "initial_service_start_and_property_write", "application_process_restart", "postgresql_interruption_returns_unready_but_live", "postgresql_reconnect_and_data_integrity", "redis_interruption_returns_unready_but_live", "redis_reconnect_and_data_integrity"], "postgres_redis_tests": "8 passed"}
+=============================== warnings summary ===============================
+.venv/lib/python3.11/site-packages/fastapi/testclient.py:1
+  /Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/.venv/lib/python3.11/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+.venv/lib/python3.11/site-packages/starlette/testclient.py:53
+  /Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/.venv/lib/python3.11/site-packages/starlette/testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_failure_recovery_harness.py::test_recovery_bootstrap_identity_matches_its_admin_login
+FAILED tests/test_failure_recovery_harness.py::test_pytest_bootstrap_and_rate_limits_are_isolated_from_recovery_runtime
+2 failed, 2 warnings in 0.08s

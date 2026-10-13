@@ -1,0 +1,49 @@
+
+Running 1 test using 1 worker
+
+(node:89326) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 tests/e2e/guest-privacy.spec.js:3:1 › guest privacy explains staff access and retained conversations truthfully (5.8s)
+
+
+  1) tests/e2e/guest-privacy.spec.js:3:1 › guest privacy explains staff access and retained conversations truthfully 
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: locator('#message-list')
+    Expected substring: "Authorized hotel staff can review conversation history"
+    Received string:    "ConciergeYour messages are processed by this property's configured AI service and aren't shown to hotel staff. Chat context stays in this open session and expires after inactivity. Confirmed service requests are shared with the hotel team. Personalization is optional; you can review or clear saved preferences in Personalization / Memory."
+    Timeout: 5000ms
+
+    Call log:
+      - Expect "toContainText" locator('#message-list') with timeout 5000ms
+      - waiting for locator('#message-list')
+        14 × locator resolved to <section id="message-list" aria-live="polite" class="message-list" aria-label="Messages">…</section>
+           - unexpected value "ConciergeYour messages are processed by this property's configured AI service and aren't shown to hotel staff. Chat context stays in this open session and expires after inactivity. Confirmed service requests are shared with the hotel team. Personalization is optional; you can review or clear saved preferences in Personalization / Memory."
+
+
+      10 |   await page.locator('[data-menu-action="privacy"]').click();
+      11 |   const messages = page.locator("#message-list");
+    > 12 |   await expect(messages).toContainText("Authorized hotel staff can review conversation history");
+         |                          ^
+      13 |   await expect(messages).toContainText("closing this page does not delete them");
+      14 |   await expect(messages).not.toContainText("aren't shown to hotel staff");
+      15 |   await expect(messages).not.toContainText("Chat context stays in this open session");
+        at /Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/tests/e2e/guest-privacy.spec.js:12:26
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    audit/evidence/browser-2026-10-12/privacy-before/guest-privacy-guest-privac-da21b-ed-conversations-truthfully/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: audit/evidence/browser-2026-10-12/privacy-before/guest-privacy-guest-privac-da21b-ed-conversations-truthfully/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    audit/evidence/browser-2026-10-12/privacy-before/guest-privacy-guest-privac-da21b-ed-conversations-truthfully/trace.zip
+    Usage:
+
+        npx playwright show-trace audit/evidence/browser-2026-10-12/privacy-before/guest-privacy-guest-privac-da21b-ed-conversations-truthfully/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    tests/e2e/guest-privacy.spec.js:3:1 › guest privacy explains staff access and retained conversations truthfully 

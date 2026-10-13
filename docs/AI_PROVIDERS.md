@@ -21,10 +21,12 @@ Guests do not choose providers. Guest chat resolves the provider from the sessio
 
 | Provider | Current auth in Concierge.Ai | Notes |
 | --- | --- | --- |
-| Google Gemini | API key now; OAuth-ready credential architecture | Gemini has official OAuth documentation for approved workflows. Use OAuth only through Google’s documented consent and token flow. |
+| Google Gemini | API key | No working OAuth consent/token flow is implemented in Concierge.Ai. |
 | Groq | API key | Stored server-side and sent only from backend requests. |
 | OpenAI | API key | OpenAI API usage is separate from ChatGPT Plus/Pro consumer login. |
 | Anthropic Claude | API key | Uses Anthropic’s documented Messages API authentication. |
+| OpenRouter | API key | OpenAI-compatible adapter; live acceptance requires a configured test account. |
+| Private OpenAI-compatible | Configured endpoint credential | Operator-approved endpoint; no dedicated Azure Foundry adapter is claimed. |
 | GitHub Copilot | Unavailable placeholder | Requires eligible official GitHub Copilot SDK/API integration and licensing. No unofficial implementation is provided. |
 | Local AI | No cloud key | Supports Ollama now, with structure for LM Studio/OpenAI-compatible local endpoints. |
 
@@ -58,7 +60,7 @@ Session property
   -> provider adapter
 ```
 
-The existing hotel knowledge retrieval remains before model execution, so provider switching does not bypass RAG/context grounding.
+Hotel knowledge retrieval remains before model execution. Current document retrieval is lexical/keyword based; it is not semantic/vector RAG. Provider switching does not bypass configured hotel context.
 
 ## Local AI and Docker
 
@@ -112,7 +114,11 @@ Each AI call records provider, model, latency, success/failure, and token counts
 
 ## Current Limits
 
-- OAuth button flows are not fully implemented yet; the data model and credential types are ready for official Gemini/GitHub OAuth flows.
-- Streaming is represented in the provider protocol, but the guest endpoint still returns non-streamed JSON.
-- Automatic failover schema exists through settings/fallback fields, but the MVP routing mode is `fixed`.
-- RBAC and CSRF protection depend on a future admin authentication system; current endpoints are under `/api/admin` but this local MVP has no login layer yet.
+- OAuth connections are not implemented. Cloud adapters currently require supported API credentials. Metadata does not establish a working consent/token flow.
+- The Intelligent Guest UI supports the guest SSE endpoint and provider streaming/fallback. Hotel TLS proxy acceptance remains required.
+- Fixed, automatic, and hybrid routing plus enabled-provider fallback, timeout/retry, circuit breakers and bulkheads exist. Local tests use deterministic adapters; live quality and throughput remain unverified for this candidate.
+- Admin login, server-side role/property authorization, CSRF protection and revocation are implemented and locally tested. The 2026-10-12 audit repairs a legacy dashboard projection; deployment acceptance remains separate.
+- Usage and tokens are recorded, but dollar-cost estimation is explicitly unavailable. Request/token limits do not establish currency budgets.
+- OpenRouter and approved private OpenAI-compatible endpoints have adapters. Copilot is an unavailable placeholder; no working Microsoft Copilot/Azure Foundry adapter or consumer-subscription authentication is claimed.
+
+See [the master acceptance matrix](../audit/MASTER_FEATURE_ACCEPTANCE_MATRIX.md) for implementation versus verified acceptance as of 2026-10-12.

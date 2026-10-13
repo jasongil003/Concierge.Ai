@@ -1,0 +1,18 @@
+{
+  "scope": "loopback HTTP shell/health only; synthetic SQLite; one Uvicorn worker; no AI, guest sessions, proxy, or capacity certification",
+  "stages": [
+    {
+      "workers": 1,
+      "requests": 100,
+      "failures": 50,
+      "duration_seconds": 0.232,
+      "requests_per_second": 431.52,
+      "p50_ms": 2.056,
+      "p95_ms": 5.408,
+      "p99_ms": 6.719,
+      "server_rss_mib": 114.59,
+      "server_cpu_seconds": 0.185
+    }
+  ],
+  "health_after_restart": "PASS"
+}

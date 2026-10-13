@@ -1,0 +1,46 @@
+
+Running 1 test using 1 worker
+
+(node:91262) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 tests/e2e/guest-scrollbar.spec.js:3:1 › guest home and concierge retain aligned content with classic scrollbars (552ms)
+
+
+  1) tests/e2e/guest-scrollbar.spec.js:3:1 › guest home and concierge retain aligned content with classic scrollbars 
+
+    Error: home/chat content width at 320px
+
+    expect(received).toBeCloseTo(expected, precision)
+
+    Expected: 288
+    Received: 273
+
+    Expected precision:    0
+    Expected difference: < 0.5
+    Received difference:   15
+
+      20 |     const card = await page.locator("#concierge-card").boundingBox();
+      21 |     expect(hero.x, `home/chat left edge at ${width}px`).toBeCloseTo(card.x, 0);
+    > 22 |     expect(hero.width, `home/chat content width at ${width}px`).toBeCloseTo(card.width, 0);
+         |                                                                 ^
+      23 |   }
+      24 | });
+      25 |
+        at /Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/tests/e2e/guest-scrollbar.spec.js:22:65
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    audit/evidence/browser-2026-10-12/scrollbar-before-csp-safe/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: audit/evidence/browser-2026-10-12/scrollbar-before-csp-safe/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    audit/evidence/browser-2026-10-12/scrollbar-before-csp-safe/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars/trace.zip
+    Usage:
+
+        npx playwright show-trace audit/evidence/browser-2026-10-12/scrollbar-before-csp-safe/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    tests/e2e/guest-scrollbar.spec.js:3:1 › guest home and concierge retain aligned content with classic scrollbars 

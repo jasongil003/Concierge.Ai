@@ -1,0 +1,12 @@
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> 20260926_0001, Create the PostgreSQL baseline schema for Concierge.AI.
+INFO  [alembic.runtime.migration] Running upgrade 20260926_0001 -> 20260926_0002, Add indexes for high-volume tenant, request, conversation, and audit reads.
+INFO  [alembic.runtime.migration] Running upgrade 20260926_0002 -> 20260928_0001, Track one-time initialization of starter service catalogs.
+INFO  [alembic.runtime.migration] Running upgrade 20260928_0001 -> 20260928_0002, Add expiring, single-use Admin AI action proposals.
+INFO  [alembic.runtime.migration] Running upgrade 20260928_0002 -> 20260928_0003, Add hashed browser credentials for guest sessions.
+INFO  [alembic.runtime.migration] Running upgrade 20260928_0003 -> 20260928_0004, Ensure a browser credential pair can belong to only one guest session.
+INFO  [alembic.runtime.migration] Running upgrade 20260928_0004 -> 20260929_0005, Use timestamps instead of UUID ordering for knowledge conflicts and floor maps.
+INFO  [alembic.runtime.migration] Running upgrade 20260929_0005 -> 20260929_0006, Promote deployed PostgreSQL conflict timestamps to BIGINT.
+INFO  [alembic.runtime.migration] Running upgrade 20260929_0006 -> 20260930_0007, Remove the retired automatic starter service catalog seed state.
+INFO  [alembic.runtime.migration] Running upgrade 20260930_0007 -> 20261005_0001, Repair legacy property identity fields and complete the property schema.

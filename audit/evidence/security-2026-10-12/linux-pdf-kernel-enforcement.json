@@ -1,0 +1,11 @@
+{
+  "status": "passed",
+  "container": "concierge-phase6-d2d09ba9-concierge-1",
+  "platform": "linux",
+  "python": "3.12.14",
+  "uid": 10001,
+  "requested_allocation_bytes": 805306368,
+  "soft_bytes": 402653184,
+  "hard_bytes": 402653184,
+  "allocation_blocked": true
+}

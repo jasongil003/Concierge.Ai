@@ -1,0 +1,34 @@
+[
+  {
+    "name": "concierge-master-audit-tests-d2d09ba9",
+    "result": "removed stopped audit runner"
+  },
+  {
+    "name": "concierge-master-audit-pg-d2d09ba9",
+    "result": "removed stopped audit runner"
+  },
+  {
+    "name": "concierge-master-audit-redis-d2d09ba9",
+    "result": "removed stopped audit runner"
+  },
+  {
+    "name": "concierge-master-audit-pg-fresh-d2d09ba9",
+    "result": "removed stopped audit runner"
+  },
+  {
+    "name": "concierge-master-audit-pg-migrated-d2d09ba9",
+    "result": "removed stopped audit runner"
+  },
+  {
+    "name": "concierge-master-audit-backup-diagnostic-d2d09ba9",
+    "result": "removed stopped audit runner"
+  },
+  {
+    "name": "concierge-master-audit-pg16-final-d2d09ba9",
+    "result": "removed stopped audit runner"
+  },
+  {
+    "name": "concierge-master-audit-pg-approval-d2d09ba9",
+    "result": "removed stopped audit runner"
+  }
+]

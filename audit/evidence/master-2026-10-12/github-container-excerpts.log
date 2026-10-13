@@ -1,0 +1,16 @@
+2026-10-12T12:16:39.4314903Z ##[end-action id=__aquasecurity_trivy-action.__aquasecurity_setup-trivy.binary-dir;outcome=success;conclusion=success;duration_ms=18]
+2026-10-12T12:16:40.2636737Z ##[end-action id=__aquasecurity_trivy-action.__aquasecurity_setup-trivy.cache;outcome=success;conclusion=success;duration_ms=830]
+2026-10-12T12:16:40.2828066Z ##[end-action id=__aquasecurity_trivy-action.__aquasecurity_setup-trivy.__run_3;outcome=success;conclusion=success;duration_ms=17]
+2026-10-12T12:16:40.2850317Z ##[end-action id=__aquasecurity_trivy-action.__aquasecurity_setup-trivy;outcome=success;conclusion=success;duration_ms=886]
+2026-10-12T12:16:40.3057334Z ##[end-action id=__aquasecurity_trivy-action.date;outcome=success;conclusion=success;duration_ms=20]
+2026-10-12T12:16:43.2076698Z ##[end-action id=__aquasecurity_trivy-action.__actions_cache;outcome=success;conclusion=success;duration_ms=2901]
+2026-10-12T12:16:43.2251502Z ##[end-action id=__aquasecurity_trivy-action.__run;outcome=success;conclusion=success;duration_ms=17]
+2026-10-12T12:16:43.2549355Z ##[end-action id=__aquasecurity_trivy-action.__run_2;outcome=success;conclusion=success;duration_ms=29]
+2026-10-12T12:16:43.3492698Z ##[end-action id=__aquasecurity_trivy-action.__run_3;outcome=success;conclusion=success;duration_ms=93]
+2026-10-12T12:16:43.5332442Z Running Trivy with options: trivy image concierge-ai:ci
+2026-10-12T12:16:47.0948409Z ##[end-action id=__aquasecurity_trivy-action.__run_4;outcome=success;conclusion=success;duration_ms=3745]
+2026-10-12T12:16:47.1133535Z ##[end-action id=__aquasecurity_trivy-action.__run_5;outcome=success;conclusion=success;duration_ms=18]
+2026-10-12T12:16:55.5997423Z Artifact concierge-ai-production-sbom.spdx.json successfully finalized. Artifact ID 11746009245
+2026-10-12T12:16:56.3974452Z Artifact concierge-ai-production-sbom successfully finalized. Artifact ID 11746429232
+2026-10-12T12:17:20.2089388Z ##[end-action id=__b5c3a2c1-1502-41ba-bccb-a29de5feccbc.__actions_cache;outcome=success;conclusion=success;duration_ms=151]
+2026-10-12T12:17:20.2180810Z ##[end-action id=__b5c3a2c1-1502-41ba-bccb-a29de5feccbc.__aquasecurity_setup-trivy;outcome=success;conclusion=success;duration_ms=8]

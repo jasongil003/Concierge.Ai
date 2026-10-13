@@ -1,0 +1,87 @@
+2026-10-12T12:29:16.2746378Z   ✓  310 [mobile-chrome] › tests/e2e/xss-guard.spec.js:22:1 › guest-supplied service request text is rendered as inert text (stored XSS guard) (2.1s)
+2026-10-12T12:29:16.3577644Z [WebServer] INFO:     Shutting down
+2026-10-12T12:29:16.4580535Z [WebServer] INFO:     Waiting for application shutdown.
+2026-10-12T12:29:16.4580998Z [WebServer] INFO:     Application shutdown complete.
+2026-10-12T12:29:16.4581352Z [WebServer] INFO:     Finished server process [2952]
+2026-10-12T12:29:16.4633890Z 
+2026-10-12T12:29:16.4639071Z 
+2026-10-12T12:29:16.4647747Z   1) [chromium] › tests/e2e/guest.spec.js:554:1 › guest: responsive shell keeps the concierge composer attached without horizontal overflow 
+2026-10-12T12:29:16.4648220Z 
+2026-10-12T12:29:16.4648473Z     Error: expect(received).toBeCloseTo(expected, precision)
+2026-10-12T12:29:16.4648823Z 
+2026-10-12T12:29:16.4648939Z     Expected: 206
+2026-10-12T12:29:16.4649209Z     Received: 198.5
+2026-10-12T12:29:16.4649382Z 
+2026-10-12T12:29:16.4649516Z     Expected precision:    0
+2026-10-12T12:29:16.4649761Z     Expected difference: < 0.5
+2026-10-12T12:29:16.4649989Z     Received difference:   7.5
+2026-10-12T12:29:16.4650120Z 
+2026-10-12T12:29:16.4650193Z       646 |     });
+2026-10-12T12:29:16.4650706Z       647 |     expect(chat.documentWidth).toBeLessThanOrEqual(chat.viewport + 1);
+2026-10-12T12:29:16.4651318Z     > 648 |     expect(home.hero.x).toBeCloseTo(chat.card.x, 0);
+2026-10-12T12:29:16.4651627Z           |                         ^
+2026-10-12T12:29:16.4651967Z       649 |     expect(chat.card.x).toBeGreaterThanOrEqual(chat.shell.x - 1);
+2026-10-12T12:29:16.4652428Z       650 |     expect(chat.card.right).toBeLessThanOrEqual(chat.shell.right + 1);
+2026-10-12T12:29:16.4652838Z       651 |     expect(chat.composerParent).toBe("concierge-card");
+2026-10-12T12:29:16.4653268Z         at /home/runner/work/Concierge.Ai/Concierge.Ai/tests/e2e/guest.spec.js:648:25
+2026-10-12T12:29:16.4653532Z 
+2026-10-12T12:29:16.4653896Z     attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-10-12T12:29:16.4654518Z     test-results/guest-guest-responsive-she-92ec7-without-horizontal-overflow-chromium/test-failed-1.png
+2026-10-12T12:29:16.4655328Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-10-12T12:29:16.4655592Z 
+2026-10-12T12:29:16.4655907Z     attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+2026-10-12T12:29:16.4656498Z     test-results/guest-guest-responsive-she-92ec7-without-horizontal-overflow-chromium/video.webm
+2026-10-12T12:29:16.4657124Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-10-12T12:29:16.4657357Z 
+2026-10-12T12:29:16.4657738Z     Error Context: test-results/guest-guest-responsive-she-92ec7-without-horizontal-overflow-chromium/error-context.md
+2026-10-12T12:29:16.4658314Z 
+2026-10-12T12:29:16.4658807Z   2) [mobile-chrome] › tests/e2e/guest.spec.js:554:1 › guest: responsive shell keeps the concierge composer attached without horizontal overflow 
+2026-10-12T12:29:16.4659211Z 
+2026-10-12T12:29:16.4659567Z     Error: page.evaluate: TypeError: Failed to execute 'getComputedStyle' on 'Window': parameter 1 is not of type 'Element'.
+2026-10-12T12:29:16.4660074Z         at eval (eval at evaluate (:311:30), <anonymous>:28:29)
+2026-10-12T12:29:16.4660405Z         at UtilityScript.evaluate (<anonymous>:313:16)
+2026-10-12T12:29:16.4660725Z         at UtilityScript.<anonymous> (<anonymous>:1:44)
+2026-10-12T12:29:16.4661166Z         at eval (eval at evaluate (:311:30), <anonymous>:28:29)
+2026-10-12T12:29:16.4661481Z         at UtilityScript.evaluate (<anonymous>:313:16)
+2026-10-12T12:29:16.4661782Z         at UtilityScript.<anonymous> (<anonymous>:1:44)
+2026-10-12T12:29:16.4662160Z         at /home/runner/work/Concierge.Ai/Concierge.Ai/tests/e2e/guest.spec.js:571:29
+2026-10-12T12:29:16.4662427Z 
+2026-10-12T12:29:16.4662759Z     attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+2026-10-12T12:29:16.4663388Z     test-results/guest-guest-responsive-she-92ec7-without-horizontal-overflow-mobile-chrome/test-failed-1.png
+2026-10-12T12:29:16.4664081Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-10-12T12:29:16.4664315Z 
+2026-10-12T12:29:16.4664614Z     attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+2026-10-12T12:29:16.4665483Z     test-results/guest-guest-responsive-she-92ec7-without-horizontal-overflow-mobile-chrome/video.webm
+2026-10-12T12:29:16.4666140Z     ────────────────────────────────────────────────────────────────────────────────────────────────
+2026-10-12T12:29:16.4666371Z 
+2026-10-12T12:29:16.4666775Z     Error Context: test-results/guest-guest-responsive-she-92ec7-without-horizontal-overflow-mobile-chrome/error-context.md
+2026-10-12T12:29:16.4667207Z 
+2026-10-12T12:29:16.4667286Z   2 failed
+2026-10-12T12:29:16.4667835Z     [chromium] › tests/e2e/guest.spec.js:554:1 › guest: responsive shell keeps the concierge composer attached without horizontal overflow 
+2026-10-12T12:29:16.4668678Z     [mobile-chrome] › tests/e2e/guest.spec.js:554:1 › guest: responsive shell keeps the concierge composer attached without horizontal overflow 
+2026-10-12T12:29:16.4669142Z   35 skipped
+2026-10-12T12:29:16.4669323Z   273 passed (12.0m)
+2026-10-12T12:29:16.8411531Z ##[error]Process completed with exit code 1.
+2026-10-12T12:29:16.8471399Z ##[group]Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+2026-10-12T12:29:16.8471735Z with:
+2026-10-12T12:29:16.8471921Z   name: playwright-report
+2026-10-12T12:29:16.8472148Z   path: playwright-report/
+2026-10-12T12:29:16.8472389Z   if-no-files-found: ignore
+2026-10-12T12:29:16.8472587Z   retention-days: 7
+2026-10-12T12:29:16.8472922Z   compression-level: 6
+2026-10-12T12:29:16.8473109Z   overwrite: false
+2026-10-12T12:29:16.8473290Z   include-hidden-files: false
+2026-10-12T12:29:16.8473487Z   archive: true
+2026-10-12T12:29:16.8473658Z env:
+2026-10-12T12:29:16.8473874Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-12T12:29:16.8474235Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib/pkgconfig
+2026-10-12T12:29:16.8474570Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-12T12:29:16.8475083Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-12T12:29:16.8475425Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.15/x64
+2026-10-12T12:29:16.8475730Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.15/x64/lib
+2026-10-12T12:29:16.8475990Z ##[endgroup]
+2026-10-12T12:29:16.9696988Z Multiple search paths detected. Calculating the least common ancestor of all paths
+2026-10-12T12:29:16.9698689Z The least common ancestor is /home/runner/work/Concierge.Ai/Concierge.Ai. This will be the root directory of the artifact
+2026-10-12T12:29:16.9699728Z With the provided path, there will be 41 files uploaded
+2026-10-12T12:29:16.9702448Z Artifact name is valid!
+2026-10-12T12:29:16.9702955Z Root directory input is valid!
