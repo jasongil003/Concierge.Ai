@@ -299,6 +299,141 @@ def test_dining_claims_and_menu_sources_stay_with_requested_meal_period(monkeypa
     assert dinner_menu["claims"][-1]["source_ids"] == ["guest:test-property:menu_item:dinner-menu"]
 
 
+def test_intelligent_menu_shows_only_published_items_and_their_prices(monkeypatch: pytest.MonkeyPatch):
+    _enable_property_ui()
+    monkeypatch.setattr(main_module, "settings", replace(main_module.settings, intelligent_guest_ui_global_enabled=True))
+    restaurant = main_module.hospitality.create_restaurant("test-property", {
+        "name": "Harbor Dining", "meal_periods": ["dinner"], "status": "open",
+    })
+    menu = main_module.hospitality.create_menu("test-property", restaurant["restaurant_id"], {
+        "name": "Dinner Menu", "meal_period": "dinner",
+    }, actor_user_id="test-admin")
+    published_item = main_module.hospitality.create_menu_item("test-property", menu["menu_id"], {
+        "name": "Grilled Salmon", "description": "Served with local vegetables.", "price": "PHP 850",
+    }, actor_user_id="test-admin")
+    hidden_item = main_module.hospitality.create_menu_item("test-property", menu["menu_id"], {
+        "name": "Unpublished Dessert", "price": "PHP 1", "available": False,
+    }, actor_user_id="test-admin")
+    # Adding an item moves a published menu back to review; publish this complete
+    # version, leaving the item's availability control as the guest filter.
+    main_module.hospitality.approve_menu("test-property", menu["menu_id"], "test-admin")
+    main_module.hospitality.publish_menu("test-property", menu["menu_id"], "test-admin")
+
+    with TestClient(main_module.app) as client:
+        session = client.post("/api/session/start", json={
+            "client_id": "published-menu-guest", "property_id": "test-property",
+        })
+        response = client.post("/api/guest/intelligent-chat", json={
+            "session_id": session.json()["session_id"], "message": "What is on the dinner menu?",
+        })
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    panel = next(block for block in payload["blocks"] if block["type"] == "details_panel")
+    assert [(field["label"], field["value"]) for field in panel["fields"]] == [
+        ("Grilled Salmon", "Served with local vegetables. · Price: PHP 850"),
+    ]
+    claims = [block["content"] for block in payload["blocks"] if block["type"] == "grounded_claim"]
+    assert any("Grilled Salmon" in claim and "PHP 850" in claim for claim in claims)
+    assert "Unpublished Dessert" not in str(payload)
+    assert f"guest:test-property:menu_item:{published_item['item_id']}" in str(payload)
+
+
+def test_published_knowledge_survives_missing_inventory_and_conflicts_fail_closed(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(main_module.hospitality, "guest_facilities", lambda _property_id: {
+        "restaurants": [], "menu_items": [], "facilities": [],
+    })
+    monkeypatch.setattr(main_module.hospitality, "catalog", lambda *_args, **_kwargs: {"services": []})
+    published = [{
+        "title": "Dinner menu", "answer": "The published menu lists vegetable curry.",
+        "item_id": "menu-faq", "_grounding_type": "knowledge",
+    }]
+    answer = main_module._grounded_hotel_fact_answer(
+        "test-property", None, "What is on the dinner menu?", published,
+    )
+    assert answer["claims"][0]["content"] == published[0]["answer"]
+
+    conflicting = [
+        {**published[0], "answer": "Check-in starts at 2 PM."},
+        {**published[0], "answer": "Check-in starts at 3 PM."},
+    ]
+    answer = main_module._grounded_hotel_fact_answer(
+        "test-property", None, "What is the hotel check-in time?", conflicting,
+    )
+    assert "conflicting published hotel information" in answer["answer"]
+    assert answer["claims"] == []
+
+
+def test_intelligent_response_rejects_fabricated_claims_with_valid_or_missing_sources(monkeypatch: pytest.MonkeyPatch):
+    _enable_property_ui()
+    monkeypatch.setattr(main_module, "settings", replace(main_module.settings, intelligent_guest_ui_global_enabled=True))
+    restaurant = main_module.hospitality.create_restaurant("test-property", {
+        "name": "Harbor Dining", "meal_periods": ["dinner"], "status": "open",
+        "opening_hours": {"display": "5:00 PM–10:00 PM"},
+    })
+
+    async def fabricated_claim(_payload, _request, **_kwargs):
+        return {
+            "answer": "The hotel pool is free until 11 PM.", "places": [],
+            "grounded_claims": [{
+                "content": "The hotel pool is free until 11 PM.",
+                "source_ids": [f"guest:test-property:restaurant:{restaurant['restaurant_id']}"],
+            }],
+        }
+
+    monkeypatch.setattr(main_module, "_chat_response", fabricated_claim)
+    with TestClient(main_module.app) as client:
+        session = client.post("/api/session/start", json={
+            "client_id": "fabricated-claim-guest", "property_id": "test-property",
+        })
+        response = client.post("/api/guest/intelligent-chat", json={
+            "session_id": session.json()["session_id"], "message": "Where can I have dinner?",
+        })
+
+    assert response.status_code == 200, response.text
+    blocks = response.json()["blocks"]
+    assert len(blocks) == 1 and blocks[0]["type"] == "text"
+    assert "couldn't verify" in blocks[0]["content"]
+
+
+def test_cached_intelligent_turn_does_not_replay_archived_inventory(monkeypatch: pytest.MonkeyPatch):
+    _enable_property_ui()
+    monkeypatch.setattr(main_module, "settings", replace(main_module.settings, intelligent_guest_ui_global_enabled=True))
+    restaurant = main_module.hospitality.create_restaurant("test-property", {
+        "name": "Seasonal Dining", "meal_periods": ["dinner"], "status": "open",
+    })
+
+    async def current_restaurant_claim(_payload, _request, **_kwargs):
+        return {
+            "answer": "Here are the dining options currently listed for this hotel.", "places": [],
+            "grounded_claims": [{
+                "content": "Seasonal Dining", "source_ids": [
+                    f"guest:test-property:restaurant:{restaurant['restaurant_id']}",
+                ],
+            }],
+        }
+
+    monkeypatch.setattr(main_module, "_chat_response", current_restaurant_claim)
+    turn_id = "stale-turn-001"
+    with TestClient(main_module.app) as client:
+        session = client.post("/api/session/start", json={
+            "client_id": "stale-turn-guest", "property_id": "test-property",
+        })
+        request_payload = {
+            "session_id": session.json()["session_id"],
+            "turn_id": turn_id,
+            "message": "Where can I have dinner?",
+        }
+        first = client.post("/api/guest/intelligent-chat", json=request_payload)
+        main_module.hospitality.archive_restaurant("test-property", restaurant["restaurant_id"])
+        replay = client.post("/api/guest/intelligent-chat", json=request_payload)
+
+    assert first.status_code == 200 and any(block["type"] == "card_collection" for block in first.json()["blocks"])
+    assert replay.status_code == 200, replay.text
+    blocks = replay.json()["blocks"]
+    assert len(blocks) == 1 and "information can change" in blocks[0]["content"]
+
+
 def test_intelligent_facility_cards_use_only_published_property_facility_data(monkeypatch: pytest.MonkeyPatch):
     _enable_property_ui()
     monkeypatch.setattr(main_module, "settings", replace(main_module.settings, intelligent_guest_ui_global_enabled=True))
@@ -320,24 +455,23 @@ def test_intelligent_facility_cards_use_only_published_property_facility_data(mo
         "policies": ["Other-property-only policy."],
         "live_status": "open",
     })
-    expected_map = {
-        "id": "configured-pool-map",
-        "type": "map_view",
-        "title": "Hotel map · Level 3",
-        "map_image_url": "/api/guest/floor-maps/map-1/asset?property_id=test-property",
-        "map_alt": "Configured floor plan with the rooftop pool marker.",
-        "image_width": 200,
-        "image_height": 100,
-        "markers": [{
-            "id": "pool-node", "label": "Rooftop Pool", "x_percent": 50,
-            "y_percent": 50, "source_ids": ["guest:test-property:map_node:pool-node"],
-        }],
-        "source_ids": ["guest:test-property:floor_map:map-1"],
-    }
-    monkeypatch.setattr(
-        main_module, "_intelligent_guest_floor_map_block",
-        lambda property_id, _query: expected_map if property_id == "test-property" else None,
-    )
+    building = main_module.zones.create_building("test-property", {"name": "Main Building"})
+    floor = main_module.zones.create_floor("test-property", {
+        "building_id": building["building_id"], "name": "Level 3", "level": 3,
+    })
+    zone = main_module.zones.upsert_zone("test-property", {
+        "floor_id": floor["floor_id"], "name": "Pool Deck",
+        "geometry": {"type": "point", "points": [[100, 50]]},
+    })
+    raw_svg = b'<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="#eee"/></svg>'
+    floor_map = main_module.zones.save_floor_map("test-property", floor["floor_id"], {
+        "filename": "level-3.svg", "content_type": "image/svg+xml",
+        "content_base64": base64.b64encode(raw_svg).decode(), "width": 200, "height": 100,
+    })
+    main_module.zones.create_node("test-property", {
+        "floor_id": floor["floor_id"], "zone_id": zone["zone_id"],
+        "label": "Rooftop Pool", "x": 100, "y": 50, "node_type": "service", "guest_visible": True,
+    })
 
     async def fake_existing_chat(_payload, _request, **_kwargs):
         return {"answer": "The pool is on the rooftop.", "source": "ai", "places": []}
@@ -366,7 +500,11 @@ def test_intelligent_facility_cards_use_only_published_property_facility_data(mo
     assert "Open to hotel guests until 10 PM." in pool_card["detail"]
     assert "Other-property-only policy." not in str(pool_card)
     actual_map = next(block for block in response.json()["blocks"] if block["type"] == "map_view")
-    assert {key: actual_map[key] for key in expected_map} == expected_map
+    assert floor_map["map_id"] in actual_map["map_image_url"]
+    assert "test-property" in actual_map["map_image_url"]
+    assert [(marker["label"], marker["x_percent"], marker["y_percent"]) for marker in actual_map["markers"]] == [
+        ("Rooftop Pool", 50.0, 50.0),
+    ]
 
 
 def test_legacy_published_hotel_claims_have_property_scoped_sources(monkeypatch, tmp_path):

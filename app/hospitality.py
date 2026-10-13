@@ -1684,7 +1684,7 @@ class HospitalityStore:
             menus = [
                 self._menu_item_dict(row)
                 for row in db.execute(
-                    """SELECT mi.* FROM menu_items mi
+                    """SELECT mi.*,m.restaurant_id FROM menu_items mi
                     JOIN menus m ON m.menu_id=mi.menu_id AND m.property_id=mi.property_id
                     JOIN restaurants r ON r.restaurant_id=m.restaurant_id AND r.property_id=m.property_id
                     WHERE mi.property_id=? AND mi.available=1 AND m.active=1

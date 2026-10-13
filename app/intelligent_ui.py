@@ -13,6 +13,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
 
+from .guest_grounding import parse_source_id
+
 
 MAX_TEXT_CONTENT_CHARS = 6000
 
@@ -23,8 +25,11 @@ class StrictSchema(BaseModel):
 
 def _validate_source_ids(values: list[str]) -> list[str]:
     clean = list(dict.fromkeys(value.strip() for value in values))
-    if len(clean) > 16 or any(not value or len(value) > 256 or not value.startswith("guest:") for value in clean):
-        raise ValueError("Source references must be bounded guest-visible record IDs.")
+    if len(clean) > 16 or any(parse_source_id(value) is None for value in clean):
+        raise ValueError("Source references must use the bounded guest record reference format.")
+    # This schema check proves shape only. The request handler must resolve
+    # each reference against current, property-scoped, guest-visible records;
+    # references never establish that a claim is true or entailed.
     return clean
 
 
