@@ -44,7 +44,9 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
-      - frontend
+      frontend:
+        # Start the app without consuming the trusted proxy's reserved address.
+        ipv4_address: 172.29.0.3
 
   proxy:
     image: nginx:1.29-alpine@sha256:72ba65eb42c10344912a84ff42408db7d34f2feb642204570ab8fc5ffd29f1d3

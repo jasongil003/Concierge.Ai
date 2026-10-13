@@ -262,6 +262,9 @@ for service, (target, published) in expected.items():
     assert str(port.get("target")) == target and str(port.get("published")) == published
 assert config["networks"]["frontend"].get("internal") is True
 assert config["networks"]["backend"].get("internal") is True
+assert config["networks"]["ingress"].get("internal", False) is False
+assert set(services["proxy"]["networks"]) == {"frontend", "ingress"}
+assert all("ingress" not in services[name]["networks"] for name in ("concierge", "postgres", "redis"))
 assert "backend" in services["postgres"]["networks"]
 assert "backend" in services["redis"]["networks"]
 assert "frontend" not in services["postgres"]["networks"]
@@ -309,6 +312,9 @@ print("Phase 6 Compose config valid: staging validation is enabled; ports are lo
     fi
     compose up --detach postgres redis
     wait_for_services
+    # One-off jobs inherit the app's static frontend endpoint. Release it
+    # before migrations/seeding when start is repeated on this test stack.
+    compose stop concierge proxy
     compose run --rm --no-deps concierge alembic upgrade head
     seed_synthetic_data
     compose up --detach concierge proxy

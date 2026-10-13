@@ -152,6 +152,7 @@ def main() -> None:
         **os.environ,
         "APP_ENVIRONMENT": "development",
         "PROPERTY_ID": "recovery-test",
+        "ADMIN_BOOTSTRAP_USERNAME": "admin",
         "ADMIN_BOOTSTRAP_PASSWORD": password,
         "CREDENTIAL_ENCRYPTION_SECRET": secrets.token_urlsafe(48),
         "METRICS_TOKEN": secrets.token_urlsafe(32),
@@ -193,6 +194,18 @@ def main() -> None:
             migration = subprocess.run([ALEMBIC, "upgrade", "head"], cwd=ROOT, env=environment, text=True, capture_output=True, check=False)
             if migration.returncode:
                 raise RuntimeError(f"Disposable PostgreSQL schema setup failed: {migration.stderr[-1000:]}")
+            # Pytest deliberately replaces bootstrap passwords during import.
+            # Keep its fixture records and Redis keys away from the live app's
+            # generated credentials and recovery state in this owned container.
+            _docker("exec", postgres, "createdb", "-U", "concierge", "recovery_integration")
+            integration_environment = {
+                **environment,
+                "DATABASE_URL": f"postgresql+psycopg://concierge@127.0.0.1:{pg_port}/recovery_integration",
+                "REDIS_URL": f"redis://127.0.0.1:{redis_port}/1",
+            }
+            integration_migration = subprocess.run([ALEMBIC, "upgrade", "head"], cwd=ROOT, env=integration_environment, text=True, capture_output=True, check=False)
+            if integration_migration.returncode:
+                raise RuntimeError(f"Disposable integration schema setup failed: {integration_migration.stderr[-1000:]}")
             integrations = subprocess.run(
                 [
                     PYTHON, "-m", "pytest", "-q",
@@ -201,7 +214,7 @@ def main() -> None:
                     "tests/test_ai_provider_distributed_bulkhead.py",
                 ],
                 cwd=ROOT,
-                env=environment,
+                env=integration_environment,
                 text=True,
                 capture_output=True,
                 check=False,
