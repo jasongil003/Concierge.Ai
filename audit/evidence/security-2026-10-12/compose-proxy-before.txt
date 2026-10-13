@@ -19,8 +19,8 @@ overlay = None
         configuration.write_text("\n".join([
             f"CONCIERGE_CONFIG_FILE={configuration}",
             f"CONCIERGE_BACKUP_DIR={tmp_path / 'backups'}",
-            "CREDENTIAL_ENCRYPTION_SECRET=ComposeTestOnly-Encryption-1234567890",
-            "METRICS_TOKEN=ComposeTestOnly-Metrics-1234567890",
+            "CREDENTIAL_ENCRYPTION_SECRET=<redacted-synthetic-test-credential>
+            "METRICS_TOKEN=<redacted-synthetic-test-credential>
             "CANONICAL_HOSTS=localhost",
             "PUBLIC_BASE_URL=https://localhost",
             "ADMIN_ALLOWED_CIDRS=127.0.0.1/32",
@@ -62,8 +62,8 @@ overlay = 'scripts/phase6/docker-compose.overlay.yml'
         configuration.write_text("\n".join([
             f"CONCIERGE_CONFIG_FILE={configuration}",
             f"CONCIERGE_BACKUP_DIR={tmp_path / 'backups'}",
-            "CREDENTIAL_ENCRYPTION_SECRET=ComposeTestOnly-Encryption-1234567890",
-            "METRICS_TOKEN=ComposeTestOnly-Metrics-1234567890",
+            "CREDENTIAL_ENCRYPTION_SECRET=<redacted-synthetic-test-credential>
+            "METRICS_TOKEN=<redacted-synthetic-test-credential>
             "CANONICAL_HOSTS=localhost",
             "PUBLIC_BASE_URL=https://localhost",
             "ADMIN_ALLOWED_CIDRS=127.0.0.1/32",
@@ -105,8 +105,8 @@ overlay = 'docker-compose.load.yml'
         configuration.write_text("\n".join([
             f"CONCIERGE_CONFIG_FILE={configuration}",
             f"CONCIERGE_BACKUP_DIR={tmp_path / 'backups'}",
-            "CREDENTIAL_ENCRYPTION_SECRET=ComposeTestOnly-Encryption-1234567890",
-            "METRICS_TOKEN=ComposeTestOnly-Metrics-1234567890",
+            "CREDENTIAL_ENCRYPTION_SECRET=<redacted-synthetic-test-credential>
+            "METRICS_TOKEN=<redacted-synthetic-test-credential>
             "CANONICAL_HOSTS=localhost",
             "PUBLIC_BASE_URL=https://localhost",
             "ADMIN_ALLOWED_CIDRS=127.0.0.1/32",
