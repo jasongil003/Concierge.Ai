@@ -1044,6 +1044,25 @@ test("guest: confirmed service request appears in My Requests", async ({ page, r
   await expect(page.locator("#request-list")).toContainText("Housekeeping");
 });
 
+test("guest: can cancel an active request from My Requests", async ({ page, request }) => {
+  await ensureGuestData(request);
+  await page.goto("/");
+  await page.getByLabel("Ask your concierge").fill("Send two towels to my room");
+  await page.getByRole("button", { name: "Send message" }).click();
+  await expect(page.locator(".guest-action-card")).toContainText("Towels");
+  await page.getByRole("button", { name: "Send request" }).click();
+  await expect(page.locator(".request-created-card")).toContainText("Towels");
+  await page.getByRole("button", { name: "Track request" }).click();
+
+  const requestCard = page.locator("#request-list .request-status-card").filter({ hasText: "Towels" });
+  await expect(requestCard).toBeVisible();
+  page.once("dialog", (dialog) => dialog.accept());
+  await requestCard.getByRole("button", { name: "Cancel request" }).click();
+  await expect(page.locator("#toast")).toContainText("Request cancelled.");
+  await expect(requestCard).toContainText("Cancelled");
+  await expect(requestCard.getByRole("button", { name: "Cancel request" })).toHaveCount(0);
+});
+
 // --- 7. Hotel menu ---
 
 test("guest: menu opens and closes", async ({ page }) => {

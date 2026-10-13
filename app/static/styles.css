@@ -2356,6 +2356,7 @@ body[data-composer-position="floating"] .composer-region .composer-note, body[da
 .home-primary[hidden], .home-section[hidden], #menu-section[hidden] { display: none; }
 .home-eyebrow { color: var(--text-secondary); font-size: 11px; font-weight: 700; letter-spacing: .11em; text-transform: uppercase; }
 .home-card-list, .request-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.home-card-list > :only-child { grid-column: 1 / -1; }
 .home-request-list { display: grid; gap: 8px; }
 .guest-content-card, .request-status-card, .stay-summary-card {
   display: grid;
@@ -3109,4 +3110,115 @@ body[data-composer-position="floating"] .composer-region .composer-stack {
   .conversation-card-header { gap: 8px; }
   .conversation-card-header span { font-size: 10px; }
   .home-view-inner > .home-conversation { margin-top: 12px; }
+}
+
+/* Guest-focused finishing: a clear concierge action, honest empty states, and readable secondary copy. */
+.home-hero-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-width: 44px;
+  min-height: 46px;
+  margin-top: 5px;
+  padding: 0 18px;
+  border: 1px solid color-mix(in srgb, var(--button-color) 84%, var(--text-primary));
+  border-radius: 999px;
+  color: var(--accent-text);
+  background: var(--button-color);
+  font-size: 13px;
+  font-weight: 650;
+  transition: filter 140ms ease, transform 140ms ease;
+}
+.home-hero-action:hover { filter: brightness(.94); transform: translateY(-1px); }
+.home-hero-action span { font-size: 17px; line-height: 1; }
+.home-hero.has-hero-image .home-hero-action {
+  border-color: rgba(255,255,255,.7);
+  color: var(--text-primary);
+  background: var(--surface);
+}
+.home-discovery-empty {
+  display: grid;
+  gap: 7px;
+  margin-top: 22px;
+  padding: 18px 0;
+  border-top: 1px solid var(--soft-border);
+  border-bottom: 1px solid var(--soft-border);
+}
+.home-discovery-empty-eyebrow {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 680;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.home-discovery-empty h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font-family: var(--serif-display);
+  font-size: clamp(19px, 2.2vw, 24px);
+  font-weight: 560;
+  line-height: 1.2;
+}
+.home-discovery-empty p {
+  max-width: 58ch;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.55;
+}
+.privacy-note {
+  align-items: flex-start;
+  max-width: 76ch;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.privacy-note svg { flex: 0 0 16px; width: 16px; height: 16px; margin-top: 1px; }
+.composer-note,
+.conversation-card-header span,
+.suggestion-heading span:last-child { color: var(--text-secondary); }
+.composer-note { font-size: 12px; line-height: 1.4; }
+.conversation-card-header span { font-size: 12px; }
+.guest-bottom-nav button { color: var(--text-secondary); }
+.guest-bottom-nav button small { font-size: 11px; }
+.experience-button { min-height: 44px; }
+.experience-configured-menu { min-height: 44px; }
+.guest-card-actions button,
+.guest-card-actions a,
+.request-status-card > button,
+.service-action-button,
+.home-section-heading > button { min-height: 44px; }
+
+@media (max-width: 430px) {
+  .home-hero-action { min-height: 44px; }
+  .privacy-note { font-size: 12px; }
+  .guest-bottom-nav button { min-height: 56px; }
+  #concierge-view .conversation-column { padding-top: 14px; padding-bottom: 12px; }
+  #concierge-view .welcome-state { padding: 12px 0 10px; }
+  #concierge-view .suggestion-heading { margin-top: 24px; }
+  #concierge-view .suggestion-list { gap: 7px; }
+  #concierge-view .suggestion-list button { min-height: 56px; }
+  #concierge-view .personalize-cta { min-height: 44px; margin-top: 8px; }
+}
+
+@media (max-width: 360px) {
+  #concierge-view .conversation-card-header { align-items: flex-start; flex-direction: column; gap: 2px; padding-block: 8px; }
+  #concierge-view .conversation-card-header h2,
+  #concierge-view .conversation-card-header span { flex: 0 1 auto; }
+  #concierge-view .conversation-column { padding-inline: 14px; }
+  #concierge-view .welcome-state h1 { font-size: 28px; }
+  #concierge-view .welcome-subtitle { margin-top: 10px !important; font-size: 14px; line-height: 1.4; }
+  #concierge-view .suggestion-heading { margin-top: 16px; }
+  #concierge-view .suggestion-list button { min-height: 44px; padding-block: 4px; }
+  #concierge-view .privacy-note { line-height: 1.4; }
+  .composer-region .composer { grid-template-columns: 36px minmax(0, 1fr) 36px 36px; gap: 2px; padding: 4px; }
+  .composer-region .composer:has(#composer-voice-button[hidden]) { grid-template-columns: 36px minmax(0, 1fr) 36px; }
+  .composer-tool-button,
+  .composer-region .send-button { flex-basis: 36px; width: 36px; height: 38px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-hero-action { transition: none; }
+  .home-hero-action:hover { transform: none; }
 }

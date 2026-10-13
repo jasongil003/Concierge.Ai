@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Concierge.Ai</title>
-  <link rel="stylesheet" href="/static/styles.css?v=34">
+  <link rel="stylesheet" href="/static/styles.css?v=35">
 </head>
 <body>
   <section class="intro-overlay" id="intro-overlay" hidden>
@@ -52,6 +52,7 @@
             <h1 id="home-name">How can I help with your stay today?</h1>
             <p class="home-hero-description" id="home-description">Your personal concierge is here to make your stay more comfortable.</p>
             <span class="home-stay-phase" id="home-stay-phase" hidden></span>
+            <button class="home-hero-action" id="home-concierge-cta" type="button">Ask your concierge <span aria-hidden="true">→</span></button>
           </div>
         </header>
         <section class="home-section home-actions-section" id="home-actions-section" aria-labelledby="home-actions-heading" hidden>
@@ -120,7 +121,7 @@
       <div class="concierge-card" id="concierge-card">
         <header class="conversation-card-header">
           <h2>Your concierge</h2>
-          <span>Hotel concierge conversation</span>
+          <span>Questions and guest services</span>
         </header>
         <div class="conversation-column">
           <section class="welcome-state" id="welcome-state">
@@ -129,7 +130,7 @@
                 <p id="welcome-greeting">Good evening.</p>
               </div>
               <h1 id="welcome-headline">Ask your concierge</h1>
-              <p class="welcome-subtitle">Ask anything about your stay. You can return to your stay home whenever you like.</p>
+              <p class="welcome-subtitle">Ask about your stay. Your concierge is here to help.</p>
             </div>
             <div class="suggestion-heading" aria-hidden="true">
               <span>Suggested questions</span>
@@ -318,6 +319,6 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </main>
-  <script src="/static/app.js?v=36"></script>
+  <script src="/static/app.js?v=38"></script>
 </body>
 </html>
