@@ -1,0 +1,4 @@
+# Raw Playwright traces/videos remain local, indexed by SHA-256 in the master evidence manifest.
+**/*.zip
+**/*.webm
+**/.playwright-artifacts-*/

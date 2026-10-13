@@ -1,0 +1,61 @@
+ImportError while loading conftest '/Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/tests/conftest.py'.
+tests/conftest.py:48: in <module>
+    import app.main as main_module
+app/main.py:171: in <module>
+    verify_schema_current(settings.db_path)
+app/database.py:493: in verify_schema_current
+    with _postgres_engine().connect() as connection:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/tmp/phase5-venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:3295: in connect
+    return self._connection_cls(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+/tmp/phase5-venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:146: in __init__
+    Connection._handle_dbapi_exception_noconnection(
+/tmp/phase5-venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:2450: in _handle_dbapi_exception_noconnection
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+/tmp/phase5-venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:144: in __init__
+    self._dbapi_connection = engine.raw_connection()
+                             ^^^^^^^^^^^^^^^^^^^^^^^
+/tmp/phase5-venv/lib/python3.12/site-packages/sqlalchemy/engine/base.py:3319: in raw_connection
+    return self.pool.connect()
+           ^^^^^^^^^^^^^^^^^^^
+/tmp/phase5-venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:448: in connect
+    return _ConnectionFairy._checkout(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/tmp/phase5-venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:1290: in _checkout
+    fairy = _ConnectionRecord.checkout(pool)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/tmp/phase5-venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:712: in checkout
+    rec = pool._do_get()
+          ^^^^^^^^^^^^^^
+/tmp/phase5-venv/lib/python3.12/site-packages/sqlalchemy/pool/impl.py:178: in _do_get
+    with util.safe_reraise():
+         ^^^^^^^^^^^^^^^^^^^
+/tmp/phase5-venv/lib/python3.12/site-packages/sqlalchemy/util/langhelpers.py:122: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+/tmp/phase5-venv/lib/python3.12/site-packages/sqlalchemy/pool/impl.py:176: in _do_get
+    return self._create_connection()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+/tmp/phase5-venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:389: in _create_connection
+    return _ConnectionRecord(self)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+/tmp/phase5-venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:674: in __init__
+    self.__connect()
+/tmp/phase5-venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:900: in __connect
+    with util.safe_reraise():
+         ^^^^^^^^^^^^^^^^^^^
+/tmp/phase5-venv/lib/python3.12/site-packages/sqlalchemy/util/langhelpers.py:122: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+/tmp/phase5-venv/lib/python3.12/site-packages/sqlalchemy/pool/base.py:896: in __connect
+    self.dbapi_connection = connection = pool._invoke_creator(self)
+                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+/tmp/phase5-venv/lib/python3.12/site-packages/sqlalchemy/engine/create.py:667: in connect
+    return dialect.connect(*cargs_tup, **cparams)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/tmp/phase5-venv/lib/python3.12/site-packages/sqlalchemy/engine/default.py:630: in connect
+    return self.loaded_dbapi.connect(*cargs, **cparams)  # type: ignore[no-any-return]  # NOQA: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/tmp/phase5-venv/lib/python3.12/site-packages/psycopg/connection.py:126: in connect
+    raise last_ex.with_traceback(None)
+E   sqlalchemy.exc.OperationalError: (psycopg.OperationalError) connection failed: connection to server at "127.0.0.1", port 55432 failed: could not receive data from server: Connection refused
+E   (Background on this error at: https://sqlalche.me/e/20/e3q8)

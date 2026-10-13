@@ -1,0 +1,772 @@
+ Image concierge-ai:phase6-local Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 762B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 2.27kB done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/python:3.12-slim@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f
+#3 DONE 0.0s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 153B done
+#4 DONE 0.0s
+
+#5 [ 1/11] FROM docker.io/library/python:3.12-slim@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f
+#5 resolve docker.io/library/python:3.12-slim@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f 0.0s done
+#5 CACHED
+
+#6 [internal] load build context
+#6 transferring context: 1.24MB 0.0s done
+#6 DONE 0.0s
+
+#7 [ 2/11] RUN groupadd --system --gid 10001 concierge && useradd --system --uid 10001 --gid concierge --home-dir /app --shell /usr/sbin/nologin concierge
+#7 0.110 useradd warning: concierge's uid 10001 is greater than SYS_UID_MAX 999
+#7 DONE 0.1s
+
+#8 [ 3/11] WORKDIR /app
+#8 DONE 0.0s
+
+#9 [ 4/11] RUN apt-get update     && apt-get upgrade -y --no-install-recommends     && apt-get install -y --no-install-recommends tesseract-ocr curl ca-certificates     && install -d /usr/share/postgresql-common/pgdg     && curl --fail --silent --show-error --location        https://www.postgresql.org/media/keys/ACCC4CF8.asc        -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc     && . /etc/os-release     && printf 'Types: deb\nURIs: https://apt.postgresql.org/pub/repos/apt\nSuites: %s-pgdg\nComponents: main\nSigned-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc\n' "$VERSION_CODENAME" > /etc/apt/sources.list.d/pgdg.sources     && apt-get update     && apt-get install -y --no-install-recommends "postgresql-client-16"     && rm -rf /var/lib/apt/lists/*
+#9 0.292 Hit:1 http://deb.debian.org/debian trixie InRelease
+#9 0.301 Get:2 http://deb.debian.org/debian trixie-updates InRelease [47.3 kB]
+#9 0.356 Get:3 http://deb.debian.org/debian-security trixie-security InRelease [43.4 kB]
+#9 0.401 Get:4 http://deb.debian.org/debian trixie/main arm64 Packages [9614 kB]
+#9 2.032 Get:5 http://deb.debian.org/debian trixie-updates/main arm64 Packages [4424 B]
+#9 2.073 Get:6 http://deb.debian.org/debian-security trixie-security/main arm64 Packages [267 kB]
+#9 2.727 Fetched 9976 kB in 3s (3802 kB/s)
+#9 2.727 Reading package lists...
+#9 3.075 Reading package lists...
+#9 3.376 Building dependency tree...
+#9 3.450 Reading state information...
+#9 3.474 Calculating upgrade...
+#9 3.577 The following packages will be upgraded:
+#9 3.578   liblzma5 libpcre2-8-0 libssl3t64 openssl openssl-provider-legacy
+#9 3.658 5 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.
+#9 3.658 Need to get 5122 kB of archives.
+#9 3.658 After this operation, 0 B of additional disk space will be used.
+#9 3.658 Get:1 http://deb.debian.org/debian-security trixie-security/main arm64 liblzma5 arm64 5.8.1-1+deb13u2 [303 kB]
+#9 3.762 Get:2 http://deb.debian.org/debian-security trixie-security/main arm64 libpcre2-8-0 arm64 10.46-1~deb13u3 [263 kB]
+#9 3.899 Get:3 http://deb.debian.org/debian-security trixie-security/main arm64 openssl-provider-legacy arm64 3.5.7-1~deb13u3 [314 kB]
+#9 3.946 Get:4 http://deb.debian.org/debian-security trixie-security/main arm64 libssl3t64 arm64 3.5.7-1~deb13u3 [2770 kB]
+#9 4.586 Get:5 http://deb.debian.org/debian-security trixie-security/main arm64 openssl arm64 3.5.7-1~deb13u3 [1473 kB]
+#9 4.881 debconf: unable to initialize frontend: Dialog
+#9 4.881 debconf: (TERM is not set, so the dialog frontend is not usable.)
+#9 4.881 debconf: falling back to frontend: Readline
+#9 4.881 debconf: unable to initialize frontend: Readline
+#9 4.881 debconf: (Can't locate Term/ReadLine.pm in @INC (you may need to install the Term::ReadLine module) (@INC entries checked: /etc/perl /usr/local/lib/aarch64-linux-gnu/perl/5.40.1 /usr/local/share/perl/5.40.1 /usr/lib/aarch64-linux-gnu/perl5/5.40 /usr/share/perl5 /usr/lib/aarch64-linux-gnu/perl-base /usr/lib/aarch64-linux-gnu/perl/5.40 /usr/share/perl/5.40 /usr/local/lib/site_perl) at /usr/share/perl5/Debconf/FrontEnd/Readline.pm line 8, <STDIN> line 5.)
+#9 4.881 debconf: falling back to frontend: Teletype
+#9 4.883 debconf: unable to initialize frontend: Teletype
+#9 4.883 debconf: (This frontend requires a controlling tty.)
+#9 4.883 debconf: falling back to frontend: Noninteractive
+#9 5.275 Fetched 5122 kB in 1s (4312 kB/s)
+#9 5.285 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 5657 files and directories currently installed.)
+#9 5.288 Preparing to unpack .../liblzma5_5.8.1-1+deb13u2_arm64.deb ...
+#9 5.292 Unpacking liblzma5:arm64 (5.8.1-1+deb13u2) over (5.8.1-1+deb13u1) ...
+#9 5.315 Setting up liblzma5:arm64 (5.8.1-1+deb13u2) ...
+#9 5.328 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 5657 files and directories currently installed.)
+#9 5.331 Preparing to unpack .../libpcre2-8-0_10.46-1~deb13u3_arm64.deb ...
+#9 5.335 Unpacking libpcre2-8-0:arm64 (10.46-1~deb13u3) over (10.46-1~deb13u2) ...
+#9 5.361 Setting up libpcre2-8-0:arm64 (10.46-1~deb13u3) ...
+#9 5.372 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 5657 files and directories currently installed.)
+#9 5.376 Preparing to unpack .../openssl-provider-legacy_3.5.7-1~deb13u3_arm64.deb ...
+#9 5.379 Unpacking openssl-provider-legacy (3.5.7-1~deb13u3) over (3.5.7-1~deb13u2) ...
+#9 5.395 Setting up openssl-provider-legacy (3.5.7-1~deb13u3) ...
+#9 5.409 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 5657 files and directories currently installed.)
+#9 5.412 Preparing to unpack .../libssl3t64_3.5.7-1~deb13u3_arm64.deb ...
+#9 5.415 Unpacking libssl3t64:arm64 (3.5.7-1~deb13u3) over (3.5.7-1~deb13u2) ...
+#9 5.553 Setting up libssl3t64:arm64 (3.5.7-1~deb13u3) ...
+#9 5.564 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 5657 files and directories currently installed.)
+#9 5.566 Preparing to unpack .../openssl_3.5.7-1~deb13u3_arm64.deb ...
+#9 5.569 Unpacking openssl (3.5.7-1~deb13u3) over (3.5.7-1~deb13u2) ...
+#9 5.644 Setting up openssl (3.5.7-1~deb13u3) ...
+#9 5.648 Processing triggers for libc-bin (2.41-12+deb13u4) ...
+#9 5.667 Reading package lists...
+#9 6.002 Building dependency tree...
+#9 6.104 Reading state information...
+#9 6.257 ca-certificates is already the newest version (20250419).
+#9 6.257 The following additional packages will be installed:
+#9 6.257   fontconfig fontconfig-config fonts-dejavu-core fonts-dejavu-mono
+#9 6.257   libarchive13t64 libatomic1 libbrotli1 libcairo2 libcom-err2 libcurl4t64
+#9 6.257   libdatrie1 libdeflate0 libexpat1 libfontconfig1 libfreetype6 libfribidi0
+#9 6.257   libgif7 libglib2.0-0t64 libgnutls30t64 libgomp1 libgraphite2-3
+#9 6.257   libgssapi-krb5-2 libharfbuzz0b libicu76 libidn2-0 libjbig0 libjpeg62-turbo
+#9 6.257   libk5crypto3 libkeyutils1 libkrb5-3 libkrb5support0 libldap2 libleptonica6
+#9 6.257   liblerc4 libnghttp2-14 libnghttp3-9 libopenjp2-7 libp11-kit0 libpango-1.0-0
+#9 6.257   libpangocairo-1.0-0 libpangoft2-1.0-0 libpixman-1-0 libpng16-16t64
+#9 6.257   libpsl5t64 librtmp1 libsasl2-2 libsasl2-modules-db libsharpyuv0 libssh2-1t64
+#9 6.257   libtasn1-6 libtesseract5 libthai-data libthai0 libtiff6 libunistring5
+#9 6.257   libwebp7 libwebpmux3 libx11-6 libx11-data libxau6 libxcb-render0 libxcb-shm0
+#9 6.257   libxcb1 libxdmcp6 libxext6 libxml2 libxrender1 tesseract-ocr-eng
+#9 6.257   tesseract-ocr-osd
+#9 6.258 Suggested packages:
+#9 6.258   lrzip low-memory-monitor gnutls-bin krb5-doc krb5-user
+#9 6.258 Recommended packages:
+#9 6.258   bash-completion libglib2.0-data shared-mime-info xdg-user-dirs krb5-locales
+#9 6.258   libldap-common publicsuffix libsasl2-modules
+#9 6.495 The following NEW packages will be installed:
+#9 6.495   curl fontconfig fontconfig-config fonts-dejavu-core fonts-dejavu-mono
+#9 6.495   libarchive13t64 libatomic1 libbrotli1 libcairo2 libcom-err2 libcurl4t64
+#9 6.495   libdatrie1 libdeflate0 libexpat1 libfontconfig1 libfreetype6 libfribidi0
+#9 6.495   libgif7 libglib2.0-0t64 libgnutls30t64 libgomp1 libgraphite2-3
+#9 6.495   libgssapi-krb5-2 libharfbuzz0b libicu76 libidn2-0 libjbig0 libjpeg62-turbo
+#9 6.495   libk5crypto3 libkeyutils1 libkrb5-3 libkrb5support0 libldap2 libleptonica6
+#9 6.495   liblerc4 libnghttp2-14 libnghttp3-9 libopenjp2-7 libp11-kit0 libpango-1.0-0
+#9 6.495   libpangocairo-1.0-0 libpangoft2-1.0-0 libpixman-1-0 libpng16-16t64
+#9 6.496   libpsl5t64 librtmp1 libsasl2-2 libsasl2-modules-db libsharpyuv0 libssh2-1t64
+#9 6.496   libtasn1-6 libtesseract5 libthai-data libthai0 libtiff6 libunistring5
+#9 6.496   libwebp7 libwebpmux3 libx11-6 libx11-data libxau6 libxcb-render0 libxcb-shm0
+#9 6.496   libxcb1 libxdmcp6 libxext6 libxml2 libxrender1 tesseract-ocr
+#9 6.496   tesseract-ocr-eng tesseract-ocr-osd
+#9 6.611 0 upgraded, 71 newly installed, 0 to remove and 0 not upgraded.
+#9 6.611 Need to get 32.0 MB of archives.
+#9 6.611 After this operation, 109 MB of additional disk space will be used.
+#9 6.611 Get:1 http://deb.debian.org/debian trixie/main arm64 libexpat1 arm64 2.8.3-1~deb13u1 [109 kB]
+#9 6.714 Get:2 http://deb.debian.org/debian trixie/main arm64 libbrotli1 arm64 1.1.0-2+b7 [308 kB]
+#9 6.784 Get:3 http://deb.debian.org/debian trixie/main arm64 libkrb5support0 arm64 1.21.3-5+deb13u1 [32.5 kB]
+#9 6.793 Get:4 http://deb.debian.org/debian trixie/main arm64 libcom-err2 arm64 1.47.2-3+b12 [24.9 kB]
+#9 6.794 Get:5 http://deb.debian.org/debian trixie/main arm64 libk5crypto3 arm64 1.21.3-5+deb13u1 [81.4 kB]
+#9 6.798 Get:6 http://deb.debian.org/debian trixie/main arm64 libkeyutils1 arm64 1.6.3-6 [9716 B]
+#9 6.836 Get:7 http://deb.debian.org/debian trixie/main arm64 libkrb5-3 arm64 1.21.3-5+deb13u1 [308 kB]
+#9 6.899 Get:8 http://deb.debian.org/debian trixie/main arm64 libgssapi-krb5-2 arm64 1.21.3-5+deb13u1 [128 kB]
+#9 6.957 Get:9 http://deb.debian.org/debian trixie/main arm64 libunistring5 arm64 1.3-2 [453 kB]
+#9 7.041 Get:10 http://deb.debian.org/debian trixie/main arm64 libidn2-0 arm64 2.3.8-2 [107 kB]
+#9 7.052 Get:11 http://deb.debian.org/debian trixie/main arm64 libsasl2-modules-db arm64 2.1.28+dfsg1-9 [20.1 kB]
+#9 7.070 Get:12 http://deb.debian.org/debian trixie/main arm64 libsasl2-2 arm64 2.1.28+dfsg1-9 [55.6 kB]
+#9 7.097 Get:13 http://deb.debian.org/debian trixie/main arm64 libldap2 arm64 2.6.10+dfsg-1 [179 kB]
+#9 7.158 Get:14 http://deb.debian.org/debian trixie/main arm64 libnghttp2-14 arm64 1.64.0-1.1+deb13u1 [71.6 kB]
+#9 7.186 Get:15 http://deb.debian.org/debian trixie/main arm64 libnghttp3-9 arm64 1.8.0-1 [63.2 kB]
+#9 7.211 Get:16 http://deb.debian.org/debian trixie/main arm64 libpsl5t64 arm64 0.21.2-1.1+b1 [57.1 kB]
+#9 7.213 Get:17 http://deb.debian.org/debian trixie/main arm64 libp11-kit0 arm64 0.25.5-3 [409 kB]
+#9 7.275 Get:18 http://deb.debian.org/debian trixie/main arm64 libtasn1-6 arm64 4.20.0-2+deb13u1 [47.3 kB]
+#9 7.315 Get:19 http://deb.debian.org/debian trixie/main arm64 libgnutls30t64 arm64 3.8.9-3+deb13u4 [1379 kB]
+#9 7.519 Get:20 http://deb.debian.org/debian trixie/main arm64 librtmp1 arm64 2.4+20151223.gitfa8646d.1-2+b5 [56.8 kB]
+#9 7.528 Get:21 http://deb.debian.org/debian trixie/main arm64 libssh2-1t64 arm64 1.11.1-1+deb13u2 [236 kB]
+#9 7.599 Get:22 http://deb.debian.org/debian trixie/main arm64 libcurl4t64 arm64 8.14.1-2+deb13u5 [360 kB]
+#9 7.692 Get:23 http://deb.debian.org/debian trixie/main arm64 curl arm64 8.14.1-2+deb13u5 [262 kB]
+#9 7.753 Get:24 http://deb.debian.org/debian-security trixie-security/main arm64 libpng16-16t64 arm64 1.6.48-1+deb13u6 [275 kB]
+#9 7.997 Get:25 http://deb.debian.org/debian trixie/main arm64 libfreetype6 arm64 2.13.3+dfsg-1+deb13u1 [422 kB]
+#9 8.057 Get:26 http://deb.debian.org/debian trixie/main arm64 fonts-dejavu-mono all 2.37-8 [489 kB]
+#9 8.145 Get:27 http://deb.debian.org/debian trixie/main arm64 fonts-dejavu-core all 2.37-8 [840 kB]
+#9 8.329 Get:28 http://deb.debian.org/debian trixie/main arm64 fontconfig-config arm64 2.15.0-2.3 [318 kB]
+#9 8.432 Get:29 http://deb.debian.org/debian trixie/main arm64 libfontconfig1 arm64 2.15.0-2.3 [387 kB]
+#9 8.517 Get:30 http://deb.debian.org/debian trixie/main arm64 fontconfig arm64 2.15.0-2.3 [463 kB]
+#9 8.622 Get:31 http://deb.debian.org/debian trixie/main arm64 libxml2 arm64 2.12.7+dfsg+really2.9.14-2.1+deb13u3 [631 kB]
+#9 8.862 Get:32 http://deb.debian.org/debian trixie/main arm64 libarchive13t64 arm64 3.7.4-4+deb13u1 [324 kB]
+#9 8.895 Get:33 http://deb.debian.org/debian trixie/main arm64 libatomic1 arm64 14.2.0-19 [10.1 kB]
+#9 8.895 Get:34 http://deb.debian.org/debian trixie/main arm64 libpixman-1-0 arm64 0.44.0-3 [168 kB]
+#9 8.930 Get:35 http://deb.debian.org/debian trixie/main arm64 libxau6 arm64 1:1.0.11-1 [20.6 kB]
+#9 8.931 Get:36 http://deb.debian.org/debian trixie/main arm64 libxdmcp6 arm64 1:1.1.5-1 [27.8 kB]
+#9 8.972 Get:37 http://deb.debian.org/debian trixie/main arm64 libxcb1 arm64 1.17.0-2+b1 [143 kB]
+#9 8.989 Get:38 http://deb.debian.org/debian trixie/main arm64 libx11-data all 2:1.8.12-1 [343 kB]
+#9 9.073 Get:39 http://deb.debian.org/debian trixie/main arm64 libx11-6 arm64 2:1.8.12-1 [795 kB]
+#9 9.289 Get:40 http://deb.debian.org/debian trixie/main arm64 libxcb-render0 arm64 1.17.0-2+b1 [115 kB]
+#9 9.357 Get:41 http://deb.debian.org/debian trixie/main arm64 libxcb-shm0 arm64 1.17.0-2+b1 [105 kB]
+#9 9.403 Get:42 http://deb.debian.org/debian trixie/main arm64 libxext6 arm64 2:1.3.4-1+b3 [49.2 kB]
+#9 9.406 Get:43 http://deb.debian.org/debian trixie/main arm64 libxrender1 arm64 1:0.9.12-1 [27.0 kB]
+#9 9.453 Get:44 http://deb.debian.org/debian trixie/main arm64 libcairo2 arm64 1.18.4-1+b1 [483 kB]
+#9 9.525 Get:45 http://deb.debian.org/debian trixie/main arm64 libdatrie1 arm64 0.2.13-3+b1 [37.6 kB]
+#9 9.525 Get:46 http://deb.debian.org/debian trixie/main arm64 libdeflate0 arm64 1.23-2 [42.4 kB]
+#9 9.527 Get:47 http://deb.debian.org/debian trixie/main arm64 libfribidi0 arm64 1.0.16-1 [26.5 kB]
+#9 9.536 Get:48 http://deb.debian.org/debian trixie/main arm64 libgif7 arm64 5.2.2-1+deb13u1 [44.1 kB]
+#9 9.574 Get:49 http://deb.debian.org/debian trixie/main arm64 libglib2.0-0t64 arm64 2.84.4-3~deb13u5 [1429 kB]
+#9 9.820 Get:50 http://deb.debian.org/debian trixie/main arm64 libgomp1 arm64 14.2.0-19 [124 kB]
+#9 9.841 Get:51 http://deb.debian.org/debian trixie/main arm64 libgraphite2-3 arm64 1.3.14-2+deb13u1 [70.3 kB]
+#9 9.857 Get:52 http://deb.debian.org/debian trixie/main arm64 libharfbuzz0b arm64 10.2.0-1+deb13u1 [442 kB]
+#9 9.920 Get:53 http://deb.debian.org/debian trixie/main arm64 libicu76 arm64 76.1-4 [9524 kB]
+#9 11.27 Get:54 http://deb.debian.org/debian trixie/main arm64 libjbig0 arm64 2.1-6.1+b2 [30.4 kB]
+#9 11.29 Get:55 http://deb.debian.org/debian trixie/main arm64 libjpeg62-turbo arm64 1:2.1.5-4 [173 kB]
+#9 11.32 Get:56 http://deb.debian.org/debian trixie/main arm64 libopenjp2-7 arm64 2.5.3-2.1~deb13u2 [189 kB]
+#9 11.41 Get:57 http://deb.debian.org/debian trixie/main arm64 liblerc4 arm64 4.0.0+ds-5 [146 kB]
+#9 11.47 Get:58 http://deb.debian.org/debian trixie/main arm64 libsharpyuv0 arm64 1.5.0-0.1 [114 kB]
+#9 11.53 Get:59 http://deb.debian.org/debian trixie/main arm64 libwebp7 arm64 1.5.0-0.1 [271 kB]
+#9 11.62 Get:60 http://deb.debian.org/debian trixie/main arm64 libtiff6 arm64 4.7.0-3+deb13u3 [325 kB]
+#9 11.74 Get:61 http://deb.debian.org/debian trixie/main arm64 libwebpmux3 arm64 1.5.0-0.1 [125 kB]
+#9 11.79 Get:62 http://deb.debian.org/debian trixie/main arm64 libleptonica6 arm64 1.84.1-4 [994 kB]
+#9 11.96 Get:63 http://deb.debian.org/debian trixie/main arm64 libthai-data all 0.1.29-2 [168 kB]
+#9 12.00 Get:64 http://deb.debian.org/debian trixie/main arm64 libthai0 arm64 0.1.29-2+b1 [48.4 kB]
+#9 12.00 Get:65 http://deb.debian.org/debian trixie/main arm64 libpango-1.0-0 arm64 1.56.3-1 [213 kB]
+#9 12.02 Get:66 http://deb.debian.org/debian trixie/main arm64 libpangoft2-1.0-0 arm64 1.56.3-1 [52.9 kB]
+#9 12.02 Get:67 http://deb.debian.org/debian trixie/main arm64 libpangocairo-1.0-0 arm64 1.56.3-1 [33.7 kB]
+#9 12.08 Get:68 http://deb.debian.org/debian trixie/main arm64 libtesseract5 arm64 5.5.0-1+b1 [1237 kB]
+#9 12.34 Get:69 http://deb.debian.org/debian trixie/main arm64 tesseract-ocr-eng all 1:4.1.0-2 [1594 kB]
+#9 12.59 Get:70 http://deb.debian.org/debian trixie/main arm64 tesseract-ocr-osd all 1:4.1.0-2 [2992 kB]
+#9 13.03 Get:71 http://deb.debian.org/debian trixie/main arm64 tesseract-ocr arm64 5.5.0-1+b1 [389 kB]
+#9 13.15 debconf: unable to initialize frontend: Dialog
+#9 13.15 debconf: (TERM is not set, so the dialog frontend is not usable.)
+#9 13.15 debconf: falling back to frontend: Readline
+#9 13.15 debconf: unable to initialize frontend: Readline
+#9 13.15 debconf: (Can't locate Term/ReadLine.pm in @INC (you may need to install the Term::ReadLine module) (@INC entries checked: /etc/perl /usr/local/lib/aarch64-linux-gnu/perl/5.40.1 /usr/local/share/perl/5.40.1 /usr/lib/aarch64-linux-gnu/perl5/5.40 /usr/share/perl5 /usr/lib/aarch64-linux-gnu/perl-base /usr/lib/aarch64-linux-gnu/perl/5.40 /usr/share/perl/5.40 /usr/local/lib/site_perl) at /usr/share/perl5/Debconf/FrontEnd/Readline.pm line 8, <STDIN> line 71.)
+#9 13.15 debconf: falling back to frontend: Teletype
+#9 13.15 debconf: unable to initialize frontend: Teletype
+#9 13.15 debconf: (This frontend requires a controlling tty.)
+#9 13.15 debconf: falling back to frontend: Noninteractive
+#9 14.31 Preconfiguring packages ...
+#9 14.42 Fetched 32.0 MB in 7s (4881 kB/s)
+#9 14.43 Selecting previously unselected package libexpat1:arm64.
+#9 14.43 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 5657 files and directories currently installed.)
+#9 14.44 Preparing to unpack .../00-libexpat1_2.8.3-1~deb13u1_arm64.deb ...
+#9 14.44 Unpacking libexpat1:arm64 (2.8.3-1~deb13u1) ...
+#9 14.48 Selecting previously unselected package libbrotli1:arm64.
+#9 14.48 Preparing to unpack .../01-libbrotli1_1.1.0-2+b7_arm64.deb ...
+#9 14.49 Unpacking libbrotli1:arm64 (1.1.0-2+b7) ...
+#9 14.53 Selecting previously unselected package libkrb5support0:arm64.
+#9 14.53 Preparing to unpack .../02-libkrb5support0_1.21.3-5+deb13u1_arm64.deb ...
+#9 14.54 Unpacking libkrb5support0:arm64 (1.21.3-5+deb13u1) ...
+#9 14.57 Selecting previously unselected package libcom-err2:arm64.
+#9 14.57 Preparing to unpack .../03-libcom-err2_1.47.2-3+b12_arm64.deb ...
+#9 14.58 Unpacking libcom-err2:arm64 (1.47.2-3+b12) ...
+#9 14.63 Selecting previously unselected package libk5crypto3:arm64.
+#9 14.63 Preparing to unpack .../04-libk5crypto3_1.21.3-5+deb13u1_arm64.deb ...
+#9 14.63 Unpacking libk5crypto3:arm64 (1.21.3-5+deb13u1) ...
+#9 14.67 Selecting previously unselected package libkeyutils1:arm64.
+#9 14.67 Preparing to unpack .../05-libkeyutils1_1.6.3-6_arm64.deb ...
+#9 14.67 Unpacking libkeyutils1:arm64 (1.6.3-6) ...
+#9 14.74 Selecting previously unselected package libkrb5-3:arm64.
+#9 14.74 Preparing to unpack .../06-libkrb5-3_1.21.3-5+deb13u1_arm64.deb ...
+#9 14.74 Unpacking libkrb5-3:arm64 (1.21.3-5+deb13u1) ...
+#9 14.84 Selecting previously unselected package libgssapi-krb5-2:arm64.
+#9 14.84 Preparing to unpack .../07-libgssapi-krb5-2_1.21.3-5+deb13u1_arm64.deb ...
+#9 14.84 Unpacking libgssapi-krb5-2:arm64 (1.21.3-5+deb13u1) ...
+#9 14.88 Selecting previously unselected package libunistring5:arm64.
+#9 14.88 Preparing to unpack .../08-libunistring5_1.3-2_arm64.deb ...
+#9 14.88 Unpacking libunistring5:arm64 (1.3-2) ...
+#9 14.98 Selecting previously unselected package libidn2-0:arm64.
+#9 14.98 Preparing to unpack .../09-libidn2-0_2.3.8-2_arm64.deb ...
+#9 14.98 Unpacking libidn2-0:arm64 (2.3.8-2) ...
+#9 15.00 Selecting previously unselected package libsasl2-modules-db:arm64.
+#9 15.00 Preparing to unpack .../10-libsasl2-modules-db_2.1.28+dfsg1-9_arm64.deb ...
+#9 15.00 Unpacking libsasl2-modules-db:arm64 (2.1.28+dfsg1-9) ...
+#9 15.01 Selecting previously unselected package libsasl2-2:arm64.
+#9 15.01 Preparing to unpack .../11-libsasl2-2_2.1.28+dfsg1-9_arm64.deb ...
+#9 15.01 Unpacking libsasl2-2:arm64 (2.1.28+dfsg1-9) ...
+#9 15.02 Selecting previously unselected package libldap2:arm64.
+#9 15.03 Preparing to unpack .../12-libldap2_2.6.10+dfsg-1_arm64.deb ...
+#9 15.03 Unpacking libldap2:arm64 (2.6.10+dfsg-1) ...
+#9 15.05 Selecting previously unselected package libnghttp2-14:arm64.
+#9 15.05 Preparing to unpack .../13-libnghttp2-14_1.64.0-1.1+deb13u1_arm64.deb ...
+#9 15.05 Unpacking libnghttp2-14:arm64 (1.64.0-1.1+deb13u1) ...
+#9 15.07 Selecting previously unselected package libnghttp3-9:arm64.
+#9 15.07 Preparing to unpack .../14-libnghttp3-9_1.8.0-1_arm64.deb ...
+#9 15.07 Unpacking libnghttp3-9:arm64 (1.8.0-1) ...
+#9 15.09 Selecting previously unselected package libpsl5t64:arm64.
+#9 15.09 Preparing to unpack .../15-libpsl5t64_0.21.2-1.1+b1_arm64.deb ...
+#9 15.09 Unpacking libpsl5t64:arm64 (0.21.2-1.1+b1) ...
+#9 15.10 Selecting previously unselected package libp11-kit0:arm64.
+#9 15.10 Preparing to unpack .../16-libp11-kit0_0.25.5-3_arm64.deb ...
+#9 15.10 Unpacking libp11-kit0:arm64 (0.25.5-3) ...
+#9 15.13 Selecting previously unselected package libtasn1-6:arm64.
+#9 15.13 Preparing to unpack .../17-libtasn1-6_4.20.0-2+deb13u1_arm64.deb ...
+#9 15.13 Unpacking libtasn1-6:arm64 (4.20.0-2+deb13u1) ...
+#9 15.14 Selecting previously unselected package libgnutls30t64:arm64.
+#9 15.14 Preparing to unpack .../18-libgnutls30t64_3.8.9-3+deb13u4_arm64.deb ...
+#9 15.14 Unpacking libgnutls30t64:arm64 (3.8.9-3+deb13u4) ...
+#9 15.21 Selecting previously unselected package librtmp1:arm64.
+#9 15.21 Preparing to unpack .../19-librtmp1_2.4+20151223.gitfa8646d.1-2+b5_arm64.deb ...
+#9 15.21 Unpacking librtmp1:arm64 (2.4+20151223.gitfa8646d.1-2+b5) ...
+#9 15.23 Selecting previously unselected package libssh2-1t64:arm64.
+#9 15.23 Preparing to unpack .../20-libssh2-1t64_1.11.1-1+deb13u2_arm64.deb ...
+#9 15.23 Unpacking libssh2-1t64:arm64 (1.11.1-1+deb13u2) ...
+#9 15.25 Selecting previously unselected package libcurl4t64:arm64.
+#9 15.25 Preparing to unpack .../21-libcurl4t64_8.14.1-2+deb13u5_arm64.deb ...
+#9 15.25 Unpacking libcurl4t64:arm64 (8.14.1-2+deb13u5) ...
+#9 15.28 Selecting previously unselected package curl.
+#9 15.28 Preparing to unpack .../22-curl_8.14.1-2+deb13u5_arm64.deb ...
+#9 15.28 Unpacking curl (8.14.1-2+deb13u5) ...
+#9 15.31 Selecting previously unselected package libpng16-16t64:arm64.
+#9 15.31 Preparing to unpack .../23-libpng16-16t64_1.6.48-1+deb13u6_arm64.deb ...
+#9 15.31 Unpacking libpng16-16t64:arm64 (1.6.48-1+deb13u6) ...
+#9 15.33 Selecting previously unselected package libfreetype6:arm64.
+#9 15.33 Preparing to unpack .../24-libfreetype6_2.13.3+dfsg-1+deb13u1_arm64.deb ...
+#9 15.33 Unpacking libfreetype6:arm64 (2.13.3+dfsg-1+deb13u1) ...
+#9 15.36 Selecting previously unselected package fonts-dejavu-mono.
+#9 15.36 Preparing to unpack .../25-fonts-dejavu-mono_2.37-8_all.deb ...
+#9 15.36 Unpacking fonts-dejavu-mono (2.37-8) ...
+#9 15.40 Selecting previously unselected package fonts-dejavu-core.
+#9 15.40 Preparing to unpack .../26-fonts-dejavu-core_2.37-8_all.deb ...
+#9 15.41 Unpacking fonts-dejavu-core (2.37-8) ...
+#9 15.46 Selecting previously unselected package fontconfig-config.
+#9 15.46 Preparing to unpack .../27-fontconfig-config_2.15.0-2.3_arm64.deb ...
+#9 15.46 Unpacking fontconfig-config (2.15.0-2.3) ...
+#9 15.48 Selecting previously unselected package libfontconfig1:arm64.
+#9 15.48 Preparing to unpack .../28-libfontconfig1_2.15.0-2.3_arm64.deb ...
+#9 15.49 Unpacking libfontconfig1:arm64 (2.15.0-2.3) ...
+#9 15.50 Selecting previously unselected package fontconfig.
+#9 15.50 Preparing to unpack .../29-fontconfig_2.15.0-2.3_arm64.deb ...
+#9 15.50 Unpacking fontconfig (2.15.0-2.3) ...
+#9 15.53 Selecting previously unselected package libxml2:arm64.
+#9 15.53 Preparing to unpack .../30-libxml2_2.12.7+dfsg+really2.9.14-2.1+deb13u3_arm64.deb ...
+#9 15.53 Unpacking libxml2:arm64 (2.12.7+dfsg+really2.9.14-2.1+deb13u3) ...
+#9 15.56 Selecting previously unselected package libarchive13t64:arm64.
+#9 15.57 Preparing to unpack .../31-libarchive13t64_3.7.4-4+deb13u1_arm64.deb ...
+#9 15.57 Unpacking libarchive13t64:arm64 (3.7.4-4+deb13u1) ...
+#9 15.59 Selecting previously unselected package libatomic1:arm64.
+#9 15.59 Preparing to unpack .../32-libatomic1_14.2.0-19_arm64.deb ...
+#9 15.59 Unpacking libatomic1:arm64 (14.2.0-19) ...
+#9 15.60 Selecting previously unselected package libpixman-1-0:arm64.
+#9 15.60 Preparing to unpack .../33-libpixman-1-0_0.44.0-3_arm64.deb ...
+#9 15.61 Unpacking libpixman-1-0:arm64 (0.44.0-3) ...
+#9 15.62 Selecting previously unselected package libxau6:arm64.
+#9 15.62 Preparing to unpack .../34-libxau6_1%3a1.0.11-1_arm64.deb ...
+#9 15.62 Unpacking libxau6:arm64 (1:1.0.11-1) ...
+#9 15.63 Selecting previously unselected package libxdmcp6:arm64.
+#9 15.63 Preparing to unpack .../35-libxdmcp6_1%3a1.1.5-1_arm64.deb ...
+#9 15.64 Unpacking libxdmcp6:arm64 (1:1.1.5-1) ...
+#9 15.65 Selecting previously unselected package libxcb1:arm64.
+#9 15.65 Preparing to unpack .../36-libxcb1_1.17.0-2+b1_arm64.deb ...
+#9 15.65 Unpacking libxcb1:arm64 (1.17.0-2+b1) ...
+#9 15.67 Selecting previously unselected package libx11-data.
+#9 15.67 Preparing to unpack .../37-libx11-data_2%3a1.8.12-1_all.deb ...
+#9 15.67 Unpacking libx11-data (2:1.8.12-1) ...
+#9 15.70 Selecting previously unselected package libx11-6:arm64.
+#9 15.70 Preparing to unpack .../38-libx11-6_2%3a1.8.12-1_arm64.deb ...
+#9 15.70 Unpacking libx11-6:arm64 (2:1.8.12-1) ...
+#9 15.74 Selecting previously unselected package libxcb-render0:arm64.
+#9 15.74 Preparing to unpack .../39-libxcb-render0_1.17.0-2+b1_arm64.deb ...
+#9 15.74 Unpacking libxcb-render0:arm64 (1.17.0-2+b1) ...
+#9 15.76 Selecting previously unselected package libxcb-shm0:arm64.
+#9 15.76 Preparing to unpack .../40-libxcb-shm0_1.17.0-2+b1_arm64.deb ...
+#9 15.76 Unpacking libxcb-shm0:arm64 (1.17.0-2+b1) ...
+#9 15.78 Selecting previously unselected package libxext6:arm64.
+#9 15.78 Preparing to unpack .../41-libxext6_2%3a1.3.4-1+b3_arm64.deb ...
+#9 15.78 Unpacking libxext6:arm64 (2:1.3.4-1+b3) ...
+#9 15.79 Selecting previously unselected package libxrender1:arm64.
+#9 15.80 Preparing to unpack .../42-libxrender1_1%3a0.9.12-1_arm64.deb ...
+#9 15.80 Unpacking libxrender1:arm64 (1:0.9.12-1) ...
+#9 15.81 Selecting previously unselected package libcairo2:arm64.
+#9 15.81 Preparing to unpack .../43-libcairo2_1.18.4-1+b1_arm64.deb ...
+#9 15.81 Unpacking libcairo2:arm64 (1.18.4-1+b1) ...
+#9 15.84 Selecting previously unselected package libdatrie1:arm64.
+#9 15.84 Preparing to unpack .../44-libdatrie1_0.2.13-3+b1_arm64.deb ...
+#9 15.84 Unpacking libdatrie1:arm64 (0.2.13-3+b1) ...
+#9 15.85 Selecting previously unselected package libdeflate0:arm64.
+#9 15.85 Preparing to unpack .../45-libdeflate0_1.23-2_arm64.deb ...
+#9 15.85 Unpacking libdeflate0:arm64 (1.23-2) ...
+#9 15.87 Selecting previously unselected package libfribidi0:arm64.
+#9 15.87 Preparing to unpack .../46-libfribidi0_1.0.16-1_arm64.deb ...
+#9 15.87 Unpacking libfribidi0:arm64 (1.0.16-1) ...
+#9 15.88 Selecting previously unselected package libgif7:arm64.
+#9 15.88 Preparing to unpack .../47-libgif7_5.2.2-1+deb13u1_arm64.deb ...
+#9 15.88 Unpacking libgif7:arm64 (5.2.2-1+deb13u1) ...
+#9 15.89 Selecting previously unselected package libglib2.0-0t64:arm64.
+#9 15.89 Preparing to unpack .../48-libglib2.0-0t64_2.84.4-3~deb13u5_arm64.deb ...
+#9 15.90 Unpacking libglib2.0-0t64:arm64 (2.84.4-3~deb13u5) ...
+#9 15.97 Selecting previously unselected package libgomp1:arm64.
+#9 15.97 Preparing to unpack .../49-libgomp1_14.2.0-19_arm64.deb ...
+#9 15.97 Unpacking libgomp1:arm64 (14.2.0-19) ...
+#9 15.99 Selecting previously unselected package libgraphite2-3:arm64.
+#9 15.99 Preparing to unpack .../50-libgraphite2-3_1.3.14-2+deb13u1_arm64.deb ...
+#9 15.99 Unpacking libgraphite2-3:arm64 (1.3.14-2+deb13u1) ...
+#9 16.00 Selecting previously unselected package libharfbuzz0b:arm64.
+#9 16.00 Preparing to unpack .../51-libharfbuzz0b_10.2.0-1+deb13u1_arm64.deb ...
+#9 16.00 Unpacking libharfbuzz0b:arm64 (10.2.0-1+deb13u1) ...
+#9 16.03 Selecting previously unselected package libicu76:arm64.
+#9 16.03 Preparing to unpack .../52-libicu76_76.1-4_arm64.deb ...
+#9 16.03 Unpacking libicu76:arm64 (76.1-4) ...
+#9 16.44 Selecting previously unselected package libjbig0:arm64.
+#9 16.44 Preparing to unpack .../53-libjbig0_2.1-6.1+b2_arm64.deb ...
+#9 16.44 Unpacking libjbig0:arm64 (2.1-6.1+b2) ...
+#9 16.48 Selecting previously unselected package libjpeg62-turbo:arm64.
+#9 16.48 Preparing to unpack .../54-libjpeg62-turbo_1%3a2.1.5-4_arm64.deb ...
+#9 16.48 Unpacking libjpeg62-turbo:arm64 (1:2.1.5-4) ...
+#9 16.53 Selecting previously unselected package libopenjp2-7:arm64.
+#9 16.53 Preparing to unpack .../55-libopenjp2-7_2.5.3-2.1~deb13u2_arm64.deb ...
+#9 16.54 Unpacking libopenjp2-7:arm64 (2.5.3-2.1~deb13u2) ...
+#9 16.58 Selecting previously unselected package liblerc4:arm64.
+#9 16.58 Preparing to unpack .../56-liblerc4_4.0.0+ds-5_arm64.deb ...
+#9 16.59 Unpacking liblerc4:arm64 (4.0.0+ds-5) ...
+#9 16.62 Selecting previously unselected package libsharpyuv0:arm64.
+#9 16.62 Preparing to unpack .../57-libsharpyuv0_1.5.0-0.1_arm64.deb ...
+#9 16.63 Unpacking libsharpyuv0:arm64 (1.5.0-0.1) ...
+#9 16.67 Selecting previously unselected package libwebp7:arm64.
+#9 16.67 Preparing to unpack .../58-libwebp7_1.5.0-0.1_arm64.deb ...
+#9 16.67 Unpacking libwebp7:arm64 (1.5.0-0.1) ...
+#9 16.71 Selecting previously unselected package libtiff6:arm64.
+#9 16.71 Preparing to unpack .../59-libtiff6_4.7.0-3+deb13u3_arm64.deb ...
+#9 16.72 Unpacking libtiff6:arm64 (4.7.0-3+deb13u3) ...
+#9 16.75 Selecting previously unselected package libwebpmux3:arm64.
+#9 16.75 Preparing to unpack .../60-libwebpmux3_1.5.0-0.1_arm64.deb ...
+#9 16.76 Unpacking libwebpmux3:arm64 (1.5.0-0.1) ...
+#9 16.80 Selecting previously unselected package libleptonica6:arm64.
+#9 16.80 Preparing to unpack .../61-libleptonica6_1.84.1-4_arm64.deb ...
+#9 16.81 Unpacking libleptonica6:arm64 (1.84.1-4) ...
+#9 16.89 Selecting previously unselected package libthai-data.
+#9 16.89 Preparing to unpack .../62-libthai-data_0.1.29-2_all.deb ...
+#9 16.89 Unpacking libthai-data (0.1.29-2) ...
+#9 16.91 Selecting previously unselected package libthai0:arm64.
+#9 16.91 Preparing to unpack .../63-libthai0_0.1.29-2+b1_arm64.deb ...
+#9 16.92 Unpacking libthai0:arm64 (0.1.29-2+b1) ...
+#9 16.93 Selecting previously unselected package libpango-1.0-0:arm64.
+#9 16.93 Preparing to unpack .../64-libpango-1.0-0_1.56.3-1_arm64.deb ...
+#9 16.93 Unpacking libpango-1.0-0:arm64 (1.56.3-1) ...
+#9 16.96 Selecting previously unselected package libpangoft2-1.0-0:arm64.
+#9 16.96 Preparing to unpack .../65-libpangoft2-1.0-0_1.56.3-1_arm64.deb ...
+#9 16.96 Unpacking libpangoft2-1.0-0:arm64 (1.56.3-1) ...
+#9 16.97 Selecting previously unselected package libpangocairo-1.0-0:arm64.
+#9 16.97 Preparing to unpack .../66-libpangocairo-1.0-0_1.56.3-1_arm64.deb ...
+#9 16.98 Unpacking libpangocairo-1.0-0:arm64 (1.56.3-1) ...
+#9 16.99 Selecting previously unselected package libtesseract5:arm64.
+#9 16.99 Preparing to unpack .../67-libtesseract5_5.5.0-1+b1_arm64.deb ...
+#9 16.99 Unpacking libtesseract5:arm64 (5.5.0-1+b1) ...
+#9 17.07 Selecting previously unselected package tesseract-ocr-eng.
+#9 17.08 Preparing to unpack .../68-tesseract-ocr-eng_1%3a4.1.0-2_all.deb ...
+#9 17.08 Unpacking tesseract-ocr-eng (1:4.1.0-2) ...
+#9 17.18 Selecting previously unselected package tesseract-ocr-osd.
+#9 17.18 Preparing to unpack .../69-tesseract-ocr-osd_1%3a4.1.0-2_all.deb ...
+#9 17.18 Unpacking tesseract-ocr-osd (1:4.1.0-2) ...
+#9 17.34 Selecting previously unselected package tesseract-ocr.
+#9 17.34 Preparing to unpack .../70-tesseract-ocr_5.5.0-1+b1_arm64.deb ...
+#9 17.34 Unpacking tesseract-ocr (5.5.0-1+b1) ...
+#9 17.37 Setting up libexpat1:arm64 (2.8.3-1~deb13u1) ...
+#9 17.38 Setting up libgraphite2-3:arm64 (1.3.14-2+deb13u1) ...
+#9 17.38 Setting up libpixman-1-0:arm64 (0.44.0-3) ...
+#9 17.38 Setting up libsharpyuv0:arm64 (1.5.0-0.1) ...
+#9 17.39 Setting up libxau6:arm64 (1:1.0.11-1) ...
+#9 17.39 Setting up libxdmcp6:arm64 (1:1.1.5-1) ...
+#9 17.39 Setting up libkeyutils1:arm64 (1.6.3-6) ...
+#9 17.39 Setting up libxcb1:arm64 (1.17.0-2+b1) ...
+#9 17.40 Setting up liblerc4:arm64 (4.0.0+ds-5) ...
+#9 17.40 Setting up libdatrie1:arm64 (0.2.13-3+b1) ...
+#9 17.40 Setting up libxcb-render0:arm64 (1.17.0-2+b1) ...
+#9 17.40 Setting up libbrotli1:arm64 (1.1.0-2+b7) ...
+#9 17.41 Setting up libnghttp2-14:arm64 (1.64.0-1.1+deb13u1) ...
+#9 17.41 Setting up libdeflate0:arm64 (1.23-2) ...
+#9 17.41 Setting up tesseract-ocr-eng (1:4.1.0-2) ...
+#9 17.41 Setting up libxcb-shm0:arm64 (1.17.0-2+b1) ...
+#9 17.42 Setting up libcom-err2:arm64 (1.47.2-3+b12) ...
+#9 17.42 Setting up libgomp1:arm64 (14.2.0-19) ...
+#9 17.42 Setting up libjbig0:arm64 (2.1-6.1+b2) ...
+#9 17.43 Setting up libkrb5support0:arm64 (1.21.3-5+deb13u1) ...
+#9 17.43 Setting up libsasl2-modules-db:arm64 (2.1.28+dfsg1-9) ...
+#9 17.43 Setting up libjpeg62-turbo:arm64 (1:2.1.5-4) ...
+#9 17.43 Setting up libx11-data (2:1.8.12-1) ...
+#9 17.44 Setting up libfribidi0:arm64 (1.0.16-1) ...
+#9 17.44 Setting up libp11-kit0:arm64 (0.25.5-3) ...
+#9 17.44 Setting up libunistring5:arm64 (1.3-2) ...
+#9 17.44 Setting up fonts-dejavu-mono (2.37-8) ...
+#9 17.45 Setting up libpng16-16t64:arm64 (1.6.48-1+deb13u6) ...
+#9 17.45 Setting up libatomic1:arm64 (14.2.0-19) ...
+#9 17.46 Setting up fonts-dejavu-core (2.37-8) ...
+#9 17.47 Setting up libk5crypto3:arm64 (1.21.3-5+deb13u1) ...
+#9 17.47 Setting up libsasl2-2:arm64 (2.1.28+dfsg1-9) ...
+#9 17.48 Setting up libnghttp3-9:arm64 (1.8.0-1) ...
+#9 17.48 Setting up libwebp7:arm64 (1.5.0-0.1) ...
+#9 17.48 Setting up libgif7:arm64 (5.2.2-1+deb13u1) ...
+#9 17.48 Setting up libtiff6:arm64 (4.7.0-3+deb13u3) ...
+#9 17.49 Setting up libtasn1-6:arm64 (4.20.0-2+deb13u1) ...
+#9 17.49 Setting up libopenjp2-7:arm64 (2.5.3-2.1~deb13u2) ...
+#9 17.49 Setting up libx11-6:arm64 (2:1.8.12-1) ...
+#9 17.50 Setting up libthai-data (0.1.29-2) ...
+#9 17.50 Setting up libkrb5-3:arm64 (1.21.3-5+deb13u1) ...
+#9 17.50 Setting up libicu76:arm64 (76.1-4) ...
+#9 17.50 Setting up tesseract-ocr-osd (1:4.1.0-2) ...
+#9 17.51 Setting up libssh2-1t64:arm64 (1.11.1-1+deb13u2) ...
+#9 17.51 Setting up libwebpmux3:arm64 (1.5.0-0.1) ...
+#9 17.51 Setting up libxml2:arm64 (2.12.7+dfsg+really2.9.14-2.1+deb13u3) ...
+#9 17.51 Setting up libldap2:arm64 (2.6.10+dfsg-1) ...
+#9 17.52 Setting up libxrender1:arm64 (1:0.9.12-1) ...
+#9 17.52 Setting up fontconfig-config (2.15.0-2.3) ...
+#9 17.55 debconf: unable to initialize frontend: Dialog
+#9 17.55 debconf: (TERM is not set, so the dialog frontend is not usable.)
+#9 17.55 debconf: falling back to frontend: Readline
+#9 17.55 debconf: unable to initialize frontend: Readline
+#9 17.55 debconf: (Can't locate Term/ReadLine.pm in @INC (you may need to install the Term::ReadLine module) (@INC entries checked: /etc/perl /usr/local/lib/aarch64-linux-gnu/perl/5.40.1 /usr/local/share/perl/5.40.1 /usr/lib/aarch64-linux-gnu/perl5/5.40 /usr/share/perl5 /usr/lib/aarch64-linux-gnu/perl-base /usr/lib/aarch64-linux-gnu/perl/5.40 /usr/share/perl/5.40 /usr/local/lib/site_perl) at /usr/share/perl5/Debconf/FrontEnd/Readline.pm line 8.)
+#9 17.55 debconf: falling back to frontend: Teletype
+#9 17.55 debconf: unable to initialize frontend: Teletype
+#9 17.55 debconf: (This frontend requires a controlling tty.)
+#9 17.55 debconf: falling back to frontend: Noninteractive
+#9 17.57 Setting up libxext6:arm64 (2:1.3.4-1+b3) ...
+#9 17.57 Setting up libleptonica6:arm64 (1.84.1-4) ...
+#9 17.57 Setting up libidn2-0:arm64 (2.3.8-2) ...
+#9 17.58 Setting up libthai0:arm64 (0.1.29-2+b1) ...
+#9 17.58 Setting up libglib2.0-0t64:arm64 (2.84.4-3~deb13u5) ...
+#9 17.58 No schema files found: doing nothing.
+#9 17.59 Setting up libfreetype6:arm64 (2.13.3+dfsg-1+deb13u1) ...
+#9 17.59 Setting up libgssapi-krb5-2:arm64 (1.21.3-5+deb13u1) ...
+#9 17.59 Setting up libharfbuzz0b:arm64 (10.2.0-1+deb13u1) ...
+#9 17.59 Setting up libfontconfig1:arm64 (2.15.0-2.3) ...
+#9 17.60 Setting up libarchive13t64:arm64 (3.7.4-4+deb13u1) ...
+#9 17.60 Setting up libgnutls30t64:arm64 (3.8.9-3+deb13u4) ...
+#9 17.60 Setting up fontconfig (2.15.0-2.3) ...
+#9 17.60 Regenerating fonts cache... done.
+#9 19.62 Setting up libpango-1.0-0:arm64 (1.56.3-1) ...
+#9 19.63 Setting up libpsl5t64:arm64 (0.21.2-1.1+b1) ...
+#9 19.63 Setting up libcairo2:arm64 (1.18.4-1+b1) ...
+#9 19.64 Setting up librtmp1:arm64 (2.4+20151223.gitfa8646d.1-2+b5) ...
+#9 19.64 Setting up libpangoft2-1.0-0:arm64 (1.56.3-1) ...
+#9 19.65 Setting up libpangocairo-1.0-0:arm64 (1.56.3-1) ...
+#9 19.65 Setting up libcurl4t64:arm64 (8.14.1-2+deb13u5) ...
+#9 19.66 Setting up libtesseract5:arm64 (5.5.0-1+b1) ...
+#9 19.66 Setting up curl (8.14.1-2+deb13u5) ...
+#9 19.66 Setting up tesseract-ocr (5.5.0-1+b1) ...
+#9 19.67 Processing triggers for libc-bin (2.41-12+deb13u4) ...
+#9 21.10 Hit:1 http://deb.debian.org/debian trixie InRelease
+#9 21.13 Hit:2 http://deb.debian.org/debian trixie-updates InRelease
+#9 21.16 Hit:3 http://deb.debian.org/debian-security trixie-security InRelease
+#9 22.12 Get:4 https://apt.postgresql.org/pub/repos/apt trixie-pgdg InRelease [241 kB]
+#9 22.33 Get:5 https://apt.postgresql.org/pub/repos/apt trixie-pgdg/main arm64 Packages [909 kB]
+#9 22.87 Fetched 1150 kB in 2s (616 kB/s)
+#9 22.87 Reading package lists...
+#9 23.24 Reading package lists...
+#9 23.55 Building dependency tree...
+#9 23.63 Reading state information...
+#9 23.75 The following additional packages will be installed:
+#9 23.75   libgdbm-compat4t64 libperl5.40 libpq5 perl perl-modules-5.40
+#9 23.75   postgresql-client-common sensible-utils
+#9 23.75 Suggested packages:
+#9 23.75   libpq-oauth perl-doc libterm-readline-gnu-perl | libterm-readline-perl-perl
+#9 23.75   make libtap-harness-archive-perl postgresql-16 postgresql-doc-16
+#9 23.80 The following NEW packages will be installed:
+#9 23.80   libgdbm-compat4t64 libperl5.40 libpq5 perl perl-modules-5.40
+#9 23.80   postgresql-client-16 postgresql-client-common sensible-utils
+#9 23.89 0 upgraded, 8 newly installed, 0 to remove and 0 not upgraded.
+#9 23.89 Need to get 9725 kB of archives.
+#9 23.89 After this operation, 65.4 MB of additional disk space will be used.
+#9 23.89 Get:1 http://deb.debian.org/debian trixie/main arm64 sensible-utils all 0.0.25 [25.0 kB]
+#9 23.94 Get:2 http://deb.debian.org/debian trixie/main arm64 perl-modules-5.40 all 5.40.1-6+deb13u1 [3014 kB]
+#9 23.94 Get:3 https://apt.postgresql.org/pub/repos/apt trixie-pgdg/main arm64 libpq5 arm64 18.6-1.pgdg13+2 [258 kB]
+#9 24.25 Get:4 https://apt.postgresql.org/pub/repos/apt trixie-pgdg/main arm64 postgresql-client-common all 293.pgdg13+1 [48.5 kB]
+#9 24.30 Get:5 https://apt.postgresql.org/pub/repos/apt trixie-pgdg/main arm64 postgresql-client-16 arm64 16.15-1.pgdg13+2 [1923 kB]
+#9 24.72 Get:6 http://deb.debian.org/debian trixie/main arm64 libgdbm-compat4t64 arm64 1.24-2 [50.3 kB]
+#9 24.73 Get:7 http://deb.debian.org/debian trixie/main arm64 libperl5.40 arm64 5.40.1-6+deb13u1 [4138 kB]
+#9 25.34 Get:8 http://deb.debian.org/debian trixie/main arm64 perl arm64 5.40.1-6+deb13u1 [268 kB]
+#9 25.92 debconf: unable to initialize frontend: Dialog
+#9 25.92 debconf: (TERM is not set, so the dialog frontend is not usable.)
+#9 25.92 debconf: falling back to frontend: Readline
+#9 25.92 debconf: unable to initialize frontend: Readline
+#9 25.92 debconf: (Can't locate Term/ReadLine.pm in @INC (you may need to install the Term::ReadLine module) (@INC entries checked: /etc/perl /usr/local/lib/aarch64-linux-gnu/perl/5.40.1 /usr/local/share/perl/5.40.1 /usr/lib/aarch64-linux-gnu/perl5/5.40 /usr/share/perl5 /usr/lib/aarch64-linux-gnu/perl-base /usr/lib/aarch64-linux-gnu/perl/5.40 /usr/share/perl/5.40 /usr/local/lib/site_perl) at /usr/share/perl5/Debconf/FrontEnd/Readline.pm line 8, <STDIN> line 8.)
+#9 25.92 debconf: falling back to frontend: Teletype
+#9 25.93 debconf: unable to initialize frontend: Teletype
+#9 25.93 debconf: (This frontend requires a controlling tty.)
+#9 25.93 debconf: falling back to frontend: Noninteractive
+#9 26.27 Fetched 9725 kB in 2s (4797 kB/s)
+#9 26.28 Selecting previously unselected package sensible-utils.
+#9 26.28 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 6692 files and directories currently installed.)
+#9 26.29 Preparing to unpack .../0-sensible-utils_0.0.25_all.deb ...
+#9 26.29 Unpacking sensible-utils (0.0.25) ...
+#9 26.30 Selecting previously unselected package perl-modules-5.40.
+#9 26.30 Preparing to unpack .../1-perl-modules-5.40_5.40.1-6+deb13u1_all.deb ...
+#9 26.30 Unpacking perl-modules-5.40 (5.40.1-6+deb13u1) ...
+#9 26.51 Selecting previously unselected package libgdbm-compat4t64:arm64.
+#9 26.51 Preparing to unpack .../2-libgdbm-compat4t64_1.24-2_arm64.deb ...
+#9 26.52 Unpacking libgdbm-compat4t64:arm64 (1.24-2) ...
+#9 26.53 Selecting previously unselected package libperl5.40:arm64.
+#9 26.53 Preparing to unpack .../3-libperl5.40_5.40.1-6+deb13u1_arm64.deb ...
+#9 26.54 Unpacking libperl5.40:arm64 (5.40.1-6+deb13u1) ...
+#9 26.77 Selecting previously unselected package perl.
+#9 26.77 Preparing to unpack .../4-perl_5.40.1-6+deb13u1_arm64.deb ...
+#9 26.77 Unpacking perl (5.40.1-6+deb13u1) ...
+#9 26.80 Selecting previously unselected package libpq5:arm64.
+#9 26.80 Preparing to unpack .../5-libpq5_18.6-1.pgdg13+2_arm64.deb ...
+#9 26.80 Unpacking libpq5:arm64 (18.6-1.pgdg13+2) ...
+#9 26.83 Selecting previously unselected package postgresql-client-common.
+#9 26.84 Preparing to unpack .../6-postgresql-client-common_293.pgdg13+1_all.deb ...
+#9 26.84 Unpacking postgresql-client-common (293.pgdg13+1) ...
+#9 26.85 Selecting previously unselected package postgresql-client-16.
+#9 26.85 Preparing to unpack .../7-postgresql-client-16_16.15-1.pgdg13+2_arm64.deb ...
+#9 26.85 Unpacking postgresql-client-16 (16.15-1.pgdg13+2) ...
+#9 26.96 Setting up libgdbm-compat4t64:arm64 (1.24-2) ...
+#9 26.97 Setting up libpq5:arm64 (18.6-1.pgdg13+2) ...
+#9 26.97 Setting up perl-modules-5.40 (5.40.1-6+deb13u1) ...
+#9 26.97 Setting up sensible-utils (0.0.25) ...
+#9 26.97 Setting up libperl5.40:arm64 (5.40.1-6+deb13u1) ...
+#9 26.98 Setting up perl (5.40.1-6+deb13u1) ...
+#9 26.98 Setting up postgresql-client-common (293.pgdg13+1) ...
+#9 26.99 Setting up postgresql-client-16 (16.15-1.pgdg13+2) ...
+#9 27.14 update-alternatives: using /usr/share/postgresql/16/man/man1/psql.1.gz to provide /usr/share/man/man1/psql.1.gz (psql.1.gz) in auto mode
+#9 27.16 Processing triggers for libc-bin (2.41-12+deb13u4) ...
+#9 DONE 27.4s
+
+#10 [ 5/11] COPY requirements.txt .
+#10 DONE 0.0s
+
+#11 [ 6/11] RUN pip install --no-cache-dir -r requirements.txt
+#11 1.026 Collecting fastapi==0.141.1 (from -r requirements.txt (line 1))
+#11 1.216   Downloading fastapi-0.141.1-py3-none-any.whl.metadata (27 kB)
+#11 1.292 Collecting starlette==1.3.1 (from -r requirements.txt (line 2))
+#11 1.387   Downloading starlette-1.3.1-py3-none-any.whl.metadata (6.4 kB)
+#11 1.491 Collecting uvicorn==0.35.0 (from uvicorn[standard]==0.35.0->-r requirements.txt (line 3))
+#11 1.533   Downloading uvicorn-0.35.0-py3-none-any.whl.metadata (6.5 kB)
+#11 1.604 Collecting httpx==0.28.1 (from -r requirements.txt (line 4))
+#11 1.654   Downloading httpx-0.28.1-py3-none-any.whl.metadata (7.1 kB)
+#11 1.707 Collecting python-dotenv==1.2.3 (from -r requirements.txt (line 5))
+#11 1.741   Downloading python_dotenv-1.2.3-py3-none-any.whl.metadata (29 kB)
+#11 2.738 Collecting cryptography==50.0.1 (from -r requirements.txt (line 6))
+#11 2.773   Downloading cryptography-50.0.1-cp311-abi3-manylinux_2_34_aarch64.whl.metadata (4.3 kB)
+#11 2.844 Collecting pypdf==6.19.0 (from -r requirements.txt (line 7))
+#11 2.879   Downloading pypdf-6.19.0-py3-none-any.whl.metadata (7.5 kB)
+#11 2.941 Collecting python-docx==1.2.0 (from -r requirements.txt (line 8))
+#11 2.971   Downloading python_docx-1.2.0-py3-none-any.whl.metadata (2.0 kB)
+#11 3.039 Collecting openpyxl==3.1.5 (from -r requirements.txt (line 9))
+#11 3.091   Downloading openpyxl-3.1.5-py2.py3-none-any.whl.metadata (2.5 kB)
+#11 3.146 Collecting python-pptx==1.0.2 (from -r requirements.txt (line 10))
+#11 3.182   Downloading python_pptx-1.0.2-py3-none-any.whl.metadata (2.5 kB)
+#11 3.485 Collecting Pillow==12.3.0 (from -r requirements.txt (line 11))
+#11 3.589   Downloading pillow-12.3.0-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl.metadata (9.1 kB)
+#11 3.653 Collecting defusedxml==0.7.1 (from -r requirements.txt (line 12))
+#11 3.706   Downloading defusedxml-0.7.1-py2.py3-none-any.whl.metadata (32 kB)
+#11 3.996 Collecting pytesseract==0.3.13 (from -r requirements.txt (line 13))
+#11 4.054   Downloading pytesseract-0.3.13-py3-none-any.whl.metadata (11 kB)
+#11 4.336 Collecting SQLAlchemy==2.0.54 (from -r requirements.txt (line 14))
+#11 4.382   Downloading sqlalchemy-2.0.54-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl.metadata (9.7 kB)
+#11 4.680 Collecting alembic==1.18.5 (from -r requirements.txt (line 15))
+#11 4.710   Downloading alembic-1.18.5-py3-none-any.whl.metadata (7.2 kB)
+#11 4.842 Collecting psycopg==3.3.6 (from psycopg[binary]==3.3.6->-r requirements.txt (line 16))
+#11 4.874   Downloading psycopg-3.3.6-py3-none-any.whl.metadata (4.4 kB)
+#11 4.953 Collecting redis==8.1.0 (from -r requirements.txt (line 17))
+#11 4.981   Downloading redis-8.1.0-py3-none-any.whl.metadata (16 kB)
+#11 5.038 Collecting prometheus-client==0.25.0 (from -r requirements.txt (line 18))
+#11 5.070   Downloading prometheus_client-0.25.0-py3-none-any.whl.metadata (2.1 kB)
+#11 5.199 Collecting psutil==7.2.2 (from -r requirements.txt (line 19))
+#11 5.234   Downloading psutil-7.2.2-cp36-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl.metadata (22 kB)
+#11 5.389 Collecting pydantic>=2.9.0 (from fastapi==0.141.1->-r requirements.txt (line 1))
+#11 5.423   Downloading pydantic-2.14.1-py3-none-any.whl.metadata (133 kB)
+#11 5.509 Collecting typing-extensions>=4.8.0 (from fastapi==0.141.1->-r requirements.txt (line 1))
+#11 5.550   Downloading typing_extensions-4.16.0-py3-none-any.whl.metadata (3.3 kB)
+#11 5.599 Collecting typing-inspection>=0.4.2 (from fastapi==0.141.1->-r requirements.txt (line 1))
+#11 5.639   Downloading typing_inspection-0.4.4-py3-none-any.whl.metadata (2.6 kB)
+#11 5.672 Collecting annotated-doc>=0.0.2 (from fastapi==0.141.1->-r requirements.txt (line 1))
+#11 5.706   Downloading annotated_doc-0.0.5-py3-none-any.whl.metadata (6.5 kB)
+#11 5.751 Collecting anyio<5,>=3.6.2 (from starlette==1.3.1->-r requirements.txt (line 2))
+#11 5.793   Downloading anyio-4.15.1-py3-none-any.whl.metadata (4.7 kB)
+#11 5.874 Collecting click>=7.0 (from uvicorn==0.35.0->uvicorn[standard]==0.35.0->-r requirements.txt (line 3))
+#11 5.910   Downloading click-8.5.0-py3-none-any.whl.metadata (2.6 kB)
+#11 5.945 Collecting h11>=0.8 (from uvicorn==0.35.0->uvicorn[standard]==0.35.0->-r requirements.txt (line 3))
+#11 5.977   Downloading h11-0.16.0-py3-none-any.whl.metadata (8.3 kB)
+#11 6.032 Collecting certifi (from httpx==0.28.1->-r requirements.txt (line 4))
+#11 6.075   Downloading certifi-2026.7.22-py3-none-any.whl.metadata (2.5 kB)
+#11 6.171 Collecting httpcore==1.* (from httpx==0.28.1->-r requirements.txt (line 4))
+#11 6.211   Downloading httpcore-1.0.9-py3-none-any.whl.metadata (21 kB)
+#11 6.316 Collecting idna (from httpx==0.28.1->-r requirements.txt (line 4))
+#11 6.349   Downloading idna-3.20-py3-none-any.whl.metadata (7.2 kB)
+#11 6.474 Collecting cffi>=2.0.0 (from cryptography==50.0.1->-r requirements.txt (line 6))
+#11 6.502   Downloading cffi-2.1.1-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.whl.metadata (2.5 kB)
+#11 6.769 Collecting lxml>=3.1.0 (from python-docx==1.2.0->-r requirements.txt (line 8))
+#11 6.803   Downloading lxml-6.1.3-cp312-cp312-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl.metadata (3.3 kB)
+#11 6.839 Collecting et-xmlfile (from openpyxl==3.1.5->-r requirements.txt (line 9))
+#11 6.973   Downloading et_xmlfile-2.0.0-py3-none-any.whl.metadata (2.7 kB)
+#11 7.063 Collecting XlsxWriter>=0.5.7 (from python-pptx==1.0.2->-r requirements.txt (line 10))
+#11 7.095   Downloading xlsxwriter-3.2.9-py3-none-any.whl.metadata (2.7 kB)
+#11 7.175 Collecting packaging>=21.3 (from pytesseract==0.3.13->-r requirements.txt (line 13))
+#11 7.215   Downloading packaging-26.3-py3-none-any.whl.metadata (3.5 kB)
+#11 7.498 Collecting greenlet>=1 (from SQLAlchemy==2.0.54->-r requirements.txt (line 14))
+#11 7.522   Downloading greenlet-3.5.6-cp312-cp312-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl.metadata (3.8 kB)
+#11 7.583 Collecting Mako (from alembic==1.18.5->-r requirements.txt (line 15))
+#11 7.609   Downloading mako-1.4.3-py3-none-any.whl.metadata (2.9 kB)
+#11 7.799 Collecting psycopg-binary==3.3.6 (from psycopg[binary]==3.3.6->-r requirements.txt (line 16))
+#11 7.834   Downloading psycopg_binary-3.3.6-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl.metadata (2.7 kB)
+#11 7.947 Collecting httptools>=0.6.3 (from uvicorn[standard]==0.35.0->-r requirements.txt (line 3))
+#11 7.983   Downloading httptools-0.9.0-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl.metadata (3.5 kB)
+#11 8.079 Collecting pyyaml>=5.1 (from uvicorn[standard]==0.35.0->-r requirements.txt (line 3))
+#11 8.123   Downloading pyyaml-6.0.3-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl.metadata (2.4 kB)
+#11 8.192 Collecting uvloop>=0.15.1 (from uvicorn[standard]==0.35.0->-r requirements.txt (line 3))
+#11 8.236   Downloading uvloop-0.23.0-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl.metadata (5.1 kB)
+#11 8.373 Collecting watchfiles>=0.13 (from uvicorn[standard]==0.35.0->-r requirements.txt (line 3))
+#11 8.399   Downloading watchfiles-1.3.0-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl.metadata (4.9 kB)
+#11 8.511 Collecting websockets>=10.4 (from uvicorn[standard]==0.35.0->-r requirements.txt (line 3))
+#11 8.556   Downloading websockets-17.2-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl.metadata (6.3 kB)
+#11 8.634 Collecting pycparser (from cffi>=2.0.0->cryptography==50.0.1->-r requirements.txt (line 6))
+#11 8.663   Downloading pycparser-3.11-py3-none-any.whl.metadata (8.2 kB)
+#11 8.720 Collecting annotated-types>=0.6.0 (from pydantic>=2.9.0->fastapi==0.141.1->-r requirements.txt (line 1))
+#11 8.751   Downloading annotated_types-0.8.0-py3-none-any.whl.metadata (15 kB)
+#11 9.332 Collecting pydantic-core==2.50.1 (from pydantic>=2.9.0->fastapi==0.141.1->-r requirements.txt (line 1))
+#11 9.369   Downloading pydantic_core-2.50.1-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl.metadata (6.5 kB)
+#11 9.463 Collecting MarkupSafe>=2.0 (from Mako->alembic==1.18.5->-r requirements.txt (line 15))
+#11 9.494   Downloading markupsafe-3.0.4-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl.metadata (2.7 kB)
+#11 9.521 Downloading fastapi-0.141.1-py3-none-any.whl (131 kB)
+#11 9.559 Downloading starlette-1.3.1-py3-none-any.whl (73 kB)
+#11 9.601 Downloading uvicorn-0.35.0-py3-none-any.whl (66 kB)
+#11 9.646 Downloading httpx-0.28.1-py3-none-any.whl (73 kB)
+#11 9.693 Downloading python_dotenv-1.2.3-py3-none-any.whl (22 kB)
+#11 9.731 Downloading cryptography-50.0.1-cp311-abi3-manylinux_2_34_aarch64.whl (4.7 MB)
+#11 10.48    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 4.7/4.7 MB 6.4 MB/s eta 0:00:00
+#11 10.52 Downloading pypdf-6.19.0-py3-none-any.whl (395 kB)
+#11 10.67 Downloading python_docx-1.2.0-py3-none-any.whl (252 kB)
+#11 10.76 Downloading openpyxl-3.1.5-py2.py3-none-any.whl (250 kB)
+#11 10.86 Downloading python_pptx-1.0.2-py3-none-any.whl (472 kB)
+#11 10.96 Downloading pillow-12.3.0-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl (6.3 MB)
+#11 11.81    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 6.3/6.3 MB 7.5 MB/s eta 0:00:00
+#11 11.85 Downloading defusedxml-0.7.1-py2.py3-none-any.whl (25 kB)
+#11 11.89 Downloading pytesseract-0.3.13-py3-none-any.whl (14 kB)
+#11 11.93 Downloading sqlalchemy-2.0.54-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl (3.4 MB)
+#11 12.32    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 3.4/3.4 MB 9.0 MB/s eta 0:00:00
+#11 12.37 Downloading alembic-1.18.5-py3-none-any.whl (264 kB)
+#11 12.48 Downloading psycopg-3.3.6-py3-none-any.whl (215 kB)
+#11 12.56 Downloading redis-8.1.0-py3-none-any.whl (560 kB)
+#11 12.65    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 560.6/560.6 kB 6.8 MB/s eta 0:00:00
+#11 12.68 Downloading prometheus_client-0.25.0-py3-none-any.whl (64 kB)
+#11 12.75 Downloading psutil-7.2.2-cp36-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl (156 kB)
+#11 12.80 Downloading httpcore-1.0.9-py3-none-any.whl (78 kB)
+#11 12.87 Downloading psycopg_binary-3.3.6-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl (6.8 MB)
+#11 13.67    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 6.8/6.8 MB 8.6 MB/s eta 0:00:00
+#11 13.82 Downloading annotated_doc-0.0.5-py3-none-any.whl (5.3 kB)
+#11 13.86 Downloading anyio-4.15.1-py3-none-any.whl (132 kB)
+#11 13.91 Downloading cffi-2.1.1-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.whl (222 kB)
+#11 13.99 Downloading click-8.5.0-py3-none-any.whl (125 kB)
+#11 14.06 Downloading greenlet-3.5.6-cp312-cp312-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl (611 kB)
+#11 14.12    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 611.7/611.7 kB 9.3 MB/s eta 0:00:00
+#11 14.18 Downloading h11-0.16.0-py3-none-any.whl (37 kB)
+#11 14.21 Downloading httptools-0.9.0-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl (549 kB)
+#11 14.28    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 549.2/549.2 kB 11.0 MB/s eta 0:00:00
+#11 14.30 Downloading idna-3.20-py3-none-any.whl (69 kB)
+#11 14.44 Downloading lxml-6.1.3-cp312-cp312-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl (5.0 MB)
+#11 14.97    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 5.0/5.0 MB 9.2 MB/s eta 0:00:00
+#11 15.04 Downloading packaging-26.3-py3-none-any.whl (129 kB)
+#11 15.10 Downloading pydantic-2.14.1-py3-none-any.whl (488 kB)
+#11 15.20 Downloading pydantic_core-2.50.1-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl (2.0 MB)
+#11 15.41    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.0/2.0 MB 10.0 MB/s eta 0:00:00
+#11 15.47 Downloading pyyaml-6.0.3-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl (775 kB)
+#11 15.57    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 775.1/775.1 kB 8.9 MB/s eta 0:00:00
+#11 15.60 Downloading typing_extensions-4.16.0-py3-none-any.whl (45 kB)
+#11 15.63 Downloading typing_inspection-0.4.4-py3-none-any.whl (14 kB)
+#11 15.68 Downloading uvloop-0.23.0-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl (4.4 MB)
+#11 16.12    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 4.4/4.4 MB 10.1 MB/s eta 0:00:00
+#11 16.16 Downloading watchfiles-1.3.0-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl (454 kB)
+#11 16.25 Downloading websockets-17.2-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl (226 kB)
+#11 16.32 Downloading xlsxwriter-3.2.9-py3-none-any.whl (175 kB)
+#11 16.54 Downloading certifi-2026.7.22-py3-none-any.whl (136 kB)
+#11 16.59 Downloading et_xmlfile-2.0.0-py3-none-any.whl (18 kB)
+#11 16.64 Downloading mako-1.4.3-py3-none-any.whl (80 kB)
+#11 16.68 Downloading annotated_types-0.8.0-py3-none-any.whl (13 kB)
+#11 16.71 Downloading markupsafe-3.0.4-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl (24 kB)
+#11 16.76 Downloading pycparser-3.11-py3-none-any.whl (51 kB)
+#11 16.89 Installing collected packages: XlsxWriter, websockets, uvloop, typing-extensions, redis, pyyaml, python-dotenv, pypdf, pycparser, psycopg-binary, psutil, prometheus-client, Pillow, packaging, MarkupSafe, lxml, idna, httptools, h11, greenlet, et-xmlfile, defusedxml, click, certifi, annotated-types, annotated-doc, uvicorn, typing-inspection, SQLAlchemy, python-pptx, python-docx, pytesseract, pydantic-core, psycopg, openpyxl, Mako, httpcore, cffi, anyio, watchfiles, starlette, pydantic, httpx, cryptography, alembic, fastapi
+#11 19.86 Successfully installed Mako-1.4.3 MarkupSafe-3.0.4 Pillow-12.3.0 SQLAlchemy-2.0.54 XlsxWriter-3.2.9 alembic-1.18.5 annotated-doc-0.0.5 annotated-types-0.8.0 anyio-4.15.1 certifi-2026.7.22 cffi-2.1.1 click-8.5.0 cryptography-50.0.1 defusedxml-0.7.1 et-xmlfile-2.0.0 fastapi-0.141.1 greenlet-3.5.6 h11-0.16.0 httpcore-1.0.9 httptools-0.9.0 httpx-0.28.1 idna-3.20 lxml-6.1.3 openpyxl-3.1.5 packaging-26.3 prometheus-client-0.25.0 psutil-7.2.2 psycopg-3.3.6 psycopg-binary-3.3.6 pycparser-3.11 pydantic-2.14.1 pydantic-core-2.50.1 pypdf-6.19.0 pytesseract-0.3.13 python-docx-1.2.0 python-dotenv-1.2.3 python-pptx-1.0.2 pyyaml-6.0.3 redis-8.1.0 starlette-1.3.1 typing-extensions-4.16.0 typing-inspection-0.4.4 uvicorn-0.35.0 uvloop-0.23.0 watchfiles-1.3.0 websockets-17.2
+#11 19.86 WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+#11 20.11 
+#11 20.11 [notice] A new release of pip is available: 25.0.1 -> 26.2.1
+#11 20.11 [notice] To update, run: pip install --upgrade pip
+#11 DONE 20.5s
+
+#12 [ 7/11] COPY app ./app
+#12 DONE 0.0s
+
+#13 [ 8/11] COPY scripts/migrate_sqlite_to_postgres.py ./scripts/migrate_sqlite_to_postgres.py
+#13 DONE 0.0s
+
+#14 [ 9/11] COPY migrations ./migrations
+#14 DONE 0.0s
+
+#15 [10/11] COPY alembic.ini ./alembic.ini
+#15 DONE 0.0s
+
+#16 [11/11] RUN mkdir -p /state && chown -R concierge:concierge /state
+#16 DONE 0.1s
+
+#17 exporting to image
+#17 exporting layers
+#17 exporting layers 4.6s done
+#17 exporting manifest sha256:dda64fe7337aecac8ef01b0f83e8ff333aa905aaf9763ccf7de64577eec08d4c done
+#17 exporting config sha256:9619e953c496448fa5c240f0d8c7af87af5a563cc6192b750a9969865c2934dd done
+#17 exporting attestation manifest sha256:b124d65f8073fed9eb0ae7a6d857fdebb4f684465d1df218065eb2d0a7e8ea18 done
+#17 exporting manifest list sha256:f277c667243b0baca6dfa9a84295fb5f3b88e17d4f446f028fa0e999a60620b8 done
+#17 naming to docker.io/library/concierge-ai:phase6-local done
+#17 unpacking to docker.io/library/concierge-ai:phase6-local
+#17 unpacking to docker.io/library/concierge-ai:phase6-local 1.7s done
+#17 DONE 6.3s
+
+#18 resolving provenance for metadata file
+#18 DONE 0.1s
+ Image concierge-ai:phase6-local Built 

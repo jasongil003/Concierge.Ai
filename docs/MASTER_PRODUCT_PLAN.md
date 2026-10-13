@@ -13,6 +13,8 @@ Concierge.Ai is evolving from an on-prem Wi-Fi concierge prototype into a commer
 
 ## Current Implementation Status
 
+As of 2026-10-12, consult the [master acceptance matrix](../audit/MASTER_FEATURE_ACCEPTANCE_MATRIX.md) and [gap analysis](../audit/MASTER_PRODUCT_GAP_ANALYSIS.md) for requirement-level acceptance. The implemented foundations below do not mean every planned feature is complete. Production hardware, live integrations and capacity remain acceptance gates. OAuth, semantic retrieval, currency budgets, Lottie, pagination, and a complete scheduled notification delivery engine remain software gaps.
+
 Implemented foundations:
 
 - Zones, floors, floor maps, AP mapping, guest-safe routes, and deterministic navigation graph
@@ -34,7 +36,7 @@ Hardware and integration validation still required:
 - PMS stay/check-in/checkout events
 - Production weather provider
 - Production notification delivery channel
-- Production RBAC and admin authentication
+- Production deployment acceptance of implemented RBAC and admin authentication
 
 ## Implementation Order
 

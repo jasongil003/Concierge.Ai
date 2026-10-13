@@ -1,0 +1,151 @@
+FFF                                                                      [100%]------------------ Persistent SQLite safety check: unchanged -------------------
+/Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/state/concierge.db: (8544256, 1791281898673543275, 'a682599b6e28da3051909d14d0018bf8825e80d663607ae579af35347f980e78')
+/Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/state/concierge.db-journal: None
+/Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/state/concierge.db-shm: None
+/Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/state/concierge.db-wal: None
+
+=================================== FAILURES ===================================
+_________ test_application_cannot_take_the_trusted_proxy_address[None] _________
+
+tmp_path = PosixPath('/private/var/folders/t4/0brnbbsj0js3p7878b0_38yc0000gq/T/pytest-of-jasongil/pytest-75/test_application_cannot_take_t0')
+overlay = None
+
+    @pytest.mark.parametrize("overlay", [None, "scripts/phase6/docker-compose.overlay.yml", "docker-compose.load.yml"])
+    def test_application_cannot_take_the_trusted_proxy_address(tmp_path: Path, overlay):
+        docker = shutil.which("docker")
+        if docker is None:
+            pytest.skip("Docker CLI unavailable for Compose rendering acceptance")
+        configuration = tmp_path / "synthetic.env"
+        configuration.write_text("\n".join([
+            f"CONCIERGE_CONFIG_FILE={configuration}",
+            f"CONCIERGE_BACKUP_DIR={tmp_path / 'backups'}",
+            "CREDENTIAL_ENCRYPTION_SECRET=ComposeTestOnly-Encryption-1234567890",
+            "METRICS_TOKEN=ComposeTestOnly-Metrics-1234567890",
+            "CANONICAL_HOSTS=localhost",
+            "PUBLIC_BASE_URL=https://localhost",
+            "ADMIN_ALLOWED_CIDRS=127.0.0.1/32",
+        ]) + "\n", encoding="utf-8")
+        command = [docker, "compose", "--project-name", "concierge-address-regression", "--env-file", str(configuration), "-f", "docker-compose.yml"]
+        if overlay:
+            command.extend(["-f", overlay])
+        command.extend(["config", "--format", "json"])
+        environment = {"PATH": os.environ.get("PATH", "/usr/bin:/bin")}
+        if os.environ.get("DOCKER_CONFIG"):
+            environment["DOCKER_CONFIG"] = os.environ["DOCKER_CONFIG"]
+        result = subprocess.run(command, cwd=ROOT, env=environment, capture_output=True, text=True, check=False)
+        assert result.returncode == 0, result.stderr
+        services = json.loads(result.stdout)["services"]
+        app_networks = services["concierge"]["networks"]
+        proxy_networks = services["proxy"]["networks"]
+        common = set(app_networks) & set(proxy_networks)
+        assert len(common) == 1
+        frontend = common.pop()
+        assert proxy_networks[frontend]["ipv4_address"] == "172.29.0.2"
+>       assert (app_networks[frontend] or {}).get("ipv4_address") == "172.29.0.3", "Dynamic app allocation can claim the trusted proxy address before proxy startup"
+E       AssertionError: Dynamic app allocation can claim the trusted proxy address before proxy startup
+E       assert None == '172.29.0.3'
+E        +  where None = <built-in method get of dict object at 0x10bf69c80>('ipv4_address')
+E        +    where <built-in method get of dict object at 0x10bf69c80> = (None or {}).get
+
+tests/test_compose_proxy_address_isolation.py:46: AssertionError
+_ test_application_cannot_take_the_trusted_proxy_address[scripts/phase6/docker-compose.overlay.yml] _
+
+tmp_path = PosixPath('/private/var/folders/t4/0brnbbsj0js3p7878b0_38yc0000gq/T/pytest-of-jasongil/pytest-75/test_application_cannot_take_t1')
+overlay = 'scripts/phase6/docker-compose.overlay.yml'
+
+    @pytest.mark.parametrize("overlay", [None, "scripts/phase6/docker-compose.overlay.yml", "docker-compose.load.yml"])
+    def test_application_cannot_take_the_trusted_proxy_address(tmp_path: Path, overlay):
+        docker = shutil.which("docker")
+        if docker is None:
+            pytest.skip("Docker CLI unavailable for Compose rendering acceptance")
+        configuration = tmp_path / "synthetic.env"
+        configuration.write_text("\n".join([
+            f"CONCIERGE_CONFIG_FILE={configuration}",
+            f"CONCIERGE_BACKUP_DIR={tmp_path / 'backups'}",
+            "CREDENTIAL_ENCRYPTION_SECRET=ComposeTestOnly-Encryption-1234567890",
+            "METRICS_TOKEN=ComposeTestOnly-Metrics-1234567890",
+            "CANONICAL_HOSTS=localhost",
+            "PUBLIC_BASE_URL=https://localhost",
+            "ADMIN_ALLOWED_CIDRS=127.0.0.1/32",
+        ]) + "\n", encoding="utf-8")
+        command = [docker, "compose", "--project-name", "concierge-address-regression", "--env-file", str(configuration), "-f", "docker-compose.yml"]
+        if overlay:
+            command.extend(["-f", overlay])
+        command.extend(["config", "--format", "json"])
+        environment = {"PATH": os.environ.get("PATH", "/usr/bin:/bin")}
+        if os.environ.get("DOCKER_CONFIG"):
+            environment["DOCKER_CONFIG"] = os.environ["DOCKER_CONFIG"]
+        result = subprocess.run(command, cwd=ROOT, env=environment, capture_output=True, text=True, check=False)
+        assert result.returncode == 0, result.stderr
+        services = json.loads(result.stdout)["services"]
+        app_networks = services["concierge"]["networks"]
+        proxy_networks = services["proxy"]["networks"]
+        common = set(app_networks) & set(proxy_networks)
+        assert len(common) == 1
+        frontend = common.pop()
+        assert proxy_networks[frontend]["ipv4_address"] == "172.29.0.2"
+>       assert (app_networks[frontend] or {}).get("ipv4_address") == "172.29.0.3", "Dynamic app allocation can claim the trusted proxy address before proxy startup"
+E       AssertionError: Dynamic app allocation can claim the trusted proxy address before proxy startup
+E       assert None == '172.29.0.3'
+E        +  where None = <built-in method get of dict object at 0x10bf9ca80>('ipv4_address')
+E        +    where <built-in method get of dict object at 0x10bf9ca80> = (None or {}).get
+
+tests/test_compose_proxy_address_isolation.py:46: AssertionError
+_ test_application_cannot_take_the_trusted_proxy_address[docker-compose.load.yml] _
+
+tmp_path = PosixPath('/private/var/folders/t4/0brnbbsj0js3p7878b0_38yc0000gq/T/pytest-of-jasongil/pytest-75/test_application_cannot_take_t2')
+overlay = 'docker-compose.load.yml'
+
+    @pytest.mark.parametrize("overlay", [None, "scripts/phase6/docker-compose.overlay.yml", "docker-compose.load.yml"])
+    def test_application_cannot_take_the_trusted_proxy_address(tmp_path: Path, overlay):
+        docker = shutil.which("docker")
+        if docker is None:
+            pytest.skip("Docker CLI unavailable for Compose rendering acceptance")
+        configuration = tmp_path / "synthetic.env"
+        configuration.write_text("\n".join([
+            f"CONCIERGE_CONFIG_FILE={configuration}",
+            f"CONCIERGE_BACKUP_DIR={tmp_path / 'backups'}",
+            "CREDENTIAL_ENCRYPTION_SECRET=ComposeTestOnly-Encryption-1234567890",
+            "METRICS_TOKEN=ComposeTestOnly-Metrics-1234567890",
+            "CANONICAL_HOSTS=localhost",
+            "PUBLIC_BASE_URL=https://localhost",
+            "ADMIN_ALLOWED_CIDRS=127.0.0.1/32",
+        ]) + "\n", encoding="utf-8")
+        command = [docker, "compose", "--project-name", "concierge-address-regression", "--env-file", str(configuration), "-f", "docker-compose.yml"]
+        if overlay:
+            command.extend(["-f", overlay])
+        command.extend(["config", "--format", "json"])
+        environment = {"PATH": os.environ.get("PATH", "/usr/bin:/bin")}
+        if os.environ.get("DOCKER_CONFIG"):
+            environment["DOCKER_CONFIG"] = os.environ["DOCKER_CONFIG"]
+        result = subprocess.run(command, cwd=ROOT, env=environment, capture_output=True, text=True, check=False)
+        assert result.returncode == 0, result.stderr
+        services = json.loads(result.stdout)["services"]
+        app_networks = services["concierge"]["networks"]
+        proxy_networks = services["proxy"]["networks"]
+        common = set(app_networks) & set(proxy_networks)
+        assert len(common) == 1
+        frontend = common.pop()
+        assert proxy_networks[frontend]["ipv4_address"] == "172.29.0.2"
+>       assert (app_networks[frontend] or {}).get("ipv4_address") == "172.29.0.3", "Dynamic app allocation can claim the trusted proxy address before proxy startup"
+E       AssertionError: Dynamic app allocation can claim the trusted proxy address before proxy startup
+E       assert None == '172.29.0.3'
+E        +  where None = <built-in method get of dict object at 0x10bfd0dc0>('ipv4_address')
+E        +    where <built-in method get of dict object at 0x10bfd0dc0> = (None or {}).get
+
+tests/test_compose_proxy_address_isolation.py:46: AssertionError
+=============================== warnings summary ===============================
+.venv/lib/python3.11/site-packages/fastapi/testclient.py:1
+  /Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/.venv/lib/python3.11/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+.venv/lib/python3.11/site-packages/starlette/testclient.py:53
+  /Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/.venv/lib/python3.11/site-packages/starlette/testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_compose_proxy_address_isolation.py::test_application_cannot_take_the_trusted_proxy_address[None]
+FAILED tests/test_compose_proxy_address_isolation.py::test_application_cannot_take_the_trusted_proxy_address[scripts/phase6/docker-compose.overlay.yml]
+FAILED tests/test_compose_proxy_address_isolation.py::test_application_cannot_take_the_trusted_proxy_address[docker-compose.load.yml]
+3 failed, 2 warnings in 1.01s

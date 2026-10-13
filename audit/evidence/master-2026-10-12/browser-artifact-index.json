@@ -1,0 +1,3695 @@
+{
+  "note": "Raw traces/videos and browser artifact cache remain local, excluded from commits; they can contain temporary synthetic authentication payloads. Committed logs, bounded screenshots and failure records provide reviewable evidence. SHA-256 permits verification of retained local artifacts.",
+  "artifacts": [
+    {
+      "path": "audit/evidence/browser-2026-10-12/.gitignore",
+      "bytes": 144,
+      "sha256": "549211a5b8cfd63c94452bbbae8bc74420e139de45ce3ea7ed9e793903b04465",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/.last-run.json",
+      "bytes": 145,
+      "sha256": "9dc4ed1fccce079b26fb3f26ec4479af425c881424093f4b98650496206b21c7",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-animation-inspector.png",
+      "bytes": 214148,
+      "sha256": "f71edc8872d0349570a6dba0a6d6e7bb8ce57fb34dc4cf2ccf7b184705597be2",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-bottom-navigation-empty.png",
+      "bytes": 205412,
+      "sha256": "3e516f2758072d79be6c44fd2673d7bc4b61b37e2775903870b59665059f67de",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-bottom-navigation-selected.png",
+      "bytes": 238955,
+      "sha256": "c1209590d8ac376b6172c876da43a2cea28131e652cdd4c55e37acbe2be50768",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-button-action-inspector.png",
+      "bytes": 238596,
+      "sha256": "82f0a2eb44237036fb67d1a1579d90921f7a8837efc2b91f99dc516fcedd7970",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-card-item-selected.png",
+      "bytes": 209285,
+      "sha256": "1dc37a2a87d1b5edbfdf505b3ee92cd6c93a5328b756346beaefab67d95883fe",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-component-library.png",
+      "bytes": 224290,
+      "sha256": "27f6be40cc3176dc3bc675ed004aa25ea6edf62a62e70650f492d483ff1bdab3",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-desktop.png",
+      "bytes": 224384,
+      "sha256": "2991a562f44b5b8bb1aeb3adb11ccc259167f747930def0a724b9adae47f0ca3",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-drag-reorder.png",
+      "bytes": 198708,
+      "sha256": "1f61c43e1dc528f5d0033c0f93a0d849b22a685212397b54dee23ce8b609e379",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-drop-indicator-layers.png",
+      "bytes": 205668,
+      "sha256": "c2df0c8e67c4bd48a99b992831f2098d4ab2a5f41fd21b943201181a4a6b4293",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-focus-mode.png",
+      "bytes": 115958,
+      "sha256": "3f9b1fe5c5cdb7f5a5136e4e8e5b62ab7cd4f26e9869f76e6dbd61a2970451ee",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-header-selected.png",
+      "bytes": 211587,
+      "sha256": "5be795233389baf8e14a2763fc1f322c67c6c5b727aff1901310f2c64e7cbea7",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-hero-image.png",
+      "bytes": 234839,
+      "sha256": "67a0a40028954120e18a6062b9018fe2acd6b18cbc2e847bc0c14482c2a98dba",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-hero-selected.png",
+      "bytes": 227309,
+      "sha256": "93cbb96080948b47d9d7b1a54882add5152e5b6d05504cf616a082708a4d6ec5",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-layers.png",
+      "bytes": 204005,
+      "sha256": "7d827ce6a5301033b1d490b6c8bcd52c8ddbd91d7c571547b5e570ba8dcb42d2",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-mobile-canvas.png",
+      "bytes": 218429,
+      "sha256": "201e147691b992108cedd4df901d2759daff4828ff1a878b5dcc52899e22e680",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-mobile-with-custom-footer.png",
+      "bytes": 190102,
+      "sha256": "5947183e01ab07368fd35eba54de0513f6b95844b2d618fdb793f0cd65b04df8",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-mobile-without-footer.png",
+      "bytes": 194573,
+      "sha256": "170844e6bd212d2bb64bc0bb387dd4ca862960220f52d7ae874099072640e60f",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-navigation-item-action-inspector.png",
+      "bytes": 214992,
+      "sha256": "5b6dbbc0b636d56a2014baf6f763e587cfe78890849a778a7b661cdf8dc9f6de",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-navigation-nested-layers.png",
+      "bytes": 230724,
+      "sha256": "03cec60fea7ef55ac066537a844ba802a968dceef42ed34e84e545fd71da07fa",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-nested-layers.png",
+      "bytes": 250195,
+      "sha256": "4f43ffa2cca7f4902a9ae9192218690f70e24380941ae8494271056dac167af4",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-page-theme.png",
+      "bytes": 212492,
+      "sha256": "59c0ad9e8e6b7a323ae0d804727e5176008f60a6c3dc561cc26bb985bfa48e44",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-property-media-library.png",
+      "bytes": 230136,
+      "sha256": "84f5f74c88b78ad0c49a3b226cb294e92847a5780c01712fcc4da579a18532a0",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-quick-action-selected.png",
+      "bytes": 206813,
+      "sha256": "4f2847c74f66e7288c6ecf4c09d112f8136348b0d4341fe2f3c01ce4fa21a13b",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-quick-actions-selected.png",
+      "bytes": 212215,
+      "sha256": "89aa4e6b33c16f47f680e855fcba18f5c8d835968e4901f720cec51e58c75597",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-quick-actions.png",
+      "bytes": 207161,
+      "sha256": "f9e293e519d25b5e6be99e291e4a771e4866dd326e556b823a64e39b3db5cac1",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-templates.png",
+      "bytes": 228141,
+      "sha256": "067fb18276e835cf3daf6efe0a87989d99f6600e9594b467d7114b4cdc709626",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/guest-Intelligent-UI-prope-90da0-ata-and-keeps-AI-text-inert-chromium/screenshots/conversation-chromium.png",
+      "bytes": 41680,
+      "sha256": "e20644ab7a3f2cade28510a730e614adb24f64ef3368e929904e8cae0cf9c779",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/guest-Intelligent-UI-prope-90da0-ata-and-keeps-AI-text-inert-chromium/screenshots/welcome-chromium.png",
+      "bytes": 51664,
+      "sha256": "1b3520f4f4a1e338a5718580bf022b77c8cf29ab7bdee29a05986b20705da073",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/guest-Intelligent-UI-prope-90da0-ata-and-keeps-AI-text-inert-mobile-chrome/screenshots/conversation-mobile-chrome.png",
+      "bytes": 143843,
+      "sha256": "d6692692e7f9d4f19e41402427d87b5e5fd2247b569afdade6b9d825f1fc464b",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/guest-Intelligent-UI-prope-90da0-ata-and-keeps-AI-text-inert-mobile-chrome/screenshots/welcome-mobile-chrome.png",
+      "bytes": 138069,
+      "sha256": "11ff86a6f43701fb993d3de75331513ef91ba2ff78ce77445b3ce52484401639",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/guest-Intelligent-UI-typed-062a5--and-cancel-and-do-not-book-chromium/screenshots/selection-form-chromium.png",
+      "bytes": 27320,
+      "sha256": "630d54874ec428d3f7b8707a09d1cd239348458b318e5d328a7de2680154bc02",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/guest-Intelligent-UI-typed-062a5--and-cancel-and-do-not-book-chromium/screenshots/selection-review-chromium.png",
+      "bytes": 27127,
+      "sha256": "989928413385e27b2e94ed8637754addb28be7d1aa07362a39f25944b4c2d8e8",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/guest-Intelligent-UI-verif-edf84-kers-and-a-text-alternative-chromium/screenshots/map-chromium.png",
+      "bytes": 15196,
+      "sha256": "a1bb3f1e1b861d1c6cd83841505f2928dab07d0bdb61ff92ff32c9ce9f2e1621",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/guest-guest-empty-property-c1241-ions-and-unsupported-routes-chromium/error-context.md",
+      "bytes": 15060,
+      "sha256": "d112efd4d96bfb530384bfabf61a95e5774cc44e0ba5e312933dc84cf2b3864d",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/guest-guest-empty-property-c1241-ions-and-unsupported-routes-chromium/test-failed-1.png",
+      "bytes": 46890,
+      "sha256": "cae8a5596f2aa7b6f687ce514040946960651d8539fffc9f9094bcad581329b5",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/guest-guest-empty-property-c1241-ions-and-unsupported-routes-chromium/video.webm",
+      "bytes": 147451,
+      "sha256": "eb0705604f18470d62ec50bd3e7a88e545ec3db8f4e9280f42c18e4def684915",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/guest-guest-empty-property-c1241-ions-and-unsupported-routes-mobile-chrome/error-context.md",
+      "bytes": 15060,
+      "sha256": "d112efd4d96bfb530384bfabf61a95e5774cc44e0ba5e312933dc84cf2b3864d",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/guest-guest-empty-property-c1241-ions-and-unsupported-routes-mobile-chrome/test-failed-1.png",
+      "bytes": 112086,
+      "sha256": "22b2b818473773b1150fa7d83924dc1b72a20937d93af9e10c5ec48ee0cd7f13",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/guest-guest-empty-property-c1241-ions-and-unsupported-routes-mobile-chrome/video.webm",
+      "bytes": 156325,
+      "sha256": "b66fbf001fec3b63a6364179f015aa365bbb4cb4b3efa467d2bc998163560e5a",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/guest-guest-property-brand-28592-e-published-property-design-chromium/guest-home-redesign-chromium.png",
+      "bytes": 58691,
+      "sha256": "b63c273864108a6f6d5ebaa7de0849e1751e15541bb5b7169b821fcc7846e7a6",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/accepted-results/guest-guest-property-brand-28592-e-published-property-design-mobile-chrome/guest-home-redesign-mobile-chrome.png",
+      "bytes": 155636,
+      "sha256": "7870e35edf792edf9c43474c2c2205fb0b59ddbd22543432e7d5aaa51f17c29f",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/admin-appearance-1024.png",
+      "bytes": 115572,
+      "sha256": "d0ef4f0e12146110ba12ecd1df91b582314bc1af8d6951008d4a2bb50598f760",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/admin-appearance-1280.png",
+      "bytes": 140204,
+      "sha256": "2c4c89e9c6b5d25ac6b000d67e6fccd372ae97f596533cea5f4948dd757947af",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/admin-appearance-1440.png",
+      "bytes": 178372,
+      "sha256": "52c4b3a9635fb9917eeb97d686e9ee92b0e263dd0996ab9d90429ec5d03e474d",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/admin-appearance-1920.png",
+      "bytes": 224386,
+      "sha256": "a93571250ad277e4f5ee615022bcb1f96b647883d277fb90a7e6fb5f62d168ab",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/admin-appearance-320.png",
+      "bytes": 23058,
+      "sha256": "c176cc26cd03613c4c27f17087f24f20b83388b8567443af74cb11893c38c070",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/admin-appearance-375.png",
+      "bytes": 31714,
+      "sha256": "1ca2d30a4e627a8cf3227456933e8f95e08614624fc0f0e72a84c6ca5861d173",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/admin-appearance-390.png",
+      "bytes": 37277,
+      "sha256": "d4a9cb1a03398f9aae97d32d881d7e81d5875c789bf3d4b2c66c72916916ffc0",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/admin-appearance-430.png",
+      "bytes": 44679,
+      "sha256": "350aa66cf8ec71c3c0faad7b170086e0fc50d65784c3f29d3c94db6834eaa884",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/admin-appearance-768.png",
+      "bytes": 79487,
+      "sha256": "c73d138ba5ee8acc227bfe0678da833e2037926ea21bf9b895a88662138cd649",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/admin-overview-1024.png",
+      "bytes": 106895,
+      "sha256": "97f798b32af0d4f7dd2107781374fd1647d217d546bf8b10d448e4ee9d4ecbdc",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/admin-overview-1280.png",
+      "bytes": 109321,
+      "sha256": "fcd2f3a6feae0bc886b6db3441c8ef53ce7c5135547857854e314e4e858baa87",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/admin-overview-1440.png",
+      "bytes": 115375,
+      "sha256": "3a19074329f4c075a152db907b0f319a402702a88c3d61069222092dbfd6219d",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/admin-overview-1920.png",
+      "bytes": 118430,
+      "sha256": "6341aae04b2f963fdeeaa04c0c1ba5656aaf289f563428d5412d039a35bd2a6a",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/admin-overview-320.png",
+      "bytes": 16197,
+      "sha256": "a2c277d7c4dd75c97af904a3ec3ff0b47053784239c321b1b28c07eb1d42209f",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/admin-overview-375.png",
+      "bytes": 18871,
+      "sha256": "45a7218f9feb54726c269e42b0602a181bb747c4c9f516ed442be5d15797a841",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/admin-overview-390.png",
+      "bytes": 19799,
+      "sha256": "ed7c33e88e8996c5323814ce1e6ef7b6f48ffa032a2dbf9e992090130f543cf3",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/admin-overview-430.png",
+      "bytes": 22708,
+      "sha256": "1dcc4a6a1efe5ddcf1c595d4a1da6e5b6a17407273d43b8245fc6374ab9b9878",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/admin-overview-768.png",
+      "bytes": 87927,
+      "sha256": "99be59e83739282b3a2083529ed8f9b46b1e7cbb6a73fe178726d3e8d5d2551a",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/empty-state-fixed/.last-run.json",
+      "bytes": 45,
+      "sha256": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/empty-state-fixed/guest-guest-empty-property-c1241-ions-and-unsupported-routes-chromium/trace.zip",
+      "bytes": 250151,
+      "sha256": "4a8106dfcf335260d4d3e5a6c65cd15f86b9fabc55e68e25984e8fca8c3774dc",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/empty-state-fixed/guest-guest-empty-property-c1241-ions-and-unsupported-routes-mobile-chrome/trace.zip",
+      "bytes": 244849,
+      "sha256": "401cd9ee5fde63f2e600a022f48f014cc48aef9e1f2972d0c6906ba102146d08",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/empty-state-fixed/guest-guest-home-shows-fou-7d559-supported-routes-in-See-all-chromium/trace.zip",
+      "bytes": 300164,
+      "sha256": "8da96ac6f7ac1412e90bb2c1486dc1fd27345e32b44b0faa4aa7b248988645e2",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/empty-state-fixed/guest-guest-home-shows-fou-7d559-supported-routes-in-See-all-mobile-chrome/trace.zip",
+      "bytes": 480332,
+      "sha256": "4cadfcb16c906066f01ebdd432a5e69c5912217197cdabe76d9b1d106d71aa7b",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/empty-state-fixed/guest-guest-property-brand-28592-e-published-property-design-chromium/guest-home-redesign-chromium.png",
+      "bytes": 58691,
+      "sha256": "b63c273864108a6f6d5ebaa7de0849e1751e15541bb5b7169b821fcc7846e7a6",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/empty-state-fixed/guest-guest-property-brand-28592-e-published-property-design-chromium/trace.zip",
+      "bytes": 384335,
+      "sha256": "c06cfa99a1ce82e22bd3a109e81d71d8cfa2037f25ed6af331a2171ee38bacd2",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/empty-state-fixed/guest-guest-property-brand-28592-e-published-property-design-mobile-chrome/guest-home-redesign-mobile-chrome.png",
+      "bytes": 155636,
+      "sha256": "7870e35edf792edf9c43474c2c2205fb0b59ddbd22543432e7d5aaa51f17c29f",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/empty-state-fixed/guest-guest-property-brand-28592-e-published-property-design-mobile-chrome/trace.zip",
+      "bytes": 513333,
+      "sha256": "b195f0b8dbdab953596dfd41b7e96814a4aacd10da58f7a7e5a6acdd20da863c",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/empty-state-fixed/guest-guest-responsive-she-92ec7-without-horizontal-overflow-chromium/trace.zip",
+      "bytes": 1471204,
+      "sha256": "7f88ae9ef608bf34c6b9c495049f76c2d709c749d8d6bed9975ec71352848a20",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/empty-state-fixed/guest-guest-responsive-she-92ec7-without-horizontal-overflow-mobile-chrome/trace.zip",
+      "bytes": 1394833,
+      "sha256": "b4bb0b4c8eaa18585575a0be491470fc12d0923603bd970f1fb22a6f9cb25207",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/empty-state-fixed.log",
+      "bytes": 2016,
+      "sha256": "ee88b9a00fc05109e9cd7cadd9455e16523c4aeb20061afb8626055833f1b7be",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/.last-run.json",
+      "bytes": 45,
+      "sha256": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-animation-inspector.png",
+      "bytes": 214185,
+      "sha256": "f2e4c2085efd6bf5f872f0cfa3c9858f287155d7ba9a8fdcb390e9717627e82c",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-bottom-navigation-empty.png",
+      "bytes": 205770,
+      "sha256": "9ab84b1dba39601a73f0556857eeeb47012d4211c2518536d25bc0b83a361dd0",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-bottom-navigation-selected.png",
+      "bytes": 238970,
+      "sha256": "baf3fe7e6b4597bcc23592330c2d912fbd990b07eafc7aea24d9ac47bd92ee1c",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-button-action-inspector.png",
+      "bytes": 251192,
+      "sha256": "5171f12e52bf86b998a96754690ce00c2c0fa42ad08f2dd04cee26e5ed389829",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-card-item-selected.png",
+      "bytes": 209284,
+      "sha256": "91a12038747aeaa98e8e50c1f2e5b184aa344cb73bf31597de26c462c42c5f2f",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-component-library.png",
+      "bytes": 224313,
+      "sha256": "f2fdb89bfb78c49d488fc62da3ba9552a3fe581f63edb7908143f3863f62da28",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-desktop.png",
+      "bytes": 224399,
+      "sha256": "8604865b774c0f4dac33bf2f3cd2bdfcf7df30135a1b5dcec606ec820e05e425",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-drag-reorder.png",
+      "bytes": 212907,
+      "sha256": "a37ca6a201592dc22c10658c0f9b33a6736f5fb314bc3f8f1a7032eb50d3be3a",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-drop-indicator-layers.png",
+      "bytes": 205683,
+      "sha256": "5478a65aa667491701cc1c159690c08de78a6e4cb781e54b8941da47939b994b",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-focus-mode.png",
+      "bytes": 115959,
+      "sha256": "b2bff195988424564a38c65299503f5d6e8f76de02804f2c347b06096b4f896e",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-header-selected.png",
+      "bytes": 211604,
+      "sha256": "1f1b1645498c3f24b48b46f2e4809ff62fc0d3c65bf95a10757bcab7684d47b6",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-hero-image.png",
+      "bytes": 234874,
+      "sha256": "18336222120910156d45ef408c65e7cf9040686527fb94890e0bee3d6d945b1a",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-hero-selected.png",
+      "bytes": 227346,
+      "sha256": "542b7d2cf5f3ecea47437adfc585471ef6f1bd2864e1db3fb1e384a3a52da379",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-layers.png",
+      "bytes": 204023,
+      "sha256": "292ca7662bb69d262698f746fdcbd004e2f176d8611033fcba0107f387bcefdc",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-mobile-canvas.png",
+      "bytes": 218468,
+      "sha256": "7acecda40bfe9276e3cfcabd686e5b295ee146c45f9520cada27ee7ba8cae518",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-mobile-with-custom-footer.png",
+      "bytes": 190135,
+      "sha256": "e427d8bd63b8c446fc62ba8a693ad557e08e09650e6e698a26b389935bddc4c6",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-mobile-without-footer.png",
+      "bytes": 194585,
+      "sha256": "899881056421480b9da3fad29f2950bbf2076013c429d659bda20d272298da0a",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-navigation-item-action-inspector.png",
+      "bytes": 214952,
+      "sha256": "cd4eac6ff5cf4d621e114ca50e68747baf827afb65e8bc54847c2a964fd9eb5d",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-navigation-nested-layers.png",
+      "bytes": 230724,
+      "sha256": "38f88e0129be6dd6d02377dd87aaab76e7e8f9c782c31a2be67a133069a994de",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-nested-layers.png",
+      "bytes": 250594,
+      "sha256": "1c5f98753bca458f13bd4647e6e9279a95ed044b81eb9916c7d93ca4d6ad2a4f",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-page-theme.png",
+      "bytes": 212505,
+      "sha256": "889edb791dcc11dffdb0d51b54bcb1309a14cac6583447c58ba02a3b87bda8c3",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-property-media-library.png",
+      "bytes": 230149,
+      "sha256": "9c02bb3bf15810d16ad99b28408dfe3adb3790798067a07ebe5842411d3ec731",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-quick-action-selected.png",
+      "bytes": 206823,
+      "sha256": "2e8c0c68c3442f3dc5ddf0b08dd7389f9930d599fa8a01c0d98500e02256615b",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-quick-actions-selected.png",
+      "bytes": 212230,
+      "sha256": "4f80fef9015f18125d86e456a872601dfaee6e094980cc732d2c6ef6534f6457",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-quick-actions.png",
+      "bytes": 207175,
+      "sha256": "4b6c353cd4f481fe719ab65da6f18d312858f08c1dcfeabffa9224f2b421b1b6",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-templates.png",
+      "bytes": 228154,
+      "sha256": "a4065aa4fc0c225257469e6b60558007a0d985c995d3f3fb358fa265a89fae47",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/guest-Intelligent-UI-prope-90da0-ata-and-keeps-AI-text-inert-chromium/screenshots/conversation-chromium.png",
+      "bytes": 41622,
+      "sha256": "861ec7dbcd71eb0299398ba904c29497df8501e1ecdaaf9fc69b6675acba08ad",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/guest-Intelligent-UI-prope-90da0-ata-and-keeps-AI-text-inert-chromium/screenshots/welcome-chromium.png",
+      "bytes": 51664,
+      "sha256": "1b3520f4f4a1e338a5718580bf022b77c8cf29ab7bdee29a05986b20705da073",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/guest-Intelligent-UI-prope-90da0-ata-and-keeps-AI-text-inert-mobile-chrome/screenshots/conversation-mobile-chrome.png",
+      "bytes": 142728,
+      "sha256": "b0bc007b06184395a7990ebe63c8171e02368dbbef8e4d695c65ae22676d0560",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/guest-Intelligent-UI-prope-90da0-ata-and-keeps-AI-text-inert-mobile-chrome/screenshots/welcome-mobile-chrome.png",
+      "bytes": 138069,
+      "sha256": "11ff86a6f43701fb993d3de75331513ef91ba2ff78ce77445b3ce52484401639",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/guest-Intelligent-UI-typed-062a5--and-cancel-and-do-not-book-chromium/screenshots/selection-form-chromium.png",
+      "bytes": 27320,
+      "sha256": "630d54874ec428d3f7b8707a09d1cd239348458b318e5d328a7de2680154bc02",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/guest-Intelligent-UI-typed-062a5--and-cancel-and-do-not-book-chromium/screenshots/selection-review-chromium.png",
+      "bytes": 27127,
+      "sha256": "989928413385e27b2e94ed8637754addb28be7d1aa07362a39f25944b4c2d8e8",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/guest-Intelligent-UI-verif-edf84-kers-and-a-text-alternative-chromium/screenshots/map-chromium.png",
+      "bytes": 15196,
+      "sha256": "a1bb3f1e1b861d1c6cd83841505f2928dab07d0bdb61ff92ff32c9ce9f2e1621",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/guest-guest-property-brand-28592-e-published-property-design-chromium/guest-home-redesign-chromium.png",
+      "bytes": 58691,
+      "sha256": "b63c273864108a6f6d5ebaa7de0849e1751e15541bb5b7169b821fcc7846e7a6",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-candidate-results/guest-guest-property-brand-28592-e-published-property-design-mobile-chrome/guest-home-redesign-mobile-chrome.png",
+      "bytes": 155636,
+      "sha256": "7870e35edf792edf9c43474c2c2205fb0b59ddbd22543432e7d5aaa51f17c29f",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/.last-run.json",
+      "bytes": 96,
+      "sha256": "7f67710460cd59c34076d22151549bdf73cf4173b7aedd3d5af7e24a756eaae1",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-animation-inspector.png",
+      "bytes": 214103,
+      "sha256": "f00bfae882a83575e4b744f594960e9586d438e48853583b896bec01feeae077",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-bottom-navigation-empty.png",
+      "bytes": 206053,
+      "sha256": "28399d60373fad13eb038c109d40964daf04cf42396471c98121a59e7752c46c",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-bottom-navigation-selected.png",
+      "bytes": 239051,
+      "sha256": "eeac270a716bf952ccbd0789e0592bc7e746f62f082fc67446c926d705909392",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-button-action-inspector.png",
+      "bytes": 238517,
+      "sha256": "a3126e744890dae3717c9d9aa59146ee8ecdb3d490f07ffbd0e90ff83b4b4199",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-card-item-selected.png",
+      "bytes": 209155,
+      "sha256": "b3edf9f29f280309d89f28b49219521b2917a09165093ae76459dc41c5635cb1",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-component-library.png",
+      "bytes": 224254,
+      "sha256": "693cbe6f75034def0977176df7901df3c5bccac9d6b93048eaad99abb7782086",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-desktop.png",
+      "bytes": 224339,
+      "sha256": "f66513403d168fa7eb5614c3ea5dcec2805586897317f3a401b98b707b684c63",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-drag-reorder.png",
+      "bytes": 212852,
+      "sha256": "921ba16bb2470c5a59788df9313de788271c76871d5def63ab33083e50b138e8",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-drop-indicator-layers.png",
+      "bytes": 205615,
+      "sha256": "96ef96d3a2bca41669ad4d3b951a8bc37775f3cac895d9b8ca86154da7c7ff4d",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-focus-mode.png",
+      "bytes": 115890,
+      "sha256": "56b802621d72ce7568098aec6b004ec0d0da82a63d03c577ec6a51c91af28ce9",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-header-selected.png",
+      "bytes": 211546,
+      "sha256": "56871ebc54ccda9e6d90279439bd98759f58c7504406d18550b6100c746bb260",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-hero-image.png",
+      "bytes": 234777,
+      "sha256": "4179e42c652dc1e2d99ac70b19f21f6ceded5ec448421361c8a061688ed9fe6e",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-hero-selected.png",
+      "bytes": 227265,
+      "sha256": "7fa7d66ed7de252a30a0ddda4f0ed5c590de168b0e7ec5d35c31e61e1c5e3e57",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-layers.png",
+      "bytes": 203958,
+      "sha256": "5ffa4aaff6585671f4a92dcad537aee09ae3af58380ced8400cc4174eae9e513",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-mobile-canvas.png",
+      "bytes": 218383,
+      "sha256": "718901b31bc200643b9246e5c639e0602b58601afa404dfb407bad3fd8763d77",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-mobile-with-custom-footer.png",
+      "bytes": 190065,
+      "sha256": "fe8ced5ff8a94d592c7644b83068359c58e195e86c9864ef63e50aefce1bd9c2",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-mobile-without-footer.png",
+      "bytes": 194510,
+      "sha256": "7ed33b0c57658474aa5bf1208a467767f5cef8d9965d31b62d489836e3b98f51",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-navigation-item-action-inspector.png",
+      "bytes": 214928,
+      "sha256": "4e8b3c9ea6f05fbe234fb92b0f8f5843eed69be00e706facb13cc01032e34c2d",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-navigation-nested-layers.png",
+      "bytes": 230775,
+      "sha256": "aa3cfbed2e8b74fdffe7b401f067580b9cdcd059ef98b3b0015b286c252e669c",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-nested-layers.png",
+      "bytes": 250101,
+      "sha256": "3e9d9e47087a812e010989ea98a589d5956394a662739c641ee308136b36e7e3",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-page-theme.png",
+      "bytes": 212448,
+      "sha256": "07851077ad427e0a07edb89a5b59235bd2e95f9e6506463a57646580b79ffabe",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-property-media-library.png",
+      "bytes": 230041,
+      "sha256": "2190b1f26460656cd3ed29e3f49fcd838808dcd6070b12ec07c1ab5d5a681193",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-quick-action-selected.png",
+      "bytes": 206820,
+      "sha256": "4b20d4ae262c55e85d731e545d9171dafdea8c7a156a8b9e90e2186055b06ead",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-quick-actions-selected.png",
+      "bytes": 212174,
+      "sha256": "3494a9153d9c1370b78b7d8241bc5ce7c2782f728902acbbe23492e85ebace1f",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-quick-actions.png",
+      "bytes": 222301,
+      "sha256": "8e69efb754b132422f75894b1b9910de911cba0f30772850a420721f03828b66",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-templates.png",
+      "bytes": 228097,
+      "sha256": "b23f4614f878ca9e60f66443c858888780a5a5379b4e385ff43b673efd66b406",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/guest-Intelligent-UI-prope-90da0-ata-and-keeps-AI-text-inert-chromium/screenshots/conversation-chromium.png",
+      "bytes": 41622,
+      "sha256": "861ec7dbcd71eb0299398ba904c29497df8501e1ecdaaf9fc69b6675acba08ad",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/guest-Intelligent-UI-prope-90da0-ata-and-keeps-AI-text-inert-chromium/screenshots/welcome-chromium.png",
+      "bytes": 51664,
+      "sha256": "1b3520f4f4a1e338a5718580bf022b77c8cf29ab7bdee29a05986b20705da073",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/guest-Intelligent-UI-prope-90da0-ata-and-keeps-AI-text-inert-mobile-chrome/screenshots/conversation-mobile-chrome.png",
+      "bytes": 142708,
+      "sha256": "90c85149164bdb2bdd23278362bc25807a7a2ac5035e5ba39d5fcfb87e6a4e5e",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/guest-Intelligent-UI-prope-90da0-ata-and-keeps-AI-text-inert-mobile-chrome/screenshots/welcome-mobile-chrome.png",
+      "bytes": 135832,
+      "sha256": "6b0b5c0b5c07a847c091c71114df13498b9cb4b33811292da6c81cca9c095675",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/guest-Intelligent-UI-typed-062a5--and-cancel-and-do-not-book-chromium/screenshots/selection-form-chromium.png",
+      "bytes": 27320,
+      "sha256": "630d54874ec428d3f7b8707a09d1cd239348458b318e5d328a7de2680154bc02",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/guest-Intelligent-UI-typed-062a5--and-cancel-and-do-not-book-chromium/screenshots/selection-review-chromium.png",
+      "bytes": 27127,
+      "sha256": "989928413385e27b2e94ed8637754addb28be7d1aa07362a39f25944b4c2d8e8",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/guest-Intelligent-UI-verif-edf84-kers-and-a-text-alternative-chromium/screenshots/map-chromium.png",
+      "bytes": 15196,
+      "sha256": "a1bb3f1e1b861d1c6cd83841505f2928dab07d0bdb61ff92ff32c9ce9f2e1621",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/guest-guest-empty-property-c1241-ions-and-unsupported-routes-chromium/error-context.md",
+      "bytes": 13822,
+      "sha256": "072ee2974d321f3e20f01cf78393166009bfac7eaa7bc8273efb843fb4110886",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/guest-guest-property-brand-28592-e-published-property-design-chromium/guest-home-redesign-chromium.png",
+      "bytes": 58691,
+      "sha256": "b63c273864108a6f6d5ebaa7de0849e1751e15541bb5b7169b821fcc7846e7a6",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/final-results/guest-guest-property-brand-28592-e-published-property-design-mobile-chrome/guest-home-redesign-mobile-chrome.png",
+      "bytes": 155636,
+      "sha256": "7870e35edf792edf9c43474c2c2205fb0b59ddbd22543432e7d5aaa51f17c29f",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/guest-chat-1024.png",
+      "bytes": 47819,
+      "sha256": "5dc3ae674900a7a9fe331b27e2f58321bc41a2bf680317ce1e4291c168fc3dae",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/guest-chat-1280.png",
+      "bytes": 48174,
+      "sha256": "a2a7f806fba71cab5f8d7a503fab32dc3ab244eb325e73eaac0b3cc888111392",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/guest-chat-1440.png",
+      "bytes": 50818,
+      "sha256": "71987acdc39ec02aa3e98fc08ece03f0c99c010f5aeb6545ec8d0788c6285e2a",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/guest-chat-1920.png",
+      "bytes": 53999,
+      "sha256": "0a1e77ceb0625ea037281304cfc47e15cde6fc4b5f98db0ff9ea08e437b783b9",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/guest-chat-320.png",
+      "bytes": 41406,
+      "sha256": "22ed593605db693e3db39109a4100db577f9afe651aa88d37adcf03407773c7f",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/guest-chat-375.png",
+      "bytes": 41571,
+      "sha256": "b2e61d5074b7fe6d9bab786ad57b52b4383cc41bb5a86e8fa1fe1e1aae6a96c3",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/guest-chat-390.png",
+      "bytes": 41861,
+      "sha256": "5bbd854f75e6c37c9dce4e8ae5ed333df18a5a914cf35e8912db3bb4614b54a0",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/guest-chat-430.png",
+      "bytes": 41532,
+      "sha256": "bb5e85d7c43b0d7348e866c2d78992a1e3e1604505f0b9556cb1edb0c479f52b",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/guest-chat-768.png",
+      "bytes": 47199,
+      "sha256": "39eeb87960bd742f8794494f972c96679bd988d925d6cf774c517c83abd0651d",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/guest-home-1024.png",
+      "bytes": 55700,
+      "sha256": "3b1f874c4d60c19e77841667c39f02c9019cf106fe1866a4ac2c01371c462839",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/guest-home-1280.png",
+      "bytes": 62424,
+      "sha256": "36569c78aeee7ee36d13ae257877b43b85ed004c5999c334287882aa4a6ece01",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/guest-home-1440.png",
+      "bytes": 64944,
+      "sha256": "a29e3915ae59061a3c623b38cdc13b274ca0ddef678c351096df5c60250160d5",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/guest-home-1920.png",
+      "bytes": 67741,
+      "sha256": "5092b679b774e38c8c8702fb96abf47d09c0f6689721ce55579a365ac41bb74f",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/guest-home-320.png",
+      "bytes": 40971,
+      "sha256": "7f2d59f8210bcfbe086de4857556911dc4dc864d04e884dd993073a61f9bbeb4",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/guest-home-375.png",
+      "bytes": 42461,
+      "sha256": "44eac54be777afcdc3dd5696fc547441f27ecc083e521e6d0f6fd14928cd11e8",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/guest-home-390.png",
+      "bytes": 43237,
+      "sha256": "8db0135032d220d3b3e05a85ab24d5394ece9ab7f8d7a805782a6e87b6dd72a8",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/guest-home-430.png",
+      "bytes": 43276,
+      "sha256": "e521b7573f83ffb2fff35f5d0c477256f0062c60e161370047000d177069e6fc",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/guest-home-768.png",
+      "bytes": 49871,
+      "sha256": "5f77dfefc7030ad5520f446ae07e8d3c5500ad9b7d0c4af29f879cc0fb2d2111",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-after/.last-run.json",
+      "bytes": 194,
+      "sha256": "49476480e818c8abb6e34645f0d740427f7a329f5ae3c139ee02b2829bd250e3",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-after/guest-guest-responsive-she-92ec7-without-horizontal-overflow-chromium/trace.zip",
+      "bytes": 1502275,
+      "sha256": "2ad55a4394487d74a68d1d58236550b932f29e7a3bf7885553478050a4047f5c",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-after/guest-guest-responsive-she-92ec7-without-horizontal-overflow-mobile-chrome/trace.zip",
+      "bytes": 1393604,
+      "sha256": "5e9ec5927ad1280f974a7825e811ff7449c4b530dc6e12444faeccfb849940fb",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-after/guest-privacy-guest-privac-da21b-ed-conversations-truthfully-chromium/error-context.md",
+      "bytes": 1852,
+      "sha256": "37df4e0e4eb6d88ca4f673bfe1341ae7d4c888c8ec1cf57df9067a434be63777",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-after/guest-privacy-guest-privac-da21b-ed-conversations-truthfully-chromium/test-failed-1.png",
+      "bytes": 9280,
+      "sha256": "70e3edf72fd480ee49e8c7bdf3459c79ebba091b43ec62d59e6f579b354ed551",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-after/guest-privacy-guest-privac-da21b-ed-conversations-truthfully-chromium/trace.zip",
+      "bytes": 27518,
+      "sha256": "a58e666399972fc64b4c8b9ff6c49b3d39144530d33c4cd7fc3934bc464db3e1",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-after/guest-privacy-guest-privac-da21b-ed-conversations-truthfully-chromium/video.webm",
+      "bytes": 25871,
+      "sha256": "21c1a22bd9563f93bb8ac1f3e0c8b35cea34941f707552ae4a54a4f149fb6003",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-after/guest-privacy-guest-privac-da21b-ed-conversations-truthfully-mobile-chrome/trace.zip",
+      "bytes": 559272,
+      "sha256": "38fcbc421eecbf3872cfc409085a779c77b471adc197655a806260e14ac51976",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-after/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars-chromium/error-context.md",
+      "bytes": 2627,
+      "sha256": "ec7f35d05ff8b3607b5ad48cb3ba8cf43828f137913040308cd8f20b54b81d1b",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-after/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars-chromium/test-failed-1.png",
+      "bytes": 9280,
+      "sha256": "70e3edf72fd480ee49e8c7bdf3459c79ebba091b43ec62d59e6f579b354ed551",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-after/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars-chromium/trace.zip",
+      "bytes": 26805,
+      "sha256": "a6338e36af04e574de2d7e06bf61bf9b20de7dfdf3a0706c8fa38de404d85728",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-after/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars-chromium/video.webm",
+      "bytes": 20668,
+      "sha256": "734a82d272de8cf836e1aa2adc6e346f0988c8eb0a63319ee9d2cfb5a9b913f5",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-after/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars-mobile-chrome/error-context.md",
+      "bytes": 5298,
+      "sha256": "c9a34a535dca3c970de93e2c0b2bea6f5f478b55c9d3b755cd44c6090af42525",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-after/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars-mobile-chrome/test-failed-1.png",
+      "bytes": 177428,
+      "sha256": "a1eb564b5b1297dab380910769aadfc20f17143496f0eda0574cafcd0cf84763",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-after/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars-mobile-chrome/trace.zip",
+      "bytes": 768285,
+      "sha256": "476dc7812177c860779dd82d4ab31842fca26a958efb8895cac5cf912ff33652",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-after/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars-mobile-chrome/video.webm",
+      "bytes": 75512,
+      "sha256": "23f68537175d765662d9bf57df6f4a749f14b9d9ae35527a4fbc9940c1c73594",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-after.log",
+      "bytes": 12414,
+      "sha256": "684cc3e188bedd1a15a2331d09304be60c627abbaf6b5ef2a06ee011728d7633",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-final/.last-run.json",
+      "bytes": 145,
+      "sha256": "86f5ce9ffbb599edd0dfa3272a5e1f6bc4bdca4b3f28e29fa1bc0118a892864f",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-final/guest-guest-privacy-menu-action-responds-chromium/trace.zip",
+      "bytes": 419791,
+      "sha256": "79e79a40d9448f4c2bb71bd5aa5d4bd8fdc0c793b2c5936ed7ed983c7e9db38a",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-final/guest-guest-privacy-menu-action-responds-mobile-chrome/trace.zip",
+      "bytes": 580378,
+      "sha256": "47065181fb937a087323a6249ce614374b96b1f4119b3b29f7044ba3b3b12d36",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-final/guest-guest-responsive-she-92ec7-without-horizontal-overflow-chromium/trace.zip",
+      "bytes": 1408361,
+      "sha256": "83aa1c47d8897013a6513a507bc9aff9343f0d3a88954ea80a303b117f199be4",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-final/guest-guest-responsive-she-92ec7-without-horizontal-overflow-mobile-chrome/trace.zip",
+      "bytes": 1387688,
+      "sha256": "0a1e84954c7dbc599c71e731dfb47922e3cfa1a42e43462b39b27a8ecef74c66",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-final/guest-privacy-guest-privac-da21b-ed-conversations-truthfully-chromium/trace.zip",
+      "bytes": 430049,
+      "sha256": "54a600ee4a2ea98e10e6c8e7a94522878328e0e00a347ea34fd6f92c2acef529",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-final/guest-privacy-guest-privac-da21b-ed-conversations-truthfully-mobile-chrome/trace.zip",
+      "bytes": 590632,
+      "sha256": "6e808fcc13fdfa0541f93566538610cda8492acfc307db1b0b1c0c9b93ab5e54",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-final/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars-chromium/error-context.md",
+      "bytes": 5442,
+      "sha256": "21552126ca8477275bd1cad40828ac305b5c044734638b7051ff58e492fb9c99",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-final/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars-chromium/test-failed-1.png",
+      "bytes": 50015,
+      "sha256": "f0015b5f641a0c58e66bd42c3efad92d2c5da02b8e9564a46a7c2a17ba45bfcf",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-final/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars-chromium/trace.zip",
+      "bytes": 613340,
+      "sha256": "379770511306533cb9696a12b39f4b1e07b7f21e562d1c252648610b8261e8e6",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-final/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars-chromium/video.webm",
+      "bytes": 79870,
+      "sha256": "eb4c6cd1e91951ae765a505fc428f30003008b4d3a57e7ade3b07cce71505f41",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-final/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars-mobile-chrome/error-context.md",
+      "bytes": 5442,
+      "sha256": "21552126ca8477275bd1cad40828ac305b5c044734638b7051ff58e492fb9c99",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-final/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars-mobile-chrome/test-failed-1.png",
+      "bytes": 177943,
+      "sha256": "06ef22558febcd1028a270a258d6361eb55506a03a62e6e40bc131f771d806ae",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-final/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars-mobile-chrome/trace.zip",
+      "bytes": 798592,
+      "sha256": "2d4058692765f872b31c5b6ee9e08dc6098d902535929726d0d661e2a2b26b8f",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-final/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars-mobile-chrome/video.webm",
+      "bytes": 78181,
+      "sha256": "b88c4fdd65ea9b694ba9dc3ee9ca85d0227045bf42c6a2eea9b78cf41c034968",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-final.log",
+      "bytes": 8975,
+      "sha256": "b54d99e3404a6a66b892edee1968380aa565618f0dfa2fec2db38d24a38785a0",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-fixed/.last-run.json",
+      "bytes": 45,
+      "sha256": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-fixed/guest-guest-privacy-menu-action-responds-chromium/trace.zip",
+      "bytes": 419789,
+      "sha256": "35c669dac5644edeac932da0fb0e7c520ce18216e3020b17515495bc8ed9a757",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-fixed/guest-guest-privacy-menu-action-responds-mobile-chrome/trace.zip",
+      "bytes": 718961,
+      "sha256": "3310c71253c60676e033ac580e0f203aa29f61a4f91d2ec5c17505c816d1f3e2",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-fixed/guest-guest-responsive-she-92ec7-without-horizontal-overflow-chromium/trace.zip",
+      "bytes": 1466155,
+      "sha256": "aa19f6067c38c39faa15ff688061f3294ca01f9e6b12d360fe7bb8dc99759377",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-fixed/guest-guest-responsive-she-92ec7-without-horizontal-overflow-mobile-chrome/trace.zip",
+      "bytes": 1364167,
+      "sha256": "42ef07f562aa2d1440065d560d69669748f0bf067857546ed3d461963ab95550",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-fixed/guest-privacy-guest-privac-da21b-ed-conversations-truthfully-chromium/trace.zip",
+      "bytes": 483997,
+      "sha256": "b21409dbaf4d7a104e1e012f00818c02e381f504a8a3d308c84ab42eb273a8cd",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-fixed/guest-privacy-guest-privac-da21b-ed-conversations-truthfully-mobile-chrome/trace.zip",
+      "bytes": 588309,
+      "sha256": "154a176fb904c19de7fc0e6060c9579035da5cb8b2e7056238e47f955054f01c",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-fixed/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars-chromium/trace.zip",
+      "bytes": 523688,
+      "sha256": "920e0e860b0730bab7a346e2c22b85569868bacb385bb76e810131dc9f203669",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-fixed/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars-mobile-chrome/trace.zip",
+      "bytes": 563225,
+      "sha256": "9c9b593960643ddd65ae794e0a8564da007ceee6a115aea03af361d2b1e46c8b",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/layout-fixed.log",
+      "bytes": 1942,
+      "sha256": "46c996364e9a88825588ed211a231d85eb858feb9aaf51001cebf55245ab464c",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/playwright-accepted.log",
+      "bytes": 50987,
+      "sha256": "701bb52f1d9d6905d19da497a2ddd884688dc95369d0799c38127d423e6e283a",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/playwright-final-candidate.log",
+      "bytes": 45204,
+      "sha256": "f2490a1522f2c88163230e8de5c6a3d4b3821139438441d4e56585a64a1e7031",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/playwright-final.log",
+      "bytes": 45898,
+      "sha256": "a1fc5ba265cace54328800570eb274568a63df93697a0fea051bcb1db62314ab",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/playwright-full.log",
+      "bytes": 53925,
+      "sha256": "7ca0988f85e373be60421562e1c76e18ac723ea1a29cd2188599f6b8547865e0",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/playwright-release.log",
+      "bytes": 45193,
+      "sha256": "cc688fe592b68f504551ab354e0bd38ad2db7469a80a1002c706d99d0fe25b34",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/privacy-after/.last-run.json",
+      "bytes": 45,
+      "sha256": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/privacy-after/guest-privacy-guest-privac-da21b-ed-conversations-truthfully/trace.zip",
+      "bytes": 425294,
+      "sha256": "87400be2851f09bbc1afe4a238fe7df87c420169514e5021bbc4588fd275e7d3",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/privacy-after.log",
+      "bytes": 346,
+      "sha256": "2d6c547ca1ea81147e007b43d241628ec7550a603120c6e713a48dc48f1498a0",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/privacy-before/.last-run.json",
+      "bytes": 96,
+      "sha256": "fd5c29491e3464298fb99db441278d59cc68ddae00256f5e75c49738d59afa67",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/privacy-before/guest-privacy-guest-privac-da21b-ed-conversations-truthfully/error-context.md",
+      "bytes": 3116,
+      "sha256": "2642d80b03bbb56b58adda06f6698f945a8f94d0785cf27269bedbaf7f3d3e75",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/privacy-before/guest-privacy-guest-privac-da21b-ed-conversations-truthfully/test-failed-1.png",
+      "bytes": 47749,
+      "sha256": "f42b3dd80f737dd73c653cb3a0d8421f238c079e6b18be3be5dd4e8f52e9d631",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/privacy-before/guest-privacy-guest-privac-da21b-ed-conversations-truthfully/trace.zip",
+      "bytes": 940331,
+      "sha256": "67617c5e8b4ce568431ca260d556befccdaacd60d221e80474fb6eee93b1a660",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/privacy-before.log",
+      "bytes": 4050,
+      "sha256": "dea59f5bbfde187370946e0f3e05b7505a5199a5834b1305be1bd86505f08189",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/.last-run.json",
+      "bytes": 45,
+      "sha256": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-animation-inspector.png",
+      "bytes": 214168,
+      "sha256": "88270f4dd0e360101d6d9b59d4db33d35a06d66e6d7c67673ddba67e7dcdfcbb",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-bottom-navigation-empty.png",
+      "bytes": 205772,
+      "sha256": "633d7e3c484e045dee76a09705221df7d52242be031e695d7266097da65b1b47",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-bottom-navigation-selected.png",
+      "bytes": 238973,
+      "sha256": "6b220ae226be21f101a209633695a4b39eb19c35eb1fcf807710a7bcc2d21dd9",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-button-action-inspector.png",
+      "bytes": 238612,
+      "sha256": "eae59686ef1f427f51c5cf73c91fcf9c95155b46d5b6de33d61542576eb3595e",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-card-item-selected.png",
+      "bytes": 209303,
+      "sha256": "7b03b9d315fa5f49566970b0a61fd02ee162ef0a97d7e3276a6259be557ee56b",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-component-library.png",
+      "bytes": 224295,
+      "sha256": "00dc23f6739aa79c5f411d161eb534af18dd400d84f35f3a270d980bda8688ce",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-desktop.png",
+      "bytes": 224335,
+      "sha256": "7003a628cdee3ef5f35afed0d390e109d1300835844d190ae403a23cf609c1ad",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-drag-reorder.png",
+      "bytes": 198703,
+      "sha256": "256b821bac2d5878ea7801099707333ac422da0ba0113d483acd374e3b59e341",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-drop-indicator-layers.png",
+      "bytes": 205701,
+      "sha256": "b8e7040cfdbe38dad400269a53e75c66838fcb293c8f9cfbf7c466c426e97917",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-focus-mode.png",
+      "bytes": 115954,
+      "sha256": "78864d96528e9631343f0fb091f7526a51870f0112d60a894d5d0e9f92aa3952",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-header-selected.png",
+      "bytes": 211589,
+      "sha256": "dd2ff7cd322b47f2792c9ef2f2ab4caf3c6dea205238e21ed3b0101262869515",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-hero-image.png",
+      "bytes": 234893,
+      "sha256": "ee4de61cccfe62d338e0ff257c66d595ad6d25059a0f37a3ee4b144652d7905d",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-hero-selected.png",
+      "bytes": 227334,
+      "sha256": "9ca714ff7a80e77efc6fb8bd3d07bc3f3c09f43920f187c82cb02d6b954017c3",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-layers.png",
+      "bytes": 204043,
+      "sha256": "29cbe04e248a1922b9cbd8e51ebe16beddce213919df9978d6cd068da1e225bd",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-mobile-canvas.png",
+      "bytes": 218454,
+      "sha256": "caea2ebd6d30ffe14f30f1708579671d4f19d0762d147ab91274af1f969f52ce",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-mobile-with-custom-footer.png",
+      "bytes": 190134,
+      "sha256": "486024385fc177806200e9070ae905b1b27cf67791d91d2b1c5aa3621d1be71e",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-mobile-without-footer.png",
+      "bytes": 194577,
+      "sha256": "667359df67912960f107349c53a271fdb27e5c455cb41088cff1e2d3607767d1",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-navigation-item-action-inspector.png",
+      "bytes": 215005,
+      "sha256": "414a185e8d805cec38c88dc26e4dc25bd018fe1f693006bdde107f81aff9e190",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-navigation-nested-layers.png",
+      "bytes": 230848,
+      "sha256": "510d40e22bb966cfcc4182476e3e0637dc007eec4ceb0bd8cfa69e2558c3f7ce",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-nested-layers.png",
+      "bytes": 250208,
+      "sha256": "d4a0e036a14ff5b25c59f276fb9919f686b7335d758e12be3110fb5949a6d343",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-page-theme.png",
+      "bytes": 212489,
+      "sha256": "97192d3bc1a36a051db8df9adc7e4333bc96ace0e89a69f1b7a0f64239dce144",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-property-media-library.png",
+      "bytes": 197179,
+      "sha256": "9cde7572bd097b61a3094fbc3781bcdc3cfa35a822df1570def3aee8169d4815",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-quick-action-selected.png",
+      "bytes": 206810,
+      "sha256": "ebe9917b176104357f48626b5f5d3c1ed357f6d21cace4d162b498baa8dfb829",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-quick-actions-selected.png",
+      "bytes": 212215,
+      "sha256": "99da61ab806a4521baf9696ee16aaf33285d6d703873e9527dfc9eed5fe8df5d",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-quick-actions.png",
+      "bytes": 207176,
+      "sha256": "191d940364e2d874df2bae1360de626f550b285236d4cd567920de96fd763f3b",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-templates.png",
+      "bytes": 228140,
+      "sha256": "c067c64cc6613a19b273d80d91ec916e8bc783975459a226f48f0da37ddfe44f",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/guest-Intelligent-UI-prope-90da0-ata-and-keeps-AI-text-inert-chromium/screenshots/conversation-chromium.png",
+      "bytes": 41584,
+      "sha256": "7caed42bac43878244d6eb264421e6c0efb205036252ea40a21211680ef42a23",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/guest-Intelligent-UI-prope-90da0-ata-and-keeps-AI-text-inert-chromium/screenshots/welcome-chromium.png",
+      "bytes": 52082,
+      "sha256": "cc8b626d2434ad9eaa913a6e9b3fc21fd87f822bbda54355c57b79eb972e865b",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/guest-Intelligent-UI-prope-90da0-ata-and-keeps-AI-text-inert-mobile-chrome/screenshots/conversation-mobile-chrome.png",
+      "bytes": 142728,
+      "sha256": "b0bc007b06184395a7990ebe63c8171e02368dbbef8e4d695c65ae22676d0560",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/guest-Intelligent-UI-prope-90da0-ata-and-keeps-AI-text-inert-mobile-chrome/screenshots/welcome-mobile-chrome.png",
+      "bytes": 137048,
+      "sha256": "6dcf254eddb22f767a50934a862c0f19f6dec945bcd6faeb276fa5709c7a0557",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/guest-Intelligent-UI-typed-062a5--and-cancel-and-do-not-book-chromium/screenshots/selection-form-chromium.png",
+      "bytes": 27320,
+      "sha256": "630d54874ec428d3f7b8707a09d1cd239348458b318e5d328a7de2680154bc02",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/guest-Intelligent-UI-typed-062a5--and-cancel-and-do-not-book-chromium/screenshots/selection-review-chromium.png",
+      "bytes": 27127,
+      "sha256": "989928413385e27b2e94ed8637754addb28be7d1aa07362a39f25944b4c2d8e8",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/guest-Intelligent-UI-verif-edf84-kers-and-a-text-alternative-chromium/screenshots/map-chromium.png",
+      "bytes": 15196,
+      "sha256": "a1bb3f1e1b861d1c6cd83841505f2928dab07d0bdb61ff92ff32c9ce9f2e1621",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/guest-guest-property-brand-28592-e-published-property-design-chromium/guest-home-redesign-chromium.png",
+      "bytes": 58691,
+      "sha256": "b63c273864108a6f6d5ebaa7de0849e1751e15541bb5b7169b821fcc7846e7a6",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/release-results/guest-guest-property-brand-28592-e-published-property-design-mobile-chrome/guest-home-redesign-mobile-chrome.png",
+      "bytes": 155636,
+      "sha256": "7870e35edf792edf9c43474c2c2205fb0b59ddbd22543432e7d5aaa51f17c29f",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/scrollbar-before/.last-run.json",
+      "bytes": 96,
+      "sha256": "50f74aa11f6eb4dd8d50631329475634445a8864b76be3d95d0da7efe3c318a8",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/scrollbar-before/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars/error-context.md",
+      "bytes": 6120,
+      "sha256": "0ff4cf9bb5141be955d7161b6cc759916e2228f8c8df0f027422afed72bb23b6",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/scrollbar-before/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars/test-failed-1.png",
+      "bytes": 52487,
+      "sha256": "40e919178c2bd6c66f9851d2f23bfd82084fac1a86948f2619995ea5036686ef",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/scrollbar-before/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars/trace.zip",
+      "bytes": 450188,
+      "sha256": "a8271f87ae423bfc3beebd3d4b101ff31edafe8b92b5f94a03385a0fa3ba213f",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/scrollbar-before-csp-safe/.last-run.json",
+      "bytes": 96,
+      "sha256": "50f74aa11f6eb4dd8d50631329475634445a8864b76be3d95d0da7efe3c318a8",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/scrollbar-before-csp-safe/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars/error-context.md",
+      "bytes": 5312,
+      "sha256": "fb7b083cd3a85158e75e87b4a3255c831d698c4c617cb22866107ae396df7040",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/scrollbar-before-csp-safe/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars/test-failed-1.png",
+      "bytes": 40307,
+      "sha256": "fad74ba30d88e46c9da0530cfeb7cd911f60bb3fb1c1b470f8570ecb17a0f43e",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/scrollbar-before-csp-safe/guest-scrollbar-guest-home-3deb7-ent-with-classic-scrollbars/trace.zip",
+      "bytes": 424593,
+      "sha256": "fddbc7e6c3c276a64de231982bb933e4092c23c6eb53d0474397a942c5ff2b87",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/scrollbar-before-csp-safe.log",
+      "bytes": 2949,
+      "sha256": "11f5aae85643d237d48ce7bd023e876d8d030afa6aadee03f88a16d3f7efa57f",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/scrollbar-before.log",
+      "bytes": 3194,
+      "sha256": "f5a9e62eeef00de3e101342da51d8ea5f6abfab7894b3aacb51c6d6c4e906a25",
+      "git_ignored": false
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/.last-run.json",
+      "bytes": 145,
+      "sha256": "aa984113dfada545bfa5672a89c1b16dd880ebe0459f53d2b5f2647c7c0201a6",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-AI-provider-configure-and-drawer-close-buttons-work-chromium/trace.zip",
+      "bytes": 794087,
+      "sha256": "d7c56d90c068bb6284c0cb0ca0d2de049ffa1b73fee06c27d29e962adcfb4db2",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-AI-provider-configure-and-drawer-close-buttons-work-mobile-chrome/trace.zip",
+      "bytes": 1030585,
+      "sha256": "fd20199cc22ab69a9b299863fe598d4c76dbfb103a339ae3f8f78f0d1a248bae",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-AI-providers-panel-p-7034f-ment-controls-are-available-chromium/trace.zip",
+      "bytes": 737987,
+      "sha256": "aa2af902d1509d39ed817871c834a28d074f66407802133d805c6bb83ebc7600",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-AI-providers-panel-p-7034f-ment-controls-are-available-mobile-chrome/trace.zip",
+      "bytes": 1064479,
+      "sha256": "1ecbc628080220778d5c997a6ac1820c2215d63d46085297dcaf9a397acba7c5",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-Alerts-show-their-ev-ca8a7-nd-refresh-the-current-view-chromium/trace.zip",
+      "bytes": 838931,
+      "sha256": "db25876616856fca8193f4363cf6c2b01568abfb2f29c285aa95f646bf46f600",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-Alerts-show-their-ev-ca8a7-nd-refresh-the-current-view-mobile-chrome/trace.zip",
+      "bytes": 1231791,
+      "sha256": "496931c835cfe309f21c6060578826123e0e0156ddb83e28c22f54bc03c239ef",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-Network-Access-saves-exact-guest-hosts-chromium/trace.zip",
+      "bytes": 7990605,
+      "sha256": "d9409225aa06d9d5a586ff2e9471b552d4a0565ef1fb3c4d4b3ac83cebceba17",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-Network-Access-saves-exact-guest-hosts-mobile-chrome/trace.zip",
+      "bytes": 39875,
+      "sha256": "ecfb3fa08c47c7b05779c8ac659fcb8b1b160b466fa2673c6bb2c845e0f2cb27",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-actions-admin-AI-settings-and-usage-reporting-work-chromium/trace.zip",
+      "bytes": 1946784,
+      "sha256": "e8cd3774d9da39dbf282a1b9b7a779a6d6daa7f282e0c4a46cd0972814e4822c",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-actions-admin-AI-settings-and-usage-reporting-work-mobile-chrome/trace.zip",
+      "bytes": 16500,
+      "sha256": "e40ae87b65f16755da1f51fc1e85b73665cb1bf09842db69ca42f4fbf861323f",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-actions-admin-accoun-35968--activity-revoke-and-delete-chromium/trace.zip",
+      "bytes": 5002577,
+      "sha256": "9ffc3121506961ca322015b1342c3f95aa907c1e43c305d235e2be9796235ae8",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-actions-admin-accoun-35968--activity-revoke-and-delete-mobile-chrome/trace.zip",
+      "bytes": 16576,
+      "sha256": "994de177a79e2b1e6c1a5beab3b962ae7c6553079912085f058a0aa7cecd0fa7",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-actions-admin-conver-a6ec1-lated-conversation-to-staff-chromium/trace.zip",
+      "bytes": 1104463,
+      "sha256": "d108813990a998d032ae8fe83d895f1fe85d383863b677dce234cbeac7388d63",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-actions-admin-conver-a6ec1-lated-conversation-to-staff-mobile-chrome/trace.zip",
+      "bytes": 16540,
+      "sha256": "55392e35eec486958ac6f85ce397cebb0e65ffdd2c96ba3fa25365db45c0b633",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-actions-admin-conver-d21eb-er-staff-response-and-close-chromium/trace.zip",
+      "bytes": 2316963,
+      "sha256": "c64cc7b8da63ea6c1317a590c8f286afdb68a6770b0340e26fcee41e52c440a4",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-actions-admin-conver-d21eb-er-staff-response-and-close-mobile-chrome/trace.zip",
+      "bytes": 16546,
+      "sha256": "42ec28538e496db1349f68179ebd8c528cf8e9c91f559da9e6d611b84e85daca",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-actions-admin-data-b-a09de-nd-recommendation-workflows-chromium/trace.zip",
+      "bytes": 3804480,
+      "sha256": "c386fc0e587de2340f91f27b4eb5c34285ff2a8df32815b28f76ffbaf109a5ee",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-actions-admin-data-b-a09de-nd-recommendation-workflows-mobile-chrome/trace.zip",
+      "bytes": 16629,
+      "sha256": "d0c11b186c3bc944be2919c8ca0e2372e3e967ca7bb95646bd59b528b4d8d83f",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-actions-admin-operat-627e3-y-memory-location-and-intro-chromium/trace.zip",
+      "bytes": 5109114,
+      "sha256": "5dab95e5e9ccd82f484dc3ad5462603208ddd4b0c74649c4d37e7b21b7c9abd5",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-actions-admin-operat-627e3-y-memory-location-and-intro-mobile-chrome/trace.zip",
+      "bytes": 16552,
+      "sha256": "597eaedd118d68eef79e53546c8c41cda33bb0ee86a65296679961dabc4a3ee2",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-actions-admin-restau-4c6c2--and-archives-venue-content-chromium/trace.zip",
+      "bytes": 2853341,
+      "sha256": "25e61c4795a8354e8fd9d93f1aa82264ac7bfa5ee5794a7e1aa40cc75bdb97e7",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-actions-admin-restau-4c6c2--and-archives-venue-content-mobile-chrome/trace.zip",
+      "bytes": 16541,
+      "sha256": "54df095c2c165405b7b1524d759d0eb6a4d61b9c16af152724b22a5c47a5c710",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-actions-admin-restau-b99c2-the-selected-restaurant-ids-chromium/trace.zip",
+      "bytes": 1491943,
+      "sha256": "9845d4a8d33a214f886a5a4c240e70c1b42572232c1081ef5a422b7b7d57c6a2",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-actions-admin-restau-b99c2-the-selected-restaurant-ids-mobile-chrome/trace.zip",
+      "bytes": 16550,
+      "sha256": "291c78b14ebad7504a97ae21ce0ed5a1b5b5dc12214b7e9de8c1a1dff8937c6c",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-actions-admin-role-b-65a38-eate-and-edit-a-custom-role-chromium/trace.zip",
+      "bytes": 1315801,
+      "sha256": "005e7cad7d4dd5a0bc3147aafd4e27258c5d2e9a827013b1f46c2d98cc2cf556",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-actions-admin-role-b-65a38-eate-and-edit-a-custom-role-mobile-chrome/trace.zip",
+      "bytes": 16527,
+      "sha256": "0d41b71d7e8f0ef00290391e54f5a01bc6d923e29ea84c31c317bc9c8c1ec2d4",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-actions-room-types-c-aeb58-d-deleted-with-confirmation-chromium/trace.zip",
+      "bytes": 1596324,
+      "sha256": "5e3949fc4da2e6b2d650536f51cab81861eaff4b02200668600d6c86e0140cde",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-actions-room-types-c-aeb58-d-deleted-with-confirmation-mobile-chrome/trace.zip",
+      "bytes": 16056,
+      "sha256": "140c39aaefc9d4c34fe4c153dca0844b18110b1e2adbbefed2b24c756e49ae75",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-all-nav-items-reachable-at-mobile-chromium/trace.zip",
+      "bytes": 351026,
+      "sha256": "4920036c68cb04d08dd06193e7bada6463523188c7ddf874a7304794e77b2843",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-all-nav-items-reachable-at-mobile-mobile-chrome/trace.zip",
+      "bytes": 445198,
+      "sha256": "9d55b997f2bc6d29934082f8258517c049d9973be58ae5ab673652fbe52cc879",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-animation-inspector.png",
+      "bytes": 214115,
+      "sha256": "19c7b5a1c778aa85e66744b2c0fe681448e7b90bdd041e0e32a124f7e15aa1ec",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-bottom-navigation-empty.png",
+      "bytes": 245733,
+      "sha256": "5b61e95c3fb55a393967e30bd10c737e94f49dcfc3c7db37345dd816ef5c291f",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-bottom-navigation-selected.png",
+      "bytes": 236262,
+      "sha256": "5da9ed43c62c92236b86e3cb66da11ca83d33851f60ac149889e83c4b468e5b9",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-button-action-inspector.png",
+      "bytes": 254101,
+      "sha256": "dd178a5a5ad30f2777ecb51e6374f818661dafb7d992cfb4d813cb50d4b3baf9",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-card-item-selected.png",
+      "bytes": 228765,
+      "sha256": "bee7830efd71eb06e53ffc3b2ab472cdc9feaca9ecd592e7fbd1c2f9426a2867",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-component-library.png",
+      "bytes": 224011,
+      "sha256": "252fea2de8eb1189854b61f230b92a4f4c7f74544208dbbba13c7421618ef84c",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-desktop.png",
+      "bytes": 224329,
+      "sha256": "bfc08ac2fff5dbf369d73537a375fdec75504db082709bbd912c8a70be809b5c",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-drag-reorder.png",
+      "bytes": 216494,
+      "sha256": "301e452dcefa3d392342ac2d08bf08219f28efb28f3b220f96d35d8ce4fac497",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-drop-indicator-layers.png",
+      "bytes": 205631,
+      "sha256": "ab97d2025e09a33c2723719e114ce2a0705e869d8451e94ebd1c8d0d7eb8b7df",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-focus-mode.png",
+      "bytes": 115912,
+      "sha256": "08258850bc3e9e4f901db181ef4c891f09930fd346767e78dc88511a4ba6399b",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-header-selected.png",
+      "bytes": 211482,
+      "sha256": "133fc27e9d06c2cd24f702349e92517d58322454807982b4ad8acee59747e0b2",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-hero-image.png",
+      "bytes": 250034,
+      "sha256": "0cf5136cb9aa318e8aa3eea35af1e5fdf1ebffeed0ad857098a1858bff30b5ea",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-hero-selected.png",
+      "bytes": 227227,
+      "sha256": "5f8bac69a739080be3839090b71aed4c63e805dc97425e2839007d81cbd67b46",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-layers.png",
+      "bytes": 204021,
+      "sha256": "cdc655463fdad9fb49348d65bc1439641278a34927e702ed2c2e11634a54e449",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-mobile-canvas.png",
+      "bytes": 218356,
+      "sha256": "59ecb9f49828dc43a44bf13f304d08bc954b296f74af2bd0d22822c6f8fbb473",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-mobile-with-custom-footer.png",
+      "bytes": 224276,
+      "sha256": "d3009e20772e152ada4ab3aef81611b765284d42190084a8c664971ca9951ccd",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-mobile-without-footer.png",
+      "bytes": 227801,
+      "sha256": "b8b2185ddd247a10c209634fd66dfcc63d941be26f8f0685ea905570fc0f1eee",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-navigation-item-action-inspector.png",
+      "bytes": 233632,
+      "sha256": "aef679aacd6ffa5e94a148c34d547c4da8b0598e3d2e6351946623ed228e7ac2",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-navigation-nested-layers.png",
+      "bytes": 223026,
+      "sha256": "7f30e4fb7e16f73a2a0bce04ed138def5959188ba674d3a8fa907f6d3af5a6b5",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-nested-layers.png",
+      "bytes": 247657,
+      "sha256": "6d614dd1de13aab891799a993dd0b66d1157e36510bf5f9115925b6e9a513184",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-page-theme.png",
+      "bytes": 212460,
+      "sha256": "0e2b4f762ef87e6aa4c26f440797b07c20a7a8de0853f7ba627723bb964a9743",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-property-media-library.png",
+      "bytes": 247874,
+      "sha256": "9e46a99b4e7482c3969d1f66b845711a73549880e0f32d8e7a21d734303b56fb",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-quick-action-selected.png",
+      "bytes": 225180,
+      "sha256": "b7fad330e0ad77af3259c45f4633343140594c2c8fe94667d62b590e1568509a",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-quick-actions-selected.png",
+      "bytes": 214708,
+      "sha256": "700c9f69849502a57065a3214ac941fd1bd6a85e5b498b600e63ac72e678aa32",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-quick-actions.png",
+      "bytes": 225923,
+      "sha256": "390c3e53805c0ea5acdee25890c809554f3cdb02a393419b6aeb5c00184b8c73",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/builder-templates.png",
+      "bytes": 228077,
+      "sha256": "00e36c1b4eb69dcaf9f7af10a98926050d43d0aa8a9267afc4331db79e892328",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-chromium/trace.zip",
+      "bytes": 23915049,
+      "sha256": "92bace14b57e76e50e4fcbb12859c9d875fae39ebe05e9ffdb2206c27f4b86c7",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-builder-visual-d9db9-age-upload-and-drag-reorder-mobile-chrome/trace.zip",
+      "bytes": 39996,
+      "sha256": "637a44761ff93542264f60971f02a71a4b52345ef04f92b7e0354725dc643f93",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-local-property-03e5b-n-be-given-home-card-images-chromium/trace.zip",
+      "bytes": 889633,
+      "sha256": "40e4a5cd2fd0a45baef1a3cb382ff2814cdfb4a3b6df74bb1e85f616920407dc",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-local-property-03e5b-n-be-given-home-card-images-mobile-chrome/trace.zip",
+      "bytes": 1180842,
+      "sha256": "96b0e20ad162c4682737519eaf0a1748c035c2609148c6c1bc38b3b5591ce89a",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-long-workflow--cd108-s-collapsed-until-requested-chromium/trace.zip",
+      "bytes": 3960186,
+      "sha256": "b344fda0dde8afbd3bc6e5148beee04c2e10c91440a421bbb2e7f7e311482997",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-long-workflow--cd108-s-collapsed-until-requested-mobile-chrome/trace.zip",
+      "bytes": 6851197,
+      "sha256": "688a3fce7d2cd347fe1f5c1f6237321b831f247f8a203afe4deed00a0ddfa868",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-navigation-at--7b501-with-page-specific-guidance-chromium/trace.zip",
+      "bytes": 34857289,
+      "sha256": "8c0d5d596d5d084c86265c9d624eb58b3407965223dc4b213a0726c9f56f400e",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-navigation-at--7b501-with-page-specific-guidance-mobile-chrome/trace.zip",
+      "bytes": 40042,
+      "sha256": "ab8be0fa2690283396149b1e3375962e03d8b57f12ef73ec881d4490a3ea21f8",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-navigation-at--fb66e-with-page-specific-guidance-chromium/trace.zip",
+      "bytes": 39991,
+      "sha256": "54c4516891b9a1b62c05d98149f1e9f1284d235723fb2f3448bc621da8c48553",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-navigation-at--fb66e-with-page-specific-guidance-mobile-chrome/trace.zip",
+      "bytes": 42040506,
+      "sha256": "7b611785f6afc7560f16602fc5e8b9d7d62adf7f4f5f41a84e22509c368dcdef",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-no-horizontal-overflow-at-1280px-chromium/trace.zip",
+      "bytes": 248813,
+      "sha256": "76eb58be9e5638c1e536eb80719d5745de27037bedc639eb9d6475a7e16b9e35",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-no-horizontal-overflow-at-1280px-mobile-chrome/trace.zip",
+      "bytes": 224709,
+      "sha256": "f8b506a123f34f912ef511d0a035343037afdf773491056178945dd17ceebc3b",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-no-horizontal-overflow-at-1440px-chromium/trace.zip",
+      "bytes": 241956,
+      "sha256": "106bc34484cad812490ffbb0d82a84b3d80c8bbdc333bace976ed853255ed845",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-no-horizontal-overflow-at-1440px-mobile-chrome/trace.zip",
+      "bytes": 210472,
+      "sha256": "0fafa43ab5ceb39e275d4836e4e37a9566e80882c88c3385546aa89dbd184475",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-no-horizontal-overflow-at-mobile-375px--chromium/trace.zip",
+      "bytes": 232092,
+      "sha256": "4c4851e81534ba3e47628f8be58d629aba4e9b5f22f686525a9e567bde3513a1",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-no-horizontal-overflow-at-mobile-375px--mobile-chrome/trace.zip",
+      "bytes": 297856,
+      "sha256": "ecb852e0716e5c8c633abc3f3972775e728b199d334b8e015b705e7e9a50399c",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-no-horizontal-overflow-at-tablet-768px--chromium/trace.zip",
+      "bytes": 223598,
+      "sha256": "29ae8cf9d31f24015bf2e854547f37e8f0b7849aa223c573ca95110f47910940",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-no-horizontal-overflow-at-tablet-768px--mobile-chrome/trace.zip",
+      "bytes": 246108,
+      "sha256": "a500080f07e0998e011da04fafe6c9f7f7b0eeeadf04412aff1550d9b6b4b7a6",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-onboarding-cre-9e8b3-rty-from-an-empty-workspace-chromium/trace.zip",
+      "bytes": 2201125,
+      "sha256": "15f5d803d8d41c742a8665e383cc7e338f0bc55b21f257b7ef32b88e44cf69a8",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-onboarding-cre-9e8b3-rty-from-an-empty-workspace-mobile-chrome/trace.zip",
+      "bytes": 3171128,
+      "sha256": "91fe01f68922d8a1fd2cba9e087eaa7b185eba21aec096f446014482212f9a2a",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-page-help-uses-an-accessible-question-mark-icon-chromium/trace.zip",
+      "bytes": 456996,
+      "sha256": "d6da7a03ebfd619dcf0f11cdda32be1f4d86b528fd96974ed1d1aca7b6eba594",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-page-help-uses-an-accessible-question-mark-icon-mobile-chrome/trace.zip",
+      "bytes": 481560,
+      "sha256": "5b92826b3dd7079d603d5ea1367e7b4557b7ede6222f015d3b47070aa6541aa0",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-visual-builder-aa5df-ates-devices-and-draft-save-chromium/trace.zip",
+      "bytes": 7649624,
+      "sha256": "52eb670c4b09d5a03cb1ef1ae7015ccef1ea6b82e4db8a98fff4c152d2adbf42",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-admin-visual-builder-aa5df-ates-devices-and-draft-save-mobile-chrome/trace.zip",
+      "bytes": 40009,
+      "sha256": "967192b63440e41984727ffd61d1bd2515d9200b82e1b3cf0f8223a651b78623",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-analytics-rejects-a-backwards-custom-date-range-chromium/trace.zip",
+      "bytes": 871124,
+      "sha256": "a612810c848589e5007796791632d3435d0011dede206ee4f36132a698ab134f",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-analytics-rejects-a-backwards-custom-date-range-mobile-chrome/trace.zip",
+      "bytes": 1069945,
+      "sha256": "e3a953f448854270c768c1f64b32b698ff76721729c98b50e1322d1cf79c57bc",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-appearance-panel-add-and-remove-prompt-buttons-work-chromium/trace.zip",
+      "bytes": 1285934,
+      "sha256": "260e3817006564f80849cfd675bbec971f70e43039873f5c0fb38d26ae96a0a1",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-appearance-panel-add-and-remove-prompt-buttons-work-mobile-chrome/trace.zip",
+      "bytes": 1292359,
+      "sha256": "14da2ce01670f59627c3be426a0fa211c7f303b841acaea597af0f2cbc0de441",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-appearance-panel-cen-1b0cd-uttons-resize-the-live-page-chromium/trace.zip",
+      "bytes": 1826708,
+      "sha256": "46f057ceb4d2bd398643588727b712daf3fdc1de625c1e0ef259e56d44a32111",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-appearance-panel-cen-1b0cd-uttons-resize-the-live-page-mobile-chrome/trace.zip",
+      "bytes": 962152,
+      "sha256": "2b656d2c6e167ab4df241278c9bc596f6baf65efc03dcba3bc0a04811ba3f481",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-appearance-panel-log-dc343-atus-and-previews-the-image-chromium/trace.zip",
+      "bytes": 1082208,
+      "sha256": "1557781bb826dbb68ab0ea193dc5b17e6c623d512e2e8541adaf4de98054ae70",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-appearance-panel-log-dc343-atus-and-previews-the-image-mobile-chrome/trace.zip",
+      "bytes": 1274687,
+      "sha256": "3126c6517cf64d8a0692fab0df4d9109cb6b09a8158f541ec4ff33281953d2db",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-appearance-panel-one-69210-rols-and-updates-the-canvas-chromium/trace.zip",
+      "bytes": 2604481,
+      "sha256": "83dc3576dee693a7ec6b89a2110724bbc7958eec6b8fd6d75bca2cc6ead8422d",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-appearance-panel-one-69210-rols-and-updates-the-canvas-mobile-chrome/trace.zip",
+      "bytes": 2217875,
+      "sha256": "f19699e29e5126ef197abe695abea154d654fea9084757ea336c0b027f0f4563",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-appearance-panel-one-b4561-ttings-and-section-settings-chromium/trace.zip",
+      "bytes": 2332080,
+      "sha256": "9a40663cc52163e241182f27dd9ce756fd016d3ada1db76d2a1b8f03b92a8367",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-appearance-panel-one-b4561-ttings-and-section-settings-mobile-chrome/trace.zip",
+      "bytes": 2076917,
+      "sha256": "d6e7bc446ff3a9df31cb325c7a5967670de9b4794494cae864f29494cdceabda",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-auth-invalid-username-and-password-remain-on-login-chromium/trace.zip",
+      "bytes": 68694,
+      "sha256": "299e766de65a392d2151896feaa981e4da2b9822666513f8b582d76468618dc3",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-auth-invalid-username-and-password-remain-on-login-mobile-chrome/trace.zip",
+      "bytes": 107263,
+      "sha256": "6aeac83d3fe79a257f099f8e9c7ef10c058353ed286332b1f39493c84de1a655",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-auth-password-recove-d8241-submit-and-close-the-dialog-chromium/trace.zip",
+      "bytes": 114937,
+      "sha256": "c9f7e60f91a50139858271ef4a634840107e30226b37bc4297df1982921ff111",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-auth-password-recove-d8241-submit-and-close-the-dialog-mobile-chrome/trace.zip",
+      "bytes": 189133,
+      "sha256": "536247eb0e8a6faa0dc8f0f2b78214e3960535692392cd5d11fb071dd5457593",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-auth-password-reset-link-shows-only-the-reset-form-chromium/trace.zip",
+      "bytes": 32059,
+      "sha256": "62e1806141059febea3fbf71343a4d1e10a098c389469d7e34f0069c617438af",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-auth-password-reset-link-shows-only-the-reset-form-mobile-chrome/trace.zip",
+      "bytes": 43370,
+      "sha256": "dc6f59e73dc86b217bc0033b129a8414242604971409aba527c84720f1be5d92",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-auth-password-visibi-ea202--toggles-the-password-field-chromium/trace.zip",
+      "bytes": 57050,
+      "sha256": "a76267b2bff15a94af19c4f6032f8835393705e5a6f60d1ee99de61af1100200",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-auth-password-visibi-ea202--toggles-the-password-field-mobile-chrome/trace.zip",
+      "bytes": 70776,
+      "sha256": "865d730b6a4f3ac8ff1f07b063272a1f4656309fd5ca8ab19d95af4441760c75",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-auth-unauthenticated-c6115-redirects-to-username-login-chromium/trace.zip",
+      "bytes": 31319,
+      "sha256": "119a8d48529038851b6cf361f81df636f19577e4f70152cf9d36279c01dfa735",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-auth-unauthenticated-c6115-redirects-to-username-login-mobile-chrome/trace.zip",
+      "bytes": 56766,
+      "sha256": "f2f07e9e3de0c790d458916154347bc2a7912012adea278817cdfdcd8252dbd3",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-auth-username-login--520fb--logout-revokes-the-session-chromium/trace.zip",
+      "bytes": 742947,
+      "sha256": "243f03f35447a65f6de58692c506260973a7bff0c1ee7a483e6abbeb97062ced",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-auth-username-login--520fb--logout-revokes-the-session-mobile-chrome/trace.zip",
+      "bytes": 791988,
+      "sha256": "d58439af0aea4c03b396aa1cf987e5a1e04e6e8b0e9cb478f026b5bcf5a0a558",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-authentication-maste-ab4c4-pendently-of-method-choices-chromium/trace.zip",
+      "bytes": 1711230,
+      "sha256": "c0fff0ac692a0e6f03238d496daaafc7f68538265dfa2927e8cd907593e75793",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-authentication-maste-ab4c4-pendently-of-method-choices-mobile-chrome/trace.zip",
+      "bytes": 2471618,
+      "sha256": "5463b359675e4e74806be56e8831db878e72bd53914093cd772e9e5e48641499",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-authentication-type-panel-toggles-are-available-chromium/trace.zip",
+      "bytes": 1271958,
+      "sha256": "193e619c3d9623202bcc0dd3cf446f19cea8c3db4bf9070e1e066ab20b50d533",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-authentication-type-panel-toggles-are-available-mobile-chrome/trace.zip",
+      "bytes": 1715155,
+      "sha256": "2373a5fa19fc031007073047540bbe9a45cad3bd17ca9d9b5d5765823b0d76c9",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-config-workflow-seri-088f5-w-unchanged-publish-persist-chromium/trace.zip",
+      "bytes": 3200915,
+      "sha256": "f385040d93126d649500b185511e39d9feec9e96bff7838763f5534f45305b42",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-config-workflow-seri-088f5-w-unchanged-publish-persist-mobile-chrome/trace.zip",
+      "bytes": 39986,
+      "sha256": "b075a23ded446a891284628964dc267a6518663144d3eba80c02d250d0f561ee",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-config-workflow-seri-d9a2c-hotel-name-persists-via-API-chromium/trace.zip",
+      "bytes": 931792,
+      "sha256": "4ebd3ed4e67f834ab0ccd57d229b283c61fab7018c47bf10e823e977f72eba32",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-config-workflow-seri-d9a2c-hotel-name-persists-via-API-mobile-chrome/trace.zip",
+      "bytes": 39941,
+      "sha256": "c329f03f44c09431b61da14de1dca90d8bd21b2621827b070bf66de40b9b5fb4",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-config-workflow-seri-f2931-d-resets-draft-to-published-chromium/trace.zip",
+      "bytes": 2074033,
+      "sha256": "040ec160e0fcc92bac970e6f677e300befd9466ca61d558b55ce77f79c02c183",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-config-workflow-seri-f2931-d-resets-draft-to-published-mobile-chrome/trace.zip",
+      "bytes": 39905,
+      "sha256": "82845b9659b80772431e3676779af6c2fc31c647dd769971714d8e9123dd1330",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-config-workflow-seri-f30ff-s-previous-version-to-draft-chromium/trace.zip",
+      "bytes": 3758280,
+      "sha256": "4ee5cb618e13d504a86a82e56b2d93045162e533a9e32aecd782f0d32ba7334c",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-config-workflow-seri-f30ff-s-previous-version-to-draft-mobile-chrome/trace.zip",
+      "bytes": 39958,
+      "sha256": "e248177d2fd5f838c0edb17af60b50499f889d647542d06181016801925540ad",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-deployment-panel-status-info-displayed-chromium/trace.zip",
+      "bytes": 685575,
+      "sha256": "70cc86ee80d571a1c08bebc8a44889b149fb33844a16996cb784de0851699060",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-deployment-panel-status-info-displayed-mobile-chrome/trace.zip",
+      "bytes": 899391,
+      "sha256": "d11dee6bce856d52fc16aa48621eb29d65117d3244b45cc71fa7d798e7721673",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-design-actions-requi-9006b-in-the-UI-and-on-the-server-chromium/trace.zip",
+      "bytes": 789371,
+      "sha256": "807d55158bede66f7f69d7230cffbce3f5b90c56a5a32a040563e0fcb405a24c",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-design-actions-requi-9006b-in-the-UI-and-on-the-server-mobile-chrome/trace.zip",
+      "bytes": 1090678,
+      "sha256": "606c836e12a2e8184adcf51f728d41145cc4f8cccb9d6d256688e61acb608000",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-document-upload-crea-2255b-nowledge-without-publishing-chromium/trace.zip",
+      "bytes": 1019238,
+      "sha256": "df3f1065afb043874c2f4d63eb008e579527ee0e844db618a9b22371cdef1eaf",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-document-upload-crea-2255b-nowledge-without-publishing-mobile-chrome/trace.zip",
+      "bytes": 1619034,
+      "sha256": "6e7e1ae5c41cda4bf845839af37a2b01d59d7d30b504cc9df904c319688a6548",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-every-visible-admin-page-fits-the-tablet-layout-chromium/trace.zip",
+      "bytes": 5688057,
+      "sha256": "70a1f55bf25e787de5872b4ccbf7f4615d33ce46f9f94aa034512246b10689d6",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-every-visible-admin-page-fits-the-tablet-layout-mobile-chrome/trace.zip",
+      "bytes": 39881,
+      "sha256": "ffa46dbd6e492ba21ee8f65cd715c09f7c847f89143f531fcf39860259d6959f",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-facilities-panel-emp-66dc7-nd-styled-CRUD-actions-work-chromium/trace.zip",
+      "bytes": 2646127,
+      "sha256": "d2d2f11c0530837354903b1fbd04060bd1252de9661c37d9c0d7511f2acd684b",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-facilities-panel-emp-66dc7-nd-styled-CRUD-actions-work-mobile-chrome/trace.zip",
+      "bytes": 3117349,
+      "sha256": "5a43de342a932a512fe6423ae9677325d1897c5675eacb1f91d3e45fc97e086f",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-guardrails-panel-exp-4c92d-ols-and-network-diagnostics-chromium/trace.zip",
+      "bytes": 698076,
+      "sha256": "0a6ceccdc55f6ff2a84053d9a95dfd05e5d2869bc185da39cd28500e779eb8f1",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-guardrails-panel-exp-4c92d-ols-and-network-diagnostics-mobile-chrome/trace.zip",
+      "bytes": 39929,
+      "sha256": "bef1c317488d829bf8e94ad1f264ee5d2441dbd1f536ac58d1a174fba3196a0a",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-guest-experience-panel-modules-can-be-managed-chromium/trace.zip",
+      "bytes": 577352,
+      "sha256": "47fc821387157f31621b0b90a8173f22b5338afe7b2ca3557c618760022c6f69",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-guest-experience-panel-modules-can-be-managed-mobile-chrome/trace.zip",
+      "bytes": 840557,
+      "sha256": "903152f89eefb115beca4e82e9c28efde87916bcba7d5310ed501643b2784e42",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-hotel-assistant-comp-905d6-elper-text-in-separate-rows-chromium/trace.zip",
+      "bytes": 591908,
+      "sha256": "92007d28d820ad094f9dd322e182b50dae7b0eb783180131626069f87423b958",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-hotel-assistant-comp-905d6-elper-text-in-separate-rows-mobile-chrome/trace.zip",
+      "bytes": 872811,
+      "sha256": "b94ddb41780b3554058d4158a28f15941641da2c84ab41ea108edc96495df42d",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-hotel-check-in-and-c-69a5d-rs-and-persist-their-values-chromium/trace.zip",
+      "bytes": 889173,
+      "sha256": "125deeb624476460cda9253a0e50e1bf87acd0f8a1436879e4d8d3ef7f5eafcd",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-hotel-check-in-and-c-69a5d-rs-and-persist-their-values-mobile-chrome/trace.zip",
+      "bytes": 39903,
+      "sha256": "2bcf54171da9e641309de50f9432fad828d5483022b1874311a4749080ac2636",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-hotel-knowledge-comp-b103c-r-and-one-in-flight-request-chromium/trace.zip",
+      "bytes": 1073898,
+      "sha256": "0322645da84ff3586f4c07920f1dc9392e148047bd9352208d2f1e1fd4df53cd",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-hotel-knowledge-comp-b103c-r-and-one-in-flight-request-mobile-chrome/trace.zip",
+      "bytes": 1320727,
+      "sha256": "33f89d5b496383ab979a5092a08f8d4c16ea39197bf9a5000607b5ec73d59d26",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-integration-director-06066-eparate-working-setup-pages-chromium/trace.zip",
+      "bytes": 801684,
+      "sha256": "4daeae561cf1f94c374da587aff3f096b04f2e7baa86494bbae655874e99a9d7",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-integration-director-06066-eparate-working-setup-pages-mobile-chrome/trace.zip",
+      "bytes": 1027952,
+      "sha256": "f550d7092ac3aff8b1caa1597e950632df608204a16fc5a5d54c8ada81ab3ee6",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-knowledge-panel-exposes-managed-source-controls-chromium/trace.zip",
+      "bytes": 556912,
+      "sha256": "cbed3c762bbfecc90f25b4b4e779f60a2bbc01f0256eb5ed49a4792281b06b0c",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-knowledge-panel-exposes-managed-source-controls-mobile-chrome/trace.zip",
+      "bytes": 864617,
+      "sha256": "faf7be8a70e5e853382941dbfb8ad2a02fb5dbfb1fe484f721febe4884979f03",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-management-report-do-fb8e8-period-selected-on-its-page-chromium/trace.zip",
+      "bytes": 674004,
+      "sha256": "9e39cc2f2f466d2e0bd6c572bd978371a05971ca2856ca20e1c3724916a5a96f",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-management-report-do-fb8e8-period-selected-on-its-page-mobile-chrome/trace.zip",
+      "bytes": 970099,
+      "sha256": "e23bd20d191932b52b030cd605c14744fe01713f850eff8a85a72a151e66e598",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-map-workspace-adapts-to-a-short-desktop-viewport-chromium/trace.zip",
+      "bytes": 610256,
+      "sha256": "9f6f4b374b551c519e1fbbd0796233d2fe00308ac67bcef713e493e9c4ab3575",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-map-workspace-adapts-to-a-short-desktop-viewport-mobile-chrome/trace.zip",
+      "bytes": 389018,
+      "sha256": "e0b4976de92a15281e5269406662513a81cccc334ef15de03b46d02831b9bfd4",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-obsolete-product-sections-are-removed-from-navigation-chromium/trace.zip",
+      "bytes": 361702,
+      "sha256": "c42bff4addbb72c351374dfc578b18ddf88aa3c6a04e3293480925aedc3ec5e8",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-obsolete-product-sections-are-removed-from-navigation-mobile-chrome/trace.zip",
+      "bytes": 395673,
+      "sha256": "15274652ad9cdf185345a3cdfcf4a12303feb6c74b49ac1b0f159f321646c582",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-operations-assistant-0bdbb-and-keeps-follow-up-context-chromium/trace.zip",
+      "bytes": 2127711,
+      "sha256": "b202dc245b59c8a3ff85fce7e6e1eb772ba5823b68d8cebad3fbd0209224357b",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-operations-assistant-0bdbb-and-keeps-follow-up-context-mobile-chrome/trace.zip",
+      "bytes": 2487500,
+      "sha256": "d43b5578f470ce2c1fb1fad3c28b133971183e897a39b006eda44326f8bbe3a4",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-overview-panel-opera-5b29f-and-configuration-moved-out-chromium/trace.zip",
+      "bytes": 1000622,
+      "sha256": "c79ce0e1dd2a79529c2244a6b4d1c2eadf1bff98420ed7508fd231758c023195",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-overview-panel-opera-5b29f-and-configuration-moved-out-mobile-chrome/trace.zip",
+      "bytes": 1095788,
+      "sha256": "5b5fe9319271b6cc363f26be705b8898dbc16220a062ce6cd3deff9d02591efe",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-preview-controls-are-43638-ive-and-intro-settings-save-chromium/trace.zip",
+      "bytes": 5939650,
+      "sha256": "6d06ecda255d378c4acb7211043aebcaf8b7bb8ad4c4ea757c824949fdbe2ed9",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-preview-controls-are-43638-ive-and-intro-settings-save-mobile-chrome/trace.zip",
+      "bytes": 5892488,
+      "sha256": "545a8204e58aa10e6d79255059d39d5a79fae198cd1cd5676c1f0de6bb6fb0e8",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-requests-panel-opera-6171e-rs-use-property-local-dates-chromium/trace.zip",
+      "bytes": 1572302,
+      "sha256": "c5307d3df223cdc53fd78315ad5c11b1848bf3cf63ce5b0bd5d4ba5dcf90ffcf",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-requests-panel-opera-6171e-rs-use-property-local-dates-mobile-chrome/trace.zip",
+      "bytes": 1721367,
+      "sha256": "f78c4b7e2e1576d674bc9655288b0da9668fc79c5435fe4fc73c723089227975",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-requests-panel-service-request-controls-are-available-chromium/trace.zip",
+      "bytes": 608071,
+      "sha256": "1190704c502b80fb745d40f6ddd3da5c1ed47e2f2ccb58fffc720bf59d8df760",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-requests-panel-service-request-controls-are-available-mobile-chrome/trace.zip",
+      "bytes": 910345,
+      "sha256": "727f55755db507acb081c9a06eef8472fb46b2eaf763b4584683c4b1d860d198",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-responsive-sidebar-t-34bc1-kpoint-changes-stay-in-sync-chromium/trace.zip",
+      "bytes": 39750,
+      "sha256": "fd3a21fda72cb1747ab96276dba8955ebdb9c8b37a4354f6aaadcaeb71f7a233",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-responsive-sidebar-t-34bc1-kpoint-changes-stay-in-sync-mobile-chrome/trace.zip",
+      "bytes": 2691837,
+      "sha256": "ff4f00b3968d88081ca37ac362bc59a42a82ee5d52debe81f71b616eec9d8921",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-responsive-sidebar-t-78400--preference-survives-reload-chromium/trace.zip",
+      "bytes": 1300221,
+      "sha256": "5e94eb950f1fa663d9bffeeaf40ced868321f0620516c9386bcfa58aeca1d94d",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-responsive-sidebar-t-78400--preference-survives-reload-mobile-chrome/trace.zip",
+      "bytes": 39803,
+      "sha256": "1bda23b6cd22cda1b6c02b8565fabfedca50f022e7b22c1d039d1aef100a3a62",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-role-dialog-and-audit-action-buttons-work-chromium/trace.zip",
+      "bytes": 1423794,
+      "sha256": "05042d4b311902640365280f525e1bf3188ed87f3b0f8c3b33540f56f338fe1c",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-role-dialog-and-audit-action-buttons-work-mobile-chrome/trace.zip",
+      "bytes": 1753455,
+      "sha256": "4a7cc564ac1fee05d1642d60a546ece0249c88d6bc314d209bdd1446aaab1f8c",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-security-no-API-keys-in-client-JS-chromium/trace.zip",
+      "bytes": 371937,
+      "sha256": "b3a98250af9f8bd3129b16156dd13e917dfb4ef957528df8394778182bc746e4",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-security-no-API-keys-in-client-JS-mobile-chrome/trace.zip",
+      "bytes": 415025,
+      "sha256": "658f705f57d899224360d608af5950787fef73c0cf49390d52c426d056e24992",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-sidebar-all-navigation-items-are-visible-and-clickable-chromium/trace.zip",
+      "bytes": 8597042,
+      "sha256": "b4a8bf88ad501d2fc9b7a84bee16aaa477f2d9b4a86b1a8196b79d09ccc6b13e",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-sidebar-all-navigation-items-are-visible-and-clickable-mobile-chrome/trace.zip",
+      "bytes": 11627830,
+      "sha256": "fc1f58c4f5092a99b086bb10f3d2e7be1417d57e8a19c18e9a1fabec32d4462a",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-sidebar-each-visible-e265a-n-item-has-a-feature-status-chromium/trace.zip",
+      "bytes": 675097,
+      "sha256": "6daaadae33f752a82ce62cfae88df0b3b8ff1a40fd0669a93a7e31e8deb51f7a",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-sidebar-each-visible-e265a-n-item-has-a-feature-status-mobile-chrome/trace.zip",
+      "bytes": 409333,
+      "sha256": "2fb3a2a5f3ab3f0ba8b721a76aee7194d5416009bf77afc36a1200d7b73dc753",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-system-health-shows--47316-ummary-and-refreshes-checks-chromium/trace.zip",
+      "bytes": 1145909,
+      "sha256": "51b7bcac3530953afd2de289df6101680aa2b4f7f50c893c9ceca0d40c463f98",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-system-health-shows--47316-ummary-and-refreshes-checks-mobile-chrome/trace.zip",
+      "bytes": 1450479,
+      "sha256": "fa021d3f5ba48606635707d0db858afe4c14669cb12e0310d65d80e51dbe54b6",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-system-settings-use--79a95-d-persist-the-selected-zone-chromium/trace.zip",
+      "bytes": 2054926,
+      "sha256": "63a7f02d603ff1a27076cbcc5080d5cc00aab02c7f1ba89cbb3d16bc46b18818",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-system-settings-use--79a95-d-persist-the-selected-zone-mobile-chrome/trace.zip",
+      "bytes": 2539233,
+      "sha256": "7fb34b4cdfa78ab42e0fef28488a7fdf9c2df9b99c6111df0dac05a4cd65a3ce",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-topbar-publish-state-749bc-lish-Discard-Open-guest-app-chromium/trace.zip",
+      "bytes": 869030,
+      "sha256": "7d5f0abfd796131c9ebe5b9b845a4242ed0732bb84ac549f1041c1d0d4f33b56",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-topbar-publish-state-749bc-lish-Discard-Open-guest-app-mobile-chrome/trace.zip",
+      "bytes": 399034,
+      "sha256": "536ec9bb64bc796f4b494ff11dde5761d2e4c2ecb35e41215fc73e78f4e27d73",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-topbar-sidebar-and-p-abfdb-ttons-perform-their-actions-chromium/trace.zip",
+      "bytes": 1694453,
+      "sha256": "d17013f267eb046c8508f806dea888ff8b66a407112809114eeb0046cfd2d87d",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-topbar-sidebar-and-p-abfdb-ttons-perform-their-actions-mobile-chrome/trace.zip",
+      "bytes": 1252846,
+      "sha256": "239e2bb0a3baec5816c218e7dde4b8668a2e9ac4777d3d9df0228ea411471d61",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-users-and-access-pan-46e1b-e-username-first-management-chromium/trace.zip",
+      "bytes": 1436055,
+      "sha256": "3b29a9c859f5340c7c7ac64b39afe30fcf306ea130e52ce6aeb0848eaf7fb1d0",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-users-and-access-pan-46e1b-e-username-first-management-mobile-chrome/trace.zip",
+      "bytes": 2065719,
+      "sha256": "045f9f0330a2d347a4debdebea441632de5400c8e34ad080ff606ee4a57d8e15",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-webhooks-can-be-crea-58855-d-deleted-with-confirmation-chromium/trace.zip",
+      "bytes": 2237359,
+      "sha256": "4a99d1c31c669cfd3bcebc303e20725018844c256bb833a8228fec724210c60b",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-webhooks-can-be-crea-58855-d-deleted-with-confirmation-mobile-chrome/trace.zip",
+      "bytes": 2320250,
+      "sha256": "cb575735ea48b44b6e65fdab03fe85094ca9d1d6adbf85bbed5cd23f7bcbe577",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-wifi-panel-truthful--c1286-d-manual-test-are-available-chromium/trace.zip",
+      "bytes": 536420,
+      "sha256": "fbdeadb8e5674249d92e81970c1aa7197d88eeef26e5461b1b663f34691db51e",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-wifi-panel-truthful--c1286-d-manual-test-are-available-mobile-chrome/trace.zip",
+      "bytes": 860212,
+      "sha256": "33154b0719e92b4f3dc897be91d84cc056819b86e1a379a66c7bb2e55f9c573f",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-zones-map-toolbar-bu-cd388-ch-tools-and-execute-safely-chromium/trace.zip",
+      "bytes": 3047884,
+      "sha256": "23008c694df1fb04078918262c0b19bc472f1ca1aee5a6868eb1e7cfb803c071",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/admin-zones-map-toolbar-bu-cd388-ch-tools-and-execute-safely-mobile-chrome/trace.zip",
+      "bytes": 2866122,
+      "sha256": "a230152b2e8ce2e3ef8e3aa22efafd941617c25e920749258ed710884696f717",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-Intelligent-UI-break-38a2c-property-s-configured-hours-chromium/trace.zip",
+      "bytes": 233390,
+      "sha256": "fc2cd40f92beccddc29b215d2b081aeae5efb2cd9f5cc6e1fa9b77a0092c691d",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-Intelligent-UI-break-38a2c-property-s-configured-hours-mobile-chrome/trace.zip",
+      "bytes": 330396,
+      "sha256": "1fddaa42040011c10d413d7ede7cf87d881449c34fb20f03f44d10aca821a98f",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-Intelligent-UI-prope-90da0-ata-and-keeps-AI-text-inert-chromium/trace.zip",
+      "bytes": 302304,
+      "sha256": "dacd59fc96451fa3d13bf28b1745caccdcd7130cbb223be35eeedc8d1902caa4",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-Intelligent-UI-prope-90da0-ata-and-keeps-AI-text-inert-mobile-chrome/trace.zip",
+      "bytes": 200747,
+      "sha256": "b2a835e3d76722229ef7711e868150eeedc51905e47c1b8e8b62bb27fa7bf780",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-Intelligent-UI-serve-e8232-parameters-cannot-enable-v2-chromium/trace.zip",
+      "bytes": 332893,
+      "sha256": "2d3af29f23895af19a0002dae9c5284608abd872c00c20ccb5b4b7fe2fc81902",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-Intelligent-UI-serve-e8232-parameters-cannot-enable-v2-mobile-chrome/trace.zip",
+      "bytes": 372320,
+      "sha256": "0144a00146f9dc8f0eb83fc65dba962c87c81a495ab659e29f4bcd74837b4a0e",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-Intelligent-UI-servi-321d7-on-and-backend-verification-chromium/trace.zip",
+      "bytes": 330416,
+      "sha256": "097069fd0324c62d52221261ac7e37b9f3de4b44eeff434b86115d92dc8f7751",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-Intelligent-UI-servi-321d7-on-and-backend-verification-mobile-chrome/trace.zip",
+      "bytes": 492006,
+      "sha256": "16c96d317b47ae92a9b1a8a7d0039947eea4fabd2e56340ee2205cf18a728e39",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-Intelligent-UI-shari-f98c3-hout-creating-a-reservation-chromium/trace.zip",
+      "bytes": 498921,
+      "sha256": "7bbd0e2aef398e00e9a6fc6d5b600153f2a0c3aa1c280eb3de09a800e8ee583b",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-Intelligent-UI-shari-f98c3-hout-creating-a-reservation-mobile-chrome/trace.zip",
+      "bytes": 757066,
+      "sha256": "b04e10f06df65556fa1929e9cefd3eea4a2cd3853c81c7672a5a488c12cac319",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-Intelligent-UI-typed-062a5--and-cancel-and-do-not-book-chromium/trace.zip",
+      "bytes": 593231,
+      "sha256": "d8222e924dce26b10c6291655aa7292a29127fedaaa979c9b40538c743507d90",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-Intelligent-UI-typed-062a5--and-cancel-and-do-not-book-mobile-chrome/trace.zip",
+      "bytes": 644164,
+      "sha256": "f886bf79932e7194c7d985ae55af1c64135015e7b823870d5fb47ad2cd74ba7a",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-Intelligent-UI-verif-edf84-kers-and-a-text-alternative-chromium/trace.zip",
+      "bytes": 391821,
+      "sha256": "722a371bb459dfff55fbcc6e1f801a42674a54f59b2d9243b1e6b14d0a96cead",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-Intelligent-UI-verif-edf84-kers-and-a-text-alternative-mobile-chrome/trace.zip",
+      "bytes": 418842,
+      "sha256": "09637b5bd17aaac1d4e41e48c0f56b366568402ecd9255828e7b55d9f0872759",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-admin-no-console-errors-on-load-chromium/trace.zip",
+      "bytes": 378956,
+      "sha256": "02d51e0e927ee4f23c329c526ce48efd9f30d491ca1999f78294a9d24d8813dc",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-admin-no-console-errors-on-load-mobile-chrome/trace.zip",
+      "bytes": 395825,
+      "sha256": "a3297c64c916c65a2c54c477d1d885f59d38b7bc594b6633435f10de31695fb9",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-Enter-submits-message-chromium/trace.zip",
+      "bytes": 129916,
+      "sha256": "1a6e285bbaa48bf132d0b4e8d9acf325b093788f190eeeea49b3bad0703f053d",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-Enter-submits-message-mobile-chrome/trace.zip",
+      "bytes": 133021,
+      "sha256": "772b92dba977370ca269ca5106e14416b2cad94755fa70e86f3821c2e0deebec",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-Explore-and-My-d94f8-configured-property-content-chromium/trace.zip",
+      "bytes": 297923,
+      "sha256": "8e02069ce06701e366543e30c419b6208f1dd4c08f2fd2e09cfacaf0e92128f7",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-Explore-and-My-d94f8-configured-property-content-mobile-chrome/trace.zip",
+      "bytes": 339475,
+      "sha256": "4459c38b19bdcb22c010fac962186329dd18dd46136c2f88d72c407033004d67",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-a-configured-s-bb55f-rectly-without-opening-chat-chromium/trace.zip",
+      "bytes": 612720,
+      "sha256": "73265ee9ec307e50d7592c2369038baf04031f3e8471407bc38c5c99c597d615",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-a-configured-s-bb55f-rectly-without-opening-chat-mobile-chrome/trace.zip",
+      "bytes": 569165,
+      "sha256": "aea149c81e3b5c33fa434d5fc1fea52cb228b85f3ac2460c62c2d21f1082d42e",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-accessibility-menu-action-responds-chromium/trace.zip",
+      "bytes": 441876,
+      "sha256": "adc357e37ef60260cb1a73a7bd69c8342c0c55c65c011276cc872227fddcea94",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-accessibility-menu-action-responds-mobile-chrome/trace.zip",
+      "bytes": 659556,
+      "sha256": "700802fcb1cce490b83cd672be6060f7ce7c025f8fd3b58caae27c637ca13d39",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-bottom-navigat-8ac37-lore-requests-and-concierge-chromium/trace.zip",
+      "bytes": 379096,
+      "sha256": "cea9560a6d741d4a664a558b706eeec10ab0801539ec14cd4c6f734bfebfe1a3",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-bottom-navigat-8ac37-lore-requests-and-concierge-mobile-chrome/trace.zip",
+      "bytes": 480895,
+      "sha256": "89e85ac26856357052435e03bffdd53abb8ec5e3626c517d3b9c6c3ac77a2802",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-can-request-restaurant-staff-from-the-hotel-menu-chromium/trace.zip",
+      "bytes": 572564,
+      "sha256": "c75abb0fe4904847c033dd02a206678e6b67531b3d234dd81a6b68d6735f1908",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-can-request-restaurant-staff-from-the-hotel-menu-mobile-chrome/trace.zip",
+      "bytes": 26245,
+      "sha256": "ff4b15b73c1f9ee8e5fc310ec561fed781afb15ca527dbfac13e45a23e87af4c",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-chat-submit-works-with-direct-input-chromium/trace.zip",
+      "bytes": 446501,
+      "sha256": "da0f1766d7d234b107e372b31d91677df55b7d327c6633e13ff8ce01b35b2eec",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-chat-submit-works-with-direct-input-mobile-chrome/trace.zip",
+      "bytes": 554562,
+      "sha256": "dc5cb2607998538dd2bb9e295faf349b91b0dd581bd16223f53e123b9f380781",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-composer-input-uses-the-available-width-chromium/trace.zip",
+      "bytes": 105171,
+      "sha256": "24e0dc9f61accd0d8558d698e30b881e0d87c002610e3bb9ef9e42fe1ad1ebaf",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-composer-input-uses-the-available-width-mobile-chrome/trace.zip",
+      "bytes": 133591,
+      "sha256": "b8b100633bad2d48df2c95a55a6cb237ce708c81e96843cd024cd9d1b1604a4f",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-composer-shortcuts-open-a-supported-guest-view-chromium/trace.zip",
+      "bytes": 334377,
+      "sha256": "25c54cccd5ff51a9e64d342b306493a7abd2bdd47d929a5268ac83fbc2de5d57",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-composer-shortcuts-open-a-supported-guest-view-mobile-chrome/trace.zip",
+      "bytes": 598369,
+      "sha256": "6e245356e4ba48e36c69aee859aa72a2ae502162c4d5c5e5496fa3c23d16bed1",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-configured-ser-53a3e-est-shows-confirmation-card-chromium/trace.zip",
+      "bytes": 488103,
+      "sha256": "0d3d90b14c2a63278356985de6fb5884ef3fb55e98880d885043a6a1ae11287c",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-configured-ser-53a3e-est-shows-confirmation-card-mobile-chrome/trace.zip",
+      "bytes": 584123,
+      "sha256": "0d44b88bbf0e13800afe255e690797e7a257cdf35ce1ae8703ee9a9b70a26ba9",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-confirm-reques-483f4-ts-and-returns-a-request-id-chromium/trace.zip",
+      "bytes": 543567,
+      "sha256": "a277340db0dad8b1d7912eba8e4850f5fa402c9d124581b00cef7c187a96aecf",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-confirm-reques-483f4-ts-and-returns-a-request-id-mobile-chrome/trace.zip",
+      "bytes": 687009,
+      "sha256": "53f91bfa92b833aac3e664fdf2c46ab06012d8e5677a4d3443738542ee542f54",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-confirmed-service-request-appears-in-My-Requests-chromium/trace.zip",
+      "bytes": 626902,
+      "sha256": "760d019d661ddf5e0d280551f90f4fa5e8f79d5035b5afeaa81369c503079d4e",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-confirmed-service-request-appears-in-My-Requests-mobile-chrome/trace.zip",
+      "bytes": 766330,
+      "sha256": "09e50fe1a68392ebfa7e59a91f2576ce6de65a0671b016f5431e9876fff8807d",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-dark-mode-renders-without-errors-chromium/trace.zip",
+      "bytes": 105079,
+      "sha256": "61db19cfba142b80f75b009b12507bda07a4fcd890f65d12d35ab80c1d8edecf",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-dark-mode-renders-without-errors-mobile-chrome/trace.zip",
+      "bytes": 109577,
+      "sha256": "a5f77a297dee59ddd442657265669938b65e7a8430658412b764319ff07e4e04",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-document-upload-control-is-not-exposed-chromium/trace.zip",
+      "bytes": 104069,
+      "sha256": "c86bf771baa3c1cc9c8c9e32c465e1772457abfcac053429cff9cad2f73d078e",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-document-upload-control-is-not-exposed-mobile-chrome/trace.zip",
+      "bytes": 108541,
+      "sha256": "f9feb6f68fda4223261bebcec050ee33235bee8145117534c35c37c817312e36",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-empty-property-c1241-ions-and-unsupported-routes-chromium/trace.zip",
+      "bytes": 113694,
+      "sha256": "63fb776486e9ca3701d72af4affdb1adf9eb3e14b6df69aa4a09616a741ea4e2",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-empty-property-c1241-ions-and-unsupported-routes-mobile-chrome/trace.zip",
+      "bytes": 142342,
+      "sha256": "6b110c3890fa41ca5c50c7cd85146cf6c98609a3aa208574e70085c8a899cd86",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-empty-submit-is-prevented-chromium/trace.zip",
+      "bytes": 153264,
+      "sha256": "b52be66983f1f95b81ce785e05ba544efea1e87dfa08329ccc47102e8b961d96",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-empty-submit-is-prevented-mobile-chrome/trace.zip",
+      "bytes": 158444,
+      "sha256": "08e60a0e9d228201f0de08b1b9769512ba01dcfb982c52e2b3dae1a3a2193fa6",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-expanded-resta-05adc-ve-a-chat-response-rerender-chromium/trace.zip",
+      "bytes": 854846,
+      "sha256": "d2f014d7c6a8e8b07fb048a32429b12f4152d520b7f58ca2d88a27281db6f1e8",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-expanded-resta-05adc-ve-a-chat-response-rerender-mobile-chrome/trace.zip",
+      "bytes": 1031737,
+      "sha256": "0c04b96216381502e8d426d208e11d9744e1a39d8adb5ca5baa53815c9c6166e",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-failed-chat-request-keeps-the-submitted-draft-chromium/trace.zip",
+      "bytes": 464079,
+      "sha256": "813a9c9dc16d0872e9db967aef67940ad8c048e86165d5c5b540f2a9977ce94a",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-failed-chat-request-keeps-the-submitted-draft-mobile-chrome/trace.zip",
+      "bytes": 531812,
+      "sha256": "b047e2e57fe25bb4eb56bcd027ba52a306251e8843bc410c5d2adf5d535387ac",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-help-menu-action-responds-chromium/trace.zip",
+      "bytes": 441839,
+      "sha256": "3b5ab1e488edb03687609ded22f2916cb4386db3c8ccd1e891ac4a4d6cd1feab",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-help-menu-action-responds-mobile-chrome/trace.zip",
+      "bytes": 685658,
+      "sha256": "d9b879f422c57ac894606dbc125e45d6ec047e03dc03144ca2ee180821479b4e",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-home-shows-fou-7d559-supported-routes-in-See-all-chromium/trace.zip",
+      "bytes": 321080,
+      "sha256": "d9bcfcb1a73cca99eff46e72a4080bbcf168516b51736bed105b4b01f1b95556",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-home-shows-fou-7d559-supported-routes-in-See-all-mobile-chrome/trace.zip",
+      "bytes": 405825,
+      "sha256": "d19beb372a14fbd1a4337dd920ed8ac3b64d26e467dcc6e594506ff40da546f2",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-home-suggestio-783fc-fall-back-for-unsafe-images-chromium/trace.zip",
+      "bytes": 465478,
+      "sha256": "0d567beac6caf7de9749f2699207d996b6bb1cfb932b80e167fbf7164f32297d",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-home-suggestio-783fc-fall-back-for-unsafe-images-mobile-chrome/trace.zip",
+      "bytes": 614388,
+      "sha256": "83a689d9ca5688a17f0adcf578837d5d74bace0424c4d28e0bc0ec9c850edd45",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-hotel-informat-e5aed-configured-property-details-chromium/trace.zip",
+      "bytes": 444725,
+      "sha256": "e65c52d4cb39c9be0e439f07836b959c3727e40f347c62c98b06dbdd1b873213",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-hotel-informat-e5aed-configured-property-details-mobile-chrome/trace.zip",
+      "bytes": 660114,
+      "sha256": "adfe70cfb396f9a7c3884a3ce28ea2f94ffbe3d68e239a784667c28b78e4a64d",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-hotel-name-and-concierge-name-are-displayed-chromium/trace.zip",
+      "bytes": 103737,
+      "sha256": "8a79ba37aba28c02421608edf7409f0522b6041f121f41b14d4e455e529f7237",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-hotel-name-and-concierge-name-are-displayed-mobile-chrome/trace.zip",
+      "bytes": 108229,
+      "sha256": "ed0518d0be19c6805ce61414f661cbd26b094ec196bf1eaa5bcc0174e2e48552",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-language-menu-action-responds-chromium/trace.zip",
+      "bytes": 484945,
+      "sha256": "3289117073b95d8105188908d8843699b61ea0dc7766a2aae27884ee2fd9216c",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-language-menu-action-responds-mobile-chrome/trace.zip",
+      "bytes": 773182,
+      "sha256": "d755caf7fa5ba4e457cef5efb61772ad74322e5d30a134d1590f6f8be169e4a8",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-menu-opens-and-closes-chromium/trace.zip",
+      "bytes": 421144,
+      "sha256": "2a83ccc3e1caa3d6341d7532570ecdef26abfa82e7e405a1d6b5a0f46cda8898",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-menu-opens-and-closes-mobile-chrome/trace.zip",
+      "bytes": 658799,
+      "sha256": "f3f8c27c36970a991420faab0d98fcccd6f593652894109155de7ed2cc3b8cff",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-missing-sugges-782b1-ack-to-its-property-content-chromium/trace.zip",
+      "bytes": 256084,
+      "sha256": "3a82f04e094c64ffc1c760360be2404ebfb535cc0cac34bc3fbcc23a5c6f064b",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-missing-sugges-782b1-ack-to-its-property-content-mobile-chrome/trace.zip",
+      "bytes": 235034,
+      "sha256": "62a7f61c2b8640d11790286ac5d2009d405454a0faefec72854579c0b36d911e",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-mobile-layout-shows-all-core-elements-chromium/trace.zip",
+      "bytes": 109075,
+      "sha256": "f6628e14cfebfba4d2d1ba70b507690f9bf820cf0329605163c0446fc075a695",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-mobile-layout-shows-all-core-elements-mobile-chrome/trace.zip",
+      "bytes": 142549,
+      "sha256": "9ca048987d00e430fdd149c3265a899fae91ad8a45403508d207df7f917d0b93",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-multiline-composer-with-shift-enter-chromium/trace.zip",
+      "bytes": 131336,
+      "sha256": "5fbf521d0af8928d8e8207bcc33980d1a2dc26782df93bf8d128ca523db6f66e",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-multiline-composer-with-shift-enter-mobile-chrome/trace.zip",
+      "bytes": 133511,
+      "sha256": "d33e832446dbd5410b0a9a4b513d02248f86d9554beb1e75f937af4730a23f11",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-nearby-dining--b745c-sisted-recommendation-cards-chromium/trace.zip",
+      "bytes": 455132,
+      "sha256": "610b7f5b62dfe7802dc285a2bce3e6918c9deff4db2ec87c12841d4ac327b2df",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-nearby-dining--b745c-sisted-recommendation-cards-mobile-chrome/trace.zip",
+      "bytes": 492454,
+      "sha256": "6f463f6b49b4d27c4285fd74dab09c30d1174921027f49ea0351d0636f3c55a8",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-new-conversation-resets-messages-chromium/trace.zip",
+      "bytes": 722697,
+      "sha256": "a3a47d1de05711df124de990a6309c0b5203e579dd2ee5df9fff7262978415e9",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-new-conversation-resets-messages-mobile-chrome/trace.zip",
+      "bytes": 1044482,
+      "sha256": "1efe917cd7298f8dd69b1e2f6628a352b54f533957f7ed48f3f6106ee7714ec6",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-no-console-errors-on-load-chromium/trace.zip",
+      "bytes": 386135,
+      "sha256": "aaa49647ccccdd655ff55b91f63b8aaac0dcf927a60b433d2e3d95a931af3f55",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-no-console-errors-on-load-mobile-chrome/trace.zip",
+      "bytes": 460949,
+      "sha256": "a41a5d074fc5dd6ccbf7b5a3c059ba828831b78ee445cb7c755bb9bb9c5ad036",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-opens-on-the-p-27d47-h-chat-available-separately-chromium/trace.zip",
+      "bytes": 241086,
+      "sha256": "725f60d498d2a5503f3219215614e3799dd8131c1b299bf05fef05c243d1678a",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-opens-on-the-p-27d47-h-chat-available-separately-mobile-chrome/trace.zip",
+      "bytes": 261146,
+      "sha256": "97636f5ba6a8c6f6102b805478cec7a846a73a1a88f4f62e5954e71badba7a2a",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-optional-catal-f900a-ierge-session-from-starting-chromium/trace.zip",
+      "bytes": 148115,
+      "sha256": "4254f3d574cfcecb51dcd4743872ceb2916987b932427664b9de9a818b758c18",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-optional-catal-f900a-ierge-session-from-starting-mobile-chrome/trace.zip",
+      "bytes": 174710,
+      "sha256": "22b863d5b25c6655369934ce7c022d9e49dd0e67dbf8ac0fd3d0491b0c34974b",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-options-button-opens-the-same-working-menu-chromium/trace.zip",
+      "bytes": 440807,
+      "sha256": "b54146cc823c7e7d8a0b1e7c76075c59bb0417727fdc2dd1eef0cb8edcd36419",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-options-button-opens-the-same-working-menu-mobile-chrome/trace.zip",
+      "bytes": 658824,
+      "sha256": "3a13ef12b9b15408305398fdff0e3611f00fb085f3ce3b23321883abeb223e44",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-privacy-menu-action-responds-chromium/error-context.md",
+      "bytes": 14770,
+      "sha256": "b134487d5de04c555271e17033d8ee760316efd732a5c91cf7498b22bbf2666f",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-privacy-menu-action-responds-chromium/test-failed-1.png",
+      "bytes": 55276,
+      "sha256": "6fca439e7c17d299942181108b5b76dd0dcc7c4f5db8ad990f1fbeda3249bd1a",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-privacy-menu-action-responds-chromium/trace.zip",
+      "bytes": 1161241,
+      "sha256": "18140a88771406a467934689dd86b0b8739a232ab315c5ceb63b6289ec9256be",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-privacy-menu-action-responds-chromium/video.webm",
+      "bytes": 200138,
+      "sha256": "a9871a009c8a1c468f2f7151ac3424091e94b5c227b1619de1a0d65179bc8ec8",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-privacy-menu-action-responds-mobile-chrome/error-context.md",
+      "bytes": 14784,
+      "sha256": "6a301ab7a0f48621281f82f02e6608066f0d445b87dfa9128519588c99100979",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-privacy-menu-action-responds-mobile-chrome/test-failed-1.png",
+      "bytes": 181280,
+      "sha256": "2cb9d3fd1efb9558983ddda9ff310bfb776f74be81f5592054a080b382decbcd",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-privacy-menu-action-responds-mobile-chrome/trace.zip",
+      "bytes": 2129562,
+      "sha256": "d15fbd053751495fff05e94075ab2666f07a414c56c8466aff1542fe90c9b42e",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-privacy-menu-action-responds-mobile-chrome/video.webm",
+      "bytes": 273238,
+      "sha256": "55c6e19d98984fdfd5d8f1ffa48d2d57cd789ace58e308ff7dd8c73644a4a2f8",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-property-brand-28592-e-published-property-design-chromium/guest-home-redesign-chromium.png",
+      "bytes": 58689,
+      "sha256": "191ce1af4259299d6185aa7a1bdd18d3fe93fe98e9061d5f697f6634a4017818",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-property-brand-28592-e-published-property-design-chromium/trace.zip",
+      "bytes": 362997,
+      "sha256": "fb395a49b31ab5c95ca7abbd76b56b0823d9ffb807cdff80689d54699b61ed01",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-property-brand-28592-e-published-property-design-mobile-chrome/guest-home-redesign-mobile-chrome.png",
+      "bytes": 155636,
+      "sha256": "7870e35edf792edf9c43474c2c2205fb0b59ddbd22543432e7d5aaa51f17c29f",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-property-brand-28592-e-published-property-design-mobile-chrome/trace.zip",
+      "bytes": 461822,
+      "sha256": "f013bd1926e8bd6babc92775e2be01971aba4ff18930fe60ac4332ae3dfe654f",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-property-confi-cf4cc--loads-inside-the-home-hero-chromium/trace.zip",
+      "bytes": 231114,
+      "sha256": "a6bbfb427173637529723bc11401af70d972b0a9836e3ee4d206a63ad9012761",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-property-confi-cf4cc--loads-inside-the-home-hero-mobile-chrome/trace.zip",
+      "bytes": 251992,
+      "sha256": "fe4e31b2ec64d8510a51b564d0b94b12167f43d98c1c713698229ecd2afeedf5",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-requested-desk-f014f--overflow-or-footer-overlap-chromium/trace.zip",
+      "bytes": 67433,
+      "sha256": "b54e7d57e24aae890e40ba13e7e334f5da5e150b7765db07a3f86b1c5a035d36",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-requested-desk-f014f--overflow-or-footer-overlap-mobile-chrome/trace.zip",
+      "bytes": 90071,
+      "sha256": "aa8065ea2095d46495bf41de1a5ee477f01f482de15e29dd28a66302c7a39c0b",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-responsive-she-92ec7-without-horizontal-overflow-chromium/trace.zip",
+      "bytes": 1378057,
+      "sha256": "64b45283b338468d30d048296c12d7e1ac9cc08799871030764165c3d74b571c",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-responsive-she-92ec7-without-horizontal-overflow-mobile-chrome/trace.zip",
+      "bytes": 1205728,
+      "sha256": "020a1e40b3b6b6f0f8292efef0dbea41f14bb02d75eda0d00279820efe3d24a3",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-restaurant-car-1dfcd-on-toggles-verified-details-chromium/trace.zip",
+      "bytes": 741389,
+      "sha256": "81beb5464f9d5b3dd0e89f0fcbe02e9e8bd179e310bb75ecc35dfd3776bf696f",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-restaurant-car-1dfcd-on-toggles-verified-details-mobile-chrome/trace.zip",
+      "bytes": 1028657,
+      "sha256": "46b85554497145891cc8464df9c1f8586a334797a2256fcc0a0e0f8e06827e89",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-restaurant-car-5a22e-button-opens-configured-map-chromium/trace.zip",
+      "bytes": 534461,
+      "sha256": "abd135c1231cec36b5142439f046497e0544a683e52d3b3c2eaf5b8273a4152b",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-restaurant-car-5a22e-button-opens-configured-map-mobile-chrome/trace.zip",
+      "bytes": 622580,
+      "sha256": "e34d88cb5de6fa46e8fc2ad49d2101d11687fcc86bd0b09a46ffe6d254d2c374",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-submitted-mess-d1b8e--when-session-startup-fails-chromium/trace.zip",
+      "bytes": 470704,
+      "sha256": "f041de8836768eea6e30c29b062d03c0fcb99e5a7a13b0e97925c297c7a083df",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-submitted-mess-d1b8e--when-session-startup-fails-mobile-chrome/trace.zip",
+      "bytes": 568650,
+      "sha256": "29e75926939ad59d137f703bfbb1eaafa7604767d05f1176182d001b9a2674b7",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-unsafe-configu-bbec9-s-fall-back-without-loading-chromium/trace.zip",
+      "bytes": 216564,
+      "sha256": "06a58b8b1b675eaa4b68a4e0d3301212621a6bdc3e4044e9228c3aec549fe256",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-guest-unsafe-configu-bbec9-s-fall-back-without-loading-mobile-chrome/trace.zip",
+      "bytes": 232415,
+      "sha256": "587f168b0cafde6ec2fbe2980e34ccdc932a0391e5f2a2f5dfd49e63ac8637a4",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-wi-fi-authentication-2597c-n-type-and-no-disabled-type-chromium/trace.zip",
+      "bytes": 456525,
+      "sha256": "86b2fc63c147e5bd2d78dedf7f26b3bd3b1b1d396ed4a9175c6c167e1ea2ff03",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-wi-fi-authentication-2597c-n-type-and-no-disabled-type-mobile-chrome/trace.zip",
+      "bytes": 539778,
+      "sha256": "718c30d654446bff642689d2c73ee379d3cec4d4f21bf5514392802c4fafab15",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-wi-fi-authentication-37d57-flow-validates-empty-fields-chromium/trace.zip",
+      "bytes": 511780,
+      "sha256": "4866539bb9a3162f1182d074516eb8c1e4d4b2d20c744762122716fd8d6f20e6",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-wi-fi-authentication-37d57-flow-validates-empty-fields-mobile-chrome/trace.zip",
+      "bytes": 538130,
+      "sha256": "ccd80b65d0f5fde9e0f9e129ea2eda98424cc1b74b47afa3d77eb745f068f33f",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-wi-fi-authentication-5a356-sts-enabled-non-PMS-methods-chromium/trace.zip",
+      "bytes": 455632,
+      "sha256": "be8b60d542d40620e85d8594164e34e53a125eb4d1c0519d54be3cc654125e56",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-wi-fi-authentication-5a356-sts-enabled-non-PMS-methods-mobile-chrome/trace.zip",
+      "bytes": 515336,
+      "sha256": "09216cde72ea498655ed4350827d51146ec3ca1e7f0af64d87097bc68a223935",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-wi-fi-authentication-788c6-ect-authentication-requests-chromium/trace.zip",
+      "bytes": 442140,
+      "sha256": "e3ebb1e1ccd4d71b96c53b49df14ac6f0c249337404ba34b0cb6b402e67d0bdb",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-wi-fi-authentication-788c6-ect-authentication-requests-mobile-chrome/trace.zip",
+      "bytes": 497112,
+      "sha256": "2938b0109b920c1b1c72c261b8a239fd8c00d991527b2aac9c25caecc831aeee",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-wi-fi-authentication-8060e-s-successfully-in-mock-mode-chromium/trace.zip",
+      "bytes": 731203,
+      "sha256": "7de663c3f34b63f463b0190a755035e5e0df1fb88b06d81ccf7b8a9d4c13c5c5",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-wi-fi-authentication-8060e-s-successfully-in-mock-mode-mobile-chrome/trace.zip",
+      "bytes": 949827,
+      "sha256": "da646404da9ed6144ac8dc7106b7354e2e1f6d7232db09e856043f39e7ef2d9e",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-wi-fi-authentication-81391-ication-type-and-its-fields-chromium/trace.zip",
+      "bytes": 435013,
+      "sha256": "b21acc01c2fcdeba0dbee8909528baaf2758c4a0df5800680a260d2fe86e963f",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-wi-fi-authentication-81391-ication-type-and-its-fields-mobile-chrome/trace.zip",
+      "bytes": 538882,
+      "sha256": "27a23b375bc3e293f6007c03b05cbbab171dfa761488f820824eb630b0f26637",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-wi-fi-authentication-adf4a-e-disabled-for-the-property-chromium/trace.zip",
+      "bytes": 40015,
+      "sha256": "959356b3312e56375e672ea47d78e7fc306ce1ed3cae4a1b8eba70a71a32f4ee",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-wi-fi-authentication-adf4a-e-disabled-for-the-property-mobile-chrome/trace.zip",
+      "bytes": 40027,
+      "sha256": "5df1cc7f74021efe445b3b12b3951c1212fc8cff5293129784116dbdd02faa46",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-wi-fi-authentication-bace9-enabled-authentication-type-chromium/trace.zip",
+      "bytes": 47123,
+      "sha256": "da8d580f60aed1d14412316219df83a19bd6c6e7cdd3eb46aaca9e9c31dba43d",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/guest-wi-fi-authentication-bace9-enabled-authentication-type-mobile-chrome/trace.zip",
+      "bytes": 47220,
+      "sha256": "8c5d373b6e89785aec88868e6a7a7f7c932259b192859a284729975a3218e5a6",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/manual-qa-control-inventor-60e32--and-composite-entry-points-chromium/trace.zip",
+      "bytes": 25615,
+      "sha256": "e810ba188f42a1d8b5a81dbbe25d1474dc0d90f33dbb4bf9280633ece6387c0e",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/manual-qa-control-inventor-60e32--and-composite-entry-points-mobile-chrome/trace.zip",
+      "bytes": 21308,
+      "sha256": "4af71992e2668c3119f005967a6c2cfd6ca17548a73119c5e7c6614467ad4012",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/manual-qa-control-inventor-9b500--destination-and-guest-view-chromium/trace.zip",
+      "bytes": 14257188,
+      "sha256": "c8511a11adb24311d20343e135e1b3de9ed79133fc38ea39f5ce9fcaa3e65343",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/manual-qa-control-inventor-9b500--destination-and-guest-view-mobile-chrome/trace.zip",
+      "bytes": 2968,
+      "sha256": "c783d591c835b5736ccf9a4ac16878c02ff4293a848bc4c6eb0bcbd779407037",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/manual-qa-responsive-manua-056f3-min-destination-at-1024x768-chromium/trace.zip",
+      "bytes": 15959872,
+      "sha256": "e24cbe98dbfac389d4a32807003250668334fc666035b58a014f03b623ad9306",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/manual-qa-responsive-manua-056f3-min-destination-at-1024x768-mobile-chrome/trace.zip",
+      "bytes": 2950,
+      "sha256": "d97edb620d6361401e5ea4b309eeab62f36184836a709cda9471dc92d658744f",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/manual-qa-responsive-manua-1022e-dmin-destination-at-320x720-chromium/trace.zip",
+      "bytes": 15298708,
+      "sha256": "0af5d7ce513efd87a949c6a837dfc570c6c3ea52258bbb8200ce6d12bfc79e59",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/manual-qa-responsive-manua-1022e-dmin-destination-at-320x720-mobile-chrome/trace.zip",
+      "bytes": 2946,
+      "sha256": "7763746c779437fcbaf916329cfa0a1948786c73beb694da4979b66060b98bc2",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/manual-qa-responsive-manua-80c0a-dmin-destination-at-390x844-chromium/trace.zip",
+      "bytes": 14555565,
+      "sha256": "ef09fef92fde22a41b5b7f1ef17ef4c56c1666af68e0631fb7fa79c1a60cea67",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/manual-qa-responsive-manua-80c0a-dmin-destination-at-390x844-mobile-chrome/trace.zip",
+      "bytes": 2941,
+      "sha256": "60eb44c6d4ed9e85e49009317551c1f3b846a2d3b397310ffe516c213b8c6d65",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/manual-qa-responsive-manua-87b96-min-destination-at-1440x900-chromium/trace.zip",
+      "bytes": 14972381,
+      "sha256": "87c2a29b2cf46f4414a12700a64e512ce06841faee6fca55df830849860756c2",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/manual-qa-responsive-manua-87b96-min-destination-at-1440x900-mobile-chrome/trace.zip",
+      "bytes": 2948,
+      "sha256": "19d210a222f38fc79bdad98cfbda2b3cf5ff8a62286d1f6a0b1a04bf734e16c1",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/manual-qa-responsive-manua-91b33-dmin-destination-at-375x812-chromium/trace.zip",
+      "bytes": 15134218,
+      "sha256": "b9ce63ad87be3c4ddacd05c8172f2a2827a56234118a6bb16845aad550a791bc",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/manual-qa-responsive-manua-91b33-dmin-destination-at-375x812-mobile-chrome/trace.zip",
+      "bytes": 2937,
+      "sha256": "fda4b0956e12be411c7ddbd783560f2d3df7a827ea8bb1525571f2c38a9ba919",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/manual-qa-responsive-manua-9731a-min-destination-at-1280x720-chromium/trace.zip",
+      "bytes": 17182506,
+      "sha256": "3dad4c4a9e3e7850a18706d4835b238d6aa6a49e8071de81e49c5d9c144bf82f",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/manual-qa-responsive-manua-9731a-min-destination-at-1280x720-mobile-chrome/trace.zip",
+      "bytes": 2944,
+      "sha256": "b1ca4a0ced188ba947d748bc044e30fe8ae655704d5ffa909d6af0bc9575188a",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/manual-qa-responsive-manua-b2231-in-destination-at-1920x1080-chromium/trace.zip",
+      "bytes": 12543927,
+      "sha256": "17346c615dc9dc70d75c4fa7278b49fe26f964b61447ad22bcde0edb58faf438",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/manual-qa-responsive-manua-b2231-in-destination-at-1920x1080-mobile-chrome/trace.zip",
+      "bytes": 2944,
+      "sha256": "bef718d646e23b9953083e1ac28567acaf3e90cd61aa7ba04ebc223fdfef0b68",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/manual-qa-responsive-manua-b8e5e-min-destination-at-768x1024-chromium/trace.zip",
+      "bytes": 8735393,
+      "sha256": "e5822e2fe446cf9ff08ec2d9077d1c4b5b03e6b6003a55c400ed5f5eeaffba40",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/manual-qa-responsive-manua-b8e5e-min-destination-at-768x1024-mobile-chrome/trace.zip",
+      "bytes": 2949,
+      "sha256": "baf189c5ba464f0ab4f27372797b628ac451765227d56378e6107398ea61c798",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/manual-qa-responsive-manua-ee937-dmin-destination-at-430x932-chromium/trace.zip",
+      "bytes": 14192673,
+      "sha256": "320b5eb8fcd91c0181baaec24cb2bbca3d78361f9aae1f65f61f12b4f2df4443",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/manual-qa-responsive-manua-ee937-dmin-destination-at-430x932-mobile-chrome/trace.zip",
+      "bytes": 2940,
+      "sha256": "f609f6be5cfcdab25ff2c9834e65d3b6a383d6b024489b7e52d4bf427cf7e925",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/operations-console-alert-i-24463-nt-with-a-prepared-question-chromium/trace.zip",
+      "bytes": 401276,
+      "sha256": "01f52904ae217775f6ac69d7d585c8d892de5ff3aad3849e258b3d682e4e0a02",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/operations-console-alert-i-24463-nt-with-a-prepared-question-mobile-chrome/trace.zip",
+      "bytes": 361278,
+      "sha256": "7f486f164e754ba934e722ef75a784868fd779c8a27f62bd7fda834e847c1e39",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/operations-console-health--e5ed6-sistant-pages-are-navigable-chromium/trace.zip",
+      "bytes": 1009911,
+      "sha256": "d00b8a161018c556d8a5b729a9222b21a266c103534f4c5d9f6be7d301370135",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/operations-console-health--e5ed6-sistant-pages-are-navigable-mobile-chrome/trace.zip",
+      "bytes": 1529159,
+      "sha256": "736863cff18631b15fc7992e0b3183a39d117757d160545c5adc47f0b5729d54",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/operations-console-role-aw-f2470-uthful-telemetry-and-alerts-chromium/trace.zip",
+      "bytes": 381127,
+      "sha256": "04b2e1088bbfd827f13f830761d870b95f3ac702037dbf208ab3bea2d975ade8",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/operations-console-role-aw-f2470-uthful-telemetry-and-alerts-mobile-chrome/trace.zip",
+      "bytes": 398547,
+      "sha256": "d824696bf55b4d3c2a679ea785c6d5027bbea42f3f0bcebc15d8917f90d8468c",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/property-context-health-AP-8d749-e-checks-render-unavailable-chromium/trace.zip",
+      "bytes": 1216839,
+      "sha256": "a70ecdbfb78b8658c1f1a1091f9852f44379e515c0370f6007303c0d59349c8e",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/property-context-health-AP-8d749-e-checks-render-unavailable-mobile-chrome/trace.zip",
+      "bytes": 1285220,
+      "sha256": "4a252d8c2658ad30640b77bd617a13970e871dc35509752d83a0cd58d3d1db00",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/property-context-property--477db-afe-when-no-property-exists-chromium/trace.zip",
+      "bytes": 446726,
+      "sha256": "31f6ab056727f73bfb5c948f271ca2a0d77e26852549229950691dae4763f3eb",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/property-context-property--477db-afe-when-no-property-exists-mobile-chrome/trace.zip",
+      "bytes": 532456,
+      "sha256": "9af1d5a164e9f87cfcc17ff60a9d799b60829e872d3ce055b0bd2f48b58e4a6a",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/visual-admin-design-panel-visual-baseline-chromium/trace.zip",
+      "bytes": 798179,
+      "sha256": "a3ad17fee17b2e268a526446909ff43c07824c13ae711a38cf9a5f97ff5b17ac",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/visual-admin-design-panel-visual-baseline-mobile-chrome/trace.zip",
+      "bytes": 759384,
+      "sha256": "0b0800ded4edf24de85193e65aae3d4090e130ed2febce34a1c11e0a5d1fddb7",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/visual-guest-home-visual-baseline-chromium/trace.zip",
+      "bytes": 203622,
+      "sha256": "b20f1658097b36fe2fb9747078f5ff3fac41813f8d8afde56e1a60fb82d8ab39",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/visual-guest-home-visual-baseline-mobile-chrome/trace.zip",
+      "bytes": 290758,
+      "sha256": "78dc2c70665299f390df97d17ddc95a74b8e6fc3226b5dec2818a73fc13f9c2f",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/xss-guard-guest-supplied-s-4f4fa-nert-text-stored-XSS-guard--chromium/trace.zip",
+      "bytes": 687975,
+      "sha256": "1913b179f3f83918eefde91940ea23f0fe9408161004a1bf1769f3f73917cf57",
+      "git_ignored": true
+    },
+    {
+      "path": "audit/evidence/browser-2026-10-12/test-results/xss-guard-guest-supplied-s-4f4fa-nert-text-stored-XSS-guard--mobile-chrome/trace.zip",
+      "bytes": 916863,
+      "sha256": "4b9087edd38fcafe33ed8b5c428143c7bbbb8c280bdde2b800bf2115a2bfee04",
+      "git_ignored": true
+    }
+  ]
+}

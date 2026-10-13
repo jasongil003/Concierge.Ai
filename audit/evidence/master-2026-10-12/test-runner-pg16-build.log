@@ -1,0 +1,18 @@
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 223B done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/concierge-ai@sha256:f277c667243b0baca6dfa9a84295fb5f3b88e17d4f446f028fa0e999a60620b8
+#2 ERROR: pull access denied, repository does not exist or may require authorization: server message: insufficient_scope: authorization failed
+------
+ > [internal] load metadata for docker.io/library/concierge-ai@sha256:f277c667243b0baca6dfa9a84295fb5f3b88e17d4f446f028fa0e999a60620b8:
+------
+Dockerfile:1
+--------------------
+   1 | >>> FROM concierge-ai@sha256:f277c667243b0baca6dfa9a84295fb5f3b88e17d4f446f028fa0e999a60620b8
+   2 |     USER root
+   3 |     RUN python -m pip install --no-cache-dir pytest==9.1.1
+--------------------
+ERROR: failed to build: failed to solve: concierge-ai@sha256:f277c667243b0baca6dfa9a84295fb5f3b88e17d4f446f028fa0e999a60620b8: failed to resolve source metadata for docker.io/library/concierge-ai@sha256:f277c667243b0baca6dfa9a84295fb5f3b88e17d4f446f028fa0e999a60620b8: pull access denied, repository does not exist or may require authorization: server message: insufficient_scope: authorization failed

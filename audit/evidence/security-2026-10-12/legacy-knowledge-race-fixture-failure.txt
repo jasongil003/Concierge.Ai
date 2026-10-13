@@ -1,0 +1,8 @@
+Preserved failure summary from the first expanded race-fixture run.
+Command: .venv/bin/python -m pytest -q tests/test_legacy_knowledge_publication.py tests/test_operations.py tests/test_admin_configuration_actions.py tests/test_knowledge_management.py tests/test_hotel_neutrality.py
+Result: 1 failed, 48 passed, 1 skipped, 2 warnings in 37.19s.
+Failed test: test_concurrent_publication_prevents_stale_draft_editor_overwrite
+Exception: sqlite3.OperationalError: database is locked
+Fixture trigger: ConnectionProxy.execute kept an active SELECT cursor while original_connect attempted a concurrent publisher commit. The completed read was subsequently fetched and the cursor closed before that commit, then its stale row returned to the editor to exercise the guarded upsert.
+This is a preserved summary, not a verbatim transcript. The command's output file was reused by the subsequent final run; the original exception/count were retained from the tool execution output.
+Final rerun: 49 passed, 1 skipped, 2 warnings in 5.72s, raw output in legacy-knowledge-after.txt.

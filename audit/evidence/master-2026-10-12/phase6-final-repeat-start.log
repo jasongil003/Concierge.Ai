@@ -1,0 +1,26 @@
+ Container concierge-phase6-d2d09ba9-redis-1 Starting 
+ Container concierge-phase6-d2d09ba9-postgres-1 Starting 
+ Container concierge-phase6-d2d09ba9-redis-1 Started 
+ Container concierge-phase6-d2d09ba9-postgres-1 Started 
+ Container concierge-phase6-d2d09ba9-proxy-1 Stopping 
+ Container concierge-phase6-d2d09ba9-proxy-1 Stopped 
+ Container concierge-phase6-d2d09ba9-concierge-1 Stopping 
+ Container concierge-phase6-d2d09ba9-concierge-1 Stopped 
+ Container concierge-phase6-d2d09ba9-concierge-run-64e8c2c8c9ba Creating 
+ Container concierge-phase6-d2d09ba9-concierge-run-64e8c2c8c9ba Created 
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+ Container concierge-phase6-d2d09ba9-concierge-run-d6ba23e911d8 Creating 
+ Container concierge-phase6-d2d09ba9-concierge-run-d6ba23e911d8 Created 
+ Container concierge-phase6-d2d09ba9-redis-1 Running 
+ Container concierge-phase6-d2d09ba9-postgres-1 Running 
+ Container concierge-phase6-d2d09ba9-redis-1 Waiting 
+ Container concierge-phase6-d2d09ba9-postgres-1 Waiting 
+ Container concierge-phase6-d2d09ba9-postgres-1 Healthy 
+ Container concierge-phase6-d2d09ba9-redis-1 Healthy 
+ Container concierge-phase6-d2d09ba9-concierge-1 Starting 
+ Container concierge-phase6-d2d09ba9-concierge-1 Started 
+ Container concierge-phase6-d2d09ba9-proxy-1 Starting 
+ Container concierge-phase6-d2d09ba9-proxy-1 Started 
+Phase 6 stack started. Local proxy: http://localhost:18082/
+No test credentials were printed. Guest UI global flag remains disabled by default.

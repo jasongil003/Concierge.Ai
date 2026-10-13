@@ -1,0 +1,36 @@
+{
+  "date": "2026-10-12 Asia/Manila",
+  "baseline": "41c0ea1a7937035db6078cbb944f1e94f2fbad63",
+  "pr": {
+    "url": "https://github.com/jasongil003/Concierge.Ai/pull/52",
+    "merged": true,
+    "head_sha": "d3284849cb3bf3f0d3ab05b8f2346385850ad246",
+    "merge_commit_sha": "41c0ea1a7937035db6078cbb944f1e94f2fbad63"
+  },
+  "open_issues": [],
+  "workflow": {
+    "id": 38247953936,
+    "url": "https://github.com/jasongil003/Concierge.Ai/actions/runs/38247953936",
+    "tested_merge": "976184725c2212fc330e0b3ea3f7e11c6e556052",
+    "successful_jobs": [
+      "backend-tests",
+      "postgres-redis-integration",
+      "docker-runtime-smoke",
+      "dependency-security",
+      "python-dependency-security",
+      "secret-scan",
+      "static-security",
+      "deployment-validation-linux",
+      "deployment-validation-macos"
+    ],
+    "failed_jobs": [
+      "browser-tests"
+    ],
+    "browser": {
+      "passed": 273,
+      "skipped": 35,
+      "failed": 2
+    },
+    "note": "PR-triggered merge test, not the audit branch. Empty combined-status/merge-SHA PR-run lists do not mean CI passed."
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "date": "2026-10-13",
+  "implementation_commit": "ecfe3f42963896cd86a291450fa574a4c26b197f",
+  "original_features": 384,
+  "supplemental": 5,
+  "verified_percent": 53.91,
+  "status_counts": {
+    "IMPLEMENTED BUT UNVERIFIED": 71,
+    "VERIFIED COMPLETE": 207,
+    "PARTIALLY IMPLEMENTED": 56,
+    "BLOCKED BY EXTERNAL DEPENDENCY": 34,
+    "MISSING": 16,
+    "BROKEN": 0,
+    "DEFERRED BY PRODUCT DECISION": 0
+  },
+  "backend_from_junit": {
+    "pass": 1132,
+    "skip": 18,
+    "fail": 0
+  },
+  "browser_final": {
+    "pass": 283,
+    "skip": 35,
+    "fail": 0
+  },
+  "raw_traces_or_credentials_staged": false,
+  "reports_sha256": {
+    "MASTER_FEATURE_ACCEPTANCE_MATRIX.md": "237f1f7e717e416896bf1cf67fe7a55469fec1c81aa9c0d6e0fb051fcf419608",
+    "MASTER_PERFORMANCE_REVIEW.md": "13d89619b5c1d6d31d9fdb230b8bcf031dfff9e028c3f4e17abdcfd65957fd72",
+    "MASTER_PRODUCT_GAP_ANALYSIS.md": "f13a88b425c2e346c7079e05c1bba8f3bdb7749cb44d3507f09c38479e93cda2",
+    "MASTER_RELEASE_READINESS.md": "01495e05acc664a8e893d9dce78240c695199edb3a2f600e3a30ac931b14b8e7",
+    "MASTER_REMEDIATION_LOG.md": "1920a235fcd9eff87296e88b05294c77dd4d2ee0011b6bf61a61e3e12eb045f1",
+    "MASTER_SECURITY_REVIEW.md": "f4c07da04eec3fe32db4db7af56416450a4b52b605849268602d53783b184312",
+    "MASTER_TEST_RESULTS.md": "3bc2dcf79eca5559056f61b77034c84b477c8f589dace4e4d9d0fb581ae15029",
+    "MASTER_UI_UX_REVIEW.md": "f5975fd58808615292d297da428add24fd6169f307f7652cc2a75274c9ff73ad"
+  },
+  "raw_evidence_whitespace": "Terminal/browser artifacts preserve emitted trailing spaces through scoped .gitattributes; source and report whitespace checks pass."
+}

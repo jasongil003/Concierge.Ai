@@ -1,5 +1,13 @@
 # Concierge.Ai Product Roadmap
 
+## Acceptance reconciliation — 2026-10-12
+
+The [master acceptance matrix](../audit/MASTER_FEATURE_ACCEPTANCE_MATRIX.md) supersedes the implementation/acceptance interpretation of the historical checklists below. A checked box means an implementation foundation, not hotel acceptance. The current scoped results and prioritized gaps are in [release readiness](../audit/MASTER_RELEASE_READINESS.md) and [gap analysis](../audit/MASTER_PRODUCT_GAP_ANALYSIS.md).
+
+Admin authentication/RBAC/CSRF, property and branding CRUD, visual draft/publish/history/rollback, encrypted provider configuration/routing, knowledge upload/review/publish, staff conversation handoff, service-request lifecycle, and reporting are now implemented and locally exercised. The corresponding implemented foundation checkboxes below are reconciled; unchecked entries remain unfinished or await the stated acceptance. Live gateway/PMS/WLAN/provider behavior, actual mobile/captive devices, production TLS/service recovery, and representative capacity still require their own acceptance.
+
+Explicit software gaps include semantic/vector retrieval, provider OAuth, a working Copilot/Azure Foundry adapter, dollar-cost estimates/budgets, Lottie uploads, notification scheduling/delivery/frequency/deduplication, and admin pagination. No 30,000-user capacity is claimed. Preserve the historical checklists to distinguish the original plan from current measured acceptance.
+
 ## Product direction
 
 For the broader commercial product vision, proactive-stay design, hotel operations, analytics, notification guardrails, and long-term expansion, see [Master Product Expansion Plan](MASTER_PRODUCT_PLAN.md).
@@ -170,23 +178,23 @@ Guest
 
 ### Remaining work
 
-- [ ] Property-admin AI-provider settings UI
-- [ ] Encrypted provider secret storage
-- [ ] Per-property enabled-provider policy
+- [x] Property-admin AI-provider settings UI
+- [x] Encrypted provider secret storage
+- [x] Per-property enabled-provider policy
 - [ ] Per-property fast and advanced model selection
 - [ ] Cloud-AI budget/usage controls
-- [ ] Provider/model usage analytics
+- [x] Provider/model usage analytics
 - [ ] Local fallback when public AI is unavailable
-- [ ] Upload hotel FAQs, menus, policies, and service information
-- [ ] Local document parsing/chunking
+- [x] Upload hotel FAQs, menus, policies, and service information
+- [x] Local document parsing/chunking
 - [ ] Local embeddings/vector search
 - [ ] Semantic response cache
-- [ ] Source metadata and answer grounding
+- [x] Source metadata and answer grounding
 - [ ] Conversation summarization instead of unlimited chat history
-- [ ] Multilingual response policy
+- [x] Multilingual response policy
 - [ ] Live restaurant/place recommendation UI
 - [ ] Hotel-curated recommendation list as offline fallback
-- [ ] Maps/deep-link support for recommended places
+- [x] Maps/deep-link support for recommended places
 - [ ] Never invent business names, ratings, opening hours, or addresses
 
 ### Exit criteria
@@ -201,23 +209,23 @@ The commercial product should not require Concierge.Ai engineering to redesign e
 
 ### Property administration
 
-- [ ] Create/edit property
-- [ ] Hotel name and property ID
-- [ ] Customer hostname/subdomain
-- [ ] Deployment mode: on-prem / cloud / hybrid
-- [ ] Logo and brand assets
-- [ ] Concierge name/avatar
-- [ ] Colors, fonts, hero/background assets
-- [ ] Welcome message
+- [x] Create/edit property
+- [x] Hotel name and property ID
+- [x] Customer hostname/subdomain
+- [x] Deployment mode: on-prem / cloud / hybrid
+- [x] Logo and brand assets
+- [x] Concierge name/avatar
+- [x] Colors, fonts, hero/background assets
+- [x] Welcome message
 - [ ] Languages
-- [ ] Quick actions
-- [ ] Facilities
-- [ ] Dining/spa/services
-- [ ] Hotel policies
-- [ ] Guest support contacts
-- [ ] AI configuration
-- [ ] Knowledge uploads
-- [ ] ANTlabs integration settings
+- [x] Quick actions
+- [x] Facilities
+- [x] Dining/spa/services
+- [x] Hotel policies
+- [x] Guest support contacts
+- [x] AI configuration
+- [x] Knowledge uploads
+- [x] ANTlabs integration settings
 
 ### Intro experience / motion branding
 
@@ -228,15 +236,15 @@ Give each property an optional short branded experience before the Concierge cha
 - [ ] Built-in presets: minimal fade, fade + scale, luxury reveal, particle assemble, line draw, glass/blur, split reveal
 - [ ] Logo-to-chat-header transition
 - [ ] Duration, background/brand color, welcome message, and transition controls
-- [ ] First-visit-only playback
-- [ ] Optional Skip control
-- [ ] Respect `prefers-reduced-motion`
+- [x] First-visit-only playback
+- [x] Optional Skip control
+- [x] Respect `prefers-reduced-motion`
 - [ ] Mobile and desktop preview before publish
 - [ ] Custom `.lottie` and Lottie `.json` upload
-- [ ] Custom `.webm` upload
-- [ ] Optional `.mp4` fallback
-- [ ] Validate animation assets and file size
-- [ ] Graceful fallback directly to chat if animation fails
+- [x] Custom `.webm` upload
+- [x] Optional `.mp4` fallback
+- [x] Validate animation assets and file size
+- [x] Graceful fallback directly to chat if animation fails
 - [ ] Initialize guest/chat session while intro is playing where possible
 - [ ] Keep After Effects `.aep` as a source-project format only; require export to a supported web format
 - [ ] Later: PNG/JPG vectorization and AI-generated custom motion from logo + prompt
@@ -256,15 +264,15 @@ Provide hospitality-specific templates:
 
 Builder features:
 
-- [ ] Mobile-first visual editor
+- [x] Mobile-first visual editor
 - [ ] Pre-auth preview
 - [ ] Authenticated-guest preview
-- [ ] Desktop/mobile preview
-- [ ] Section ordering
-- [ ] Quick-action editor
-- [ ] Draft/publish workflow
-- [ ] Version history
-- [ ] Rollback
+- [x] Desktop/mobile preview
+- [x] Section ordering
+- [x] Quick-action editor
+- [x] Draft/publish workflow
+- [x] Version history
+- [x] Rollback
 - [ ] Clone template between properties
 - [ ] Hotel-group brand template
 
@@ -292,12 +300,12 @@ The core application remains coded; optional workflow automation can use n8n whe
 ### Core code
 
 - [ ] PMS guest-context adapter
-- [ ] Service-request API
-- [ ] Staff dashboard
-- [ ] Human escalation
-- [ ] Request status tracking
-- [ ] Auditable hotel actions
-- [ ] Confirm actions before claiming success to the guest
+- [x] Service-request API
+- [x] Staff dashboard
+- [x] Human escalation
+- [x] Request status tracking
+- [x] Auditable hotel actions
+- [x] Confirm actions before claiming success to the guest
 
 ### Integration framework
 

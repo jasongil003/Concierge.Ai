@@ -1,0 +1,3 @@
+
+# Preserve captured terminal/browser evidence bytes, including emitted trailing spaces.
+audit/evidence/** -whitespace

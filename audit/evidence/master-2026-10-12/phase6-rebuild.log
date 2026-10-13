@@ -1,0 +1,68 @@
+ Image concierge-ai:phase6-local Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 762B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.39kB done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/python:3.12-slim@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f
+#3 DONE 0.0s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 153B done
+#4 DONE 0.0s
+
+#5 [ 1/11] FROM docker.io/library/python:3.12-slim@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f
+#5 resolve docker.io/library/python:3.12-slim@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f done
+#5 DONE 0.0s
+
+#6 [internal] load build context
+#6 transferring context: 818.39kB 0.0s done
+#6 DONE 0.0s
+
+#7 [ 3/11] WORKDIR /app
+#7 CACHED
+
+#8 [ 4/11] RUN apt-get update     && apt-get upgrade -y --no-install-recommends     && apt-get install -y --no-install-recommends tesseract-ocr postgresql-client     && rm -rf /var/lib/apt/lists/*
+#8 CACHED
+
+#9 [ 5/11] COPY requirements.txt .
+#9 CACHED
+
+#10 [ 2/11] RUN groupadd --system --gid 10001 concierge && useradd --system --uid 10001 --gid concierge --home-dir /app --shell /usr/sbin/nologin concierge
+#10 CACHED
+
+#11 [ 6/11] RUN pip install --no-cache-dir -r requirements.txt
+#11 CACHED
+
+#12 [ 7/11] COPY app ./app
+#12 DONE 0.1s
+
+#13 [ 8/11] COPY scripts/migrate_sqlite_to_postgres.py ./scripts/migrate_sqlite_to_postgres.py
+#13 DONE 0.0s
+
+#14 [ 9/11] COPY migrations ./migrations
+#14 DONE 0.0s
+
+#15 [10/11] COPY alembic.ini ./alembic.ini
+#15 DONE 0.0s
+
+#16 [11/11] RUN mkdir -p /state && chown -R concierge:concierge /state
+#16 DONE 0.1s
+
+#17 exporting to image
+#17 exporting layers
+#17 exporting layers 0.2s done
+#17 exporting manifest sha256:a15663769ad4c2090472216fa27859160bd638d9adb1a96cc25215eaaf14fa5f done
+#17 exporting config sha256:5813782dec655ea42736ac2a234491f31fdb4d7983c8e67995a4c1e80ee678ee done
+#17 exporting attestation manifest sha256:ce16cf7644725b136e2467db27e114f29df1f3472c6549b8fb72a54880204fd2 done
+#17 exporting manifest list sha256:21fe2eeba75ce6f4d75c692b615f0870e55a879421f70fa8f2cf419052eaae38 done
+#17 naming to docker.io/library/concierge-ai:phase6-local done
+#17 unpacking to docker.io/library/concierge-ai:phase6-local 0.0s done
+#17 DONE 0.3s
+
+#18 resolving provenance for metadata file
+#18 DONE 0.0s
+ Image concierge-ai:phase6-local Built 

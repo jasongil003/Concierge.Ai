@@ -1,0 +1,5 @@
+ Container concierge-phase6-d2d09ba9-postgres-1 Running 
+ Container concierge-phase6-d2d09ba9-redis-1 Running 
+ Container concierge-phase6-d2d09ba9-concierge-run-604fa2f9c184 Creating 
+ Container concierge-phase6-d2d09ba9-concierge-run-604fa2f9c184 Created 
+Error response from daemon: failed to set up container networking: Address already in use

@@ -1,0 +1,11 @@
+Branch: codex/master-product-audit-2026-10-12
+HEAD: 41c0ea1a7937035db6078cbb944f1e94f2fbad63
+Python 3.12: Python 3.12.14
+Docker Compose: Docker Compose version v5.5.1
+Docker daemon: unavailable
+nginx: unavailable
+pg_dump: unavailable
+redis-cli: unavailable
+gitleaks: unavailable
+trivy: unavailable
+shellcheck: available

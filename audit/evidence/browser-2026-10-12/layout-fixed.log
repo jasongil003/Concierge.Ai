@@ -1,0 +1,25 @@
+[WebServer] INFO:     Started server process [93400]
+[WebServer] INFO:     Waiting for application startup.
+[WebServer] INFO:     Application startup complete.
+[WebServer] INFO:     Uvicorn running on http://127.0.0.1:8092 (Press CTRL+C to quit)
+
+Running 8 tests using 1 worker
+
+(node:93416) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [chromium] › tests/e2e/guest-privacy.spec.js:6:1 › guest privacy explains staff access and retained conversations truthfully (1.2s)
+  ✓  2 [chromium] › tests/e2e/guest-scrollbar.spec.js:6:1 › guest home and concierge retain aligned content with classic scrollbars (946ms)
+  ✓  3 [chromium] › tests/e2e/guest.spec.js:554:1 › guest: responsive shell keeps the concierge composer attached without horizontal overflow (2.2s)
+  ✓  4 [chromium] › tests/e2e/guest.spec.js:1075:3 › guest: privacy menu action responds (748ms)
+(node:93482) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  5 [mobile-chrome] › tests/e2e/guest-privacy.spec.js:6:1 › guest privacy explains staff access and retained conversations truthfully (1.0s)
+  ✓  6 [mobile-chrome] › tests/e2e/guest-scrollbar.spec.js:6:1 › guest home and concierge retain aligned content with classic scrollbars (1.4s)
+  ✓  7 [mobile-chrome] › tests/e2e/guest.spec.js:554:1 › guest: responsive shell keeps the concierge composer attached without horizontal overflow (2.8s)
+  ✓  8 [mobile-chrome] › tests/e2e/guest.spec.js:1075:3 › guest: privacy menu action responds (1.0s)
+[WebServer] INFO:     Shutting down
+[WebServer] INFO:     Waiting for application shutdown.
+[WebServer] INFO:     Application shutdown complete.
+[WebServer] INFO:     Finished server process [93400]
+
+  8 passed (13.6s)

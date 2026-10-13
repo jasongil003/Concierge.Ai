@@ -1,0 +1,81 @@
+FFF                                                                      [100%]------------------ Persistent SQLite safety check: unchanged -------------------
+/Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/state/concierge.db: (8544256, 1791281898673543275, 'a682599b6e28da3051909d14d0018bf8825e80d663607ae579af35347f980e78')
+/Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/state/concierge.db-journal: None
+/Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/state/concierge.db-shm: None
+/Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/state/concierge.db-wal: None
+
+=================================== FAILURES ===================================
+_ test_legacy_editor_cannot_create_guest_visible_content_with_explicit_or_default_enable[faq] _
+
+legacy_knowledge = <app.operations.OperationsStore object at 0x10cb56b10>
+kind = 'faq'
+
+    @pytest.mark.parametrize("kind", ["faq", "entry"])
+    def test_legacy_editor_cannot_create_guest_visible_content_with_explicit_or_default_enable(legacy_knowledge, kind):
+        payload = {"kind": kind, "title": "Pool", "body": "Pool closes at ten", "question": "Pool closing?", "answer": "Pool closes at ten"}
+        with TestClient(app) as client:
+            _login(client, "editor")
+            for updates in ({}, {"enabled": True}):
+                response = client.put("/api/admin/properties/hotel-a/knowledge", json={**payload, **updates})
+>               assert response.status_code == 403, response.text
+E               AssertionError: {"item_id":"knowledge_8ca68cbbc4a947a28238832f2e8b78af","property_id":"hotel-a","kind":"faq","title":"Pool","question":"Pool closing?","answer":"Pool closes at ten","body":"Pool closes at ten","source_name":"","content_type":"","status":"ready","error":"","enabled":true,"created_at":1791811452,"updated_at":1791811452}
+E               assert 200 == 403
+E                +  where 200 = <Response [200 OK]>.status_code
+
+tests/test_legacy_knowledge_publication.py:47: AssertionError
+_ test_legacy_editor_cannot_create_guest_visible_content_with_explicit_or_default_enable[entry] _
+
+legacy_knowledge = <app.operations.OperationsStore object at 0x10cb40f50>
+kind = 'entry'
+
+    @pytest.mark.parametrize("kind", ["faq", "entry"])
+    def test_legacy_editor_cannot_create_guest_visible_content_with_explicit_or_default_enable(legacy_knowledge, kind):
+        payload = {"kind": kind, "title": "Pool", "body": "Pool closes at ten", "question": "Pool closing?", "answer": "Pool closes at ten"}
+        with TestClient(app) as client:
+            _login(client, "editor")
+            for updates in ({}, {"enabled": True}):
+                response = client.put("/api/admin/properties/hotel-a/knowledge", json={**payload, **updates})
+>               assert response.status_code == 403, response.text
+E               AssertionError: {"item_id":"knowledge_e8cfc5c239cc46f2b34b89827cbfcd5e","property_id":"hotel-a","kind":"entry","title":"Pool","question":"Pool closing?","answer":"Pool closes at ten","body":"Pool closes at ten","source_name":"","content_type":"","status":"ready","error":"","enabled":true,"created_at":1791811452,"updated_at":1791811452}
+E               assert 200 == 403
+E                +  where 200 = <Response [200 OK]>.status_code
+
+tests/test_legacy_knowledge_publication.py:47: AssertionError
+_ test_legacy_draft_editing_and_publisher_transitions_preserve_approval_boundary _
+
+legacy_knowledge = <app.operations.OperationsStore object at 0x10cbdc990>
+
+    def test_legacy_draft_editing_and_publisher_transitions_preserve_approval_boundary(legacy_knowledge):
+        payload = {"kind": "faq", "question": "Pool closing?", "answer": "Approved pool hours", "enabled": False}
+        with TestClient(app) as editor:
+            _login(editor, "editor")
+            draft = editor.put("/api/admin/properties/hotel-a/knowledge", json=payload)
+            assert draft.status_code == 200, draft.text
+            item_id = draft.json()["item_id"]
+            assert draft.json()["enabled"] is False
+            edited_payload = {**payload, "item_id": item_id, "answer": "Draft pool hours"}
+            edited = editor.put("/api/admin/properties/hotel-a/knowledge", json=edited_payload)
+            assert edited.status_code == 200, edited.text
+            assert legacy_knowledge.search_knowledge("hotel-a", "pool") == []
+>           assert editor.put("/api/admin/properties/hotel-a/knowledge", json={**edited_payload, "enabled": True}).status_code == 403
+E           AssertionError: assert 200 == 403
+E            +  where 200 = <Response [200 OK]>.status_code
+E            +    where <Response [200 OK]> = put('/api/admin/properties/hotel-a/knowledge', json={'kind': 'faq', 'question': 'Pool closing?', 'answer': 'Draft pool hours', 'enabled': True, ...})
+E            +      where put = <starlette.testclient.TestClient object at 0x10cbdf510>.put
+
+tests/test_legacy_knowledge_publication.py:65: AssertionError
+=============================== warnings summary ===============================
+.venv/lib/python3.11/site-packages/fastapi/testclient.py:1
+  /Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/.venv/lib/python3.11/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+.venv/lib/python3.11/site-packages/starlette/testclient.py:53
+  /Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/.venv/lib/python3.11/site-packages/starlette/testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_legacy_knowledge_publication.py::test_legacy_editor_cannot_create_guest_visible_content_with_explicit_or_default_enable[faq]
+FAILED tests/test_legacy_knowledge_publication.py::test_legacy_editor_cannot_create_guest_visible_content_with_explicit_or_default_enable[entry]
+FAILED tests/test_legacy_knowledge_publication.py::test_legacy_draft_editing_and_publisher_transitions_preserve_approval_boundary
+3 failed, 2 warnings in 0.66s

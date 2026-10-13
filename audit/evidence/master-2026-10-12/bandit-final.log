@@ -1,0 +1,109 @@
+[main]	INFO	profile include tests: None
+[main]	INFO	profile exclude tests: None
+[main]	INFO	cli include tests: None
+[main]	INFO	cli exclude tests: None
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/admin_auth.py:1047
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/admin_auth.py:1047
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/admin_auth.py:1047
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/admin_auth.py:1145
+[manager]	WARNING	Test in comment: this is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: identifier is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: is is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: a is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: module is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: constant is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: never is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: user is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: input is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: this is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: identifier is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: is is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: a is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: module is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: constant is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: never is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: user is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: input is not a test name or id, ignoring
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/database.py:475
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/database.py:535
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/hospitality.py:390
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/hospitality.py:390
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/hospitality.py:390
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/hospitality.py:968
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/hospitality.py:1456
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/hospitality.py:1490
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/hospitality.py:1731
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/hospitality.py:1769
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/hospitality.py:1769
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/observability.py:240
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/observability.py:242
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/observability.py:244
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/observability.py:244
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/observability.py:315
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/observability.py:315
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/observability.py:321
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/observability.py:327
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/personalization.py:299
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/personalization.py:390
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/personalization.py:392
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/properties.py:839
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/properties.py:839
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/properties.py:1009
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/properties.py:1009
+[manager]	WARNING	Test in comment: generated is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: placeholders is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: only is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: property is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: and is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: restaurant is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: IDs is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: are is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: bound is not a test name or id, ignoring
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/session_store.py:232
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/session_store.py:232
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/session_store.py:256
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/session_store.py:256
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/session_store.py:256
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/session_store.py:899
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/session_store.py:901
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/session_store.py:918
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/session_store.py:918
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/session_store.py:918
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/session_store.py:918
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/session_store.py:930
+[manager]	WARNING	Test in comment: identifiers is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: come is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: only is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: from is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: _SPECS is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: identifiers is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: come is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: only is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: from is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: _SPECS is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: identifiers is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: come is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: only is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: from is not a test name or id, ignoring
+[manager]	WARNING	Test in comment: _SPECS is not a test name or id, ignoring
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/transcript_rotation.py:48
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/transcript_rotation.py:48
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/transcript_rotation.py:48
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/transcript_rotation.py:48
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/transcript_rotation.py:60
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/transcript_rotation.py:197
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/transcript_rotation.py:197
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/transcript_rotation.py:197
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/transcript_rotation.py:197
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/zones.py:357
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/zones.py:357
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/zones.py:477
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/zones.py:477
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/zones.py:486
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/zones.py:486
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/zones.py:585
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/zones.py:587
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/zones.py:589
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/zones.py:666
+[tester]	WARNING	nosec encountered (B608), but no failed test on file app/zones.py:666
+[json]	INFO	JSON output written to file: audit/evidence/master-2026-10-12/bandit-final.json

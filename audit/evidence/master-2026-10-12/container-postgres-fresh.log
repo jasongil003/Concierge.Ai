@@ -1,0 +1,8 @@
+ImportError while loading conftest '/work/tests/conftest.py'.
+/Users/jasongil/Desktop/My AI workforce/projects/Concierge.Ai/tests/conftest.py:48: in <module>
+    ???
+app/main.py:171: in <module>
+    verify_schema_current(settings.db_path)
+app/database.py:497: in verify_schema_current
+    raise RuntimeError("PostgreSQL schema is not migrated; run `alembic upgrade head` before starting the API.") from exc
+E   RuntimeError: PostgreSQL schema is not migrated; run `alembic upgrade head` before starting the API.

@@ -1,0 +1,51 @@
+{
+  "scope": "loopback HTTP shell/health only; synthetic SQLite; one Uvicorn worker; no AI, guest sessions, proxy, or capacity certification",
+  "stages": [
+    {
+      "workers": 1,
+      "requests": 100,
+      "failures": 0,
+      "status_counts": {
+        "200": 100
+      },
+      "duration_seconds": 0.381,
+      "requests_per_second": 262.6,
+      "p50_ms": 5.063,
+      "p95_ms": 7.787,
+      "p99_ms": 11.902,
+      "server_rss_mib": 118.8,
+      "server_cpu_seconds": 0.332
+    },
+    {
+      "workers": 5,
+      "requests": 100,
+      "failures": 0,
+      "status_counts": {
+        "200": 100
+      },
+      "duration_seconds": 0.355,
+      "requests_per_second": 281.74,
+      "p50_ms": 15.45,
+      "p95_ms": 27.67,
+      "p99_ms": 69.559,
+      "server_rss_mib": 119.69,
+      "server_cpu_seconds": 0.346
+    },
+    {
+      "workers": 10,
+      "requests": 100,
+      "failures": 0,
+      "status_counts": {
+        "200": 100
+      },
+      "duration_seconds": 0.284,
+      "requests_per_second": 352.09,
+      "p50_ms": 26.737,
+      "p95_ms": 40.963,
+      "p99_ms": 44.861,
+      "server_rss_mib": 104.72,
+      "server_cpu_seconds": 0.287
+    }
+  ],
+  "health_after_restart": "PASS"
+}
