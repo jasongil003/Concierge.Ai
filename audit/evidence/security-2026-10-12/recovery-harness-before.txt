@@ -7,21 +7,21 @@ FF                                                                       [100%]-
 =================================== FAILURES ===================================
 ___________ test_recovery_bootstrap_identity_matches_its_admin_login ___________
 
-captured_recovery_environments = ({'BROWSER_USE_ACCESS_VERIFYING_IDENTITY': 'MCowBQYDK2VwAyEAjB3ojuqa5h3qJO1aWdtvb9iauDMIdwk77mN35A0A2Ys=', 'CODEX_APP_...', 'CODEX_CLI_PATH': '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex', ...}])
+captured_recovery_environments = ({'BROWSER_USE_ACCESS_VERIFYING_IDENTITY': '[REDACTED_EXECUTION_ENVIRONMENT_CREDENTIAL]', 'CODEX_APP_...', 'CODEX_CLI_PATH': '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex', ...}])
 
     def test_recovery_bootstrap_identity_matches_its_admin_login(captured_recovery_environments):
         runtime, integration, _ = captured_recovery_environments
 >       assert runtime.get("ADMIN_BOOTSTRAP_USERNAME") == "admin"
 E       AssertionError: assert None == 'admin'
 E        +  where None = <built-in method get of dict object at 0x10ca1e640>('ADMIN_BOOTSTRAP_USERNAME')
-E        +    where <built-in method get of dict object at 0x10ca1e640> = {'BROWSER_USE_ACCESS_VERIFYING_IDENTITY': 'MCowBQYDK2VwAyEAjB3ojuqa5h3qJO1aWdtvb9iauDMIdwk77mN35A0A2Ys=', 'CODEX_APP_T...'1', 'CODEX_CLI_PATH': '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex', ...}.get
+E        +    where <built-in method get of dict object at 0x10ca1e640> = {'BROWSER_USE_ACCESS_VERIFYING_IDENTITY': '[REDACTED_EXECUTION_ENVIRONMENT_CREDENTIAL]', 'CODEX_APP_T...'1', 'CODEX_CLI_PATH': '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex', ...}.get
 
 tests/test_failure_recovery_harness.py:43: AssertionError
 ---------------------------- Captured stdout setup -----------------------------
 {"status": "passed", "phases": ["postgresql_redis_repository_integration_tests", "initial_service_start_and_property_write", "application_process_restart", "postgresql_interruption_returns_unready_but_live", "postgresql_reconnect_and_data_integrity", "redis_interruption_returns_unready_but_live", "redis_reconnect_and_data_integrity"], "postgres_redis_tests": "8 passed"}
 ___ test_pytest_bootstrap_and_rate_limits_are_isolated_from_recovery_runtime ___
 
-captured_recovery_environments = ({'BROWSER_USE_ACCESS_VERIFYING_IDENTITY': 'MCowBQYDK2VwAyEAjB3ojuqa5h3qJO1aWdtvb9iauDMIdwk77mN35A0A2Ys=', 'CODEX_APP_...', 'CODEX_CLI_PATH': '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex', ...}])
+captured_recovery_environments = ({'BROWSER_USE_ACCESS_VERIFYING_IDENTITY': '[REDACTED_EXECUTION_ENVIRONMENT_CREDENTIAL]', 'CODEX_APP_...', 'CODEX_CLI_PATH': '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex', ...}])
 
     def test_pytest_bootstrap_and_rate_limits_are_isolated_from_recovery_runtime(captured_recovery_environments):
         runtime, integration, migrations = captured_recovery_environments

@@ -23,7 +23,7 @@ tmp_path = PosixPath('/tmp/pytest-of-concierge/pytest-0/test_postgres_schema_ins
         department = hospitality.upsert_department(property_id, {"name": "Integration Department"})
         restaurant = hospitality.create_restaurant(property_id, {"name": "Integration Restaurant"})
         username = f"pg-admin-{uuid.uuid4().hex[:10]}"
-        password = f"Postgres-Test-{uuid.uuid4().hex[:12]}A!"
+        password = <redacted-synthetic-test-credential>
         bootstrap_principal = None
     
         try:
@@ -37,7 +37,7 @@ tests/test_postgres_integration.py:50: in _postgres_bootstrap_principal
 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
 
 self = <app.admin_auth.AdminAuthStore object at 0xffffa1720800>
-username = 'audit-test-admin', password = 'PytestOnly-Admin-123!'
+username = 'audit-test-admin', password = <redacted-synthetic-test-credential>
 ip_address = '127.0.0.1', user_agent = 'postgres integration bootstrap'
 
     def login(self, username: str, password: str, ip_address: str, user_agent: str) -> tuple[str, AdminPrincipal]:
@@ -68,8 +68,8 @@ tmp_path = PosixPath('/tmp/pytest-of-concierge/pytest-0/test_postgres_password_r
     
         auth = AdminAuthStore(tmp_path / "postgres-reset-race.db")
         username = f"pg-reset-{uuid.uuid4().hex[:12]}"
-        initial_password = "Postgres-Reset-Initial-123!"
-        token = f"pg-reset-token-{uuid.uuid4().hex}"
+        initial_password = <redacted-synthetic-test-credential>
+        token = <redacted-synthetic-test-credential>
         bootstrap_principal = None
     
         try:
@@ -83,7 +83,7 @@ tests/test_postgres_integration.py:50: in _postgres_bootstrap_principal
 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
 
 self = <app.admin_auth.AdminAuthStore object at 0xffffa17936e0>
-username = 'audit-test-admin', password = 'PytestOnly-Admin-123!'
+username = 'audit-test-admin', password = <redacted-synthetic-test-credential>
 ip_address = '127.0.0.1', user_agent = 'postgres integration bootstrap'
 
     def login(self, username: str, password: str, ip_address: str, user_agent: str) -> tuple[str, AdminPrincipal]:
