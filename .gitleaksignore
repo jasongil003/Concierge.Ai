@@ -7,3 +7,6 @@ e92b41859c85be293e02e678ad20280f63f67a0d:.github/workflows/ci.yml:generic-api-ke
 e92b41859c85be293e02e678ad20280f63f67a0d:.github/workflows/ci.yml:generic-api-key:346
 6f283f0cd433e557203805f7de643ca19f084ce4:.github/workflows/ci.yml:generic-api-key:345
 6f283f0cd433e557203805f7de643ca19f084ce4:.github/workflows/ci.yml:generic-api-key:346
+# Exact historical fingerprint for a synthetic performance-only credential;
+# the current harness generates it at runtime instead of storing a literal.
+6fd9d2309f28137a2ab3823ca99794656998b5d8:scripts/phase4_performance_sample.py:generic-api-key:50

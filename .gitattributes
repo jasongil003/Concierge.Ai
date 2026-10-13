@@ -1,3 +1,6 @@
 
 # Preserve captured terminal/browser evidence bytes, including emitted trailing spaces.
 audit/evidence/** -whitespace
+# Keep the original sensitive transcript path non-diffable; the readable,
+# redacted copy lives beside it and remains covered by the current-tree scan.
+audit/evidence/security-2026-10-12/recovery-harness-before.txt -diff
