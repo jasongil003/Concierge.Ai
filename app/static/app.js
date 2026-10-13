@@ -25,6 +25,9 @@ const state = {
 };
 
 let startupPromise = null;
+let memoryReturnFocus = null;
+let propertyMapReturnFocus = null;
+let dialogInertSnapshot = null;
 
 const $ = (id) => document.getElementById(id);
 
@@ -111,6 +114,33 @@ function renderWelcomeState() {
   }
 }
 
+function hasPublishedHomeHighlights(data) {
+  if (data?.primary_card || data?.cards?.length) return true;
+  const inventory = data?.inventory || {};
+  return ["restaurants", "facilities", "events", "promotions", "recommendations", "menu_items"]
+    .some((key) => Array.isArray(inventory[key]) && inventory[key].length > 0);
+}
+
+function renderHomeDiscoveryEmptyState(target, data) {
+  if (!target) return;
+  target.querySelector(".home-discovery-empty")?.remove();
+  if (hasPublishedHomeHighlights(data)) return;
+
+  const section = document.createElement("section");
+  section.className = "home-discovery-empty";
+  section.setAttribute("aria-labelledby", "home-discovery-empty-title");
+  const eyebrow = document.createElement("span");
+  eyebrow.className = "home-discovery-empty-eyebrow";
+  eyebrow.textContent = "Property highlights";
+  const title = document.createElement("h2");
+  title.id = "home-discovery-empty-title";
+  title.textContent = "A little room to settle in";
+  const description = document.createElement("p");
+  description.textContent = "There are no published highlights to show yet. Your concierge can help with information this property has shared.";
+  section.append(eyebrow, title, description);
+  target.appendChild(section);
+}
+
 const guestViewIds = {
   home: "home-view", explore: "explore-view", requests: "requests-view", stay: "stay-view", concierge: "concierge-view",
 };
@@ -123,6 +153,7 @@ function setupViews() {
   document.querySelectorAll("[data-open-view]").forEach((button) => {
     button.addEventListener("click", () => setActiveView(button.dataset.openView));
   });
+  $("home-concierge-cta").addEventListener("click", () => setActiveView("concierge"));
   $("home-actions-toggle").addEventListener("click", () => {
     state.homeActionsExpanded = !state.homeActionsExpanded;
     if (state.homeData) renderHome(state.homeData);
@@ -142,10 +173,10 @@ function setupViews() {
     $("menu-section").hidden = true;
     renderExplore();
   });
-  setActiveView("home");
+  setActiveView("home", true, false);
 }
 
-function setActiveView(view, focusComposer = true) {
+function setActiveView(view, focusComposer = true, updateHistory = true) {
   const configuredPages = state.hotel?.design?.pages || [];
   const page = configuredPages.find((item) => item.id === view && item.enabled !== false);
   if (!guestViewIds[view] && !page) return;
@@ -172,7 +203,7 @@ function setActiveView(view, focusComposer = true) {
   if (page && (page.id.startsWith("page-") || page.id.startsWith("custom-"))) {
     const nextPath = page.slug || "/";
     if (window.location.pathname !== nextPath) history.pushState({ guestPage: page.id }, "", nextPath);
-  } else if (view === "home" && !["/", ""].includes(window.location.pathname)) {
+  } else if (updateHistory && view === "home" && !["/", ""].includes(window.location.pathname)) {
     history.pushState({ guestPage: "home" }, "", "/");
   }
   if (view === "home" && page && state.homeData) {
@@ -200,6 +231,7 @@ async function refreshHome() {
   const data = await jsonFetch("/api/guest/home");
   state.homeData = data;
   renderHome(data);
+  renderWelcomeState();
   if (state.activeView === "explore") renderExplore();
   if (state.activeView === "stay") renderStay();
 }
@@ -553,6 +585,17 @@ function renderExperienceSection(section, design) {
       const button = createExperienceButton(buttonConfig);
       if (button) outer.appendChild(button);
     }
+    const hasConciergeAction = (p.buttons || []).some((buttonConfig) =>
+      buttonConfig.action?.type === "concierge"
+      || (buttonConfig.action?.type === "internal_page" && buttonConfig.action.page_id === "concierge"));
+    if (!hasConciergeAction) {
+      const button = createExperienceButton({
+        label: "Ask your concierge",
+        style: "primary",
+        action: { type: "concierge" },
+      });
+      if (button) outer.appendChild(button);
+    }
   } else if (type === "heading") {
     const heading = document.createElement(`h${Math.max(1, Math.min(6, Number(p.level) || 2))}`); heading.textContent = p.text || p.headline || section.title; outer.appendChild(heading);
     outer.classList.add(`experience-align-${p.alignment || "left"}`);
@@ -809,6 +852,7 @@ function renderHome(data) {
     $("legacy-home-content").hidden = true;
     $("home-view").setAttribute("aria-label", homePage.name || "Home");
     renderConfiguredExperience(homePage, $("guest-experience-page"));
+    renderHomeDiscoveryEmptyState($("guest-experience-page"), data);
     renderComposerForPage(homePage, $("guest-experience-page"), design);
     renderGuestNavigation(design);
     if (state.activeView !== "home") {
@@ -943,6 +987,7 @@ function renderHome(data) {
     button.replaceChildren(icon, copy, arrow);
     quickActions.appendChild(button);
   }
+  renderHomeDiscoveryEmptyState($("legacy-home-content"), data);
   if (data.inventory) state.inventory = data.inventory;
   renderComposerShortcuts(data.quick_actions || []);
   if (state.activeView === "stay") renderStay();
@@ -1239,7 +1284,11 @@ function renderStay() {
   summary.replaceChildren();
   const active = data.active_requests || [];
   const rows = [
-    ["Status", data.stay?.status === "checked_in" ? "Stay in progress" : "Guest services available"],
+    ["Status", data.stay?.status === "checked_in"
+      ? "Stay in progress"
+      : data.stay?.status === "checked_out"
+        ? "Stay complete"
+        : "No verified stay linked"],
     ["Active requests", String(active.length)],
     ["Dining", String((data.inventory?.restaurants || []).length)],
     ["Upcoming events", String((data.inventory?.events || []).length)],
@@ -1300,10 +1349,14 @@ function activeSuggestions() {
   if (contextual?.length) return contextual.map((prompt) => ({ label: prompt, prompt }));
   const configured = state.hotel?.design?.suggestions || [];
   const suggestions = configured
-    .filter((item) => item.enabled !== false)
+    .filter((item) => item.enabled !== false && String(item.label || "").trim() && String(item.prompt || "").trim())
     .sort((a, b) => (a.order || 0) - (b.order || 0))
     .map((item) => ({ label: item.label, prompt: item.prompt }));
-  return suggestions;
+  return suggestions.length ? suggestions : [
+    { label: "Ask about this property", prompt: "What guest information has this property published?" },
+    { label: "Explore guest services", prompt: "Which guest services are listed for this property?" },
+    { label: "Get help with my stay", prompt: "What can you help me with during my stay using the information available?" },
+  ];
 }
 
 function addMessage(message) {
@@ -1380,7 +1433,10 @@ function renderMessage(message) {
   if (message.role === "assistant") {
     const label = document.createElement("div");
     label.className = "message-label";
-    label.textContent = message.sender_label || "Concierge";
+    label.textContent = message.sender_label
+      || state.hotel?.design?.branding?.conciergeName
+      || state.hotel?.concierge_name
+      || "Concierge";
     row.appendChild(label);
   }
 
@@ -2165,9 +2221,46 @@ function setupMenu() {
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && $("hotel-menu").classList.contains("open")) closeMenu(true);
-    if (event.key === "Escape" && !$("property-map-modal").hidden) closePropertyMap();
-    if (event.key === "Escape" && !$("memory-modal").hidden) closeMemoryPanel();
+    if (!$("property-map-modal").hidden) {
+      if (event.key === "Escape") closePropertyMap();
+      keepFocusInsideDialog(event, $("property-map-modal"));
+    } else if (!$("memory-modal").hidden) {
+      if (event.key === "Escape") closeMemoryPanel();
+      keepFocusInsideDialog(event, $("memory-modal"));
+    }
   });
+}
+
+function keepFocusInsideDialog(event, dialog) {
+  if (event.key !== "Tab") return;
+  const focusable = [...dialog.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]
+    .filter((element) => element.getClientRects().length && getComputedStyle(element).visibility !== "hidden");
+  if (!focusable.length) {
+    event.preventDefault();
+    return;
+  }
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+function isolateGuestDialog(dialog) {
+  const shell = $("concierge-shell");
+  dialogInertSnapshot = [...shell.children]
+    .filter((element) => element !== dialog && element.id !== "toast")
+    .map((element) => [element, element.inert]);
+  for (const [element] of dialogInertSnapshot) element.inert = true;
+}
+
+function restoreGuestDialogBackground() {
+  for (const [element, wasInert] of dialogInertSnapshot || []) element.inert = wasInert;
+  dialogInertSnapshot = null;
 }
 
 function openMenu() {
@@ -2195,20 +2288,30 @@ const memoryCategoryLabels = {
   preferred_name: "Preferred name",
 };
 
-async function openMemoryPanel() {
+async function openMemoryPanel(returnFocus = document.activeElement) {
+  memoryReturnFocus = returnFocus;
   if (!state.sessionId) await ensureStarted();
   $("memory-modal").hidden = false;
+  isolateGuestDialog($("memory-modal"));
   $("memory-level").disabled = true;
   setText("memory-status", "Loading your settings…");
-  const data = await jsonFetch("/api/guest/personalization");
-  renderPersonalization(data);
   $("close-memory-button").focus();
+  try {
+    const data = await jsonFetch("/api/guest/personalization");
+    renderPersonalization(data);
+  } catch (error) {
+    setText("memory-status", "We couldn't load your personalization settings. Close this panel and try again.");
+    throw error;
+  }
 }
 
 function closeMemoryPanel() {
   $("memory-modal").hidden = true;
+  restoreGuestDialogBackground();
   $("memory-preference-key").value = "";
   $("memory-preference-form").reset();
+  if (memoryReturnFocus?.isConnected) memoryReturnFocus.focus();
+  memoryReturnFocus = null;
 }
 
 function renderPersonalization(data) {
@@ -2337,6 +2440,7 @@ async function clearMemoryPreferences() {
 }
 
 async function handleMenuAction(action) {
+  const returnFocus = document.activeElement;
   closeMenu();
   if (action === "new-chat") {
     setActiveView("concierge");
@@ -2352,11 +2456,11 @@ async function handleMenuAction(action) {
     return;
   }
   if (action === "property-map") {
-    await openPropertyMap();
+    await openPropertyMap(returnFocus);
   } else if (action === "restaurant-staff") {
     openRestaurantStaffRequest();
   } else if (action === "memory") {
-    await openMemoryPanel();
+    await openMemoryPanel(returnFocus);
   } else if (action === "hotel-info") {
     setActiveView("concierge");
     const location = state.hotel?.location?.address || "Address not configured";
@@ -2434,7 +2538,8 @@ async function requestRestaurantStaff(event) {
   }
 }
 
-async function openPropertyMap() {
+async function openPropertyMap(returnFocus = document.activeElement) {
+  propertyMapReturnFocus = returnFocus;
   const modal = $("property-map-modal");
   const markers = $("property-map-markers");
   const image = $("property-map-image");
@@ -2465,13 +2570,17 @@ async function openPropertyMap() {
     markers.appendChild(marker);
   }
   modal.hidden = false;
+  isolateGuestDialog(modal);
   document.body.classList.add("map-open");
   $("close-map-button").focus();
 }
 
 function closePropertyMap() {
   $("property-map-modal").hidden = true;
+  restoreGuestDialogBackground();
   document.body.classList.remove("map-open");
+  if (propertyMapReturnFocus?.isConnected) propertyMapReturnFocus.focus();
+  propertyMapReturnFocus = null;
 }
 
 function applyHotelProfile(profile) {
