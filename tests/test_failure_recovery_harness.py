@@ -1,5 +1,6 @@
 """Recovery fixtures must not seed the application's database credentials."""
 
+import os
 import subprocess
 
 import pytest
@@ -33,20 +34,40 @@ def captured_recovery_environments(monkeypatch):
 
     monkeypatch.setattr(recovery.subprocess, "run", fake_run)
     monkeypatch.delenv("ADMIN_BOOTSTRAP_USERNAME", raising=False)
+    monkeypatch.setenv("CONCIERGE_SYNTHETIC_HOST_SECRET_SENTINEL", "synthetic-host-secret-for-isolation-test")
+    host_sensitive_names = {
+        name for name in os.environ
+        if any(marker in name.upper() for marker in ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL"))
+    } - {"ADMIN_BOOTSTRAP_PASSWORD", "CREDENTIAL_ENCRYPTION_SECRET", "METRICS_TOKEN"}
     recovery.main()
     assert launches and len(integrations) == 1
-    return launches[0], integrations[0], migrations
+    runtime, integration = launches[0], integrations[0]
+    return {
+        "runtime_bootstrap_identity_matches": runtime.get("ADMIN_BOOTSTRAP_USERNAME") == "admin",
+        "integration_bootstrap_identity_matches": integration.get("ADMIN_BOOTSTRAP_USERNAME") == "admin",
+        "integration_database_isolated": integration.get("DATABASE_URL") != runtime.get("DATABASE_URL"),
+        "integration_redis_isolated": integration.get("REDIS_URL") != runtime.get("REDIS_URL"),
+        "integration_rate_limiter_isolated": integration.get("REDIS_TEST_URL") != runtime.get("REDIS_URL"),
+        "migrations_cover_both_isolated_databases": {entry.get("DATABASE_URL") for entry in migrations}
+        == {runtime.get("DATABASE_URL"), integration.get("DATABASE_URL")},
+        "host_sensitive_environment_excluded": all(
+            host_sensitive_names.isdisjoint(environment)
+            for environment in (*launches, *integrations, *migrations)
+        ),
+    }
 
 
 def test_recovery_bootstrap_identity_matches_its_admin_login(captured_recovery_environments):
-    runtime, integration, _ = captured_recovery_environments
-    assert runtime.get("ADMIN_BOOTSTRAP_USERNAME") == "admin"
-    assert integration.get("ADMIN_BOOTSTRAP_USERNAME") == "admin"
+    assert captured_recovery_environments["runtime_bootstrap_identity_matches"]
+    assert captured_recovery_environments["integration_bootstrap_identity_matches"]
 
 
 def test_pytest_bootstrap_and_rate_limits_are_isolated_from_recovery_runtime(captured_recovery_environments):
-    runtime, integration, migrations = captured_recovery_environments
-    assert integration["DATABASE_URL"] != runtime["DATABASE_URL"], "Pytest changes its bootstrap password and must never seed the live recovery database"
-    assert integration["REDIS_URL"] != runtime["REDIS_URL"]
-    assert integration["REDIS_TEST_URL"] != runtime["REDIS_URL"]
-    assert {entry["DATABASE_URL"] for entry in migrations} == {runtime["DATABASE_URL"], integration["DATABASE_URL"]}
+    assert captured_recovery_environments["integration_database_isolated"]
+    assert captured_recovery_environments["integration_redis_isolated"]
+    assert captured_recovery_environments["integration_rate_limiter_isolated"]
+    assert captured_recovery_environments["migrations_cover_both_isolated_databases"]
+
+
+def test_recovery_children_do_not_receive_host_credentials(captured_recovery_environments):
+    assert captured_recovery_environments["host_sensitive_environment_excluded"]

@@ -148,25 +148,32 @@ def main() -> None:
     while redis_port == pg_port:
         redis_port = _unused_port()
     password = secrets.token_urlsafe(24) + "A!"
-    environment = {
-        **os.environ,
-        "APP_ENVIRONMENT": "development",
-        "PROPERTY_ID": "recovery-test",
-        "ADMIN_BOOTSTRAP_USERNAME": "admin",
-        "ADMIN_BOOTSTRAP_PASSWORD": password,
-        "CREDENTIAL_ENCRYPTION_SECRET": secrets.token_urlsafe(48),
-        "METRICS_TOKEN": secrets.token_urlsafe(32),
-        "ADMIN_COOKIE_SECURE": "false",
-        "ALLOW_BODY_PROPERTY_SELECTION": "true",
-        "ALLOW_DEMO_SETTINGS": "true",
-        "ANTLABS_MODE": "mock",
-        "ENABLE_BACKGROUND_WORKERS": "false",
-        "ADMIN_ALLOWED_CIDRS": "127.0.0.1/32",
-    }
     app_process = None
     phases = []
     with tempfile.TemporaryDirectory(prefix=f"concierge-recovery-{suffix}-") as temporary:
         temporary_root = Path(temporary)
+        # Pass only the runtime settings this disposable stack needs. Inheriting
+        # the caller's full environment can expose host credentials to the app,
+        # pytest fixtures, subprocess diagnostics, and retained audit output.
+        environment = {
+            "PATH": os.environ.get("PATH", os.defpath),
+            "HOME": str(temporary_root),
+            "TMPDIR": str(temporary_root),
+            "TEMP": str(temporary_root),
+            "TMP": str(temporary_root),
+            "APP_ENVIRONMENT": "development",
+            "PROPERTY_ID": "recovery-test",
+            "ADMIN_BOOTSTRAP_USERNAME": "admin",
+            "ADMIN_BOOTSTRAP_PASSWORD": password,
+            "CREDENTIAL_ENCRYPTION_SECRET": secrets.token_urlsafe(48),
+            "METRICS_TOKEN": secrets.token_urlsafe(32),
+            "ADMIN_COOKIE_SECURE": "false",
+            "ALLOW_BODY_PROPERTY_SELECTION": "true",
+            "ALLOW_DEMO_SETTINGS": "true",
+            "ANTLABS_MODE": "mock",
+            "ENABLE_BACKGROUND_WORKERS": "false",
+            "ADMIN_ALLOWED_CIDRS": "127.0.0.1/32",
+        }
         environment["DB_PATH"] = str(temporary_root / "fallback.sqlite")
         environment["UPLOAD_ROOT"] = str(temporary_root / "uploads")
         Path(environment["UPLOAD_ROOT"]).mkdir()

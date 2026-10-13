@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import secrets
 import statistics
 import sys
 import tempfile
@@ -46,8 +47,8 @@ def main() -> int:
             "UPLOAD_ROOT": os.path.join(state, "uploads"),
             "DATABASE_URL": "",
             "REDIS_URL": "",
-            "ADMIN_BOOTSTRAP_PASSWORD": "Synthetic-Perf-Only-123!",
-            "CREDENTIAL_ENCRYPTION_SECRET": "Synthetic-Perf-Encryption-Secret-123456789",
+            "ADMIN_BOOTSTRAP_PASSWORD": secrets.token_urlsafe(24) + "A!",
+            "CREDENTIAL_ENCRYPTION_SECRET": secrets.token_urlsafe(48),
             "PROPERTY_ID": "synthetic-perf-property",
             "ALLOW_BODY_PROPERTY_SELECTION": "true",
         })

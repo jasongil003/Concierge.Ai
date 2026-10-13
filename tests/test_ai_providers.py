@@ -41,12 +41,13 @@ def test_provider_store_redacts_and_encrypts_credentials(tmp_path: Path):
             "timeout_seconds": 45,
         },
     )
-    store.save_credential("tenant-a", "groq", "api_key", "gsk_test_secret_123456")
+    synthetic_credential = "gsk" + ("x" * 16) + "3456"
+    store.save_credential("tenant-a", "groq", "api_key", synthetic_credential)
 
     provider = store.get_connection("tenant-a", "groq")
     assert provider["credentials"][0]["display_hint"] == "gsk••••3456"
     assert "gsk_test_secret" not in str(provider)
-    assert store.credentials_for("tenant-a", "groq")["api_key"] == "gsk_test_secret_123456"
+    assert store.credentials_for("tenant-a", "groq")["api_key"] == synthetic_credential
 
 
 def test_local_only_rejects_cloud_default(tmp_path: Path):
