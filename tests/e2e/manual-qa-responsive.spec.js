@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { mkdirSync } from "node:fs";
 
 const VIEWPORTS = [
   { width: 1920, height: 1080 },
@@ -70,6 +71,7 @@ test(`manual QA responsive matrix covers every admin destination at ${viewport.w
   await page.setViewportSize(viewport);
 
   const consoleErrors = [];
+  mkdirSync("audit/evidence/browser-2026-10-12", { recursive: true });
   const pageErrors = [];
   const failedRequests = [];
   const serverErrors = [];
@@ -88,17 +90,24 @@ test(`manual QA responsive matrix covers every admin destination at ${viewport.w
   for (const panel of panels) {
     await openAdminPanel(page, panel);
     await expectNoHorizontalOverflow(page, `Admin #${panel} at ${viewport.width}x${viewport.height}`);
+    if (["overview", "appearance"].includes(panel)) {
+      await page.screenshot({ path: `audit/evidence/browser-2026-10-12/admin-${panel}-${viewport.width}.png`, fullPage: true });
+    }
   }
 
   await page.goto("/");
   await expect(page.locator("#home-view")).toBeVisible();
   await expectNoHorizontalOverflow(page, `Guest home at ${viewport.width}x${viewport.height}`);
+  await page.screenshot({ path: `audit/evidence/browser-2026-10-12/guest-home-${viewport.width}.png`, fullPage: true });
   const guestNavigation = page.locator(".experience-configured-navigation");
   await expect(guestNavigation).toBeVisible();
   for (const [label, panel] of [["Explore", "#explore-view"], ["Requests", "#requests-view"], ["My Stay", "#stay-view"], ["Concierge", "#concierge-view"], ["Home", "#home-view"]]) {
     await guestNavigation.getByRole("button", { name: label, exact: true }).click();
     await expect(page.locator(panel)).toBeVisible();
     await expectNoHorizontalOverflow(page, `Guest ${label} at ${viewport.width}x${viewport.height}`);
+    if (label === "Concierge") {
+      await page.screenshot({ path: `audit/evidence/browser-2026-10-12/guest-chat-${viewport.width}.png`, fullPage: true });
+    }
   }
 
   expect(pageErrors).toEqual([]);

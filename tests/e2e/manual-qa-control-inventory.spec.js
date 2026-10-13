@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const CONTROL_SELECTOR = [
@@ -462,7 +462,8 @@ test("manual QA inventories visible controls on every admin destination and gues
     controls: records,
     compositeWidgets,
   };
-  const outputPath = resolve(process.cwd(), "audit", "CONTROL_INVENTORY_2026-09-29.json");
+  const outputPath = resolve(process.cwd(), "audit", "evidence", "CONTROL_INVENTORY_2026-10-12.json");
+  mkdirSync(resolve(process.cwd(), "audit", "evidence"), { recursive: true });
   writeFileSync(outputPath, JSON.stringify(summary) + "\n", "utf8");
   await testInfo.attach("visible-control-inventory.json", {
     body: Buffer.from(JSON.stringify(summary, null, 2)),
