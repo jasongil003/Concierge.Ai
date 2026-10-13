@@ -1,6 +1,6 @@
 
 # Preserve captured terminal/browser evidence bytes, including emitted trailing spaces.
 audit/evidence/** -whitespace
-# Hide the removed credential from the hosting provider's textual PR patch.
-# CI separately scans the current tree with Gitleaks so this file remains covered.
+# Keep the original sensitive transcript path non-diffable; the readable,
+# redacted copy lives beside it and remains covered by the current-tree scan.
 audit/evidence/security-2026-10-12/recovery-harness-before.txt -diff
