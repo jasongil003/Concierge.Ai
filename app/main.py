@@ -4366,14 +4366,19 @@ async def transition_managed_knowledge_item(property_id: str, item_id: str, requ
 
 
 @app.put("/api/admin/properties/{property_id}/knowledge")
-async def save_property_knowledge(property_id: str, payload: KnowledgePayload) -> dict[str, Any]:
+async def save_property_knowledge(property_id: str, payload: KnowledgePayload, request: Request) -> dict[str, Any]:
     _require_property(property_id)
+    principal = _admin_principal(request)
     try:
-        return operations.save_knowledge(property_id, payload.model_dump(), payload.item_id)
+        saved = operations.save_knowledge(property_id, payload.model_dump(), payload.item_id, allow_publish=principal.can("knowledge.publish"))
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    admin_auth.audit(principal, "knowledge.legacy_saved", "knowledge_item", saved["item_id"], property_id=property_id, metadata={"enabled": saved["enabled"], "kind": saved["kind"]})
+    return saved
 
 
 @app.post("/api/admin/properties/{property_id}/knowledge/documents")

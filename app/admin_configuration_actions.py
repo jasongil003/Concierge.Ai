@@ -842,7 +842,7 @@ def register_admin_configuration_actions(registry: ConfigurationActionRegistry, 
     faq_schema = _object({"question": string(500, minimum=1), "answer": string(2000, minimum=1) }, ["question", "answer"])
 
     def create_faq(ctx: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
-        return services["operations"].save_knowledge(ctx.property_id, {"kind": "faq", "question": params["question"], "answer": params["answer"], "enabled": False})
+        return services["operations"].save_knowledge(ctx.property_id, {"kind": "faq", "question": params["question"], "answer": params["answer"], "enabled": False}, allow_publish=ctx.principal.can("knowledge.publish"))
 
     register(ConfigurationAction(
         "faq.create", "Create a disabled FAQ draft for property review.", "knowledge.edit",
