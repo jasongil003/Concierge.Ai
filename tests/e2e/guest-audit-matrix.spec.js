@@ -362,6 +362,37 @@ test("capture configured synthetic guest views across the responsive matrix", as
     });
   }
 
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/guest-guide");
+  await expect(page.locator("#custom-page-view")).toBeVisible();
+  await page.reload();
+  await expect(page).toHaveURL(/\/guest-guide$/);
+  await expect(page.locator("#custom-experience-page h1")).toHaveText("A thoughtful stay, at your own pace.");
+
+  const exploreNav = page.locator(".experience-configured-navigation [data-page-id=explore]");
+  if (await exploreNav.isVisible()) await exploreNav.click();
+  else await page.locator("#guest-bottom-nav [data-view=explore]").click();
+  await expect(page.locator("#explore-view")).toBeVisible();
+  await expect(page).toHaveURL(/\/explore$/);
+  expect(await page.evaluate(() => history.state?.guestPage)).toBe("explore");
+  await page.goBack();
+  await expect(page).toHaveURL(/\/guest-guide$/);
+  await expect(page.locator("#custom-page-view")).toBeVisible();
+  await page.goForward();
+  await expect(page).toHaveURL(/\/explore$/);
+  await expect(page.locator("#explore-view")).toBeVisible();
+
+  await page.reload();
+  await expect(page.locator("#explore-view")).toBeVisible();
+  const homeNav = page.locator(".experience-configured-navigation [data-page-id=home]");
+  if (await homeNav.isVisible()) await homeNav.click();
+  else await page.locator("#guest-bottom-nav [data-view=home]").click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.locator("#home-view")).toBeVisible();
+  await page.goBack();
+  await expect(page).toHaveURL(/\/explore$/);
+  await expect(page.locator("#explore-view")).toBeVisible();
+
   expect(pageErrors).toEqual([]);
   expect(failedRequests).toEqual([]);
   } finally {

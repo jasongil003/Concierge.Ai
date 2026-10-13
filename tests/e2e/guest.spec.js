@@ -875,6 +875,43 @@ test("guest: nearby dining shows persisted recommendation cards", async ({ page,
   await expect(page.locator(".recommendation-card").first()).toContainText("Fixture Bistro");
 });
 
+test("guest: local attraction answers render details and working map links", async ({ page }) => {
+  let openedUrl = null;
+  await page.exposeFunction("__testCaptureUrl", (url) => { openedUrl = url; });
+  await page.addInitScript(() => {
+    window.open = (url) => { window.__testCaptureUrl(String(url)); return null; };
+  });
+  await page.route("**/api/chat", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      answer: "Here is one nearby place from current local search.",
+      source: "ai",
+      places: [{
+        place_id: "synthetic-art-walk",
+        name: "Synthetic Art Walk",
+        category: "Attraction",
+        address: "1 Example Road",
+        description: "A synthetic place used only for this browser test.",
+        maps_url: "https://maps.example.test/synthetic-art-walk",
+        open_now: true,
+      }],
+    }),
+  }));
+  await page.goto("/");
+  await expect(page.locator("#hotel-name")).toContainText("E2E Property");
+  await page.locator("#composer-input").fill("What local attractions are nearby?");
+  await page.locator("#send-button").click();
+
+  const card = page.locator(".recommendation-card").filter({ hasText: "Synthetic Art Walk" });
+  await expect(card).toBeVisible();
+  await expect(card).toContainText("Open now");
+  await card.getByRole("button", { name: "Details" }).click();
+  await expect(card).toContainText("A synthetic place used only for this browser test.");
+  await card.getByRole("button", { name: "Directions" }).click();
+  expect(openedUrl).toBe("https://maps.example.test/synthetic-art-walk");
+});
+
 test("guest: restaurant card directions button opens configured map", async ({ page, request }) => {
   await ensureGuestData(request);
   let openedUrl = null;

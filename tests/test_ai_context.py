@@ -124,3 +124,46 @@ def test_guest_chat_updates_and_uses_only_its_authenticated_stay(admin_client, t
     assert context["open_requests"] == []
     assert context["room"] is None
     assert stay["stay_id"] not in str(context) and "device-hash-only" not in str(context)
+
+
+def test_guest_local_attraction_query_uses_live_place_context(admin_client, monkeypatch):
+    started = admin_client.post("/api/session/start", json={
+        "client_id": "local-attractions-guest", "property_id": main_module.settings.property_id,
+    })
+    assert started.status_code == 200, started.text
+    session_id = started.json()["session_id"]
+    place_calls = []
+    model_calls = []
+
+    async def fake_places(query, latitude, longitude, *, open_now=True):
+        place_calls.append({"query": query, "latitude": latitude, "longitude": longitude, "open_now": open_now})
+        return [{
+            "place_id": "synthetic-art-walk", "name": "Synthetic Art Walk",
+            "category": "attraction", "address": "1 Example Road",
+            "maps_url": "https://maps.example.test/synthetic-art-walk",
+            "open_now": True, "distance_meters": 420,
+        }]
+
+    class ModelResult:
+        provider = "local"
+        model = "synthetic-model"
+        text = "The Synthetic Art Walk is nearby and open now."
+
+    async def fake_chat(**kwargs):
+        model_calls.append(kwargs)
+        return ModelResult()
+
+    monkeypatch.setattr(main_module.places, "search", fake_places)
+    monkeypatch.setattr(main_module.ai_models, "concierge_chat", fake_chat)
+    response = admin_client.post("/api/chat", json={
+        "session_id": session_id, "message": "What local attractions are nearby?",
+    })
+
+    assert response.status_code == 200, response.text
+    assert len(place_calls) == 1
+    assert "nearby" in place_calls[0]["query"].casefold()
+    assert len(model_calls) == 1
+    assert model_calls[0]["property_id"] == main_module.settings.property_id
+    assert "Synthetic Art Walk" in model_calls[0]["live_context"]
+    assert response.json()["places"][0]["place_id"] == "synthetic-art-walk"
+    assert response.json()["live_places_used"] is True

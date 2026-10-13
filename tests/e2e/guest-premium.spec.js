@@ -33,6 +33,18 @@ const THEMES = [
   },
 ];
 
+function enableGuestHeader(profile) {
+  profile.design.header = { ...(profile.design.header || {}), enabled: true };
+  for (const page of profile.design.pages || []) {
+    for (const section of page.sections || []) {
+      if (section.type === "header") {
+        section.enabled = true;
+        section.properties = { ...(section.properties || {}), enabled: true };
+      }
+    }
+  }
+}
+
 test.beforeEach(async ({ request }) => prepareGuestFixture(request));
 
 async function installEmptyProperty(page, themeSource = THEMES[0], configureProfile = null) {
@@ -138,19 +150,126 @@ test("empty property keeps an honest home, a direct concierge action, and all fi
   await expect(personalize).toBeFocused();
 });
 
+test("guest dialogs contain focus, make the background inert, and restore the menu trigger", async ({ page }) => {
+  await installEmptyProperty(page, THEMES[0], enableGuestHeader);
+  await page.route("**/api/guest/zones**", (route) => route.fulfill({
+    json: {
+      maps: [{ map_id: "synthetic-map", url: "" }],
+      zones: [{ zone_id: "lobby", name: "Lobby", geometry: { type: "ellipse", sourceCanvas: { width: 100, height: 100 }, x: 40, y: 40, width: 20, height: 20, mapNumber: "1" } }],
+    },
+  }));
+  await page.route("**/api/guest/facilities", (route) => route.fulfill({
+    json: { restaurants: [{ restaurant_id: "synthetic-restaurant", name: "Synthetic Dining", status: "active" }] },
+  }));
+  await page.goto("/");
+  await expect(page.locator("#hotel-name")).toHaveText("Synthetic House");
+
+  const menuTrigger = page.locator(".experience-configured-header .experience-configured-menu");
+  const expectBackgroundState = async (inert) => {
+    await expect.poll(() => page.locator("#home-view").evaluate((element) => element.inert)).toBe(inert);
+    await expect.poll(() => page.locator("#guest-bottom-nav").evaluate((element) => element.inert)).toBe(inert);
+  };
+  const openMenuAction = async (action) => {
+    await menuTrigger.click();
+    await page.locator(`[data-menu-action="${action}"]`).click();
+  };
+
+  await openMenuAction("memory");
+  const memoryDialog = page.locator("#memory-modal");
+  await expect(memoryDialog).toBeVisible();
+  await expectBackgroundState(true);
+  await page.keyboard.press("Shift+Tab");
+  expect(await page.evaluate(() => document.activeElement?.closest("#memory-modal") != null)).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(memoryDialog).toBeHidden();
+  await expect(menuTrigger).toBeFocused();
+  await expectBackgroundState(false);
+
+  await openMenuAction("property-map");
+  const mapDialog = page.locator("#property-map-modal");
+  await expect(mapDialog).toBeVisible();
+  await expectBackgroundState(true);
+  await page.keyboard.press("Shift+Tab");
+  expect(await page.evaluate(() => document.activeElement?.closest("#property-map-modal") != null)).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(mapDialog).toBeHidden();
+  await expect(menuTrigger).toBeFocused();
+  await expectBackgroundState(false);
+
+  await openMenuAction("restaurant-staff");
+  const staffDialog = page.locator("#restaurant-staff-dialog");
+  await expect(staffDialog).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Talk to Restaurant Staff" })).toBeVisible();
+  await expect.poll(() => staffDialog.evaluate((element) => element.matches(":modal"))).toBe(true);
+  for (let index = 0; index < 8; index += 1) {
+    await page.keyboard.press("Tab");
+    expect(await page.evaluate(() => document.activeElement?.closest("#restaurant-staff-dialog") != null)).toBe(true);
+  }
+  await page.keyboard.press("Escape");
+  await expect(staffDialog).toBeHidden();
+  await expect(menuTrigger).toBeFocused();
+  await expectBackgroundState(false);
+});
+
+test("guest dialog load errors stay readable and do not leave the page inert", async ({ page }) => {
+  await installEmptyProperty(page, THEMES[0], enableGuestHeader);
+  await page.route("**/api/guest/zones**", (route) => {
+    const url = new URL(route.request().url());
+    return url.searchParams.has("property_id")
+      ? route.fulfill({ status: 503, json: { detail: "Synthetic map outage" } })
+      : route.fulfill({ json: { maps: [{ map_id: "synthetic-map", url: "" }], zones: [] } });
+  });
+  await page.route("**/api/guest/facilities", (route) => route.fulfill({
+    json: { restaurants: [{ restaurant_id: "synthetic-restaurant", name: "Synthetic Dining", status: "active" }] },
+  }));
+  await page.route("**/api/guest/personalization", (route) => route.fulfill({
+    status: 503,
+    contentType: "application/json",
+    body: JSON.stringify({ detail: "Synthetic personalization outage" }),
+  }));
+  await page.goto("/");
+  await expect(page.locator("#hotel-name")).toHaveText("Synthetic House");
+  const menuTrigger = page.locator(".experience-configured-header .experience-configured-menu");
+
+  await menuTrigger.click();
+  await page.locator('[data-menu-action="memory"]').click();
+  await expect(page.locator("#memory-modal")).toBeVisible();
+  await expect(page.locator("#memory-status")).toContainText("couldn't load your personalization settings");
+  await expect(page.locator("#memory-status")).toHaveAttribute("role", "status");
+  await expect.poll(() => page.locator("#home-view").evaluate((element) => element.inert)).toBe(true);
+  await page.locator("#close-memory-button").click();
+  await expect(page.locator("#memory-modal")).toBeHidden();
+  await expect(menuTrigger).toBeFocused();
+  await expect.poll(() => page.locator("#home-view").evaluate((element) => element.inert)).toBe(false);
+
+  await menuTrigger.click();
+  await page.locator('[data-menu-action="property-map"]').click();
+  await expect(page.locator("#property-map-modal")).toBeHidden();
+  await expect(page.locator("#toast")).toContainText("Synthetic map outage");
+  await expect.poll(() => page.locator("#home-view").evaluate((element) => element.inert)).toBe(false);
+});
+
 test("guest session resumes on reload within the current property", async ({ page }) => {
   await installEmptyProperty(page);
   let resumeRequestCount = 0;
   page.on("request", (request) => {
     if (request.method() === "POST" && new URL(request.url()).pathname === "/api/session/resume") resumeRequestCount += 1;
   });
+  const sessionStarted = page.waitForResponse((response) =>
+    new URL(response.url()).pathname === "/api/session/start" && response.request().method() === "POST"
+  );
   await page.goto("/");
   await expect(page.locator("#hotel-name")).toHaveText("Synthetic House");
+  expect((await sessionStarted).ok()).toBeTruthy();
   const firstSessionId = await page.evaluate(() => sessionStorage.getItem("concierge-session-id"));
   expect(firstSessionId).toBeTruthy();
 
+  const sessionResumed = page.waitForResponse((response) =>
+    new URL(response.url()).pathname === "/api/session/resume" && response.request().method() === "POST"
+  );
   await page.reload();
   await expect(page.locator("#hotel-name")).toHaveText("Synthetic House");
+  expect((await sessionResumed).ok()).toBeTruthy();
   await expect.poll(() => resumeRequestCount).toBe(1);
   expect(await page.evaluate(() => sessionStorage.getItem("concierge-session-id"))).toBe(firstSessionId);
 });
