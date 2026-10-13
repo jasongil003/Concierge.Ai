@@ -26,6 +26,8 @@ const state = {
 
 let startupPromise = null;
 let memoryReturnFocus = null;
+let menuReturnFocus = null;
+let restaurantStaffReturnFocus = null;
 let propertyMapReturnFocus = null;
 let dialogInertSnapshot = null;
 
@@ -166,7 +168,7 @@ function setupViews() {
   window.addEventListener("popstate", () => {
     const path = window.location.pathname.replace(/\/$/, "") || "/";
     const page = (state.hotel?.design?.pages || []).find((item) => item.slug === path && item.enabled !== false);
-    setActiveView(page?.id || "home", false);
+    setActiveView(page?.id || "home", false, false);
   });
   $("close-menu-view").addEventListener("click", () => {
     state.selectedRestaurantMenu = null;
@@ -200,11 +202,11 @@ function setActiveView(view, focusComposer = true, updateHistory = true) {
     else button.removeAttribute("aria-current");
   }
   document.body.dataset.guestView = view;
-  if (page && (page.id.startsWith("page-") || page.id.startsWith("custom-"))) {
-    const nextPath = page.slug || "/";
-    if (window.location.pathname !== nextPath) history.pushState({ guestPage: page.id }, "", nextPath);
-  } else if (updateHistory && view === "home" && !["/", ""].includes(window.location.pathname)) {
-    history.pushState({ guestPage: "home" }, "", "/");
+  if (updateHistory) {
+    const nextPath = page?.slug || (view === "home" ? "/" : null);
+    if (nextPath && window.location.pathname !== nextPath) {
+      history.pushState({ guestPage: page?.id || view }, "", nextPath);
+    }
   }
   if (view === "home" && page && state.homeData) {
     renderHome(state.homeData);
@@ -623,7 +625,7 @@ function renderExperienceSection(section, design) {
   } else if (["header", "bottom_navigation"].includes(type)) {
     if (type === "header") {
       outer.classList.add("experience-configured-header");
-      if (p.show_menu !== false) { const menu = document.createElement("button"); menu.type = "button"; menu.className = "experience-configured-menu"; menu.textContent = "Menu"; menu.setAttribute("aria-label", "Open hotel menu"); menu.addEventListener("click", () => p.menu_action && p.menu_action.type !== "none" ? experienceAction(p.menu_action) : $("menu-button")?.click()); outer.appendChild(menu); }
+      if (p.show_menu !== false) { const menu = document.createElement("button"); menu.type = "button"; menu.className = "experience-configured-menu"; menu.textContent = "Menu"; menu.setAttribute("aria-label", "Open hotel menu"); menu.addEventListener("click", () => p.menu_action && p.menu_action.type !== "none" ? experienceAction(p.menu_action) : openMenu(menu)); outer.appendChild(menu); }
       const identity = document.createElement("div"); identity.className = "experience-configured-identity";
       if (p.show_logo !== false && design.branding?.logoUrl) { const logoUrl = safeGuestUrl(design.branding.logoUrl, { allowDataImage: true }); if (logoUrl) { const logo = document.createElement("img"); logo.className = "experience-configured-logo"; logo.src = logoUrl; logo.alt = `${design.branding.hotelName || state.hotel?.name || "Property"} logo`; identity.appendChild(logo); } }
       const identityCopy = document.createElement("span"); identityCopy.className = "experience-configured-identity-copy";
@@ -2196,7 +2198,7 @@ function setupVoiceInput() {
 
 function setupMenu() {
   $("personalize-cta").addEventListener("click", () => openMemoryPanel().catch((error) => showToast(error.message, "warning")));
-  $("menu-button").addEventListener("click", openMenu);
+  $("menu-button").addEventListener("click", (event) => openMenu(event.currentTarget));
   $("close-menu-button").addEventListener("click", () => closeMenu(true));
   $("hotel-menu").addEventListener("click", (event) => {
     if (event.target === $("hotel-menu")) closeMenu(true);
@@ -2214,6 +2216,10 @@ function setupMenu() {
   $("restaurant-staff-request-form").addEventListener("submit", requestRestaurantStaff);
   $("close-restaurant-staff-dialog").addEventListener("click", () => $("restaurant-staff-dialog").close());
   $("cancel-restaurant-staff-dialog").addEventListener("click", () => $("restaurant-staff-dialog").close());
+  $("restaurant-staff-dialog").addEventListener("close", () => {
+    if (restaurantStaffReturnFocus?.isConnected) restaurantStaffReturnFocus.focus({ preventScroll: true });
+    restaurantStaffReturnFocus = null;
+  });
   $("clear-memory-button").addEventListener("click", clearMemoryPreferences);
   $("disable-memory-button").addEventListener("click", () => setPersonalization(false, "stay").catch((error) => showToast(error.message, "warning")));
   $("property-map-modal").addEventListener("click", (event) => {
@@ -2227,6 +2233,8 @@ function setupMenu() {
     } else if (!$("memory-modal").hidden) {
       if (event.key === "Escape") closeMemoryPanel();
       keepFocusInsideDialog(event, $("memory-modal"));
+    } else if ($("restaurant-staff-dialog").open) {
+      keepFocusInsideDialog(event, $("restaurant-staff-dialog"));
     }
   });
 }
@@ -2263,7 +2271,8 @@ function restoreGuestDialogBackground() {
   dialogInertSnapshot = null;
 }
 
-function openMenu() {
+function openMenu(returnFocus = document.activeElement) {
+  menuReturnFocus = returnFocus;
   const menu = $("hotel-menu");
   menu.inert = false;
   menu.classList.add("open");
@@ -2278,7 +2287,7 @@ function closeMenu(restoreFocus = false) {
   menu.setAttribute("aria-hidden", "true");
   menu.inert = true;
   $("menu-button").setAttribute("aria-expanded", "false");
-  if (restoreFocus) $("menu-button").focus();
+  if (restoreFocus) (menuReturnFocus?.isConnected ? menuReturnFocus : $("menu-button")).focus();
 }
 
 const memoryCategoryLabels = {
@@ -2310,7 +2319,7 @@ function closeMemoryPanel() {
   restoreGuestDialogBackground();
   $("memory-preference-key").value = "";
   $("memory-preference-form").reset();
-  if (memoryReturnFocus?.isConnected) memoryReturnFocus.focus();
+  if (memoryReturnFocus?.isConnected) memoryReturnFocus.focus({ preventScroll: true });
   memoryReturnFocus = null;
 }
 
@@ -2440,8 +2449,8 @@ async function clearMemoryPreferences() {
 }
 
 async function handleMenuAction(action) {
-  const returnFocus = document.activeElement;
-  closeMenu();
+  const returnFocus = menuReturnFocus?.isConnected ? menuReturnFocus : $("menu-button");
+  closeMenu(true);
   if (action === "new-chat") {
     setActiveView("concierge");
     state.messages = [];
@@ -2458,7 +2467,7 @@ async function handleMenuAction(action) {
   if (action === "property-map") {
     await openPropertyMap(returnFocus);
   } else if (action === "restaurant-staff") {
-    openRestaurantStaffRequest();
+    openRestaurantStaffRequest(returnFocus);
   } else if (action === "memory") {
     await openMemoryPanel(returnFocus);
   } else if (action === "hotel-info") {
@@ -2496,7 +2505,7 @@ async function handleMenuAction(action) {
   }
 }
 
-function openRestaurantStaffRequest() {
+function openRestaurantStaffRequest(returnFocus = menuReturnFocus?.isConnected ? menuReturnFocus : $("menu-button")) {
   const select = $("restaurant-staff-select");
   select.replaceChildren();
   for (const restaurant of state.restaurants) {
@@ -2509,6 +2518,8 @@ function openRestaurantStaffRequest() {
     addMessage({ role: "assistant", type: "status", text: "No restaurant staff contact is configured for this property yet." });
     return;
   }
+  restaurantStaffReturnFocus = returnFocus;
+  returnFocus?.focus();
   $("restaurant-staff-dialog").showModal();
   $("restaurant-staff-select").focus();
 }
