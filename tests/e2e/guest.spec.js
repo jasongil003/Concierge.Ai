@@ -172,6 +172,10 @@ test("guest: opens on the personal stay home, with chat available separately", a
 });
 
 test("guest: empty property home hides empty sections and unsupported routes", async ({ page }) => {
+  // Absence assertions can pass before the intercepted startup requests finish.
+  // Wait for both fixtures so teardown cannot dispose an in-flight route.fetch().
+  const homeLoaded = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/guest/home" && response.status() === 200);
+  const hotelLoaded = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/hotel" && response.status() === 200);
   await page.route("**/api/hotel", async (route) => {
     const response = await route.fetch();
     const profile = await response.json();
@@ -188,6 +192,8 @@ test("guest: empty property home hides empty sections and unsupported routes", a
     }),
   }));
   await page.goto("/");
+  await Promise.all([homeLoaded, hotelLoaded]);
+  await expect(page.locator(".experience-hero")).toBeVisible();
 
   await expect(page.locator(".experience-quick_actions")).toHaveCount(0);
   await expect(page.locator(".experience-card-grid")).toHaveCount(0);
@@ -563,6 +569,7 @@ test("guest: responsive shell keeps the concierge composer attached without hori
   await page.getByRole("button", { name: "Send message" }).click();
   await expect(page.locator("#home-message-list .message-row.user .message-text")).toHaveText("Hi");
   await expect(page.locator("#home-conversation")).toBeVisible();
+  await expect(page.locator(".experience-configured-navigation, #guest-bottom-nav").filter({ visible: true }).first()).toBeVisible();
   expect(await page.locator("#composer-region").evaluate((element) => element.parentElement.id)).toBe("home-conversation");
 
   const sizes = [375, 768, 1024, 1440, 1920];
@@ -622,6 +629,8 @@ test("guest: responsive shell keeps the concierge composer attached without hori
     expect(home.bubble.contentHeight).toBeLessThanOrEqual(home.bubble.lineHeight * 1.5);
 
     await page.locator("#home-conversation [data-open-view='concierge']").click();
+    await expect(page.locator("#concierge-card")).toBeVisible();
+    await expect(page.locator("#concierge-card > #composer-region")).toBeVisible();
     const chat = await page.evaluate(() => {
       const rect = (element) => {
         const box = element.getBoundingClientRect();
@@ -1066,7 +1075,7 @@ test("guest: hotel information menu action responds with configured property det
 for (const [label, expectedText] of [
   ["Language", "Language preference set"],
   ["Accessibility", "Accessibility display mode"],
-  ["Privacy", "Chat context stays in this open session"],
+  ["Privacy", "Authorized hotel staff can review conversation history"],
   ["Help", "Ask a question about this property"],
 ]) {
   test(`guest: ${label.toLowerCase()} menu action responds`, async ({ page }) => {
@@ -1102,7 +1111,7 @@ test("Intelligent UI: property opt-in answers from verified hotel data and keeps
     await expect(page.locator("#welcome-suggestions button")).toHaveCount(2);
     await expect(page.locator("link[rel='stylesheet']")).toHaveAttribute("href", "/intelligent-ui/styles.css");
 
-    const screenshotDirectory = join(process.cwd(), "docs", "intelligent-ui", "screenshots");
+    const screenshotDirectory = testInfo.outputPath("screenshots");
     mkdirSync(screenshotDirectory, { recursive: true });
     await page.screenshot({ path: join(screenshotDirectory, `welcome-${testInfo.project.name}.png`), fullPage: true });
 
@@ -1237,7 +1246,7 @@ test("Intelligent UI: verified floor maps render interactive markers and a text 
     await expect(map.locator(".floor-map-selection")).toHaveText("Rooftop Pool");
 
     if (testInfo.project.name === "chromium") {
-      const screenshotDirectory = join(process.cwd(), "docs", "intelligent-ui", "screenshots");
+      const screenshotDirectory = testInfo.outputPath("screenshots");
       mkdirSync(screenshotDirectory, { recursive: true });
       await map.screenshot({ path: join(screenshotDirectory, "map-chromium.png") });
     }
@@ -1298,7 +1307,7 @@ test("Intelligent UI: typed selections validate, support edit and cancel, and do
     await expect(panel.getByRole("heading", { name: "Dining details" })).toBeVisible();
     await expect(panel).toContainText("does not create a booking");
     if (testInfo.project.name === "chromium") {
-      const screenshotDirectory = join(process.cwd(), "docs", "intelligent-ui", "screenshots");
+      const screenshotDirectory = testInfo.outputPath("screenshots");
       mkdirSync(screenshotDirectory, { recursive: true });
       await panel.screenshot({ path: join(screenshotDirectory, "selection-form-chromium.png") });
     }
@@ -1323,7 +1332,7 @@ test("Intelligent UI: typed selections validate, support edit and cancel, and do
     await expect(panel.locator(".selection-review")).toContainText("2027-01-15");
     await expect(panel.locator(".selection-review")).toContainText("Patio");
     if (testInfo.project.name === "chromium") {
-      const screenshotDirectory = join(process.cwd(), "docs", "intelligent-ui", "screenshots");
+      const screenshotDirectory = testInfo.outputPath("screenshots");
       await panel.screenshot({ path: join(screenshotDirectory, "selection-review-chromium.png") });
     }
     await panel.getByRole("button", { name: "Edit selections" }).click();

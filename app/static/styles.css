@@ -2496,7 +2496,11 @@ body[data-composer-position="floating"] .composer-region .composer-note, body[da
 .hotel-mark img[hidden] { display: none; }
 .hotel-mark span { font-family: var(--serif-display); font-size: 17px; font-weight: 650; }
 .hotel-mark.has-image { background: var(--surface); }
-.personal-home { scrollbar-gutter: stable; }
+.guest-view {
+  max-width: var(--guest-content-width);
+  margin-inline: auto;
+  scrollbar-gutter: stable both-edges;
+}
 .home-view-inner {
   gap: 0;
   width: min(1100px, 100%);

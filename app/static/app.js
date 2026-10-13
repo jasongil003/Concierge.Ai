@@ -617,6 +617,7 @@ function renderExperienceSection(section, design) {
       seenLabels.add(label.toLocaleLowerCase());
       items.push({ id: `route-${route.view}`, label, description: "", enabled: true, route: route.view });
     }
+    if (!items.length) return null;
     const grid = document.createElement("div"); grid.className = "experience-action-grid";
     const visible = state.homeActionsExpanded ? items : items.slice(0, 4);
     for (const item of visible) {
@@ -2384,7 +2385,7 @@ async function handleMenuAction(action) {
     addMessage({ role: "assistant", type: "status", text: `Accessibility display mode ${enabled ? "enabled" : "disabled"}.` });
   } else if (action === "privacy") {
     setActiveView("concierge");
-    addMessage({ role: "assistant", type: "text", text: "Your messages are processed by this property's configured AI service and aren't shown to hotel staff. Chat context stays in this open session and expires after inactivity. Confirmed service requests are shared with the hotel team. Personalization is optional; you can review or clear saved preferences in Personalization / Memory." });
+    addMessage({ role: "assistant", type: "text", text: "Your messages are processed by this property's configured AI service. Authorized hotel staff can review conversation history and respond when assisting you. Conversation records are retained according to the hotel's configured retention policy; closing this page does not delete them. Confirmed service requests are shared with the hotel team. Personalization is optional; you can review or clear saved preferences in Personalization / Memory." });
   } else if (action === "help") {
     setActiveView("concierge");
     addMessage({ role: "assistant", type: "text", text: "Ask a question about this property. The concierge uses information configured for guests." });
