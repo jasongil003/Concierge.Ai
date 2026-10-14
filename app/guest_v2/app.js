@@ -291,7 +291,12 @@
       : [];
     return {
       welcome: typeof data?.welcome_message === "string" ? data.welcome_message.slice(0, 300) : "Ask a question or tell me what you need.",
-      prompts,
+      prompts: prompts.length ? prompts : [
+        "Show me dining options",
+        "What hotel facilities are available?",
+        "What can I explore nearby?",
+        "Can I have some extra towels please?",
+      ],
     };
   }
 
@@ -449,6 +454,25 @@
       case "verified_confirmation":
         return validText(block.title, 120) && validText(block.detail || "", 500) && validSourceIds(block.source_ids)
           ? block : { id: block.id, type: "unknown" };
+      case "request_status": {
+        const validStatuses = ["new", "assigned", "accepted", "in_progress", "delivered", "completed", "cancelled"];
+        const items = Array.isArray(block.items) ? block.items : [];
+        return validText(block.title, 120) && block.title.trim()
+          && items.length >= 1 && items.length <= 10
+          && items.every((item) => item && validText(item.name, 100) && item.name.trim()
+            && validText(item.description || "", 240) && validText(item.department || "", 100)
+            && validStatuses.includes(item.status)
+            && Number.isSafeInteger(item.updated_at) && item.updated_at >= 0)
+          ? block : { id: block.id, type: "unknown" };
+      }
+      case "directions": {
+        const steps = Array.isArray(block.steps) ? block.steps : [];
+        return validText(block.title, 120) && block.title.trim()
+          && steps.length >= 2 && steps.length <= 40
+          && steps.every((step) => validText(step?.label, 120) && step.label.trim()
+            && Array.isArray(step.source_ids) && step.source_ids.length >= 1 && validSourceIds(step.source_ids))
+          ? block : { id: block.id, type: "unknown" };
+      }
       case "map_view":
         {
           const hasCoordinates = Number.isFinite(block.latitude) && block.latitude >= -90 && block.latitude <= 90
@@ -604,6 +628,46 @@
     confirm.addEventListener("click", () => confirmGuestAction(block, confirm));
     card.appendChild(confirm);
     parent.appendChild(card);
+  }
+
+  function renderRequestStatus(parent, block) {
+    const panel = element("section", "request-status-panel");
+    panel.setAttribute("aria-label", block.title);
+    panel.appendChild(element("h3", "", block.title));
+    const list = element("div", "request-status-list");
+    const statusLabels = {
+      new: "Received", assigned: "Assigned", accepted: "Accepted", in_progress: "In progress",
+      delivered: "Delivered", completed: "Completed", cancelled: "Cancelled",
+    };
+    for (const item of block.items) {
+      const card = element("article", "request-status-card");
+      const heading = element("div", "request-status-heading");
+      heading.appendChild(element("h4", "", item.name));
+      const status = element("span", `request-status-pill status-${item.status}`, statusLabels[item.status]);
+      status.setAttribute("aria-label", `Status: ${statusLabels[item.status]}`);
+      heading.appendChild(status);
+      card.appendChild(heading);
+      if (item.description) card.appendChild(element("p", "", item.description));
+      const details = [item.department, item.updated_at ? `Updated ${new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(item.updated_at * 1000))}` : ""]
+        .filter(Boolean).join(" · ");
+      if (details) card.appendChild(element("span", "request-status-detail", details));
+      list.appendChild(card);
+    }
+    panel.appendChild(list);
+    parent.appendChild(panel);
+  }
+
+  function renderDirections(parent, block) {
+    const panel = element("section", "directions-panel");
+    panel.setAttribute("aria-label", block.title);
+    panel.appendChild(element("h3", "", block.title));
+    const list = element("ol", "directions-list");
+    for (const step of block.steps) {
+      const item = attachSourceIds(element("li", "", step.label), step.source_ids);
+      list.appendChild(item);
+    }
+    panel.appendChild(list);
+    parent.appendChild(panel);
   }
 
   function renderSelectionForm(parent, block) {
@@ -769,6 +833,8 @@
         break;
       }
       case "request_review": renderRequestReview(wrapper, block); break;
+      case "request_status": renderRequestStatus(wrapper, block); break;
+      case "directions": renderDirections(wrapper, block); break;
       case "verified_confirmation": {
         const panel = attachSourceIds(element("section", "verified-confirmation"), block.source_ids);
         panel.appendChild(element("span", "confirmation-mark", "✓"));

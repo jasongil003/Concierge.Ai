@@ -269,6 +269,41 @@ class VerifiedConfirmationBlock(StrictSchema):
         return _validate_source_ids(values)
 
 
+class RequestStatusItem(StrictSchema):
+    name: str = Field(min_length=1, max_length=100)
+    description: str = Field(default="", max_length=240)
+    department: str = Field(default="", max_length=100)
+    status: Literal["new", "assigned", "accepted", "in_progress", "delivered", "completed", "cancelled"]
+    updated_at: int = Field(default=0, ge=0)
+
+
+class RequestStatusBlock(StrictSchema):
+    id: str = Field(min_length=1, max_length=80)
+    type: Literal["request_status"]
+    title: str = Field(min_length=1, max_length=120)
+    items: list[RequestStatusItem] = Field(min_length=1, max_length=10)
+
+
+class DirectionStep(StrictSchema):
+    label: str = Field(min_length=1, max_length=120)
+    source_ids: list[str] = Field(min_length=1, max_length=2)
+
+    @field_validator("source_ids")
+    @classmethod
+    def validate_sources(cls, values: list[str]) -> list[str]:
+        clean = _validate_source_ids(values)
+        if not clean:
+            raise ValueError("Direction steps must reference published map nodes.")
+        return clean
+
+
+class DirectionsBlock(StrictSchema):
+    id: str = Field(min_length=1, max_length=80)
+    type: Literal["directions"]
+    title: str = Field(min_length=1, max_length=120)
+    steps: list[DirectionStep] = Field(min_length=2, max_length=40)
+
+
 class MapMarker(StrictSchema):
     id: str = Field(min_length=1, max_length=80)
     label: str = Field(min_length=1, max_length=120)
@@ -349,6 +384,8 @@ PresentationBlock = Annotated[
         SelectionFormBlock,
         RequestReviewBlock,
         VerifiedConfirmationBlock,
+        RequestStatusBlock,
+        DirectionsBlock,
         MapViewBlock,
         LoadingStateBlock,
         ErrorStateBlock,

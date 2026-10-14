@@ -109,6 +109,63 @@ def test_protocol_requires_versioned_allowlisted_blocks_and_stable_ids():
         make_response("opaque-conversation", [{"id": "text-1", "type": "text", "content": "hello", "html": "<b>"}])
 
 
+def test_guest_conversation_intents_route_greetings_and_request_tracking_without_fact_fallbacks():
+    assert main_module._is_intelligent_guest_greeting("Hi!")
+    assert main_module._is_intelligent_guest_greeting("Good evening")
+    assert main_module._is_intelligent_guest_greeting("How are you?")
+    assert not main_module._is_intelligent_guest_greeting("Hi, where is the pool?")
+    assert main_module._is_intelligent_request_status_request("Where is my service request?")
+    assert main_module._is_intelligent_request_status_request("Any update on my request?")
+    assert not main_module._is_intelligent_request_status_request("Can I have extra towels?")
+
+
+def test_request_status_and_directions_are_typed_structured_components():
+    response = make_response("conversation", [
+        {
+            "id": "status-1", "type": "request_status", "title": "Your recent service requests",
+            "items": [{
+                "name": "Towels", "description": "Two bath towels", "department": "Housekeeping",
+                "status": "new", "updated_at": 1791945600,
+            }],
+        },
+        {
+            "id": "directions-1", "type": "directions", "title": "Published directions",
+            "steps": [
+                {"label": "Lobby", "source_ids": ["guest:test-property:map_node:lobby"]},
+                {"label": "Pool", "source_ids": ["guest:test-property:map_node:pool"]},
+            ],
+        },
+    ], "turn")
+    assert [block["type"] for block in response["blocks"]] == ["request_status", "directions"]
+    with pytest.raises(ValueError):
+        make_response("conversation", [{
+            "id": "bad-status", "type": "request_status", "title": "Requests",
+            "items": [{"name": "Towels", "status": "mystery"}],
+        }], "turn")
+
+
+def test_guest_directions_use_only_named_guest_visible_map_nodes(monkeypatch: pytest.MonkeyPatch):
+    nodes = [
+        {"node_id": "lobby", "label": "Lobby", "guest_visible": True},
+        {"node_id": "pool", "label": "Rooftop Pool", "guest_visible": True},
+        {"node_id": "private", "label": "Staff Office", "guest_visible": False},
+    ]
+    monkeypatch.setattr(main_module.zones, "overview", lambda _property_id, guest: {"navigation_nodes": nodes} if guest else {})
+    monkeypatch.setattr(main_module.zones, "route", lambda _property_id, start, end, guest: {
+        "node_ids": [start, end], "labels": ["Lobby", "Rooftop Pool"], "distance": 12,
+    })
+
+    route = main_module._intelligent_guest_directions_block("test-property", "Directions from Lobby to Rooftop Pool")
+    assert route is not None
+    assert route["type"] == "directions"
+    assert [step["label"] for step in route["steps"]] == ["Lobby", "Rooftop Pool"]
+    assert route["steps"][1]["source_ids"] == ["guest:test-property:map_node:pool"]
+    assert main_module._intelligent_guest_directions_block("test-property", "Where is the pool?") is None
+    assert main_module._intelligent_guest_directions_block(
+        "test-property", "Directions from Lobby to Rooftop Pool", enabled=False,
+    ) is None
+
+
 def test_global_switch_and_property_flag_gate_the_parallel_ui(monkeypatch: pytest.MonkeyPatch):
     _enable_property_ui()
     monkeypatch.setattr(main_module, "settings", replace(main_module.settings, intelligent_guest_ui_global_enabled=False))
@@ -653,7 +710,7 @@ def test_intelligent_map_uses_property_floor_plan_and_guest_visible_nodes(monkey
         ("Rooftop Pool", 50.0, 50.0),
     ]
     text_block = next(block for block in response.json()["blocks"] if block["type"] == "text")
-    assert "verified route from your current room is not available" in text_block["content"]
+    assert "route from your current position is not available yet" in text_block["content"]
 
 
 def test_map_helper_returns_no_map_without_published_floor_map_or_markers():

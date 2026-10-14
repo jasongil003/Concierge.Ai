@@ -56,7 +56,7 @@ button:focus-visible, textarea:focus-visible { outline: 3px solid var(--focus); 
 .brand-copy span { color: var(--muted); font-size: 12px; }
 .new-chat {
   display: inline-flex;
-  min-height: 40px;
+  min-height: 44px;
   align-items: center;
   justify-content: center;
   gap: 8px;
@@ -85,15 +85,15 @@ button:focus-visible, textarea:focus-visible { outline: 3px solid var(--focus); 
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 46px 0 54px;
+  padding: 34px 0 42px;
   text-align: center;
 }
-.eyebrow { margin: 0 0 16px; color: var(--accent); font-size: 12px; font-weight: 650; letter-spacing: .09em; text-transform: uppercase; }
-.welcome h1 { max-width: 640px; margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: clamp(34px, 5vw, 52px); font-weight: 500; letter-spacing: -.035em; line-height: 1.08; }
-.welcome-description { max-width: 460px; margin: 17px 0 0; color: var(--muted); font-size: 16px; line-height: 1.6; }
-.welcome-suggestions { display: flex; max-width: 680px; margin-top: 32px; flex-wrap: wrap; justify-content: center; gap: 10px; }
+.eyebrow { margin: 0 0 12px; color: var(--accent); font-size: 11px; font-weight: 650; letter-spacing: .12em; text-transform: uppercase; }
+.welcome h1 { max-width: 640px; margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: clamp(34px, 4.5vw, 48px); font-weight: 500; letter-spacing: -.035em; line-height: 1.1; }
+.welcome-description { max-width: 460px; margin: 13px 0 0; color: var(--muted); font-size: 15px; line-height: 1.6; }
+.welcome-suggestions { display: flex; max-width: 680px; margin-top: 25px; flex-wrap: wrap; justify-content: center; gap: 9px; }
 .suggestion-chip {
-  min-height: 42px;
+  min-height: 44px;
   max-width: 100%;
   padding: 9px 15px;
   border: 1px solid var(--line);
@@ -108,7 +108,7 @@ button:focus-visible, textarea:focus-visible { outline: 3px solid var(--focus); 
 }
 .suggestion-chip:hover { border-color: #cfc3ae; background: var(--surface); }
 
-.conversation { flex: 1; padding: 34px 0 24px; }
+.conversation { flex: 1; padding: 34px 0 150px; }
 .message-list { display: flex; flex-direction: column; gap: 24px; padding-bottom: 18px; }
 .message-row { display: flex; width: 100%; min-width: 0; align-items: flex-start; }
 .message-row.guest { justify-content: flex-end; }
@@ -144,7 +144,7 @@ button:focus-visible, textarea:focus-visible { outline: 3px solid var(--focus); 
 .entity-card .card-detail { margin: 10px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
 .entity-card .card-location, .entity-card .card-hours { margin: 7px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
 .entity-card-image { display: block; width: 100%; max-height: 190px; margin: -1px 0 12px; border-radius: 10px; object-fit: cover; background: #efede8; }
-.menu-toggle, .reservation-link { display: inline-flex; min-height: 36px; align-items: center; justify-content: center; margin: 12px 8px 0 0; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--ink); font: inherit; font-size: 12px; text-decoration: none; cursor: pointer; }
+.menu-toggle, .reservation-link { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; margin: 12px 8px 0 0; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--ink); font: inherit; font-size: 12px; text-decoration: none; cursor: pointer; }
 .reservation-link { border-color: var(--accent); color: var(--accent); }
 .menu-details { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
 .menu-details h4 { margin: 8px 0; font-size: 13px; }
@@ -158,6 +158,22 @@ button:focus-visible, textarea:focus-visible { outline: 3px solid var(--focus); 
   border-radius: 16px;
   background: var(--surface);
 }
+.request-status-panel { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
+.request-status-panel > h3 { margin: 0; font-size: 14px; font-weight: 650; }
+.request-status-list { display: grid; margin-top: 12px; gap: 9px; }
+.request-status-card { min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: #fdfcf9; }
+.request-status-heading { display: flex; min-width: 0; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.request-status-heading h4 { min-width: 0; margin: 0; font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+.request-status-pill { flex: 0 0 auto; padding: 4px 8px; border-radius: 999px; background: #f0eee8; color: #514d43; font-size: 10px; font-weight: 650; }
+.request-status-pill.status-completed, .request-status-pill.status-delivered { background: #e6f0e8; color: #315d3a; }
+.request-status-pill.status-cancelled { background: #f6e9e6; color: #80413a; }
+.request-status-card p { margin: 7px 0 0; color: #55524d; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.request-status-detail { display: block; margin-top: 8px; color: var(--muted); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
+.directions-panel { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
+.directions-panel h3 { margin: 0; font-size: 14px; font-weight: 650; }
+.directions-list { display: grid; margin: 12px 0 0; padding-left: 25px; gap: 9px; }
+.directions-list li { padding-left: 3px; color: #55524d; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.directions-list li::marker { color: var(--accent); font-weight: 700; }
 .detail-panel h3, .request-review h3, .verified-confirmation h3, .error-panel h3, .map-panel h3, .selection-panel h3 { margin: 0; font-size: 14px; font-weight: 650; }
 .detail-list { display: grid; margin: 12px 0 0; gap: 10px; }
 .detail-list div { display: grid; grid-template-columns: minmax(90px, .65fr) minmax(0, 1fr); gap: 12px; }
@@ -169,7 +185,7 @@ button:focus-visible, textarea:focus-visible { outline: 3px solid var(--focus); 
 .selection-field label { color: var(--ink); font-size: 12px; font-weight: 600; }
 .selection-field input, .selection-field select { width: 100%; min-height: 42px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink); font: inherit; }
 .selection-field input:focus-visible, .selection-field select:focus-visible, .selection-actions button:focus-visible, .selection-form button:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 2px; }
-.selection-form button, .selection-actions button { min-height: 40px; padding: 0 13px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
+.selection-form button, .selection-actions button { min-height: 44px; padding: 0 13px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
 .selection-form button.btn-primary, .selection-actions button.btn-primary { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); font-weight: 650; }
 .selection-actions button.btn-secondary:hover { border-color: var(--accent); background: #faf8f4; }
 .selection-guidance { margin-top: 8px; }
@@ -187,13 +203,13 @@ button:focus-visible, textarea:focus-visible { outline: 3px solid var(--focus); 
 .floor-map-image[hidden], .floor-map-markers[hidden] { display: none; }
 .floor-map-unavailable { display: grid; place-items: center; min-height: 120px; }
 .floor-map-markers { position: absolute; inset: 0; }
-.floor-map-marker { position: absolute; max-width: 140px; transform: translate(-50%, -50%); padding: 4px 8px; border: 2px solid #fff; border-radius: 999px; background: var(--accent); color: var(--accent-ink); box-shadow: 0 1px 5px #0003; font: inherit; font-size: 11px; line-height: 1.2; cursor: pointer; overflow-wrap: anywhere; }
+.floor-map-marker { position: absolute; min-width: 44px; min-height: 44px; max-width: 140px; transform: translate(-50%, -50%); padding: 4px 8px; border: 2px solid #fff; border-radius: 999px; background: var(--accent); color: var(--accent-ink); box-shadow: 0 1px 5px #0003; font: inherit; font-size: 11px; line-height: 1.2; cursor: pointer; overflow-wrap: anywhere; }
 .floor-map-marker[aria-pressed="true"] { outline: 3px solid var(--ink); outline-offset: 2px; }
 .floor-map-selection { min-height: 1.5em; font-weight: 600; }
 .floor-map-alternative { color: var(--muted) !important; }
 .request-review .review-department { margin-top: 5px; color: var(--muted); font-size: 12px; }
 .primary-action, .secondary-action {
-  min-height: 40px;
+  min-height: 44px;
   margin-top: 14px;
   padding: 9px 15px;
   border: 1px solid var(--accent);
@@ -210,7 +226,7 @@ button:focus-visible, textarea:focus-visible { outline: 3px solid var(--focus); 
 .error-panel { border-color: #e7c4bd; background: #fffaf9; }
 .error-panel p { color: #80413a; }
 .selection-options { display: flex; margin-top: 12px; flex-wrap: wrap; gap: 8px; }
-.selection-options button { padding: 8px 12px; border: 1px solid var(--line); border-radius: 18px; background: transparent; cursor: pointer; font-size: 13px; }
+.selection-options button { min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 18px; background: transparent; cursor: pointer; font-size: 13px; }
 .suggestions-after { display: flex; flex-wrap: wrap; gap: 8px; }
 
 .composer-dock { position: sticky; z-index: 2; bottom: 0; padding: 8px 16px max(14px, env(safe-area-inset-bottom)); background: linear-gradient(180deg, rgba(248,247,244,0) 0%, var(--page) 20%); }
@@ -231,7 +247,7 @@ button:focus-visible, textarea:focus-visible { outline: 3px solid var(--focus); 
 .composer:focus-within { border-color: #c4b08d; box-shadow: 0 8px 28px rgba(48,43,34,.10), 0 0 0 2px rgba(154,119,68,.08); }
 .composer textarea { display: block; width: 100%; min-width: 0; min-height: 40px; max-height: 148px; resize: none; border: 0; outline: 0; padding: 10px 0 8px; background: transparent; color: var(--ink); font-size: 15px; line-height: 1.45; }
 .composer textarea::placeholder { color: #918e87; opacity: 1; }
-.send-button { display: grid; width: 40px; height: 40px; flex: 0 0 40px; place-items: center; border: 0; border-radius: 50%; background: var(--accent); color: var(--accent-ink); cursor: pointer; }
+.send-button { display: grid; width: 44px; height: 44px; flex: 0 0 44px; place-items: center; border: 0; border-radius: 50%; background: var(--accent); color: var(--accent-ink); cursor: pointer; }
 .send-button:disabled { background: #e8e5df; color: #a09c94; cursor: default; }
 .send-button svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.6; }
 .cancel-response { display: block; margin: 8px auto 0; padding: 6px 12px; border: 1px solid #c9c5bd; border-radius: 999px; background: transparent; color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
@@ -248,14 +264,14 @@ button:focus-visible, textarea:focus-visible { outline: 3px solid var(--focus); 
 @media (max-width: 600px) {
   .topbar { width: calc(100% - 32px); min-height: 66px; }
   .brand-mark { width: 34px; height: 34px; flex-basis: 34px; }
-  .new-chat { min-height: 38px; padding: 0 11px; font-size: 12px; }
+  .new-chat { min-height: 44px; padding: 0 11px; font-size: 12px; }
   .conversation-workspace { width: calc(100% - 28px); }
-  .welcome { padding: 34px 0 38px; }
+  .welcome { padding: 28px 0 32px; }
   .welcome h1 { max-width: 400px; font-size: clamp(32px, 9vw, 42px); }
   .welcome-description { max-width: 340px; font-size: 14px; }
-  .welcome-suggestions { margin-top: 25px; gap: 8px; }
-  .suggestion-chip { min-height: 39px; padding: 8px 12px; font-size: 12px; }
-  .conversation { padding-top: 24px; }
+  .welcome-suggestions { margin-top: 20px; gap: 8px; }
+  .suggestion-chip { min-height: 44px; padding: 8px 12px; font-size: 12px; }
+  .conversation { padding-top: 24px; padding-bottom: 164px; }
   .message-list { gap: 20px; }
   .message-body { max-width: 88%; }
   .assistant .message-body { width: 100%; }
@@ -263,8 +279,16 @@ button:focus-visible, textarea:focus-visible { outline: 3px solid var(--focus); 
   .composer-dock { padding-right: 10px; padding-left: 10px; }
   .composer { min-height: 54px; gap: 8px; padding-left: 15px; }
   .composer textarea { font-size: 16px; }
-  .send-button { width: 38px; height: 38px; flex-basis: 38px; }
+  .send-button { width: 44px; height: 44px; flex-basis: 44px; }
   .composer-note { margin-top: 7px; }
+  .request-status-panel { padding: 13px; }
+  .request-status-card { padding: 10px; }
+}
+
+@media (min-width: 601px) and (max-width: 900px) {
+  .conversation-workspace { width: min(100% - 48px, 760px); }
+  .welcome { padding-top: 30px; padding-bottom: 34px; }
+  .card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (prefers-reduced-motion: reduce) {
