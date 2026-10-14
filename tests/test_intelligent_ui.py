@@ -658,6 +658,39 @@ def test_intelligent_response_rejects_fabricated_claims_with_valid_or_missing_so
     assert "couldn't verify" in blocks[0]["content"]
 
 
+def test_stream_never_releases_a_claim_rejected_by_final_grounding(monkeypatch: pytest.MonkeyPatch):
+    _enable_property_ui()
+    monkeypatch.setattr(main_module, "settings", replace(main_module.settings, intelligent_guest_ui_global_enabled=True))
+    restaurant = main_module.hospitality.create_restaurant("test-property", {
+        "name": "Harbor Dining", "meal_periods": ["dinner"], "status": "open",
+    })
+    fabricated = "The hotel pool is free until 11 PM."
+
+    async def fake_composer(payload, _request, *, stream_callback=None):
+        if stream_callback:
+            await stream_callback(fabricated)
+        return make_response(payload.session_id, [{
+            "id": "unsupported-claim", "type": "grounded_claim", "content": fabricated,
+            "source_ids": [f"guest:test-property:restaurant:{restaurant['restaurant_id']}"],
+        }], payload.turn_id)
+
+    monkeypatch.setattr(main_module, "_compose_intelligent_guest_response", fake_composer)
+    with TestClient(main_module.app) as client:
+        started = client.post("/api/session/start", json={
+            "client_id": "stream-grounding-guest", "property_id": "test-property",
+        })
+        response = client.post("/api/guest/intelligent-chat/stream", json={
+            "session_id": started.json()["session_id"],
+            "turn_id": "invalid-streamed-claim",
+            "message": "When does the pool close?",
+        })
+
+    assert response.status_code == 200, response.text
+    assert "event: text.delta" not in response.text
+    assert fabricated not in response.text
+    assert "couldn't verify" in response.text
+
+
 def test_cached_intelligent_turn_does_not_replay_archived_inventory(monkeypatch: pytest.MonkeyPatch):
     _enable_property_ui()
     monkeypatch.setattr(main_module, "settings", replace(main_module.settings, intelligent_guest_ui_global_enabled=True))

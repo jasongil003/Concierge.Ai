@@ -44,3 +44,18 @@ The browser suite rewrote tracked historical `audit/evidence` captures. Those ge
 Docker CLI and Compose configuration parsing were available, but the local Docker daemon socket was absent. No image build, container smoke, PostgreSQL/Redis service integration, Nginx syntax runtime check, or Docker load test was run. The macOS workflow and Linux systemd validation are defined in CI, but this audit did not observe their remote result. The release workflow is triggered by published releases; no release was created or modified.
 
 **REMOTE CI status:** UNVERIFIED for the working-tree edits. A local test pass must not be reported as a GitHub Actions pass.
+
+## 2026-10-14 follow-up from `6de7319`
+
+| Check | Result | Limit |
+| --- | --- | --- |
+| Baseline `.venv/bin/python -m pytest -q` | **PASS** — 1,187 passed, 18 skipped | Before follow-up edits; synthetic local tests. |
+| Final `.venv/bin/python -m pytest -q` | **PASS** — 1,188 passed, 18 skipped, 2 dependency warnings | Persistent workspace SQLite signature unchanged. |
+| Focused SSE grounding tests | **PASS** — 2 passed | Includes fabricated claim rejected before any `text.delta` event. |
+| Focused Playwright Chromium | **PASS** — 3 passed | New-chat failure, transient history outage, and existing composer regression. |
+| Focused Playwright mobile Chrome emulation | **PASS** — 2 passed | New-chat failure and transient history outage. |
+| Bandit Medium/High; Python compile; JavaScript syntax; `git diff --check` | **PASS** | Bandit emitted existing `nosec` parser warnings; no configured-threshold findings. |
+| Gitleaks 8.24.3 forced-text history scan | **FAIL / RELEASE BLOCKER** — three historical findings | Credential value omitted; no suppression. Current local `--no-git` scan also matches an ignored `.env` value, so it is not a clean-tree receipt. |
+| PostgreSQL/Redis, Docker, live AI providers, physical devices, full browser rerun, staged 30,000-session load | **NOT RUN / UNVERIFIED** | These checks require their respective services, hardware, or longer controlled run. |
+
+The [failed GitHub secret-scan job](https://github.com/jasongil003/Concierge.Ai/actions/runs/38566811348/job/115861890755) completed its initial history step, then failed in the step that includes the forced-text scan. Draft [PR #54](https://github.com/jasongil003/Concierge.Ai/pull/54) prepares an offline mirror cleanup but does not close the finding. CI for the follow-up changes is unverified until their new PR runs.
