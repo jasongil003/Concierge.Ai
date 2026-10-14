@@ -136,3 +136,9 @@ def test_reports_are_valid_and_include_required_sections(tmp_path):
     pdf = service.management_pdf("Hotel A", analytics, [], ["Continue monitoring."])
     assert pdf.startswith(b"%PDF-1.4")
     assert b"Hotel A Management Report" in pdf
+    assert b"Not enough prior data." in pdf
+    assert b"Not enough prior data%." not in pdf
+
+    analytics["summary"]["request_change_percent"] = 12.5
+    changed_pdf = service.management_pdf("Hotel A", analytics, [], [])
+    assert b"Request change versus the previous period: 12.5%." in changed_pdf

@@ -7,6 +7,7 @@ export function createTestServerEnvironment({ path, temporaryDirectory, stateDir
     TMP: temporaryDirectory || stateDirectory,
     APP_ENVIRONMENT: "test",
     CONCIERGE_TESTING: "1",
+    PYTHON_DOTENV_DISABLED: "1",
     CONCIERGE_E2E_CONTROL_TOKEN: "playwright-local-session-clock-control",
     STATE_DIRECTORY: stateDirectory,
     UPLOAD_ROOT: `${stateDirectory}/uploads`,

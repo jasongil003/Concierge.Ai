@@ -128,6 +128,33 @@ def test_restore_validation_uses_separate_sqlite_target_and_preserves_source(tmp
     assert not any("secret" in key.casefold() or "key" in key.casefold() for key in manifest["concierge"])
 
 
+def test_failed_replace_keeps_existing_sqlite_database_and_uploads(tmp_path: Path, monkeypatch):
+    source_db = tmp_path / "source" / "concierge.db"
+    source_uploads = tmp_path / "source" / "uploads"
+    source_uploads.mkdir(parents=True)
+    PropertyStore(source_db).upsert(PropertyRecord(property_id="hotel-a", hotel_name="Backup Copy"))
+    archive = tmp_path / "backup" / "restore-safe.zip"
+    create_backup(source_db, source_uploads, archive)
+
+    target_db = tmp_path / "target" / "concierge.db"
+    target_uploads = tmp_path / "target" / "uploads"
+    PropertyStore(target_db).upsert(PropertyRecord(property_id="hotel-a", hotel_name="Existing Copy"))
+    target_uploads.mkdir()
+    (target_uploads / "keep.txt").write_text("existing upload", encoding="utf-8")
+    original_hash = hashlib.sha256(target_db.read_bytes()).hexdigest()
+
+    def fail_replace(_source, _target):
+        raise OSError("simulated atomic replacement failure")
+
+    monkeypatch.setattr(backup.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="simulated atomic replacement failure"):
+        restore_backup(archive, target_db, target_uploads, replace=True)
+
+    assert hashlib.sha256(target_db.read_bytes()).hexdigest() == original_hash
+    assert PropertyStore(target_db).get("hotel-a").hotel_name == "Existing Copy"
+    assert (target_uploads / "keep.txt").read_text(encoding="utf-8") == "existing upload"
+
+
 def test_incomplete_backup_is_rejected_before_restore_targets_are_created(tmp_path: Path):
     archive = tmp_path / "incomplete.zip"
     with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as saved:

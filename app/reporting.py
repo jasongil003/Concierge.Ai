@@ -134,9 +134,11 @@ class ReportService:
         summary = analytics["summary"]
         sla = f"{summary['sla_performance_percent']}%" if summary["sla_performance_percent"] is not None else "Unavailable"
         fallback = f"{summary['fallback_rate_percent']}%" if summary["fallback_rate_percent"] is not None else "Unavailable"
+        request_change = summary["request_change_percent"]
+        request_change_label = f"{request_change}%" if request_change is not None else "Not enough prior data"
         sections = [
             ("Executive summary", [f"Guests assisted: {summary['guests_assisted']}. AI conversations: {summary['ai_conversations']}. Service requests: {summary['service_requests']}."]),
-            ("Guest engagement", [f"Request change versus the previous period: {summary['request_change_percent'] if summary['request_change_percent'] is not None else 'Not enough prior data'}%.", *[f"{item['question']} ({item['count']})" for item in analytics["top_questions"][:5]]]),
+            ("Guest engagement", [f"Request change versus the previous period: {request_change_label}.", *[f"{item['question']} ({item['count']})" for item in analytics["top_questions"][:5]]]),
             ("Service performance", [f"Open requests: {summary['open_requests']}. Overdue: {summary['overdue_requests']}. SLA performance: {sla}. Average resolution: {summary['average_resolution_seconds'] if summary['average_resolution_seconds'] is not None else 'Unavailable'} seconds.", *[f"{item['name']}: {item['value']} request(s)" for item in analytics["requests_by_department"]]]),
             ("AI performance", [f"Provider requests: {analytics['ai']['requests']}. Errors: {analytics['ai']['errors']}. Average latency: {analytics['ai']['average_latency_ms'] if analytics['ai']['average_latency_ms'] is not None else 'Unavailable'} ms. Fallback rate: {fallback}. Estimated cloud cost: unavailable unless verified provider pricing and billable usage are configured."]),
             ("Operational issues", [alert["title"] + ": " + alert["evidence"] for alert in alerts] or ["No active threshold-based alerts were detected for this period."]),

@@ -434,8 +434,6 @@ def restore_backup(
             if result.returncode:
                 raise RuntimeError(f"PostgreSQL restore failed with exit code {result.returncode}; the transaction was rolled back.")
         else:
-            if replace:
-                db_path.unlink(missing_ok=True)
             os.replace(staged_db, db_path)
         if replace and upload_root.exists():
             shutil.rmtree(upload_root)
