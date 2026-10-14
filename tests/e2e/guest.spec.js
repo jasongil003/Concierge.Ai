@@ -2392,6 +2392,60 @@ test("Intelligent UI regression: composer clears on accepted send and retries do
   }
 });
 
+test("Intelligent UI keeps the current session usable when a replacement cannot start", async ({ page, request }) => {
+  await setIntelligentUi(request, true);
+  try {
+    await page.goto("/");
+    const oldSession = await waitForGuestSession(page);
+    let endCalls = 0;
+    await page.route("**/api/session/end", async (route) => {
+      endCalls += 1;
+      await route.continue();
+    });
+    await page.route("**/api/session/start", (route) => route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ detail: "Synthetic session-start outage" }),
+    }));
+    await page.getByRole("button", { name: "Start a new private conversation" }).click();
+    await expect(page.locator("#conversation-status-copy")).toContainText("current conversation remains available");
+    expect(endCalls).toBe(0);
+    expect(await page.evaluate(() => sessionStorage.getItem("concierge-v2-session-id"))).toBe(oldSession);
+    const composer = page.getByLabel("Message your concierge");
+    await composer.fill("Is my conversation still available?");
+    await expect(page.getByRole("button", { name: "Send message" })).toBeEnabled();
+    const history = await page.evaluate(async (id) => (await fetch("/api/guest/intelligent-history", {
+      headers: { "X-Concierge-Session": id },
+    })).status, oldSession);
+    expect(history).toBe(200);
+  } finally {
+    await setIntelligentUi(request, false);
+  }
+});
+
+test("Intelligent UI does not replace server history with an empty chat during a transient outage", async ({ page, request }) => {
+  await setIntelligentUi(request, true);
+  try {
+    await page.goto("/");
+    const sessionId = await waitForGuestSession(page);
+    await page.route("**/api/guest/intelligent-history", (route) => route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ detail: "Synthetic history outage" }),
+    }));
+    await page.reload();
+    await expect(page.locator("#startup-error")).toBeVisible();
+    await expect(page.locator("#app-shell")).toBeHidden();
+    expect(await page.evaluate(() => sessionStorage.getItem("concierge-v2-session-id"))).toBe(sessionId);
+    await page.unroute("**/api/guest/intelligent-history");
+    await page.getByRole("button", { name: "Reload" }).click();
+    await expect(page.locator("#app-shell")).toBeVisible();
+    expect(await page.evaluate(() => sessionStorage.getItem("concierge-v2-session-id"))).toBe(sessionId);
+  } finally {
+    await setIntelligentUi(request, false);
+  }
+});
+
 test("Intelligent UI regression: restaurant menu stays above the persistent composer at phone, tablet, and desktop sizes", async ({ page, request }, testInfo) => {
   await setIntelligentUi(request, true);
   const restaurant = {
