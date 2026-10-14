@@ -7675,11 +7675,14 @@ async def intelligent_guest_chat_stream(payload: ChatRequest, request: Request) 
         })
         queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue(maxsize=24)
         output_guard = AIStreamOutputGuard(max_chars=24_000)
+        held_deltas: list[str] = []
 
         async def on_delta(chunk: str) -> None:
             safe = output_guard.feed(chunk)
             if safe:
-                await queue.put(("delta", safe))
+                # Grounding is checked only after composition. Never release a
+                # provisional hotel fact before that final source check.
+                held_deltas.append(safe)
 
         async def produce() -> None:
             try:
@@ -7688,8 +7691,17 @@ async def intelligent_guest_chat_stream(payload: ChatRequest, request: Request) 
                 )
                 tail = output_guard.finish()
                 if tail:
-                    await queue.put(("delta", tail))
-                await queue.put(("completed", result))
+                    held_deltas.append(tail)
+                text_block = next(
+                    (block for block in result.get("blocks", []) if block.get("type") == "text"),
+                    {"content": ""},
+                )
+                final_text = text_block.get("content", "")
+                streamed = bool(held_deltas) and "".join(held_deltas) == final_text
+                if streamed:
+                    for delta in held_deltas:
+                        await queue.put(("delta", delta))
+                await queue.put(("completed", (result, streamed)))
             except asyncio.CancelledError:
                 raise
             except HTTPException as exc:
@@ -7718,7 +7730,7 @@ async def intelligent_guest_chat_stream(payload: ChatRequest, request: Request) 
                     yield frame("turn.failed", value)
                     break
                 else:
-                    response = value
+                    response, streamed = value
                     text_block = next(
                         (block for block in response.get("blocks", []) if block.get("type") == "text"),
                         {"content": ""},
@@ -7728,8 +7740,8 @@ async def intelligent_guest_chat_stream(payload: ChatRequest, request: Request) 
                             event_type = "action.pending" if block.get("type") == "request_review" else "component.ready"
                             yield frame(event_type, {"block": block})
                     yield frame("text.completed", {
-                        "streamed": output_guard.has_content,
-                        "text": "" if output_guard.has_content else text_block.get("content", ""),
+                        "streamed": streamed,
+                        "text": "" if streamed else text_block.get("content", ""),
                     })
                     yield frame("turn.completed", {"response": response})
                     break

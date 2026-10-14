@@ -328,20 +328,18 @@
   }
 
   async function restoreMessages() {
-    try {
-      const history = await api("/api/guest/intelligent-history");
-      if (history.schema_version !== "1.0" || history.conversation_id !== sessionId || !Array.isArray(history.turns)) {
-        throw new Error("Invalid server conversation history.");
-      }
-      messages = [];
-      for (const turn of history.turns.slice(-40)) {
-        if (!turn || typeof turn.turn_id !== "string" || !validText(turn.message, 2000)
-          || turn.response?.schema_version !== "1.0" || turn.response?.conversation_id !== sessionId
-          || turn.response?.turn_id !== turn.turn_id || !Array.isArray(turn.response.blocks)) continue;
-        messages.push({ id: `guest-${turn.turn_id}`, turnId: turn.turn_id, role: "guest", blocks: [{ id: newId(), type: "text", content: turn.message }] });
-        messages.push({ id: `assistant-${turn.turn_id}`, role: "assistant", blocks: turn.response.blocks.map(validateBlock) });
-      }
-    } catch { messages = []; }
+    const history = await api("/api/guest/intelligent-history");
+    if (history.schema_version !== "1.0" || history.conversation_id !== sessionId || !Array.isArray(history.turns)) {
+      throw new Error("Invalid server conversation history.");
+    }
+    messages = [];
+    for (const turn of history.turns.slice(-40)) {
+      if (!turn || typeof turn.turn_id !== "string" || !validText(turn.message, 2000)
+        || turn.response?.schema_version !== "1.0" || turn.response?.conversation_id !== sessionId
+        || turn.response?.turn_id !== turn.turn_id || !Array.isArray(turn.response.blocks)) continue;
+      messages.push({ id: `guest-${turn.turn_id}`, turnId: turn.turn_id, role: "guest", blocks: [{ id: newId(), type: "text", content: turn.message }] });
+      messages.push({ id: `assistant-${turn.turn_id}`, role: "assistant", blocks: turn.response.blocks.map(validateBlock) });
+    }
   }
 
   function persistMessages() {
@@ -1712,10 +1710,10 @@
     $("send-button").disabled = inputPending || !input.value.trim() || !sessionId || sessionExpired;
   }
 
-  async function startSession(forceNew = false) {
+  async function startSession() {
     const savedSession = sessionStorage.getItem(storageKeys.session);
     const savedProperty = sessionStorage.getItem(storageKeys.property);
-    if (!forceNew && savedSession && savedProperty === property.property_id) {
+    if (savedSession && savedProperty === property.property_id) {
       try {
         const resumed = await requestBody("/api/session/resume", { client_id: clientId, session_id: savedSession });
         sessionId = resumed.session_id;
@@ -1757,21 +1755,35 @@
     const oldSession = sessionId;
     $("new-conversation").disabled = true;
     try {
+      // Keep the current credentials usable until the replacement exists.
+      const created = await requestBody("/api/session/start", {
+        client_id: clientId,
+        property_id: property.property_id,
+        gateway_context: gatewayContext(),
+      });
+      let oldSessionEnded = true;
       if (oldSession && !sessionExpired) {
         try {
           await requestBody("/api/session/end", { client_id: clientId, session_id: oldSession });
         } catch (error) {
-          if (error.status !== 401) throw error;
+          if (error.status !== 401) oldSessionEnded = false;
         }
       }
-      sessionExpired = true;
-      await startSession(true);
+      sessionId = created.session_id;
+      sessionExpired = false;
+      sessionStorage.setItem(storageKeys.session, sessionId);
+      sessionStorage.setItem(storageKeys.property, property.property_id);
+      messages = [];
       mapViewStates.clear();
       $("composer-input").value = "";
       $("conversation-workspace").scrollTop = 0;
       renderMessages();
       updateComposer();
       $("composer-input").focus({ preventScroll: true });
+      if (!oldSessionEnded) {
+        $("conversation-status").hidden = false;
+        $("conversation-status-copy").textContent = "Your new conversation is ready, but the previous session could not be closed. Contact the Front Desk if you need it revoked now.";
+      }
     } catch {
       $("conversation-status").hidden = false;
       $("conversation-status-copy").textContent = "A new private conversation couldn't be started. Your current conversation remains available.";
