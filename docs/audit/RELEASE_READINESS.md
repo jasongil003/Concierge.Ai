@@ -51,3 +51,6 @@ Working changes: local and uncommitted; no push or deployment occurred.
 - Compose syntax: verified using synthetic settings; Docker execution blocked by missing daemon.
 - GitHub branch settings: blocked by unavailable authentication (HTTP 401).
 
+### GitHub Actions follow-up
+
+Run [38560724104](https://github.com/jasongil003/Concierge.Ai/actions/runs/38560724104) had a failed `browser-tests` job; its other jobs passed. The browser failures exposed an incorrect Playwright server override in CI, which skipped the test-only session-clock routes, plus one desktop scroll-anchor timing failure. CI now uses `tests/e2e/run_server.py`, and the scroll test establishes its starting position without smooth-scroll animation. All 12 affected local browser cases passed across Chromium and Pixel 7 emulation when repeated twice. A new GitHub run is still needed to verify the workflow correction remotely.

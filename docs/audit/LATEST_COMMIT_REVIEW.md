@@ -79,3 +79,9 @@ Added a second, redacted Gitleaks history command to `.github/workflows/ci.yml` 
 - Dated errata were appended to `docs/audit/RELEASE_REMEDIATION_VERIFICATION_2026-10-14.md` and `docs/audit/SECURITY_FINDINGS.md` to correct their earlier clean-history scan claim.
 - No external credential was rotated, no history was rewritten, no production data or services were changed, and no remote repository settings were modified.
 - The historical credential remains a release blocker pending issuer-owner invalidation evidence and authorized history cleanup. See `SECURITY_REMEDIATION.md` and `RELEASE_READINESS.md`.
+
+### GitHub Actions failure follow-up — 2026-10-14
+
+The linked [workflow run 38560724104](https://github.com/jasongil003/Concierge.Ai/actions/runs/38560724104) had one failed job: `browser-tests`; the other jobs completed successfully. Its Playwright run reported 325 passed and 38 skipped. The session-clock E2E cases returned 404 because the workflow overrode Playwright's server command with `app.main:app`, bypassing the loopback-only routes registered by `tests/e2e/server_app.py`. CI now starts `python tests/e2e/run_server.py`, matching the isolated local E2E server.
+
+That run also had one Chromium-only scroll-anchor failure: the starting position was expected to be 100 but reached 3612. The test now disables smooth scrolling for its setup and waits until the exact anchor is established before sending the follow-up. With the server wrapper and deterministic anchor setup, the three affected cases passed twice across Chromium and Pixel 7 emulation (**12 passed**). The updated workflow has not yet run on GitHub; its CI result remains pending a new run.
