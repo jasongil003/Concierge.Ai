@@ -15,6 +15,7 @@ test("the isolated Playwright server excludes host credentials", () => {
     "ADMIN_BOOTSTRAP_USERNAME",
     "ALLOW_BODY_PROPERTY_SELECTION",
     "APP_ENVIRONMENT",
+    "CONCIERGE_E2E_CONTROL_TOKEN",
     "CONCIERGE_TESTING",
     "CREDENTIAL_ENCRYPTION_SECRET",
     "DATABASE_URL",
@@ -34,4 +35,5 @@ test("the isolated Playwright server excludes host credentials", () => {
   expect(environment).not.toHaveProperty("BROWSER_USE_ACCESS_VERIFYING_IDENTITY");
   expect(environment).not.toHaveProperty("GITHUB_TOKEN");
   expect(environment).not.toHaveProperty("OPENAI_API_KEY");
+  expect(environment.CONCIERGE_E2E_CONTROL_TOKEN).toBe("playwright-local-session-clock-control");
 });

@@ -11,13 +11,32 @@ import os
 from pathlib import Path
 import sys
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from urllib.request import HTTPCookieProcessor, Request, build_opener
 
 
 PROPERTY_ID = "hotel-de-luna-demo"
 ADMIN_USERNAME = "demo-admin"
 PLACEHOLDER_IMAGE = "/static/assets/demo/food-placeholder.svg"
+
+
+def _is_loopback_demo_url(value: str) -> bool:
+    """Accept only the exact HTTP loopback origin used by the demo launcher."""
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except (TypeError, ValueError):
+        return False
+    return bool(
+        parsed.scheme == "http"
+        and parsed.hostname == "127.0.0.1"
+        and port is not None
+        and not parsed.username
+        and not parsed.password
+        and parsed.path in {"", "/"}
+        and not parsed.query
+        and not parsed.fragment
+    )
 
 
 def local_credentials() -> dict:
@@ -496,7 +515,7 @@ def main() -> int:
     if Path(os.environ.get("DB_PATH", "")).expanduser().resolve() != expected_database.resolve() or os.environ.get("DATABASE_URL", "").strip():
         print("Refusing to seed: the configured database is not the isolated local demo SQLite database.", file=sys.stderr)
         return 2
-    if not args.base_url.startswith("http://127.0.0.1:"):
+    if not _is_loopback_demo_url(args.base_url):
         print("Refusing to send demo data outside the loopback local demo.", file=sys.stderr)
         return 2
 

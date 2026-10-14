@@ -1243,7 +1243,6 @@ test("Intelligent UI: property opt-in answers from verified hotel data and keeps
     await expect(page.locator(".message-row.assistant .message-text").last()).toContainText("Level 3");
     await page.screenshot({ path: join(screenshotDirectory, `conversation-${testInfo.project.name}.png`), fullPage: true });
 
-    const existingMessageImages = await page.locator("#message-list img").count();
     const conversationId = await page.evaluate(() => sessionStorage.getItem("concierge-v2-session-id"));
     await page.route("**/api/guest/intelligent-chat/stream", async (route) => {
       const requestBody = route.request().postDataJSON();
@@ -1266,8 +1265,9 @@ test("Intelligent UI: property opt-in answers from verified hotel data and keeps
     });
     await page.getByLabel("Message your concierge").fill("Show me a text example");
     await page.getByRole("button", { name: "Send message" }).click();
-    await expect(page.locator(".message-row.assistant .message-text").last()).toContainText("<img src=x");
-    expect(await page.locator("#message-list img").count()).toBe(existingMessageImages);
+    const untrustedMessage = page.locator(".message-row.assistant .message-text").last();
+    await expect(untrustedMessage).toContainText("<img src=x");
+    await expect(untrustedMessage.locator("img")).toHaveCount(0);
     expect(await page.evaluate(() => window.__guestUiXss || false)).toBe(false);
   } finally {
     await setIntelligentUi(request, false);
