@@ -1,11 +1,13 @@
 # Integration readiness
 
-**Audit target:** `d5d006e89c38c0d901256d545679fee753175ef8`  
+**Starting HEAD:** `e4bbd7493fe9d90a513d8224749b54c9e25ddc90`
+**Implementation and tested commit:** `a30f95eb8db2ff05151c3473e453f9f38d0dec2d`
+**Earlier audit code baseline:** `d5d006e89c38c0d901256d545679fee753175ef8`
 **Date:** 2026-10-14 (Asia/Manila)
 
 | Integration | Local evidence | Live status / required work |
 |---|---|---|
-| OpenAI, Gemini, Groq, Claude, OpenRouter, Ollama/local compatible providers | Adapters/configuration in `app/ai_providers.py`; fake-backed tests cover routing, property scope, secret masking, streaming and failure behavior (`tests/test_ai_providers.py`, `tests/test_ai_provider_distributed_bulkhead.py`). | **IMPLEMENTED_NOT_VERIFIED.** No credentials or live provider calls. Verify model IDs, quotas, latency, failover, cost accounting and guest-data sharing policy per provider. No OAuth flow or consumer-subscription API access was demonstrated. |
+| OpenAI, Gemini, Groq, Claude, OpenRouter, Ollama/local compatible providers | Adapters/configuration in `app/ai_providers.py`; fake-backed tests cover routing, property scope, secret masking, streaming and failure behavior (`tests/test_ai_providers.py`, `tests/test_ai_provider_distributed_bulkhead.py`). Deterministic restaurant follow-up acceptance does not invoke a live provider. | **IMPLEMENTED_NOT_VERIFIED.** No credentials or live provider calls. Verify model IDs, quotas, latency, failover, cost accounting and guest-data sharing policy per provider. No OAuth flow or consumer-subscription API access was demonstrated. |
 | ANTlabs SG5 built-in processor handoff | Adapter contract tests in `tests/test_antlabs_adapter.py`; documented supported handoff and explicit mock/live distinction in `docs/ANTLABS_INTEGRATION.md`. | **BLOCKED.** No SG5 lab, target firmware, captive-network, hotel DNS/TLS, or disposable device. Handoff response is not proof of network admission. |
 | ANTlabs mock mode | Mock behavior is explicitly labeled and exercised by tests/browser flows. | **VERIFIED AS SIMULATION ONLY.** Never represent it as a live connection. Production config rejects mock mode. |
 | PMS room authentication and checkout/expiry | Guest-side fields and adapter contract exist. | **BLOCKED.** No target PMS, approved field mapping, checkout event, or physical device. Confirm whether room/last-name fields match property policy. |

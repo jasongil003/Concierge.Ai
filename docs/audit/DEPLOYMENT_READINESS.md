@@ -1,7 +1,9 @@
 # Deployment readiness
 
-**Audit target:** `d5d006e89c38c0d901256d545679fee753175ef8`  
-**Date:** 2026-10-14 (Asia/Manila)  
+**Starting HEAD:** `e4bbd7493fe9d90a513d8224749b54c9e25ddc90`
+**Implementation and tested commit:** `a30f95eb8db2ff05151c3473e453f9f38d0dec2d`
+**Earlier audit code baseline:** `d5d006e89c38c0d901256d545679fee753175ef8`
+**Date:** 2026-10-14 (Asia/Manila)
 **Recommendation:** internal synthetic demo only until target-host, network, recovery and capacity checks are signed off.
 
 | Area | Repository/test evidence | Status for target deployment |
@@ -12,10 +14,10 @@
 | Redis | Rate-limit and distributed provider bulkhead integrations are present. | **BLOCKED** in this run: two service integration cases skipped because `REDIS_TEST_URL` was not configured. |
 | Local AI/Ollama | Adapter and configuration support exists. | **IMPLEMENTED_NOT_VERIFIED.** No local model service or resource profile was provisioned. |
 | HTTPS, canonical guest host, reverse proxy, management VLAN | Proxy/Nginx configuration and local security tests exist. | **BLOCKED** on real hotel hostnames, certificate, proxy trust chain, CIDRs and pre-auth allowlist. No production deployment configuration was changed. |
-| Persistent storage and restart | Persistence/backup code and local tests exist. | Unit-level checks passed; actual target reboot and hardware failure recovery remain unverified. |
+| Persistent storage and restart | Persistence/backup code and local tests exist; the current backend suite passed 1,182 tests. | Unit-level checks passed; actual target reboot and hardware failure recovery remain unverified. |
 | Backup and restore | SQLite/PostgreSQL backup tooling and tests exist. | PostgreSQL backup/restore integration skipped in this run. Prior reports flag encrypted off-host backup and key recovery as incomplete; local checks do not close that requirement. |
 | Progressive capacity (100, 1k, 5k, 10k, 30k) | Isolated load tooling and Compose overlays exist. | **BLOCKED.** No load run in this audit, no measured latency/throughput/resource profile, and no capacity claim. |
 
 ## Resource and safety limits
 
-The backend suite used isolated temporary SQLite state and its persistent-database guard reported the workspace database unchanged. Playwright used its own temporary database and host environment allowlist. This audit did not start Docker workloads, change deployment files, touch production data, or run disruptive load tests.
+The 1,182-pass backend suite used isolated temporary SQLite state and its persistent-database guard reported the workspace database unchanged. Playwright passed 334 tests with 38 expected skips using its own temporary database and host environment allowlist. This audit did not start Docker workloads, change deployment files, touch production data, or run disruptive load tests.
