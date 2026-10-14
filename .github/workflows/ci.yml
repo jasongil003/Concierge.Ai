@@ -104,6 +104,10 @@ jobs:
             "$archive" | sha256sum --check --status
           tar -xzf "$archive" -C "$RUNNER_TEMP" gitleaks
           "$RUNNER_TEMP/gitleaks" detect --no-git --source . --redact --no-banner
+          # Force text diffs: .gitattributes can otherwise hide a retained
+          # credential from Git's history-diff scanner without changing the blob.
+          "$RUNNER_TEMP/gitleaks" detect --source . --redact --no-banner \
+            --log-opts="--all --text"
 
   browser-tests:
     # PR gate: run functional browser coverage on the readily available Linux runner.

@@ -2170,6 +2170,7 @@ test("Intelligent UI: service requests wait for explicit confirmation and backen
     });
     let confirmedServiceRequests = 0;
     for (const [message, expectedService] of [
+      ["Can I have two extra pillows?", "Extra Pillow"],
       ["Could you bring an extra pillow?", "Extra Pillow"],
       ["Please arrange housekeeping for my room", "Housekeeping Visit"],
     ]) {

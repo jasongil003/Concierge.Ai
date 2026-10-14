@@ -770,6 +770,7 @@ class PropertyStore:
         placeholders = ", ".join("?" for _ in self.COLUMNS)
         columns = ", ".join(self.COLUMNS)
         with self._connect() as db:
+            # B608 rationale: column names come only from fixed self.COLUMNS; row values are bound.
             cursor = db.execute(
                 f"INSERT INTO properties ({columns}) "  # nosec B608
                 f"VALUES ({placeholders}) ON CONFLICT(property_id) DO NOTHING",
