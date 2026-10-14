@@ -12,6 +12,7 @@ _TEST_STATE_DIRECTORY = Path(
 ).resolve()
 os.environ["APP_ENVIRONMENT"] = "test"
 os.environ["CONCIERGE_TESTING"] = "1"
+os.environ["PYTHON_DOTENV_DISABLED"] = "1"
 os.environ["STATE_DIRECTORY"] = str(_TEST_STATE_DIRECTORY)
 os.environ["DB_PATH"] = str(_TEST_STATE_DIRECTORY / "concierge.db")
 os.environ["UPLOAD_ROOT"] = str(_TEST_STATE_DIRECTORY / "uploads")

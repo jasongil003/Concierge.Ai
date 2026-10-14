@@ -1391,6 +1391,11 @@ function placeComposerRegion() {
 function renderMessages() {
   const isConversation = state.activeView === "concierge";
   const isHome = state.activeView === "home";
+  const scrollRegion = isConversation
+    ? document.querySelector("#concierge-view .conversation-column")
+    : isHome ? $("home-message-list") : null;
+  const followLatest = scrollRegion
+    && scrollRegion.scrollHeight - scrollRegion.scrollTop - scrollRegion.clientHeight < 160;
   const activeElement = document.activeElement;
   const focusedRecommendationControl = activeElement instanceof HTMLElement
     && activeElement.matches("button[data-preserve-message-focus]")
@@ -1417,12 +1422,8 @@ function renderMessages() {
     replacement?.focus({ preventScroll: true });
   }
   requestAnimationFrame(() => {
-    const region = isConversation ? document.querySelector(".conversation-region") : null;
-    if (region && !region.hidden) {
-      const nearBottom = region.scrollHeight - region.scrollTop - region.clientHeight < 160;
-      if (nearBottom || state.messages.length <= 2) {
-      region.scrollTop = region.scrollHeight;
-      }
+    if (scrollRegion?.isConnected && (followLatest || state.messages.length <= 2)) {
+      scrollRegion.scrollTop = scrollRegion.scrollHeight;
     }
   });
 }

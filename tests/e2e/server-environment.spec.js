@@ -25,6 +25,7 @@ test("the isolated Playwright server excludes host credentials", () => {
     "INTELLIGENT_GUEST_UI_GLOBAL_ENABLED",
     "PATH",
     "PROPERTY_ID",
+    "PYTHON_DOTENV_DISABLED",
     "REDIS_URL",
     "STATE_DIRECTORY",
     "TEMP",
@@ -36,4 +37,5 @@ test("the isolated Playwright server excludes host credentials", () => {
   expect(environment).not.toHaveProperty("GITHUB_TOKEN");
   expect(environment).not.toHaveProperty("OPENAI_API_KEY");
   expect(environment.CONCIERGE_E2E_CONTROL_TOKEN).toBe("playwright-local-session-clock-control");
+  expect(environment.PYTHON_DOTENV_DISABLED).toBe("1");
 });

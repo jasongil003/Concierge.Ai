@@ -1,4 +1,5 @@
 import hashlib
+import io
 import os
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -6,12 +7,19 @@ import subprocess
 import sys
 
 import pytest
+from dotenv import load_dotenv
 
 from app.config import Settings, validate_production_settings
 
 
 ROOT = Path(__file__).resolve().parents[1]
 PERSISTENT_DB = ROOT / "state" / "concierge.db"
+
+
+def test_pytest_bootstrap_disables_repository_dotenv_loading():
+    assert os.environ["PYTHON_DOTENV_DISABLED"] == "1"
+    assert load_dotenv(stream=io.StringIO("CONCIERGE_DOTENV_ISOLATION_SENTINEL=loaded\n")) is False
+    assert "CONCIERGE_DOTENV_ISOLATION_SENTINEL" not in os.environ
 
 
 def _db_signature(path: Path) -> tuple[int, int, str] | None:

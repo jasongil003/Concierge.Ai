@@ -1,0 +1,22 @@
+# ECC remediation log
+
+**Baseline:** `82f9df2bafb4b3a632912762364fd6c7dff4a532`; all changes are local and uncommitted. Only reproducible, contained defects were changed. No production data, remote Git state, or real credentials were modified.
+
+| ID / priority | Verified defect and root cause | Local change | Regression evidence | Status |
+|---|---|---|---|---|
+| GUEST-P2 | Long assistant replies could leave the newest text above the visible portion of the legacy chat. `app/static/app.js:1417` scrolled `.conversation-region`, while `app/static/styles.css:2963-2968` makes `.conversation-column` the scrollable element. The old near-bottom check also ran after replacing the message list. | `app/static/app.js` records scroll position on the actual container before rendering, then follows the newest reply after the DOM update. `tests/e2e/guest-scrollbar.spec.js` adds a two-reply, long-text case at 390×700. | [Before](evidence/guest-scroll-before-390x700-chromium.png) shows the reply cut off; [after](evidence/guest-scroll-after-390x700-chromium.png) shows the final line visible. Focused Playwright: 1 passed Chromium, 1 passed Pixel 7 emulation. | **Fixed locally**; physical Safari/Android remains unverified. |
+| TST-P1 | `app/config.py` calls `load_dotenv()` during app import, but isolated pytest and Playwright test-server environments did not disable repository `.env` loading. Local host values could influence synthetic test results. | `tests/conftest.py` and `tests/e2e/server_environment.js` now set `PYTHON_DOTENV_DISABLED=1` before app import. `tests/test_test_database_isolation.py` and `tests/e2e/server-environment.spec.js` assert the boundary. | Focused pytest 33 passed, 1 platform skip; server-environment Playwright 2 passed. Full backend rerun after this and the report fix: 1,186 passed, 18 skipped. | **Fixed locally**; remote CI result for these edits unverified. |
+| REP-P3 | An empty prior comparison period rendered `Not enough prior data%.` in the management PDF because the percent sign was appended after the fallback label. | `app/reporting.py` formats the numeric percentage only when present; `tests/test_observability_reporting.py` covers missing and 12.5% examples. | Focused reporting/operations suite: 16 passed. Included in final backend suite. | **Fixed locally**. |
+| DATA-P1 | SQLite restore with `replace=True` unlinked the existing database before `os.replace` of the staged file. A failed replacement could leave no prior database. | `app/backup.py` lets `os.replace` overwrite atomically without a preceding unlink. `tests/test_backup_restore.py` injects a replacement failure and verifies the existing SQLite DB and uploads remain intact. | Focused backup/reporting suite: 16 passed; final backend suite: 1,187 passed, 18 skipped; persistent workspace DB unchanged. | **Fixed locally**. |
+
+## Re-audit
+
+The changed backend paths passed the final full pytest run (1,187 passed, 18 skipped). Focused browser tests verified the chat fix in both configured browser projects and the dotenv test boundary. The final complete functional browser rerun passed 332 with 38 project-specific skips and zero failures. `git diff --check` and JavaScript syntax checks passed. The historical credential and location privacy blockers in `ECC_SECURITY_REPORT.md` remain open because their closure requires an issuer/repository owner and an approved privacy policy, respectively.
+
+## Changes deferred by design
+
+- `SEC-H01`: credential invalidation and authorized history cleanup; no silent rotation, suppression, or rewrite.
+- `SEC-H02`: consent, opt-out, checkout, retention, export, and deletion lifecycle for location observations; requires policy and subject model first.
+- `ANA-M01`: property-timezone calendar periods across analytics, dashboard history, and restaurant diagnostics; requires a consistent validated timezone contract and daylight-saving regression cases.
+- “Open now” dining computation: current configured status does not prove schedule-derived opening; define authoritative status precedence and property-local hours rules before changing guest claims.
+- Live gateway/provider/device, target-host recovery, and 30,000-concurrent-guest acceptance require authorized representative environments.

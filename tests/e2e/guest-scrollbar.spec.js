@@ -1,4 +1,6 @@
 import { expect, test } from "@playwright/test";
+import { mkdirSync } from "node:fs";
+import { resolve } from "node:path";
 import { prepareGuestFixture } from "./support.js";
 
 test.beforeEach(async ({ request }) => prepareGuestFixture(request));
@@ -23,5 +25,34 @@ test("guest home and concierge retain aligned content with classic scrollbars", 
     const card = await page.locator("#concierge-card").boundingBox();
     expect(hero.x, `home/chat left edge at ${width}px`).toBeCloseTo(card.x, 0);
     expect(hero.width, `home/chat content width at ${width}px`).toBeCloseTo(card.width, 0);
+  }
+});
+
+test("concierge keeps a newly completed long reply visible when the guest was at the bottom", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 700 });
+  await page.route("**/api/guest/intro**", (route) => route.fulfill({ json: { mode: "none" } }));
+  let replyNumber = 0;
+  await page.route("**/api/chat", (route) => {
+    replyNumber += 1;
+    route.fulfill({ json: {
+      answer: `Reply ${replyNumber}: ` + "Verified hotel information. ".repeat(75),
+      source: "test",
+      places: [],
+    } });
+  });
+  await page.goto("/");
+  await page.locator(".experience-configured-navigation").getByRole("button", { name: "Concierge", exact: true }).click();
+
+  for (let number = 1; number <= 2; number += 1) {
+    await page.locator("#composer-input").fill(`Question ${number}`);
+    await page.locator("#send-button").click();
+    await expect(page.locator("#message-list .message-row.assistant").last()).toContainText(`Reply ${number}:`);
+    if (number === 1 && process.env.GUEST_SCROLL_EVIDENCE_PATH) {
+      const path = resolve(process.env.GUEST_SCROLL_EVIDENCE_PATH);
+      mkdirSync(resolve(path, ".."), { recursive: true });
+      await page.screenshot({ path });
+    }
+    await expect.poll(() => page.locator("#concierge-view .conversation-column").evaluate((region) =>
+      region.scrollHeight - region.scrollTop - region.clientHeight)).toBeLessThan(20);
   }
 });
