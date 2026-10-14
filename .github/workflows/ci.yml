@@ -143,7 +143,8 @@ jobs:
 
       - name: Run functional browser tests
         env:
-          PLAYWRIGHT_SERVER_COMMAND: python -m uvicorn app.main:app --host 127.0.0.1 --port 8092 --no-proxy-headers
+          # Keep the loopback-only session-clock routes used by deterministic E2E tests.
+          PLAYWRIGHT_SERVER_COMMAND: python tests/e2e/run_server.py
           PROPERTY_ID: ci-property
         run: npx playwright test --grep-invert @visual
 

@@ -2488,7 +2488,12 @@ test("Intelligent UI regression: long chat keeps its scroll anchor while a respo
     }
     const workspace = page.locator("#conversation-workspace");
     await expect.poll(() => workspace.evaluate((node) => node.scrollHeight > node.clientHeight)).toBeTruthy();
-    await workspace.evaluate((node) => { node.scrollTop = 100; });
+    await workspace.evaluate((node) => {
+      // Make the test's starting anchor exact despite the UI's smooth-scroll styling.
+      node.style.scrollBehavior = "auto";
+      node.scrollTop = 100;
+    });
+    await expect.poll(() => workspace.evaluate((node) => node.scrollTop)).toBe(100);
     const previousTop = await workspace.evaluate((node) => node.scrollTop);
     await composer.fill("follow up");
     await page.getByRole("button", { name: "Send message" }).click();
