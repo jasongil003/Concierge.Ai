@@ -20,6 +20,7 @@ def _render_compose(tmp_path: Path, overlay):
     configuration.write_text("\n".join([
         f"CONCIERGE_CONFIG_FILE={configuration}",
         f"CONCIERGE_BACKUP_DIR={tmp_path / 'backups'}",
+        "ADMIN_BOOTSTRAP_PASSWORD=ComposeTestOnly-Bootstrap-1234567890",
         "CREDENTIAL_ENCRYPTION_SECRET=ComposeTestOnly-Encryption-1234567890",
         "METRICS_TOKEN=ComposeTestOnly-Metrics-1234567890",
         "CANONICAL_HOSTS=localhost",

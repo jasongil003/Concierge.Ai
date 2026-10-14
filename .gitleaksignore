@@ -10,3 +10,6 @@ e92b41859c85be293e02e678ad20280f63f67a0d:.github/workflows/ci.yml:generic-api-ke
 # Exact historical fingerprint for a synthetic performance-only credential;
 # the current harness generates it at runtime instead of storing a literal.
 6fd9d2309f28137a2ab3823ca99794656998b5d8:scripts/phase4_performance_sample.py:generic-api-key:50
+# Exact fingerprint for the former single-line list of empty local-demo API
+# environment assignments; current source uses `unset` instead.
+87747f6a6167f56a64764228e9148d5d848ea0f4:scripts/local-demo.sh:generic-api-key:75

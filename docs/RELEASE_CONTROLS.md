@@ -2,20 +2,24 @@
 
 ## Required CI jobs
 
-The `CI` workflow runs these seven checks for every pull request targeting
+The `CI` workflow defines these ten jobs for every pull request targeting
 `main`:
 
 | Required status check | What it covers |
 | --- | --- |
-| `backend-tests` | Full pytest suite, Python compilation, and Python dependency audit |
+| `backend-tests` | Full pytest suite and Python compilation |
 | `dependency-security` | npm install and high severity npm audit |
+| `python-dependency-security` | pip-audit over runtime and development requirements |
 | `static-security` | Bandit application scan |
-| `secret-scan` | Gitleaks scan of repository history |
-| `browser-tests` | Playwright desktop Chromium and mobile Chrome functional and visual suite |
+| `secret-scan` | Gitleaks scans of repository history and current worktree |
+| `browser-tests` | Playwright desktop Chromium and mobile Chrome browser suite |
 | `postgres-redis-integration` | Repeatable Alembic migrations, existing SQLite data migration, PostgreSQL and Redis checks, fresh PostgreSQL app startup, and deterministic 10-user smoke |
 | `docker-runtime-smoke` | Production image build/config validation, Trivy scan, non-root/write/health/persistence checks |
+| `deployment-validation-linux` | Linux installer, service and configuration validation |
+| `deployment-validation-macos` | macOS artifact validation on Linux; native checks run in the separate macOS workflow |
 
-These job names must be selected as separate required checks. The workflow has
+To make this workflow gate `main`, the repository ruleset should require each
+job name above as a separate status check. The workflow has
 no path filters or PR-only job conditions that intentionally skip a required
 check. A required check from an older commit does not satisfy the latest
 commit's requirement.
@@ -30,7 +34,7 @@ equivalent branch protection rule under **Settings → Branches**):
 3. Enable **Require a pull request before merging**. Do not allow direct pushes
    or a pull-request bypass.
 4. Enable **Require status checks to pass before merging** and add each of the
-   seven job names listed above as its own required check.
+   ten job names listed above as its own required check.
 5. Enable **Require branches to be up to date before merging** (strict status
    checks against the latest `main`).
 6. Enable **Block force pushes** and keep **Allow deletions** disabled.
@@ -39,7 +43,7 @@ equivalent branch protection rule under **Settings → Branches**):
 
 GitHub blocks a merge while any required check is pending, failed, or
 cancelled. Re-run a failed or cancelled check on the latest commit and wait for
-all seven checks to succeed before merging. GitHub may treat skipped or neutral
+all ten checks to succeed before merging. GitHub may treat skipped or neutral
 checks as acceptable, so preserve the workflow's unconditional PR job runs and
 do not add path filters that can skip a required job. See GitHub's documentation
 for [protected branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches),
