@@ -592,11 +592,14 @@ class PropertyStore:
         "created_at",
         "updated_at",
     )
-    UPSERT_SQL = """
-        INSERT INTO properties ({columns})
-        VALUES ({placeholders})
-        ON CONFLICT(property_id) DO UPDATE SET {updates}
-    """.format(
+    # Identifiers come only from this class's fixed COLUMNS tuple; record values
+    # are bound separately. Bandit cannot infer that the interpolated names are
+    # static, so suppress only its B608 false positive on this statement.
+    UPSERT_SQL = (
+        "INSERT INTO properties ({columns}) "  # nosec B608
+        "VALUES ({placeholders}) "
+        "ON CONFLICT(property_id) DO UPDATE SET {updates}"
+    ).format(
         columns=", ".join(COLUMNS),
         placeholders=", ".join("?" for _ in COLUMNS),
         updates=", ".join(
@@ -768,7 +771,8 @@ class PropertyStore:
         columns = ", ".join(self.COLUMNS)
         with self._connect() as db:
             cursor = db.execute(
-                f"INSERT INTO properties ({columns}) VALUES ({placeholders}) ON CONFLICT(property_id) DO NOTHING",
+                f"INSERT INTO properties ({columns}) "  # nosec B608
+                f"VALUES ({placeholders}) ON CONFLICT(property_id) DO NOTHING",
                 [payload[column] for column in self.COLUMNS],
             )
         return cursor.rowcount == 1

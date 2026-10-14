@@ -136,14 +136,7 @@ Open:
 Guest: <http://localhost:8080>
 Admin: <http://localhost:8080/admin>
 
-Sign in:
-
-```text
-Username: root
-Password: admin
-```
-
-On first sign-in, Concierge.Ai offers **Change Password** and **Skip for Now**. Skipping opens the dashboard and leaves a small security warning until the password is changed. Change it before exposing the management interface to an untrusted network.
+Sign in with the installer-created administrator account. A fresh source install generates a unique initial password and stores it in the protected `.env` file; retrieve it locally from the host running Concierge.Ai and change it after first sign-in.
 
 The default listener uses localhost only. Manage the installation with:
 

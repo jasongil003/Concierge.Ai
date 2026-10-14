@@ -11,6 +11,14 @@ import app.main as main_module
 from scripts import seed_local_demo
 
 
+def test_local_demo_unsets_external_provider_credentials():
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "scripts" / "local-demo.sh").read_text(encoding="utf-8")
+
+    assert "unset GEMINI_API_KEY OPENAI_API_KEY COMPATIBLE_API_BASE_URL COMPATIBLE_API_KEY GOOGLE_PLACES_API_KEY" in script
+    assert not any("GEMINI_API_KEY=" in line for line in script.splitlines())
+
+
 @pytest.mark.parametrize("value", [
     "http://127.0.0.1:8082",
     "http://127.0.0.1:8082/",

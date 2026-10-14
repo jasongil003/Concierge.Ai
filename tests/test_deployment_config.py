@@ -49,6 +49,13 @@ def test_production_proxy_is_loopback_only_and_requires_canonical_admin_boundari
     assert "proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;" in nginx
 
 
+def test_production_compose_requires_an_explicit_bootstrap_password():
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+
+    assert "ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD:?" in compose
+    assert "ADMIN_BOOTSTRAP_PASSWORD:-admin" not in compose
+
+
 def test_development_compose_does_not_publish_http_admin_on_host_interfaces():
     compose = (ROOT / "docker-compose.dev.yml").read_text(encoding="utf-8")
 
