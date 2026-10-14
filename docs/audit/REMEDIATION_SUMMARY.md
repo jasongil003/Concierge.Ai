@@ -1,28 +1,31 @@
 # Remediation summary
 
-**Audit target:** `d5d006e89c38c0d901256d545679fee753175ef8`  
-**Date:** 2026-10-14 (Asia/Manila)  
-**Working tree:** local, uncommitted documentation and one small guest-shell asset fix.
+**Starting HEAD:** `e4bbd7493fe9d90a513d8224749b54c9e25ddc90`
+**Implementation and tested commit:** `a30f95eb8db2ff05151c3473e453f9f38d0dec2d`
+**Earlier audit code baseline:** `d5d006e89c38c0d901256d545679fee753175ef8`
+**Date:** 2026-10-14 (Asia/Manila)
+**Changes:** implementation and tests are committed locally; this report update is documentation-only. No push or deployment was made.
 
-## Changes made in this audit
+## Changes made
 
-| File | Change | Reason and verification |
+| Area | Change | Evidence |
 |---|---|---|
-| `app/static/index.html` | Added an explicit SVG favicon link. | The first full Playwright run reported the same 404 console error for `/explore` in all nine responsive matrix viewports when the guest SPA changed the URL. The unchanged nine tests passed after adding the icon. |
-| `app/static/assets/favicon.svg` | Added a minimal first-party vector Concierge mark. | Removes the missing-icon request without adding a remote asset or copyrighted image. |
-| `docs/audit/*.md` | Added the eight requested audit reports. | Captures evidence, test counts, blockers, unresolved security items, limitations, and the exact audited SHA. |
+| Restaurant follow-up context | Resolve a uniquely named or cuisine-matched restaurant from recent guest turns. Ask the guest to clarify when the previous turn matches multiple restaurants. Show only that restaurant's published menu items and provide its published location with an explicit no-indoor-routing message when no route exists. | `app/main.py`; `tests/test_intelligent_ui.py::test_restaurant_menu_and_location_followups_keep_the_unique_property_selection` covers “I'm hungry” → Japanese food → menu → location with two synthetic restaurants. |
+| Service request idempotency | Serialize the idempotency lookup, service validation and request insert in one SQLite write transaction so concurrent retries return the existing ticket instead of racing into a uniqueness error. | `app/hospitality.py`; 8-thread duplicate submission regression in `tests/test_service_catalog.py`; same proposal replay regression in `tests/test_guest_personal_home.py`. |
+| Guest shell | Add an explicit first-party SVG favicon link to the active intelligent guest shell. | `app/guest_v2/index.html`; active-shell response check in `tests/e2e/guest-premium.spec.js`. |
+| Playwright fixture isolation | Remove demo map facility profiles after the indoor-map test; assert no HTTP 404 responses in the responsive matrix. | `tests/e2e/guest.spec.js`, `tests/e2e/manual-qa-responsive.spec.js`; full Playwright suite now passes. |
+| Audit reports | Updated the eight `docs/audit/*.md` reports with this working-tree test run, the corrected 404 diagnosis, and remaining external gates. | Test and deployment limits are recorded in the linked reports. |
 
-The audited commit itself (`d5d006e…`) already included fixes for local-demo production credentials, loopback-only local demo seeding, and property-media symlink escapes. Current-run regressions for those changes passed. Earlier audit work in this repository records fixes for knowledge publication authorization and the legacy dashboard permission projection; their regression tests also passed in the current complete backend suite.
+## Verification
 
-## Test outcome
-
-- Backend: **1,180 passed, 18 skipped, 0 failed**.
-- Initial full Playwright run: **323 passed, 38 skipped, 9 failed**; all nine failures had one common missing-icon 404.
-- Post-fix responsive regression run: **9 passed, 0 failed** across all nine declared viewports. The complete Playwright suite was not rerun after this narrow asset fix, so a fully green post-fix suite is not claimed.
-- npm lockfile audit: zero advisories offline. Python package audit was blocked by unavailable package-network access. Bandit reported no High findings and two reviewed B608 Medium alerts for fixed SQL identifier fragments.
+- Backend: **1,182 passed, 18 skipped, 0 failed**.
+- Playwright: **334 passed, 38 skipped, 0 failed** across Chromium and Pixel 7 emulation; all nine responsive viewports passed in Chromium.
+- `npm audit --offline --json`: zero advisories across 3 lockfile dependency entries.
+- Bandit: zero High findings and two reviewed Medium B608 SQL-construction alerts for fixed identifiers with bound values.
+- Python dependency audit was blocked by unavailable package-network access. The remote `main` refresh was also blocked because DNS could not resolve `github.com`.
 
 ## Remaining release position
 
-There is no evidence here to approve a hotel pilot or production release. The high-priority remaining gates are historical credential invalidation/history cleanup, property-approved location privacy and notification policies, real SG5/PMS/WLAN acceptance, approved hotel content/maps/photos, provider authorization and quality testing, target-host recovery, and progressive capacity testing. Details and closure criteria are in `RELEASE_BLOCKERS.md`.
+This work verifies local behavior against synthetic property data. It does not establish hotel-pilot or production readiness. The open gates include the historical credential exposure and authorized history cleanup, an approved location-privacy lifecycle, live SG5/PMS/WLAN acceptance, owner-approved hotel content and geometry, live-provider approval and quality checks, target-host recovery, and progressive capacity testing. See `RELEASE_BLOCKERS.md` for closure criteria.
 
-No production data, deployment configuration, external provider, gateway, user account, Git history, or remote repository settings were changed. Remote `main` could not be refreshed in this network environment.
+The historical execution credential is not reproduced in this report; its issuer/audience could not be determined from the sanitized evidence. No credential was rotated, Git history was not rewritten, and no production data, deployment setting, gateway, provider, user account, repository policy, or remote ref was changed.
