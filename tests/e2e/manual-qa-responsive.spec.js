@@ -75,12 +75,17 @@ test(`manual QA responsive matrix covers every admin destination at ${viewport.w
   const pageErrors = [];
   const failedRequests = [];
   const serverErrors = [];
+  const notFoundResponses = [];
   page.on("console", (message) => {
     if (message.type() === "error") consoleErrors.push(`${page.url()} :: ${message.text()}`);
   });
   page.on("pageerror", (error) => pageErrors.push(`${page.url()} :: ${error.message}`));
   page.on("requestfailed", (request) => failedRequests.push(`${request.method()} ${request.url()}`));
   page.on("response", (response) => {
+    if (response.status() === 404) {
+      const request = response.request();
+      notFoundResponses.push(`${request.method()} ${response.url()} [${request.resourceType()}${request.isNavigationRequest() ? ", navigation" : ""}]`);
+    }
     if (response.status() >= 500) serverErrors.push(`${response.status()} ${response.url()}`);
   });
 
@@ -111,7 +116,8 @@ test(`manual QA responsive matrix covers every admin destination at ${viewport.w
   }
 
   expect(pageErrors).toEqual([]);
-  expect(consoleErrors).toEqual([]);
+  expect(consoleErrors, JSON.stringify({ notFoundResponses })).toEqual([]);
+  expect(notFoundResponses).toEqual([]);
   expect(failedRequests).toEqual([]);
   expect(serverErrors).toEqual([]);
 });
