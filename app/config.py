@@ -239,6 +239,7 @@ DEFAULT_ENCRYPTION_SECRETS = {
     "default",
     "replace-me",
     "your-secret-here",
+    "local-demo-only-secret-do-not-reuse-2036",
 }
 
 
@@ -258,6 +259,8 @@ def validate_production_settings(value: Settings, *, check_filesystem: bool = Tr
     if value.app_environment in {"production", "staging"}:
         if value.deployment_mode == "docker-dev":
             raise RuntimeError("CONCIERGE_DEPLOYMENT_MODE=docker-dev is not allowed in production or staging.")
+        if value.admin_bootstrap_username.casefold().startswith("demo-"):
+            raise RuntimeError("ADMIN_BOOTSTRAP_USERNAME must not use a local demo account name in production or staging.")
         if initial_default_admin:
             raise RuntimeError("ADMIN_BOOTSTRAP_PASSWORD must not use the default root/admin credential in production or staging.")
         if (

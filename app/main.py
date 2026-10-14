@@ -1483,8 +1483,23 @@ async def guest_hotel_asset(request: Request, asset_id: str, property_id: str | 
     _enforce_guest_network(request, record)
     if not re.fullmatch(r"[a-f0-9]{64}", asset_id):
         raise HTTPException(status_code=404, detail="Hotel image not found.")
-    media_root = (settings.upload_root / record.property_id / "hotel_media").resolve()
-    property_root = (settings.upload_root / record.property_id).resolve()
+    upload_root = settings.upload_root.resolve()
+    property_path = upload_root / record.property_id
+    if property_path.is_symlink():
+        raise HTTPException(status_code=404, detail="Hotel image not found.")
+    try:
+        property_root = property_path.resolve(strict=True)
+    except (OSError, RuntimeError):
+        raise HTTPException(status_code=404, detail="Hotel image not found.") from None
+    if property_root.parent != upload_root or not property_root.is_dir():
+        raise HTTPException(status_code=404, detail="Hotel image not found.")
+    media_path = property_root / "hotel_media"
+    if media_path.is_symlink():
+        raise HTTPException(status_code=404, detail="Hotel image not found.")
+    try:
+        media_root = media_path.resolve(strict=True)
+    except (OSError, RuntimeError):
+        raise HTTPException(status_code=404, detail="Hotel image not found.") from None
     if media_root.parent != property_root or not media_root.is_dir():
         raise HTTPException(status_code=404, detail="Hotel image not found.")
     for extension, media_type in ((".jpg", "image/jpeg"), (".jpeg", "image/jpeg"), (".png", "image/png"), (".webp", "image/webp")):
@@ -1493,7 +1508,7 @@ async def guest_hotel_asset(request: Request, asset_id: str, property_id: str | 
             continue
         try:
             resolved = candidate.resolve(strict=True)
-        except FileNotFoundError:
+        except (OSError, RuntimeError):
             continue
         if resolved.parent != media_root or not resolved.is_file():
             continue

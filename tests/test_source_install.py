@@ -435,6 +435,10 @@ def test_service_restart_command_uses_platform_restart(tmp_path: Path, monkeypat
 def test_source_serve_loads_private_env_before_starting_uvicorn(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     secret = "test-local-development-secret-value-123456"
     (tmp_path / ".env").write_text(f"CREDENTIAL_ENCRYPTION_SECRET={secret}\n", encoding="utf-8")
+    # The repository test runner disables dotenv loading to keep developer
+    # configuration out of tests. This case explicitly exercises the source
+    # service's opt-in load from its own root, so allow dotenv for this scope.
+    monkeypatch.delenv("PYTHON_DOTENV_DISABLED", raising=False)
     monkeypatch.delenv("CREDENTIAL_ENCRYPTION_SECRET", raising=False)
     monkeypatch.setattr(source_service, "assert_source_port_available", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(sys, "argv", [

@@ -89,6 +89,19 @@ def test_production_rejects_default_encryption_secret(tmp_path: Path):
         )
 
 
+def test_production_rejects_local_demo_encryption_secret_and_account_name(tmp_path: Path):
+    with pytest.raises(RuntimeError, match="CREDENTIAL_ENCRYPTION_SECRET"):
+        validate_production_settings(_production_settings(
+            tmp_path,
+            credential_encryption_secret="Local-Demo-Only-Secret-Do-Not-Reuse-2036",
+        ))
+    with pytest.raises(RuntimeError, match="local demo account name"):
+        validate_production_settings(_production_settings(
+            tmp_path,
+            admin_bootstrap_username="demo-admin",
+        ))
+
+
 def test_production_requires_secure_cookie(tmp_path: Path):
     with pytest.raises(RuntimeError, match="ADMIN_COOKIE_SECURE"):
         validate_production_settings(
