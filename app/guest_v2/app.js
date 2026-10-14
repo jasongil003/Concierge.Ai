@@ -10,12 +10,18 @@
   };
   const pendingActions = new Set();
   const invalidActions = new Set();
+  const mapViewStates = new Map();
   let property = null;
   let sessionId = null;
   let clientId = null;
   let messages = [];
   let inputPending = false;
+  let sessionExpired = false;
   let activeController = null;
+  let followLatestConversation = true;
+  let adjustingConversationScroll = false;
+  let conversationReadingAnchor = null;
+  let conversationResizeObserver = null;
 
   function newId() {
     if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
@@ -362,11 +368,12 @@
 
   function validateEntityCard(card) {
     return card && typeof card === "object"
-      && ["restaurant", "facility", "service", "place"].includes(card.type)
+      && ["restaurant", "facility", "service", "place", "room", "menu_item"].includes(card.type)
       && validText(card.id, 80) && validText(card.title, 120) && card.title.trim()
       && validText(card.subtitle || "", 120) && validText(card.description || "", 500)
       && validText(card.detail || "", 300)
       && validText(card.resource_id || "", 80) && validText(card.image_url || "", 500)
+      && validText(card.image_label || "", 80)
       && (!card.image_url || safeApprovedHttpsUrl(card.image_url))
       && validText(card.location || "", 240) && validText(card.opening_hours || "", 160)
       && Array.isArray(card.policies || []) && (card.policies || []).length <= 8
@@ -469,6 +476,8 @@
         const steps = Array.isArray(block.steps) ? block.steps : [];
         return validText(block.title, 120) && block.title.trim()
           && steps.length >= 2 && steps.length <= 40
+          && (block.node_ids === undefined || (Array.isArray(block.node_ids) && block.node_ids.length <= 40
+            && block.node_ids.every((id) => validText(id, 80) && id.trim())))
           && steps.every((step) => validText(step?.label, 120) && step.label.trim()
             && Array.isArray(step.source_ids) && step.source_ids.length >= 1 && validSourceIds(step.source_ids))
           ? block : { id: block.id, type: "unknown" };
@@ -482,21 +491,86 @@
             && Number.isInteger(block.image_width) && block.image_width > 0 && block.image_width <= 25000
             && Number.isInteger(block.image_height) && block.image_height > 0 && block.image_height <= 25000;
           const mapMarkers = Array.isArray(block.markers) ? block.markers : [];
+          const validMapMarker = (marker) => validText(marker?.id, 80) && marker.id
+            && validText(marker?.label, 120) && marker.label
+            && Number.isFinite(marker?.x_percent) && marker.x_percent >= 0 && marker.x_percent <= 100
+            && Number.isFinite(marker?.y_percent) && marker.y_percent >= 0 && marker.y_percent <= 100
+            && validSourceIds(marker.source_ids);
           const markersValid = block.markers === undefined ? !hasFloorPlan
             : Array.isArray(block.markers) && mapMarkers.length <= 80
-            && mapMarkers.every((marker) => validText(marker?.id, 80) && marker.id
-              && validText(marker?.label, 120) && marker.label
-              && Number.isFinite(marker?.x_percent) && marker.x_percent >= 0 && marker.x_percent <= 100
-              && Number.isFinite(marker?.y_percent) && marker.y_percent >= 0 && marker.y_percent <= 100
-              && validSourceIds(marker.source_ids));
+            && mapMarkers.every(validMapMarker);
+          const floorViews = Array.isArray(block.floors) ? block.floors : [];
+          const floorsValid = floorViews.length <= 24 && floorViews.every((floor) => floor
+            && validText(floor.floor_id, 80) && floor.floor_id
+            && validText(floor.label, 120) && floor.label
+            && typeof floor.map_image_url === "string" && floor.map_image_url.startsWith("/")
+            && !floor.map_image_url.startsWith("//") && Boolean(safeApprovedHttpsUrl(floor.map_image_url))
+            && Number.isInteger(floor.image_width) && floor.image_width > 0 && floor.image_width <= 25000
+            && Number.isInteger(floor.image_height) && floor.image_height > 0 && floor.image_height <= 25000
+            && typeof (floor.synthetic_demo ?? false) === "boolean"
+            && Array.isArray(floor.markers) && floor.markers.length <= 80 && floor.markers.every(validMapMarker)
+            && validSourceIds(floor.source_ids));
+          const locations = Array.isArray(block.locations) ? block.locations : [];
+          const locationsValid = locations.length <= 80 && locations.every((location) => location
+            && validText(location.marker_id, 80) && location.marker_id
+            && validText(location.title, 120) && location.title
+            && validText(location.description || "", 500) && validText(location.floor_label || "", 120)
+            && validText(location.location || "", 240) && validText(location.hours || "", 160)
+            && Array.isArray(location.policies || []) && (location.policies || []).length <= 8
+            && (location.policies || []).every((policy) => validText(policy, 240) && policy.trim())
+            && validText(location.image_url || "", 500) && (!location.image_url || Boolean(safeApprovedHttpsUrl(location.image_url)))
+            && validText(location.image_label || "", 80) && validSourceIds(location.source_ids));
+          const routeNodeIds = Array.isArray(block.route_node_ids) ? block.route_node_ids : [];
           return validText(block.title, 120) && validText(block.label || "", 120)
             && validText(block.map_alt || "", 500) && (hasCoordinates || hasFloorPlan)
             && validSourceIds(block.source_ids)
+            && validText(block.floor_id || "", 80) && validText(block.floor_label || "", 120)
+            && validText(block.focused_marker_id || "", 80)
+            && typeof (block.synthetic_demo ?? false) === "boolean"
+            && typeof (block.directions_enabled ?? false) === "boolean"
+            && floorsValid && locationsValid
+            && routeNodeIds.length <= 40 && routeNodeIds.every((id) => validText(id, 80) && id.trim())
             && (!block.map_image_url || hasFloorPlan) && markersValid
             ? block : { id: block.id, type: "unknown" };
         }
+      case "facility_directory": {
+        const locations = Array.isArray(block.locations) ? block.locations : [];
+        const maps = Array.isArray(block.map_links) ? block.map_links : [];
+        const validLocation = (item) => item
+          && validText(item.id, 100) && item.id
+          && validText(item.title, 160) && item.title
+          && validText(item.category || "", 100)
+          && validText(item.building || "", 160)
+          && validText(item.floor || "", 80)
+          && validText(item.location || "", 300)
+          && validText(item.description || "", 500)
+          && validText(item.listed_hours || "", 160)
+          && validText(item.source_url || "", 2000)
+          && (!item.source_url || safeApprovedHttpsUrl(item.source_url))
+          && validSourceIds(item.source_ids || []);
+        const validMap = (item) => item
+          && validText(item.id, 100) && item.id
+          && validText(item.title, 160) && item.title
+          && validText(item.scope || "", 160)
+          && validText(item.format || "", 20)
+          && validText(item.url, 2000) && Boolean(safeApprovedHttpsUrl(item.url))
+          && validText(item.license_status || "", 120)
+          && validSourceIds(item.source_ids || []);
+        const locationIds = locations.map((item) => item?.id);
+        const mapIds = maps.map((item) => item?.id);
+        return validText(block.title, 120) && validText(block.description || "", 500)
+          && locations.length <= 80 && locations.every(validLocation)
+          && new Set(locationIds).size === locationIds.length
+          && maps.length <= 12 && maps.every(validMap)
+          && new Set(mapIds).size === mapIds.length
+          && (locations.length > 0 || maps.length > 0)
+          && validSourceIds(block.source_ids || [])
+          ? block : { id: block.id, type: "unknown" };
+      }
       case "loading_state": return validText(block.message || "", 160) ? block : { id: block.id, type: "unknown" };
-      case "error_state": return validText(block.message, 500) ? block : { id: block.id, type: "unknown" };
+      case "error_state": return validText(block.message, 500)
+        ? { ...block, canStartNewChat: block.canStartNewChat === true }
+        : { id: block.id, type: "unknown" };
       default: return { id: block.id, type: "unknown" };
     }
   }
@@ -532,6 +606,7 @@
       image.referrerPolicy = "no-referrer";
       image.addEventListener("error", () => image.remove(), { once: true });
       article.appendChild(image);
+      if (card.image_label) article.appendChild(element("p", "entity-card-image-caption", card.image_label));
     }
     article.appendChild(element("h3", "", card.title));
     if (card.subtitle) article.appendChild(element("p", "card-subtitle", card.subtitle));
@@ -563,6 +638,17 @@
               menuRegion.appendChild(attachSourceIds(element("h4", "", [menu.name, menu.meal_period].filter(Boolean).join(" · ")), menu.source_ids));
               for (const item of (Array.isArray(menu.items) ? menu.items : []).slice(0, 40)) {
                 const entry = attachSourceIds(element("div", "menu-item"), item.source_ids);
+                const menuImageUrl = safeApprovedHttpsUrl(item.image_url);
+                if (menuImageUrl) {
+                  const image = document.createElement("img");
+                  image.className = "menu-item-image";
+                  image.src = menuImageUrl;
+                  image.alt = String(item.name || "Menu item").slice(0, 160);
+                  image.loading = "lazy";
+                  image.decoding = "async";
+                  image.referrerPolicy = "no-referrer";
+                  entry.appendChild(image);
+                }
                 entry.appendChild(element("strong", "", String(item.name || "Menu item").slice(0, 160)));
                 if (item.price) entry.appendChild(element("span", "menu-price", String(item.price).slice(0, 40)));
                 if (item.description) entry.appendChild(element("p", "", String(item.description).slice(0, 500)));
@@ -667,6 +753,541 @@
       list.appendChild(item);
     }
     panel.appendChild(list);
+    parent.appendChild(panel);
+  }
+
+  function renderMapView(parent, block) {
+    const panel = attachSourceIds(element("section", "map-panel"), block.source_ids);
+    const floorViews = Array.isArray(block.floors) && block.floors.length
+      ? block.floors
+      : [{
+        floor_id: block.floor_id || "current-floor",
+        label: block.floor_label || block.title,
+        map_image_url: block.map_image_url,
+        image_width: block.image_width,
+        image_height: block.image_height,
+        markers: block.markers || [],
+        synthetic_demo: block.synthetic_demo === true,
+        source_ids: block.source_ids || [],
+      }];
+    const resolvedInitialFloor = floorViews.find((floor) => floor.floor_id === block.floor_id)
+      || (floorViews.length === 1 && !block.floor_id ? floorViews[0] : null);
+    const initialFloorId = resolvedInitialFloor?.floor_id || "";
+    const initialMarkerId = resolvedInitialFloor?.markers?.some((marker) => marker.id === block.focused_marker_id)
+      ? block.focused_marker_id : "";
+    const mapKey = String(block.id || "");
+    const rememberedState = mapViewStates.get(mapKey);
+    let selectedFloorId = floorViews.some((floor) => floor.floor_id === rememberedState?.floorId)
+      ? rememberedState.floorId : initialFloorId;
+    const rememberedFloor = floorViews.find((floor) => floor.floor_id === selectedFloorId);
+    let selectedMarkerId = rememberedState?.floorId === selectedFloorId
+      && rememberedFloor?.markers?.some((marker) => marker.id === rememberedState.markerId)
+      ? rememberedState.markerId
+      : (selectedFloorId === initialFloorId ? initialMarkerId : "");
+    let zoom = Number.isFinite(rememberedState?.zoom) ? Math.max(1, Math.min(3, rememberedState.zoom)) : 1;
+    const heading = element("h3", "", block.title);
+    panel.appendChild(heading);
+
+    const toolbar = element("div", "floor-map-toolbar");
+    if (floorViews.length > 1) {
+      const floorField = element("label", "floor-map-floor-field");
+      floorField.appendChild(element("span", "", "Floor"));
+      const floorSelect = document.createElement("select");
+      floorSelect.setAttribute("aria-label", "Choose a floor");
+      if (!selectedFloorId) {
+        const placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = "Choose a floor";
+        floorSelect.appendChild(placeholder);
+      }
+      for (const floor of floorViews) {
+        const option = document.createElement("option");
+        option.value = floor.floor_id;
+        option.textContent = floor.label;
+        floorSelect.appendChild(option);
+      }
+      floorSelect.value = selectedFloorId;
+      floorSelect.addEventListener("change", () => {
+        selectedFloorId = floorSelect.value;
+        selectedMarkerId = selectedFloorId === initialFloorId ? initialMarkerId : "";
+        zoom = 1;
+        drawFloor();
+      });
+      floorField.appendChild(floorSelect);
+      toolbar.appendChild(floorField);
+    }
+    const zoomControls = element("div", "floor-map-zoom-controls");
+    const zoomOut = element("button", "", "−");
+    zoomOut.type = "button";
+    zoomOut.setAttribute("aria-label", "Zoom out");
+    const zoomLabel = element("span", "floor-map-zoom-label", "100%");
+    const zoomIn = element("button", "", "+");
+    zoomIn.type = "button";
+    zoomIn.setAttribute("aria-label", "Zoom in");
+    const zoomReset = element("button", "floor-map-reset", "Reset");
+    zoomReset.type = "button";
+    zoomReset.setAttribute("aria-label", "Reset map view");
+    zoomControls.append(zoomOut, zoomLabel, zoomIn, zoomReset);
+    toolbar.appendChild(zoomControls);
+    panel.appendChild(toolbar);
+
+    const viewport = element("div", "floor-map-viewport");
+    viewport.tabIndex = 0;
+    viewport.setAttribute("role", "group");
+    viewport.setAttribute("aria-label", block.map_alt || "Interactive hotel floor map");
+    const figure = element("figure", "floor-map-figure");
+    figure.appendChild(viewport);
+    panel.appendChild(figure);
+    const demoNote = element("p", "floor-map-demo-note", "");
+    demoNote.setAttribute("role", "note");
+    panel.appendChild(demoNote);
+    const selectedAnnouncement = element("p", "floor-map-selection", "");
+    selectedAnnouncement.setAttribute("aria-live", "polite");
+    selectedAnnouncement.setAttribute("aria-atomic", "true");
+    panel.appendChild(selectedAnnouncement);
+
+    const places = element("div", "floor-map-location-list");
+    places.setAttribute("role", "group");
+    places.setAttribute("aria-label", "Places on this floor");
+    panel.appendChild(places);
+    const floorAlternative = element("p", "floor-map-alternative", "");
+    panel.appendChild(floorAlternative);
+    const details = element("section", "floor-map-facility-detail");
+    details.setAttribute("aria-live", "polite");
+    details.setAttribute("aria-atomic", "true");
+    panel.appendChild(details);
+
+    let startSelect = null;
+    let directionsForm = null;
+    if (block.directions_enabled) {
+      directionsForm = element("form", "floor-map-directions");
+      directionsForm.appendChild(element("h4", "", "Get directions"));
+      directionsForm.appendChild(element("p", "", "Where are you starting from? Choose a place to check for a published walking route."));
+      const startLabel = element("label", "floor-map-floor-field");
+      startLabel.appendChild(element("span", "", "Starting location"));
+      startSelect = document.createElement("select");
+      startSelect.setAttribute("aria-label", "Starting location");
+      const emptyOption = document.createElement("option");
+      emptyOption.value = "";
+      emptyOption.textContent = "Choose a place";
+      startSelect.appendChild(emptyOption);
+      startLabel.appendChild(startSelect);
+      const routeButton = element("button", "floor-map-directions-submit", "Check for a route");
+      routeButton.type = "submit";
+      directionsForm.append(startLabel, routeButton);
+      directionsForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const floor = floorViews.find((item) => item.floor_id === selectedFloorId);
+        const start = floor?.markers?.find((marker) => marker.id === startSelect.value);
+        const destination = floor?.markers?.find((marker) => marker.id === selectedMarkerId);
+        if (!start || !destination || start.id === destination.id) {
+          startSelect.focus();
+          return;
+        }
+        sendMessage(`Directions from ${start.label} to ${destination.label}`);
+      });
+      panel.appendChild(directionsForm);
+    }
+
+    function currentFloor() {
+      return floorViews.find((floor) => floor.floor_id === selectedFloorId) || {
+        floor_id: "",
+        label: "Map location unavailable",
+        markers: [],
+        synthetic_demo: false,
+      };
+    }
+
+    function rememberMapView() {
+      if (mapKey) mapViewStates.set(mapKey, { floorId: selectedFloorId, markerId: selectedMarkerId, zoom });
+    }
+
+    function updateZoom() {
+      zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
+      zoomOut.disabled = zoom <= 1;
+      zoomIn.disabled = zoom >= 3;
+      const artboard = viewport.querySelector(".floor-map-artboard");
+      if (artboard) {
+        artboard.style.width = `${zoom * 100}%`;
+        artboard.style.height = `${zoom * 100}%`;
+      }
+      rememberMapView();
+    }
+    zoomOut.addEventListener("click", () => { zoom = Math.max(1, Math.round((zoom - 0.25) * 100) / 100); updateZoom(); });
+    zoomIn.addEventListener("click", () => { zoom = Math.min(3, Math.round((zoom + 0.25) * 100) / 100); updateZoom(); });
+    zoomReset.addEventListener("click", () => {
+      zoom = 1;
+      selectedFloorId = initialFloorId;
+      selectedMarkerId = initialMarkerId;
+      rememberMapView();
+      const floorSelect = toolbar.querySelector('select[aria-label="Choose a floor"]');
+      if (floorSelect) floorSelect.value = selectedFloorId;
+      drawFloor();
+      viewport.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+    });
+    viewport.addEventListener("keydown", (event) => {
+      if (event.key === "+" || event.key === "=") { zoom = Math.min(3, zoom + 0.25); updateZoom(); }
+      if (event.key === "-") { zoom = Math.max(1, zoom - 0.25); updateZoom(); }
+    });
+
+    function iconFor(label) {
+      const name = label.toLowerCase();
+      if (name.includes("pool") || name.includes("swim")) return "≈";
+      if (name.includes("fitness") || name.includes("gym")) return "✳";
+      if (name.includes("kids") || name.includes("child")) return "☆";
+      if (name.includes("elevator")) return "↕";
+      return "•";
+    }
+
+    function updateDetails(marker, floor) {
+      const location = (block.locations || []).find((item) => item.marker_id === marker.id);
+      details.replaceChildren();
+      const content = location || {
+        title: marker.label,
+        description: "This location is marked on the selected floor.",
+        floor_label: floor.label,
+        location: floor.label,
+        hours: "",
+        policies: [],
+        image_url: "",
+        image_label: "",
+        source_ids: marker.source_ids,
+      };
+      attachSourceIds(details, content.source_ids);
+      details.appendChild(element("h4", "", content.title));
+      const imageUrl = safeApprovedHttpsUrl(content.image_url);
+      if (imageUrl) {
+        const image = document.createElement("img");
+        image.className = "floor-map-facility-image";
+        image.src = imageUrl;
+        image.alt = content.title;
+        image.loading = "lazy";
+        image.decoding = "async";
+        image.referrerPolicy = "no-referrer";
+        image.addEventListener("error", () => image.remove(), { once: true });
+        details.appendChild(image);
+        if (content.image_label) details.appendChild(element("p", "entity-card-image-caption", content.image_label));
+      }
+      if (content.description) details.appendChild(element("p", "", content.description));
+      if (content.floor_label) details.appendChild(element("p", "floor-map-detail-line", `Floor: ${content.floor_label}`));
+      if (content.location && content.location.toLowerCase() !== String(content.floor_label || "").toLowerCase()) {
+        details.appendChild(element("p", "floor-map-detail-line", `Location: ${content.location}`));
+      }
+      if (content.hours) details.appendChild(element("p", "floor-map-detail-line", `Hours: ${content.hours}`));
+      if (content.policies?.length) {
+        const list = element("ul", "card-policies");
+        list.setAttribute("aria-label", "Guest policies");
+        for (const policy of content.policies) list.appendChild(element("li", "", policy));
+        details.appendChild(list);
+      }
+      if (block.directions_enabled && selectedFloorId && selectedMarkerId) {
+        const directionsButton = element("button", "floor-map-directions-link", "Get directions");
+        directionsButton.type = "button";
+        directionsButton.addEventListener("click", () => {
+          directionsForm?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          startSelect?.focus();
+        });
+        details.appendChild(directionsButton);
+      }
+    }
+
+    function drawFloor() {
+      const floor = currentFloor();
+      const markers = Array.isArray(floor.markers) ? floor.markers : [];
+      floorAlternative.textContent = markers.length
+        ? `Places on this floor: ${markers.map((marker) => marker.label).join(", ")}.`
+        : "No guest-visible places are available on this floor.";
+      if (!markers.some((marker) => marker.id === selectedMarkerId)) selectedMarkerId = "";
+      heading.textContent = selectedFloorId ? `Hotel map · ${floor.label}` : "Hotel map";
+      demoNote.hidden = !floor.synthetic_demo;
+      demoNote.textContent = floor.synthetic_demo
+        ? "Demo map — illustrative layout"
+        : "";
+      viewport.className = `floor-map-viewport${floor.synthetic_demo ? " floor-map-synthetic" : ""}`;
+      viewport.replaceChildren();
+      places.replaceChildren();
+      const canvas = element("div", "floor-map-artboard");
+      if (!floor.synthetic_demo) canvas.style.aspectRatio = `${floor.image_width} / ${floor.image_height}`;
+
+      const syntheticPositions = new Map();
+      let corridorY = 52;
+      if (floor.synthetic_demo && markers.length) {
+        const xs = markers.map((marker) => Number(marker.x_percent) || 0);
+        const ys = markers.map((marker) => Number(marker.y_percent) || 0);
+        const minX = Math.min(...xs), maxX = Math.max(...xs);
+        const minY = Math.min(...ys), maxY = Math.max(...ys);
+        const xSpan = Math.max(maxX - minX, 1);
+        const ySpan = maxY - minY;
+        const contentRatio = (xSpan + 34) / (Math.max(ySpan, 18) + 30);
+        viewport.style.setProperty("--synthetic-map-ratio", String(Math.max(1.3, Math.min(2.05, contentRatio))));
+        corridorY = ySpan > 12 ? Math.max(48, Math.min(58, minY + ySpan * 0.58)) : 56;
+        for (const marker of markers) {
+          const x = 16 + ((Number(marker.x_percent) - minX) / xSpan) * 68;
+          const y = ySpan > 12
+            ? 28 + ((Number(marker.y_percent) - minY) / ySpan) * 42
+            : 34;
+          syntheticPositions.set(marker.id, { x, y });
+        }
+      } else {
+        viewport.style.removeProperty("--synthetic-map-ratio");
+      }
+
+      if (floor.synthetic_demo) {
+        const drawing = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        drawing.setAttribute("class", "floor-plan-decoration");
+        drawing.setAttribute("viewBox", "0 0 100 100");
+        drawing.setAttribute("preserveAspectRatio", "none");
+        drawing.setAttribute("aria-hidden", "true");
+        const perimeter = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        perimeter.setAttribute("x", "4"); perimeter.setAttribute("y", "7");
+        perimeter.setAttribute("width", "92"); perimeter.setAttribute("height", "86");
+        perimeter.setAttribute("rx", "2"); perimeter.setAttribute("class", "floor-plan-perimeter");
+        const corridor = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        const corridors = [`M 8 ${corridorY} H 92`];
+        for (const marker of markers) {
+          const position = syntheticPositions.get(marker.id) || { x: marker.x_percent, y: marker.y_percent };
+          const x = Math.max(5, Math.min(95, position.x));
+          const y = Math.max(8, Math.min(92, position.y));
+          corridors.push(y < corridorY ? `M ${x} ${y + 11} V ${corridorY}` : `M ${x} ${corridorY} V ${y - 11}`);
+        }
+        corridor.setAttribute("d", corridors.join(" "));
+        corridor.setAttribute("class", "floor-plan-corridor");
+        drawing.append(perimeter, corridor);
+        canvas.appendChild(drawing);
+      } else {
+        const image = document.createElement("img");
+        image.className = "floor-map-image";
+        image.src = safeApprovedHttpsUrl(floor.map_image_url);
+        image.alt = floor.synthetic_demo ? "Synthetic demo floor plan" : (block.map_alt || floor.label);
+        image.loading = "lazy";
+        image.decoding = "async";
+        image.referrerPolicy = "no-referrer";
+        image.addEventListener("error", () => {
+          image.hidden = true;
+          viewport.classList.add("floor-map-unavailable");
+          viewport.setAttribute("aria-label", `${floor.label} map image is unavailable. Use the place list below.`);
+        }, { once: true });
+        canvas.appendChild(image);
+      }
+
+      const routeMarkers = (block.route_node_ids || []).map((id) => markers.find((marker) => marker.id === id)).filter(Boolean);
+      if (routeMarkers.length >= 2) {
+        const routeSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        routeSvg.setAttribute("class", "floor-map-route-overlay");
+        routeSvg.setAttribute("viewBox", "0 0 100 100");
+        routeSvg.setAttribute("preserveAspectRatio", "none");
+        routeSvg.setAttribute("aria-hidden", "true");
+        const line = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+        line.setAttribute("points", routeMarkers.map((marker) => {
+          const position = floor.synthetic_demo
+            ? (syntheticPositions.get(marker.id) || marker)
+            : marker;
+          return `${position.x ?? position.x_percent},${position.y ?? position.y_percent}`;
+        }).join(" "));
+        line.setAttribute("class", "floor-map-route-line");
+        routeSvg.appendChild(line);
+        canvas.appendChild(routeSvg);
+      }
+
+      const markerLayer = element("div", "floor-map-markers");
+      markers.forEach((marker, index) => {
+        const button = element("button", floor.synthetic_demo ? "floor-map-room" : "floor-map-marker", "");
+        attachSourceIds(button, marker.source_ids);
+        button.type = "button";
+        const position = floor.synthetic_demo
+          ? (syntheticPositions.get(marker.id) || marker)
+          : marker;
+        button.style.left = `${position.x ?? marker.x_percent}%`;
+        button.style.top = `${position.y ?? marker.y_percent}%`;
+        button.setAttribute("aria-label", `Show location: ${marker.label}, ${floor.label}`);
+        button.setAttribute("aria-pressed", String(marker.id === selectedMarkerId));
+        if (floor.synthetic_demo) {
+          const symbol = element("span", "floor-map-room-symbol", iconFor(marker.label));
+          symbol.setAttribute("aria-hidden", "true");
+          button.appendChild(symbol);
+          button.appendChild(element("span", "floor-map-room-label", marker.label));
+        } else {
+          button.textContent = String(index + 1);
+        }
+        button.addEventListener("click", () => {
+          selectedMarkerId = marker.id;
+          drawFloor();
+        });
+        markerLayer.appendChild(button);
+        const placeButton = element("button", "floor-map-place-option", marker.label);
+        placeButton.type = "button";
+        placeButton.setAttribute("aria-pressed", String(marker.id === selectedMarkerId));
+        placeButton.addEventListener("click", () => { selectedMarkerId = marker.id; drawFloor(); });
+        places.appendChild(placeButton);
+      });
+      canvas.appendChild(markerLayer);
+      viewport.appendChild(canvas);
+      if (startSelect) {
+        const currentStart = startSelect.value;
+        startSelect.replaceChildren();
+        const placeholder = document.createElement("option");
+        placeholder.value = ""; placeholder.textContent = "Choose a place"; startSelect.appendChild(placeholder);
+        for (const marker of markers) {
+          if (marker.id === selectedMarkerId) continue;
+          const option = document.createElement("option");
+          option.value = marker.id; option.textContent = marker.label; startSelect.appendChild(option);
+        }
+        startSelect.value = markers.some((marker) => marker.id === currentStart && marker.id !== selectedMarkerId) ? currentStart : "";
+      }
+      const selected = markers.find((marker) => marker.id === selectedMarkerId);
+      if (selected) {
+        selectedAnnouncement.textContent = selected.label;
+        updateDetails(selected, floor);
+      } else {
+        const message = selectedFloorId
+          ? "Choose a place on this floor to see its details."
+          : "I couldn't match this location to a floor. Choose a floor to browse its places.";
+        selectedAnnouncement.textContent = message;
+        details.replaceChildren(element("p", "", message));
+      }
+      rememberMapView();
+      updateZoom();
+    }
+
+    drawFloor();
+    parent.appendChild(panel);
+  }
+
+  function renderFacilityDirectory(parent, block) {
+    const panel = attachSourceIds(element("section", "facility-directory"), block.source_ids);
+    const directoryLabel = (value) => String(value || "").replace(/_+/g, " ").replace(/\s+/g, " ").trim();
+    const directoryDescription = (value) => {
+      const description = String(value || "").trim();
+      if (/official-directory-listed|reverify before live deployment|listed in the official directory/i.test(description)) {
+        return "";
+      }
+      return description;
+    };
+    panel.appendChild(element("h3", "", block.title));
+    if (block.description) panel.appendChild(element("p", "facility-directory-intro", block.description));
+
+    const filters = element("div", "facility-directory-filters");
+    const searchLabel = element("label", "facility-directory-search");
+    searchLabel.appendChild(element("span", "", "Search locations"));
+    const search = document.createElement("input");
+    search.type = "search";
+    search.maxLength = 120;
+    search.autocomplete = "off";
+    search.placeholder = "Name, building, floor, or category";
+    search.setAttribute("aria-label", "Search locations by name, building, floor, or category");
+    searchLabel.appendChild(search);
+    filters.appendChild(searchLabel);
+
+    const uniqueValues = (values) => [...new Set(values.filter(Boolean).map((value) => String(value).trim()).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b));
+    function addFilter(labelText, ariaLabel, values) {
+      const label = element("label", "facility-directory-filter");
+      label.appendChild(element("span", "", labelText));
+      const select = document.createElement("select");
+      select.setAttribute("aria-label", ariaLabel);
+      const all = document.createElement("option");
+      all.value = "";
+      all.textContent = `All ${labelText.toLowerCase()}s`;
+      select.appendChild(all);
+      for (const value of uniqueValues(values)) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = value;
+        select.appendChild(option);
+      }
+      label.appendChild(select);
+      filters.appendChild(label);
+      return select;
+    }
+    const buildingFilter = addFilter("Building", "Filter by building", block.locations.map((item) => item.building));
+    const floorFilter = addFilter("Floor", "Filter by floor", block.locations.map((item) => item.floor));
+    panel.appendChild(filters);
+
+    const resultCount = element("p", "facility-directory-count", "");
+    resultCount.setAttribute("role", "status");
+    resultCount.setAttribute("aria-live", "polite");
+    panel.appendChild(resultCount);
+    const results = element("div", "facility-directory-results");
+    results.setAttribute("role", "list");
+    results.setAttribute("aria-label", "Facility and attraction locations");
+    panel.appendChild(results);
+
+    function renderResults() {
+      const terms = search.value.trim().toLocaleLowerCase();
+      const matches = block.locations.filter((item) => {
+        if (buildingFilter.value && item.building !== buildingFilter.value) return false;
+        if (floorFilter.value && item.floor !== floorFilter.value) return false;
+        const searchable = [item.title, directoryLabel(item.category), item.building, item.floor, item.location, directoryDescription(item.description)]
+          .join(" ").toLocaleLowerCase();
+        return !terms || searchable.includes(terms);
+      });
+      results.replaceChildren();
+      resultCount.textContent = `${matches.length} ${matches.length === 1 ? "location" : "locations"}`;
+      if (!matches.length) {
+        results.appendChild(element("p", "facility-directory-empty", "No locations match those filters."));
+        return;
+      }
+      for (const item of matches) {
+        const card = attachSourceIds(element("article", "facility-directory-card"), item.source_ids);
+        card.setAttribute("role", "listitem");
+        const visual = element("span", "facility-directory-placeholder", "⌖");
+        visual.setAttribute("role", "img");
+        visual.setAttribute("aria-label", "No cleared photo available");
+        card.appendChild(visual);
+        const top = element("div", "facility-directory-card-heading");
+        top.appendChild(element("h4", "", item.title));
+        const category = directoryLabel(item.category);
+        if (category) top.appendChild(element("span", "facility-directory-category", category));
+        card.appendChild(top);
+        const context = [item.building, item.floor ? `Floor ${item.floor}` : ""].filter(Boolean).join(" · ");
+        if (context) card.appendChild(element("p", "facility-directory-context", context));
+        if (item.location) card.appendChild(element("p", "", item.location));
+        const description = directoryDescription(item.description);
+        if (description) card.appendChild(element("p", "facility-directory-description", description));
+        if (item.listed_hours) card.appendChild(element("p", "facility-directory-hours", `Listed hours: ${item.listed_hours}`));
+        const officialUrl = safeApprovedHttpsUrl(item.source_url);
+        if (officialUrl) {
+          const link = element("a", "facility-directory-source", "Official details");
+          link.href = officialUrl;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          link.setAttribute("aria-label", `Official details for ${item.title} (opens in a new tab)`);
+          card.appendChild(link);
+        }
+        results.appendChild(card);
+      }
+    }
+    search.addEventListener("input", renderResults);
+    buildingFilter.addEventListener("change", renderResults);
+    floorFilter.addEventListener("change", renderResults);
+    renderResults();
+
+    if (block.map_links.length) {
+      const maps = element("section", "facility-directory-maps");
+      maps.appendChild(element("h4", "", "Official maps and directories"));
+      for (const item of block.map_links) {
+        const card = element("article", "facility-directory-map-card");
+        card.appendChild(element("strong", "", item.title));
+        if (item.scope) card.appendChild(element("span", "facility-directory-context", item.scope));
+        if (item.license_status) {
+          const licenseStatus = item.license_status.replace(/[_-]+/g, " ").trim();
+          const statusText = licenseStatus.toLocaleLowerCase() === "not cleared"
+            ? "Preview not available; open the official source."
+            : `Map status: ${licenseStatus}`;
+          card.appendChild(element("span", "facility-directory-license", statusText));
+        }
+        const kind = item.format === "pdf" ? "map" : "directory";
+        const link = element("a", "facility-directory-source", `Open official ${kind}`);
+        link.href = safeApprovedHttpsUrl(item.url);
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.setAttribute("aria-label", `Open official ${kind}: ${item.title} (opens in a new tab)`);
+        card.appendChild(link);
+        maps.appendChild(attachSourceIds(card, item.source_ids));
+      }
+      panel.appendChild(maps);
+    }
+    panel.appendChild(element("p", "facility-directory-note", "This directory shows published building and floor details. It does not provide indoor routes."));
     parent.appendChild(panel);
   }
 
@@ -844,53 +1465,11 @@
         break;
       }
       case "map_view": {
-        const panel = attachSourceIds(element("section", "map-panel"), block.source_ids);
-        panel.appendChild(element("h3", "", block.title));
-        if (block.map_image_url && block.image_width && block.image_height) {
-          const figure = element("figure", "floor-map-figure");
-          const mapFrame = element("div", "floor-map-frame");
-          mapFrame.style.aspectRatio = `${block.image_width} / ${block.image_height}`;
-          const image = document.createElement("img");
-          image.className = "floor-map-image";
-          image.src = safeApprovedHttpsUrl(block.map_image_url);
-          image.alt = block.map_alt || block.title;
-          image.loading = "lazy";
-          image.decoding = "async";
-          image.referrerPolicy = "no-referrer";
-          const markers = element("div", "floor-map-markers");
-          const selectedLocation = element("p", "floor-map-selection", "Select a marker to identify its location.");
-          selectedLocation.setAttribute("aria-live", "polite");
-          for (const marker of (Array.isArray(block.markers) ? block.markers : [])) {
-            const button = element("button", "floor-map-marker", marker.label);
-            attachSourceIds(button, marker.source_ids);
-            button.type = "button";
-            button.style.left = `${marker.x_percent}%`;
-            button.style.top = `${marker.y_percent}%`;
-            button.setAttribute("aria-label", `Show location: ${marker.label}`);
-            button.setAttribute("aria-pressed", "false");
-            button.addEventListener("click", () => {
-              markers.querySelectorAll(".floor-map-marker").forEach((item) => item.setAttribute("aria-pressed", "false"));
-              button.setAttribute("aria-pressed", "true");
-              selectedLocation.textContent = marker.label;
-            });
-            markers.appendChild(button);
-          }
-          image.addEventListener("error", () => {
-            image.hidden = true;
-            markers.hidden = true;
-            mapFrame.classList.add("floor-map-unavailable");
-          }, { once: true });
-          mapFrame.append(image, markers);
-          figure.appendChild(mapFrame);
-          panel.append(figure, selectedLocation);
-          if (block.markers.length) {
-            const textAlternative = element("p", "floor-map-alternative", `Locations on this floor: ${block.markers.map((marker) => marker.label).join(", ")}.`);
-            panel.appendChild(textAlternative);
-          }
-        } else {
-          panel.appendChild(element("p", "", block.label || `${block.latitude.toFixed(5)}, ${block.longitude.toFixed(5)}`));
-        }
-        wrapper.appendChild(panel);
+        renderMapView(wrapper, block);
+        break;
+      }
+      case "facility_directory": {
+        renderFacilityDirectory(wrapper, block);
         break;
       }
       case "loading_state": {
@@ -904,6 +1483,12 @@
       case "error_state": {
         const panel = element("section", "error-panel");
         panel.appendChild(element("p", "", block.message));
+        if (block.canStartNewChat) {
+          const button = element("button", "secondary-action", "Start a new chat");
+          button.type = "button";
+          button.addEventListener("click", startNewConversation);
+          panel.appendChild(button);
+        }
         wrapper.appendChild(panel);
         break;
       }
@@ -912,7 +1497,63 @@
     parent.appendChild(wrapper);
   }
 
-  function renderMessages() {
+  function findConversationAnchor() {
+    const viewport = $("conversation-workspace");
+    const viewportRect = viewport.getBoundingClientRect();
+    const anchor = [...$("message-list").children].find((row) => row.getBoundingClientRect().bottom > viewportRect.top + 12);
+    return {
+      anchorId: anchor?.dataset.messageId || null,
+      anchorTop: anchor ? anchor.getBoundingClientRect().top - viewportRect.top : 0,
+    };
+  }
+
+  function setConversationScrollTop(viewport, value) {
+    adjustingConversationScroll = true;
+    viewport.scrollTop = value;
+    window.requestAnimationFrame(() => { adjustingConversationScroll = false; });
+  }
+
+  function alignLatestMessage(viewport, messageId) {
+    const row = [...$("message-list").children].find((item) => item.dataset.messageId === messageId);
+    if (!row) return;
+    const viewportTop = viewport.getBoundingClientRect().top;
+    const paddingTop = Number.parseFloat(getComputedStyle(viewport).scrollPaddingTop) || 0;
+    const delta = row.getBoundingClientRect().top - viewportTop - paddingTop;
+    if (Math.abs(delta) > 1) setConversationScrollTop(viewport, viewport.scrollTop + delta);
+    conversationReadingAnchor = findConversationAnchor();
+  }
+
+  function preserveConversationAnchor(viewport, anchorId, anchorTop) {
+    if (!anchorId) return;
+    const anchor = [...$("message-list").children].find((row) => row.dataset.messageId === anchorId);
+    if (!anchor) return;
+    const viewportTop = viewport.getBoundingClientRect().top;
+    const delta = anchor.getBoundingClientRect().top - viewportTop - anchorTop;
+    if (Math.abs(delta) > 1) setConversationScrollTop(viewport, viewport.scrollTop + delta);
+    conversationReadingAnchor = findConversationAnchor();
+  }
+
+  function restoreConversationPosition(position, forceLatest = false, latestMessageId = "") {
+    window.requestAnimationFrame(() => {
+      const { viewport, shouldFollowLatest, anchorId, anchorTop } = position;
+      if (forceLatest || shouldFollowLatest) {
+        alignLatestMessage(viewport, latestMessageId);
+        return;
+      }
+      preserveConversationAnchor(viewport, anchorId, anchorTop);
+    });
+  }
+
+  function renderMessages({ forceLatest = false } = {}) {
+    const viewport = $("conversation-workspace");
+    const nearBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 96;
+    const priorAnchor = conversationReadingAnchor || findConversationAnchor();
+    const position = {
+      viewport,
+      shouldFollowLatest: followLatestConversation || nearBottom,
+      anchorId: priorAnchor.anchorId,
+      anchorTop: priorAnchor.anchorTop,
+    };
     const list = $("message-list");
     list.replaceChildren();
     for (const message of messages) {
@@ -928,17 +1569,13 @@
     const hasMessages = messages.length > 0;
     $("welcome").hidden = hasMessages;
     $("conversation").hidden = !hasMessages;
-    if (hasMessages) window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
-  }
-
-  function historyForApi() {
-    return messages.flatMap((message) => {
-      const role = message.role === "guest" ? "guest" : "assistant";
-      const text = (message.blocks || [])
-        .filter((block) => block?.type === "text" && typeof block.content === "string")
-        .map((block) => block.content.trim()).filter(Boolean).join("\n");
-      return text ? [{ role, content: text.slice(0, 2000) }] : [];
-    }).slice(-10);
+    if (hasMessages) restoreConversationPosition(position, forceLatest, messages.at(-1)?.id || "");
+    else conversationReadingAnchor = null;
+    if (conversationResizeObserver) {
+      conversationResizeObserver.disconnect();
+      conversationResizeObserver.observe(list);
+      for (const row of list.children) conversationResizeObserver.observe(row);
+    }
   }
 
   async function confirmGuestAction(block, button) {
@@ -954,21 +1591,23 @@
       }
       const requestType = String(result.request.request_type || block.title || "Service request").slice(0, 120);
       const detail = String(result.request.description || block.description || "").slice(0, 500);
+      const referenceId = String(result.request.request_id || "").slice(0, 120);
       const message = messages.find((item) => item.blocks?.some((candidate) => candidate.type === "request_review" && candidate.confirmation_token === token));
       if (message) message.blocks = [{
         id: newId(), type: "verified_confirmation",
         title: result.status === "existing" ? "Your request is already with the hotel team" : "Your request has been sent",
-        detail: [requestType, detail].filter(Boolean).join(" · "),
+        detail: [requestType, detail, referenceId ? `Reference: ${referenceId}` : ""].filter(Boolean).join(" · "),
         source_ids: Array.isArray(result.source_ids) ? result.source_ids : [],
       }];
       persistMessages();
       renderMessages();
     } catch (error) {
       if (error.status === 409 || error.status === 401) invalidActions.add(token);
+      if (error.status === 401) sessionExpired = true;
       const message = messages.find((item) => item.blocks?.some((candidate) => candidate.type === "request_review" && candidate.confirmation_token === token));
       if (message) {
-        message.blocks.push({ id: newId(), type: "error_state", message: error.status === 401
-          ? "Your concierge session has expired. Start a new chat before sending this request."
+        message.blocks.push({ id: newId(), type: "error_state", canStartNewChat: error.status === 401, message: error.status === 401
+          ? "Your concierge session has expired. This request was not sent. Start a new chat to continue."
           : error.status === 409
             ? "This confirmation expired or the service changed. Please submit the request again."
             : "I couldn't verify whether the request was received. Retry this confirmation safely or contact the Front Desk." });
@@ -982,15 +1621,21 @@
   }
 
   async function sendMessage(rawMessage) {
-    const message = String(rawMessage || "").trim();
-    if (!message || inputPending || !sessionId) return;
-    const history = historyForApi();
+    const originalText = String(rawMessage || "");
+    const message = originalText.trim();
+    if (!message || inputPending || !sessionId || sessionExpired) return;
     const previousAssistant = messages.at(-1);
     const previousGuest = messages.at(-2);
     const previousText = previousGuest?.blocks?.filter((block) => block.type === "text").map((block) => block.content).join("\n");
     const retrying = previousGuest?.role === "guest" && previousAssistant?.role === "assistant"
       && previousText === message && previousGuest.turnId
       && previousAssistant.blocks?.some((block) => block.type === "error_state");
+    const history = (retrying ? messages.slice(0, -2) : messages).flatMap((item) => {
+      const role = item.role === "guest" ? "guest" : "assistant";
+      const text = (item.blocks || []).filter((block) => block?.type === "text" && typeof block.content === "string")
+        .map((block) => block.content.trim()).filter(Boolean).join("\n");
+      return text ? [{ role, content: text.slice(0, 2000) }] : [];
+    }).slice(-10);
     const guestMessage = retrying ? previousGuest : {
       id: newId(), turnId: `${Date.now().toString(36)}-${newId()}`, role: "guest",
       blocks: [{ id: newId(), type: "text", content: message }],
@@ -1002,12 +1647,16 @@
       blocks: [{ id: newId(), type: "loading_state", message: "Checking that for you…" }],
     };
     messages.push(assistantMessage);
+    followLatestConversation = true;
+    conversationReadingAnchor = null;
     inputPending = true;
+    const input = $("composer-input");
+    if (input.value === originalText) input.value = "";
     updateComposer();
     $("conversation-status").hidden = false;
     $("conversation-status-copy").textContent = "The concierge is checking that for you.";
     $("cancel-response").hidden = false;
-    renderMessages();
+    renderMessages({ forceLatest: true });
     try {
       const result = await streamGuestChat({
         session_id: sessionId,
@@ -1030,14 +1679,14 @@
         }
       });
       assistantMessage.blocks = result.blocks.map(validateBlock);
-      const input = $("composer-input");
-      if (input.value.trim() === message) input.value = "";
-      updateComposer();
     } catch (error) {
+      const input = $("composer-input");
+      if (!input.value) input.value = originalText;
+      if (error.status === 401) sessionExpired = true;
       assistantMessage.blocks = [{
-        id: newId(), type: "error_state",
+        id: newId(), type: "error_state", canStartNewChat: error.status === 401,
         message: error.status === 401
-          ? "Your concierge session has expired. Start a new chat to continue."
+          ? "Your concierge session has expired. Your message was not sent. Start a new chat to continue."
           : error.status === 404
             ? "This interface is no longer enabled for this property. Reload to return to the current guest experience."
             : error.status === 409
@@ -1060,7 +1709,7 @@
     const input = $("composer-input");
     input.style.height = "auto";
     input.style.height = `${Math.min(input.scrollHeight, 148)}px`;
-    $("send-button").disabled = inputPending || !input.value.trim() || !sessionId;
+    $("send-button").disabled = inputPending || !input.value.trim() || !sessionId || sessionExpired;
   }
 
   async function startSession(forceNew = false) {
@@ -1070,11 +1719,21 @@
       try {
         const resumed = await requestBody("/api/session/resume", { client_id: clientId, session_id: savedSession });
         sessionId = resumed.session_id;
+        sessionExpired = false;
         await restoreMessages();
         return;
-      } catch {
+      } catch (error) {
+        if (error.status !== 401) throw error;
+        sessionId = savedSession;
+        sessionExpired = true;
         sessionStorage.removeItem(storageKeys.session);
         sessionStorage.removeItem(storageKeys.property);
+        sessionStorage.removeItem(storageKeys.messages(savedSession));
+        messages = [{
+          id: newId(), role: "assistant", blocks: [{ id: newId(), type: "error_state", canStartNewChat: true,
+            message: "Your concierge session has expired. Start a new chat to continue." }],
+        }];
+        return;
       }
     } else if (savedSession) {
       sessionStorage.removeItem(storageKeys.messages(savedSession));
@@ -1087,6 +1746,7 @@
       gateway_context: gatewayContext(),
     });
     sessionId = created.session_id;
+    sessionExpired = false;
     sessionStorage.setItem(storageKeys.session, sessionId);
     sessionStorage.setItem(storageKeys.property, property.property_id);
     messages = [];
@@ -1097,18 +1757,19 @@
     const oldSession = sessionId;
     $("new-conversation").disabled = true;
     try {
-      if (oldSession) {
-        await requestBody("/api/session/end", { client_id: clientId, session_id: oldSession });
-        sessionStorage.removeItem(storageKeys.messages(oldSession));
+      if (oldSession && !sessionExpired) {
+        try {
+          await requestBody("/api/session/end", { client_id: clientId, session_id: oldSession });
+        } catch (error) {
+          if (error.status !== 401) throw error;
+        }
       }
-      sessionStorage.removeItem(storageKeys.session);
-      sessionStorage.removeItem(storageKeys.property);
-      sessionId = null;
-      messages = [];
-      renderMessages();
-      updateComposer();
+      sessionExpired = true;
       await startSession(true);
+      mapViewStates.clear();
       $("composer-input").value = "";
+      $("conversation-workspace").scrollTop = 0;
+      renderMessages();
       updateComposer();
       $("composer-input").focus({ preventScroll: true });
     } catch {
@@ -1121,9 +1782,30 @@
 
   function setupComposer() {
     const input = $("composer-input");
+    const conversationViewport = $("conversation-workspace");
+    conversationViewport.addEventListener("scroll", () => {
+      if (adjustingConversationScroll) return;
+      followLatestConversation = conversationViewport.scrollHeight
+        - conversationViewport.scrollTop - conversationViewport.clientHeight < 96;
+      conversationReadingAnchor = findConversationAnchor();
+    }, { passive: true });
+    if ("ResizeObserver" in window) {
+      conversationResizeObserver = new ResizeObserver(() => {
+        if (adjustingConversationScroll || !messages.length) return;
+        window.requestAnimationFrame(() => {
+          if (followLatestConversation) alignLatestMessage(conversationViewport, messages.at(-1)?.id || "");
+          else if (conversationReadingAnchor) {
+            preserveConversationAnchor(conversationViewport, conversationReadingAnchor.anchorId, conversationReadingAnchor.anchorTop);
+          }
+        });
+      });
+    }
+    let composing = false;
+    input.addEventListener("compositionstart", () => { composing = true; });
+    input.addEventListener("compositionend", () => { composing = false; });
     input.addEventListener("input", updateComposer);
     input.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
+      if (event.key === "Enter" && !event.shiftKey && !composing && !event.isComposing && event.keyCode !== 229) {
         event.preventDefault();
         $("composer-form").requestSubmit();
       }

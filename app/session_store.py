@@ -576,18 +576,21 @@ class SessionStore:
         cutoff = int(time.time()) - self.ttl_seconds
         now = int(time.time())
         with self._connect() as db:
+            # Expired credentials remain unusable at authentication time. Keep
+            # their rows only while they are inside the idle window so a
+            # request validated just before expiry can finish and renew safely.
             db.execute(
                 "DELETE FROM guest_ui_turns WHERE session_id IN ("
                 "SELECT session_id FROM sessions WHERE "
-                "(guest_token_hash IS NOT NULL AND (guest_token_expires_at IS NULL OR guest_token_expires_at<=?)) "
+                "(guest_token_hash IS NOT NULL AND (guest_token_expires_at IS NULL OR guest_token_expires_at<=?) AND last_seen_at<?) "
                 "OR (guest_token_hash IS NULL AND last_seen_at<?))",
-                (now, cutoff),
+                (now, cutoff, cutoff),
             )
             cursor = db.execute(
                 "DELETE FROM sessions WHERE "
-                "(guest_token_hash IS NOT NULL AND (guest_token_expires_at IS NULL OR guest_token_expires_at<=?)) "
+                "(guest_token_hash IS NOT NULL AND (guest_token_expires_at IS NULL OR guest_token_expires_at<=?) AND last_seen_at<?) "
                 "OR (guest_token_hash IS NULL AND last_seen_at<?)",
-                (now, cutoff),
+                (now, cutoff, cutoff),
             )
             return cursor.rowcount
 

@@ -1316,7 +1316,14 @@ function renderRooms() {
     const details = [`<span><b>Max guests</b>${Number(room.capacity || 1)}</span>`];
     if (room.count !== undefined && room.count !== null && String(room.count).trim() !== "") details.push(`<span><b>Rooms of type</b>${escapeHTML(room.count)}</span>`);
     if (room.floors) details.push(`<span><b>Floor or range</b>${escapeHTML(room.floors)}</span>`);
+    if (Number.isFinite(Number(room.nightly_rate_php_demo)) && Number(room.nightly_rate_php_demo) > 0) details.push(`<span><b>Demo nightly reference</b>PHP ${escapeHTML(Number(room.nightly_rate_php_demo).toLocaleString("en-PH"))}</span>`);
     row.innerHTML = `<div class="room-entry-heading"><strong>${escapeHTML(room.name)}</strong><span class="room-status-pill is-${status}">${statusLabel}</span></div><div class="room-entry-details">${details.join("")}</div><p class="room-entry-description">${escapeHTML(room.description || "Add a guest-facing description so staff and the concierge can explain this room clearly.")}</p>`;
+    const roomImages = (Array.isArray(room.images) ? room.images : Array.isArray(room.gallery) ? room.gallery : []).filter(isSafeBuilderImage).slice(0, 3);
+    if (roomImages.length) {
+      const gallery = document.createElement("div"); gallery.className = "room-entry-images";
+      roomImages.forEach((url, index) => { const image = document.createElement("img"); image.src = url; image.alt = `${room.name} demo image ${index + 1}`; image.loading = "lazy"; image.addEventListener("error", () => image.remove(), { once: true }); gallery.appendChild(image); });
+      row.insertBefore(gallery, row.firstChild);
+    }
     const edit = makeActionButton("Edit", () => {
       $("room-id").value = room.id;
       $("room-name").value = room.name;
@@ -1387,8 +1394,8 @@ async function saveRoom() {
   const id = $("room-id").value || `room_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
   const rooms = [...(state.property.rooms || [])];
   const floorRange = $("room-floors").value.trim();
-  const record = { id, name, description: $("room-description").value.trim(), capacity, ...(count === null ? {} : { count }), ...(floorRange ? { floors: floorRange } : {}), status: $("room-status").value };
   const index = rooms.findIndex((item) => item.id === id);
+  const record = { ...(index >= 0 ? rooms[index] : {}), id, name, description: $("room-description").value.trim(), capacity, ...(count === null ? {} : { count }), ...(floorRange ? { floors: floorRange } : {}), status: $("room-status").value };
   if (index >= 0) rooms[index] = record; else rooms.push(record);
   state.property.rooms = rooms;
   await savePropertyBasics();

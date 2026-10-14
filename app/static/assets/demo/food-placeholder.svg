@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" role="img" aria-labelledby="title desc">
+  <title id="title">Demo food image placeholder</title>
+  <desc id="desc">A clearly labeled illustration placeholder for fictional Hotel De Luna menu items.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#efe3ce"/>
+      <stop offset="1" stop-color="#d8c3a2"/>
+    </linearGradient>
+  </defs>
+  <rect width="960" height="600" fill="url(#bg)"/>
+  <circle cx="480" cy="275" r="188" fill="#fffaf2" stroke="#987346" stroke-width="8"/>
+  <circle cx="480" cy="275" r="138" fill="#e8dcc6"/>
+  <path d="M385 285c32-68 67-93 104-75 44 22 79 21 113-11 15 52-1 113-44 144-52 39-129 22-173-58Z" fill="#a4ad7b"/>
+  <circle cx="425" cy="235" r="18" fill="#c57f57"/>
+  <circle cx="532" cy="317" r="24" fill="#d0a35b"/>
+  <path d="M392 135c-18-20-17-46 2-61 20-16 46-10 60 10" fill="none" stroke="#987346" stroke-width="10" stroke-linecap="round"/>
+  <text x="480" y="520" text-anchor="middle" font-family="Arial, sans-serif" font-size="30" font-weight="700" letter-spacing="3" fill="#493c2b">DEMO IMAGE PLACEHOLDER</text>
+  <text x="480" y="558" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" fill="#695b47">Hotel De Luna · fictional menu item</text>
+</svg>

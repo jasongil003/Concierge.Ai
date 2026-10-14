@@ -119,6 +119,48 @@ def test_guest_conversation_intents_route_greetings_and_request_tracking_without
     assert not main_module._is_intelligent_request_status_request("Can I have extra towels?")
 
 
+def test_everyday_dining_and_nearby_place_phrases_route_to_structured_cards(monkeypatch: pytest.MonkeyPatch):
+    assert main_module._is_intelligent_dining_request("I'm hungry.")
+    assert main_module._is_intelligent_dining_request("Can you suggest something to eat?")
+    assert main_module._is_intelligent_attraction_request("Where can I go near the hotel?")
+    assert main_module._is_intelligent_attraction_request("Any recommendations nearby?")
+
+    _enable_property_ui()
+    monkeypatch.setattr(main_module, "settings", replace(main_module.settings, intelligent_guest_ui_global_enabled=True))
+    restaurant = main_module.hospitality.create_restaurant("test-property", {
+        "name": "Moon Garden", "cuisine": "Filipino", "status": "open",
+        "description": "A fictional demo restaurant in the hotel.",
+    })
+    recommendation = main_module.hospitality.upsert_recommendation("test-property", {
+        "recommendation_id": "demo-intramuros", "name": "Intramuros", "category": "Historic district",
+        "address": "Intramuros, Manila", "description": "A real historic district in Manila.",
+        "enabled": True,
+    })
+
+    async def fake_existing_chat(_payload, _request, **_kwargs):
+        return {"answer": "Ask the concierge for current listings.", "source": "none", "places": []}
+
+    monkeypatch.setattr(main_module, "_chat_response", fake_existing_chat)
+    with TestClient(main_module.app) as client:
+        session = client.post("/api/session/start", json={"client_id": "natural-language", "property_id": "test-property"})
+        assert session.status_code == 200, session.text
+        hungry = client.post("/api/guest/intelligent-chat", json={
+            "session_id": session.json()["session_id"], "message": "I'm hungry.",
+        })
+        nearby = client.post("/api/guest/intelligent-chat", json={
+            "session_id": session.json()["session_id"], "message": "Where can I go near the hotel?",
+        })
+
+    assert hungry.status_code == 200, hungry.text
+    dining = next(block for block in hungry.json()["blocks"] if block["type"] == "card_collection")
+    assert [card["title"] for card in dining["cards"]] == [restaurant["name"]]
+    assert nearby.status_code == 200, nearby.text
+    places = next(block for block in nearby.json()["blocks"] if block["type"] == "card_collection")
+    assert [card["title"] for card in places["cards"]] == [recommendation["name"]]
+    assert places["cards"][0]["source_ids"] == [f"guest:test-property:recommendation:{recommendation['recommendation_id']}"]
+    assert "no live hours or travel details" in nearby.json()["blocks"][0]["content"]
+
+
 def test_request_status_and_directions_are_typed_structured_components():
     response = make_response("conversation", [
         {
@@ -144,13 +186,80 @@ def test_request_status_and_directions_are_typed_structured_components():
         }], "turn")
 
 
-def test_guest_directions_use_only_named_guest_visible_map_nodes(monkeypatch: pytest.MonkeyPatch):
+def test_rwg_facility_directory_chat_returns_searchable_locations_and_official_map_links(
+    tmp_path, monkeypatch: pytest.MonkeyPatch,
+):
+    _enable_property_ui()
+    monkeypatch.setattr(main_module, "settings", replace(main_module.settings, intelligent_guest_ui_global_enabled=True))
+    package_store = OperationsStore(tmp_path / "rwg-reference.db")
+    package_store.import_reference_knowledge("test-property", "rwg-data", "facility_location", "atm-1", {
+        "id": "atm-1", "name": "ATM", "complex": "SkyAvenue", "level": "1",
+        "location_description": "Near currency exchange", "category": "banking_service",
+        "source_url": "https://www.rwgenting.com/en/things-to-do/shopping/skyavenue-complex.html",
+        "coordinates": None, "indoor_route": None,
+        "status": "official-directory-listed; reverify before live deployment",
+    })
+    package_store.import_reference_knowledge("test-property", "rwg-data", "map", "skyavenue", {
+        "id": "skyavenue", "title": "SkyAvenue official directory", "scope": "SkyAvenue",
+        "format": "html", "official_url": "https://www.rwgenting.com/en/things-to-do/shopping/skyavenue-complex.html",
+        "license_status": "not-cleared",
+    })
+    monkeypatch.setattr(main_module, "operations", package_store)
+
+    with TestClient(main_module.app) as client:
+        session = client.post("/api/session/start", json={
+            "client_id": "rwg-directory-guest", "property_id": "test-property",
+        })
+        responses = [client.post("/api/guest/intelligent-chat", json={
+            "session_id": session.json()["session_id"], "message": message, "turn_id": f"turn-{index}",
+        }) for index, message in enumerate((
+            "What hotel facilities are available?",
+            "Where can I have dinner?",
+            "What can I explore nearby?",
+        ))]
+
+    assert all(response.status_code == 200 for response in responses), [response.text for response in responses]
+    directory = next(block for block in responses[0].json()["blocks"] if block["type"] == "facility_directory")
+    assert directory["locations"][0]["title"] == "ATM"
+    assert directory["locations"][0]["building"] == "SkyAvenue"
+    assert directory["locations"][0]["floor"] == "1"
+    assert directory["locations"][0]["category"] == "banking service"
+    assert directory["locations"][0]["description"] == (
+        "Listed in the official directory. Please confirm current details with hotel staff."
+    )
+    assert "reverify before live deployment" not in directory["locations"][0]["description"]
+    assert directory["locations"][0]["source_url"].startswith("https://www.rwgenting.com/")
+    assert directory["map_links"][0]["url"].startswith("https://www.rwgenting.com/")
+    assert "route_node_ids" not in directory
+    assert all(any(block["type"] == "facility_directory" for block in response.json()["blocks"]) for response in responses[1:])
+    assert main_module._intelligent_guest_facility_directory_block("another-property") is None
+
+
+def test_facility_directory_protocol_rejects_untrusted_urls():
+    with pytest.raises(ValueError):
+        make_response("conversation", [{
+            "id": "unsafe-directory", "type": "facility_directory", "title": "Locations",
+            "locations": [{
+                "id": "atm", "title": "ATM", "source_url": "https://example.test/not-rwg",
+            }],
+        }], "turn")
+
+
+def test_guest_directions_use_only_named_guest_visible_map_nodes(monkeypatch: pytest.MonkeyPatch, tmp_path):
     nodes = [
-        {"node_id": "lobby", "label": "Lobby", "guest_visible": True},
-        {"node_id": "pool", "label": "Rooftop Pool", "guest_visible": True},
-        {"node_id": "private", "label": "Staff Office", "guest_visible": False},
+        {"node_id": "lobby", "floor_id": "floor-5", "label": "Lobby", "guest_visible": True},
+        {"node_id": "lobby-16", "floor_id": "floor-16", "label": "Lobby", "guest_visible": True},
+        {"node_id": "pool", "floor_id": "floor-5", "label": "Rooftop Pool", "guest_visible": True},
+        {"node_id": "private", "floor_id": "floor-5", "label": "Staff Office", "guest_visible": False},
     ]
-    monkeypatch.setattr(main_module.zones, "overview", lambda _property_id, guest: {"navigation_nodes": nodes} if guest else {})
+    floorplan = tmp_path / "floor-5.png"
+    floorplan.write_bytes(b"validated-upload-fixture")
+    overview = {
+        "navigation_nodes": nodes,
+        "maps": [{"map_id": "map-5", "floor_id": "floor-5", "content_type": "image/png", "width": 1000, "height": 600}],
+    }
+    monkeypatch.setattr(main_module.zones, "overview", lambda _property_id, guest: overview if guest else {})
+    monkeypatch.setattr(main_module.zones, "floor_map_path", lambda _property_id, _map_id: floorplan)
     monkeypatch.setattr(main_module.zones, "route", lambda _property_id, start, end, guest: {
         "node_ids": [start, end], "labels": ["Lobby", "Rooftop Pool"], "distance": 12,
     })
@@ -160,9 +269,21 @@ def test_guest_directions_use_only_named_guest_visible_map_nodes(monkeypatch: py
     assert route["type"] == "directions"
     assert [step["label"] for step in route["steps"]] == ["Lobby", "Rooftop Pool"]
     assert route["steps"][1]["source_ids"] == ["guest:test-property:map_node:pool"]
+    assert route["node_ids"] == ["lobby", "pool"]
+    # Duplicate starting labels resolve to the unique endpoint's floor.
+    assert main_module._intelligent_guest_directions_block(
+        "test-property", "Directions from Lobby to Rooftop Pool",
+    )["node_ids"] == ["lobby", "pool"]
     assert main_module._intelligent_guest_directions_block("test-property", "Where is the pool?") is None
+    nodes[2]["floor_id"] = "floor-6"
+    assert main_module._intelligent_guest_directions_block("test-property", "Directions from Lobby to Rooftop Pool") is None
+    nodes[2]["floor_id"] = "floor-5"
     assert main_module._intelligent_guest_directions_block(
         "test-property", "Directions from Lobby to Rooftop Pool", enabled=False,
+    ) is None
+    overview["maps"] = []
+    assert main_module._intelligent_guest_directions_block(
+        "test-property", "Directions from Lobby to Rooftop Pool",
     ) is None
 
 
@@ -502,7 +623,7 @@ def test_intelligent_facility_cards_use_only_published_property_facility_data(mo
         "images": ["/uploads/rooftop-pool.webp"],
         "policies": ["Children must be supervised.", "No glass containers."],
         "live_status": "open",
-        "status_note": "Open to hotel guests until 10 PM.",
+        "status_note": "Open to hotel guests until 10 PM. Demo image is illustrative.",
     })
     main_module.hospitality.upsert_facility_profile("other-property", {
         "name": "Other Property Pool",
@@ -541,8 +662,13 @@ def test_intelligent_facility_cards_use_only_published_property_facility_data(mo
             "session_id": session.json()["session_id"],
             "message": "What are the pool hours?",
         })
+        map_question = client.post("/api/guest/intelligent-chat", json={
+            "session_id": session.json()["session_id"],
+            "message": "Where is the swimming pool?",
+        })
     assert response.status_code == 200, response.text
-    cards = next(block["cards"] for block in response.json()["blocks"] if block["type"] == "card_collection")
+    cards = next((block["cards"] for block in response.json()["blocks"] if block["type"] == "card_collection"), None)
+    assert cards is not None, response.json()["blocks"]
     titles = [card["title"] for card in cards]
     assert "Rooftop Pool" in titles
     assert "Other Property Pool" not in titles
@@ -552,6 +678,7 @@ def test_intelligent_facility_cards_use_only_published_property_facility_data(mo
     ]
     assert pool_card["opening_hours"] == "6:00 AM–10:00 PM"
     assert pool_card["image_url"] == "/uploads/rooftop-pool.webp"
+    assert pool_card["image_label"] == "Demo illustration · not a property photo"
     assert pool_card["policies"] == ["Children must be supervised.", "No glass containers."]
     assert pool_card["location"] == ""
     assert "Open to hotel guests until 10 PM." in pool_card["detail"]
@@ -562,6 +689,15 @@ def test_intelligent_facility_cards_use_only_published_property_facility_data(mo
     assert [(marker["label"], marker["x_percent"], marker["y_percent"]) for marker in actual_map["markers"]] == [
         ("Rooftop Pool", 50.0, 50.0),
     ]
+    assert map_question.status_code == 200, map_question.text
+    map_blocks = map_question.json()["blocks"]
+    assert any(block["type"] == "map_view" for block in map_blocks)
+    map_view = next(block for block in map_blocks if block["type"] == "map_view")
+    assert map_view["floor_label"] == "Level 3"
+    assert map_view["focused_marker_id"] == map_view["markers"][0]["id"]
+    assert map_view["locations"][0]["title"] == "Rooftop Pool"
+    assert map_view["locations"][0]["hours"] == "6:00 AM–10:00 PM"
+    assert map_view["locations"][0]["image_label"] == "Demo illustration · not a property photo"
 
 
 def test_legacy_published_hotel_claims_have_property_scoped_sources(monkeypatch, tmp_path):
@@ -592,6 +728,36 @@ def test_legacy_published_hotel_claims_have_property_scoped_sources(monkeypatch,
     assert grounded["claims"][0]["source_ids"] == [
         f"guest:property-a:legacy_knowledge:{matches[0]['item_id']}"
     ]
+
+
+def test_structured_rwg_rows_cannot_validate_raw_json_claims_or_old_history(monkeypatch, tmp_path):
+    from app.operations import OperationsStore
+
+    property_id = "rwg-crockfords"
+    store = OperationsStore(tmp_path / "rwg-grounding.db")
+    hotel, _ = store.import_reference_knowledge(
+        property_id, "rwg-test-v2", "hotel", "crockfords",
+        {"id": "crockfords", "name": "Crockfords", "room_types": [{"name": "Superior Room"}]},
+    )
+    faq, _ = store.import_reference_knowledge(
+        property_id, "rwg-test-v2", "faq", "check-in",
+        {"question": "What time is check-in at Crockfords?", "answer": "Check-in is listed at 3:00 PM."},
+    )
+    monkeypatch.setattr(main_module, "operations", store)
+
+    evidence = main_module._guest_source_evidence(property_id, None)
+    structured_ref = f"guest:{property_id}:legacy_knowledge:{hotel['item_id']}"
+    faq_ref = f"guest:{property_id}:legacy_knowledge:{faq['item_id']}"
+    old_json_response = make_response("conversation", [{
+        "id": "old-json-claim", "type": "grounded_claim",
+        "content": '{"id":"crockfords","room_types":[{"name":"Superior Room"}]}',
+        "source_ids": [structured_ref],
+    }], "old-turn")
+
+    assert structured_ref in evidence
+    assert f"__structured_reference__:{structured_ref}" in evidence
+    assert faq_ref in evidence
+    assert not main_module._intelligent_response_sources_are_current(old_json_response, evidence)
 
 
 def test_hotel_information_is_a_sourced_property_panel_without_calling_the_model(monkeypatch):
@@ -685,7 +851,7 @@ def test_intelligent_map_uses_property_floor_plan_and_guest_visible_nodes(monkey
     })
     main_module.zones.create_node("test-property", {
         "floor_id": floor["floor_id"], "zone_id": zone["zone_id"],
-        "label": "Rooftop Pool", "x": 100, "y": 50, "node_type": "service", "guest_visible": True,
+        "label": "Rooftop Leisure Pool", "x": 100, "y": 50, "node_type": "service", "guest_visible": True,
     })
     main_module.zones.create_node("test-property", {
         "floor_id": floor["floor_id"], "zone_id": zone["zone_id"],
@@ -700,21 +866,156 @@ def test_intelligent_map_uses_property_floor_plan_and_guest_visible_nodes(monkey
         session = client.post("/api/session/start", json={"client_id": "ui-map", "property_id": "test-property"})
         assert session.status_code == 200, session.text
         response = client.post("/api/guest/intelligent-chat", json={
-            "session_id": session.json()["session_id"], "message": "How do I get to the pool?",
+            "session_id": session.json()["session_id"], "message": "How do I get to the rooftop leisure pool?",
         })
     assert response.status_code == 200, response.text
     map_block = next(block for block in response.json()["blocks"] if block["type"] == "map_view")
     assert floor_map["map_id"] in map_block["map_image_url"]
     assert "test-property" in map_block["map_image_url"]
     assert [(marker["label"], marker["x_percent"], marker["y_percent"]) for marker in map_block["markers"]] == [
-        ("Rooftop Pool", 50.0, 50.0),
+        ("Rooftop Leisure Pool", 50.0, 50.0),
     ]
     text_block = next(block for block in response.json()["blocks"] if block["type"] == "text")
-    assert "route from your current position is not available yet" in text_block["content"]
+    assert "Where are you starting from?" in text_block["content"]
+    assert "verified hotel floor plan" not in text_block["content"]
+    assert not any(block["type"] == "directions" for block in response.json()["blocks"])
 
 
 def test_map_helper_returns_no_map_without_published_floor_map_or_markers():
     assert main_module._intelligent_guest_floor_map_block("empty-property", "How do I get to the pool?") is None
+
+
+def test_map_helper_builds_floor_switching_data_and_only_styles_explicit_demo_maps(monkeypatch: pytest.MonkeyPatch):
+    overview = {
+        "buildings": [{"building_id": "demo-building", "name": "Hotel De Luna Conceptual Demo"}],
+        "floors": [
+            {"floor_id": "floor-5", "building_id": "demo-building", "name": "Level 5 · conceptual demo", "level": 5},
+            {"floor_id": "floor-g", "building_id": "demo-building", "name": "Ground Floor · conceptual demo", "level": 0},
+            {"floor_id": "floor-16", "building_id": "demo-building", "name": "Level 16 · conceptual demo", "level": 16},
+        ],
+        "maps": [
+            {"map_id": "map-5", "floor_id": "floor-5", "original_filename": "level-5-conceptual.png", "content_type": "image/png", "width": 960, "height": 620},
+            {"map_id": "map-g", "floor_id": "floor-g", "original_filename": "ground-conceptual.png", "content_type": "image/png", "width": 960, "height": 620},
+            {"map_id": "map-16", "floor_id": "floor-16", "original_filename": "level-16-conceptual.png", "content_type": "image/png", "width": 960, "height": 620},
+        ],
+        "navigation_nodes": [
+            {"node_id": "pool", "floor_id": "floor-5", "label": "Infinity Pool", "x": 153, "y": 167, "guest_visible": True},
+            {"node_id": "lobby", "floor_id": "floor-5", "label": "Elevator Lobby", "x": 153, "y": 415, "guest_visible": True},
+            {"node_id": "main-lobby", "floor_id": "floor-g", "label": "Main Lobby", "x": 480, "y": 310, "guest_visible": True},
+            {"node_id": "guest-rooms", "floor_id": "floor-16", "label": "Guest Rooms", "x": 153, "y": 167, "guest_visible": True},
+            {"node_id": "elevator-16", "floor_id": "floor-16", "label": "Elevator Lobby", "x": 451, "y": 167, "guest_visible": True},
+            {"node_id": "staff-only", "floor_id": "floor-5", "label": "Staff Only", "x": 300, "y": 300, "guest_visible": False},
+        ],
+    }
+    monkeypatch.setattr(main_module.zones, "overview", lambda _property_id, guest: overview if guest else {})
+    facility_records = [{
+            "facility_id": "facility-pool", "floor_id": "floor-5", "name": "Infinity Pool",
+            "description": "Pool for registered guests.", "opening_hours": {"display": "06:00–21:00"},
+            "images": ["/api/guest/hotel-assets/" + "a" * 64 + "?property_id=demo-property"],
+            "status_note": "DEMO illustration", "policies": ["Children must be supervised."],
+        }, {
+            "facility_id": "facility-guest-rooms", "floor_id": "floor-16", "name": "Guest Rooms",
+            "description": "Guest accommodation on Level 16.", "opening_hours": {}, "images": [],
+        }]
+    monkeypatch.setattr(main_module.hospitality, "guest_facilities", lambda property_id: {"facilities": facility_records})
+
+    block = main_module._intelligent_guest_floor_map_block("demo-property", "Where is the swimming pool?")
+
+    assert block is not None
+    assert block["floor_id"] == "floor-5"
+    assert block["floor_label"] == "Level 5"
+    assert block["synthetic_demo"] is True
+    assert [floor["label"] for floor in block["floors"]] == ["Ground Floor", "Level 5", "Level 16"]
+    assert {marker["label"] for marker in block["markers"]} == {"Elevator Lobby", "Infinity Pool"}
+    assert all("Staff Only" not in marker["label"] for marker in block["markers"])
+    pool = block["locations"][0]
+    assert pool["title"] == "Infinity Pool"
+    assert pool["hours"] == "06:00–21:00"
+    assert pool["image_label"] == "Demo illustration · not a property photo"
+    assert pool["source_ids"] == ["guest:demo-property:facility:facility-pool"]
+    assert block["focused_marker_id"] == "pool"
+    assert all(location["floor_label"] in {"Level 5", "Level 16"} for location in block["locations"])
+
+    guest_rooms = main_module._intelligent_guest_floor_map_block("demo-property", "Where is Guest Rooms?")
+    assert guest_rooms is not None
+    assert guest_rooms["floor_id"] == "floor-16"
+    assert guest_rooms["focused_marker_id"] == "guest-rooms"
+    assert next(location for location in guest_rooms["locations"] if location["marker_id"] == "guest-rooms")["title"] == "Guest Rooms"
+    assert main_module._intelligent_guest_floor_map_block("demo-property", "Where is the spa?") is None
+    pool_record = next(item for item in facility_records if item["facility_id"] == "facility-pool")
+    pool_record["floor_id"] = "missing-floor"
+    assert main_module._intelligent_guest_floor_map_block("demo-property", "Where is the Infinity Pool?") is None
+    pool_record["floor_id"] = "floor-5"
+
+    overview["buildings"][0]["name"] = "Hotel De Luna"
+    ordinary = main_module._intelligent_guest_floor_map_block("demo-property", "Where is the swimming pool?")
+    assert ordinary is not None and ordinary["synthetic_demo"] is False
+    assert all(floor["synthetic_demo"] is False for floor in ordinary["floors"])
+
+
+def test_restaurant_follow_up_keeps_a_specific_configured_restaurant_in_context():
+    history = [
+        {"role": "guest", "content": "Show me the Japanese restaurant."},
+        {"role": "assistant", "content": "Here are the dining options listed for the hotel."},
+    ]
+    query = main_module._contextual_query("What time does it close?", history)
+    restaurants = [
+        {"name": "Sora Japanese Restaurant", "cuisine": "Japanese"},
+        {"name": "Luna Grand Dining", "cuisine": "International buffet"},
+    ]
+
+    assert "Japanese restaurant" in query
+    assert main_module._guest_relevant_restaurants(restaurants, query) == [restaurants[0]]
+    assert main_module._contextual_query("What time is checkout?", [
+        *history,
+        {"role": "guest", "content": "Where can I go near the hotel?"},
+        {"role": "assistant", "content": "Here are the nearby recommendations."},
+    ]) == "What time is checkout?"
+
+
+def test_checkout_answer_passes_current_source_validation(monkeypatch: pytest.MonkeyPatch):
+    _enable_property_ui()
+    monkeypatch.setattr(main_module, "settings", replace(main_module.settings, intelligent_guest_ui_global_enabled=True))
+    record = main_module.properties.get("test-property")
+    record.contact_details = {
+        **(record.contact_details or {}),
+        "checkout": "12:00 noon (demo policy)",
+    }
+    main_module.properties.upsert(record)
+
+    with TestClient(main_module.app) as client:
+        session = client.post("/api/session/start", json={
+            "client_id": "checkout-source-check", "property_id": "test-property",
+        })
+        response = client.post("/api/guest/intelligent-chat", json={
+            "session_id": session.json()["session_id"], "message": "What time is checkout?",
+        })
+
+    assert response.status_code == 200, response.text
+    claims = [block["content"] for block in response.json()["blocks"] if block["type"] == "grounded_claim"]
+    assert any("12:00 noon (demo policy)" in item for item in claims)
+
+
+def test_restaurant_hours_follow_up_is_grounded_to_the_most_recent_named_restaurant(monkeypatch: pytest.MonkeyPatch):
+    _enable_property_ui()
+    monkeypatch.setattr(main_module, "settings", replace(main_module.settings, intelligent_guest_ui_global_enabled=True))
+    restaurant = main_module.hospitality.create_restaurant("test-property", {
+        "name": "Sora Japanese Restaurant", "cuisine": "Japanese",
+        "opening_hours": {"display": "Daily, 11:30–14:30 and 17:30–22:00"}, "status": "open",
+    })
+
+    with TestClient(main_module.app) as client:
+        session = client.post("/api/session/start", json={"client_id": "restaurant-memory", "property_id": "test-property"})
+        first = client.post("/api/guest/intelligent-chat", json={
+            "session_id": session.json()["session_id"], "message": "Show me the Japanese restaurant.",
+        })
+        second = client.post("/api/guest/intelligent-chat", json={
+            "session_id": session.json()["session_id"], "message": "What time does it close?",
+        })
+
+    assert first.status_code == second.status_code == 200
+    claims = [block["content"] for block in second.json()["blocks"] if block["type"] == "grounded_claim"]
+    assert any(restaurant["name"] in claim and "22:00" in claim for claim in claims), second.text
 
 
 def test_map_component_rejects_untrusted_map_urls_and_invalid_markers():

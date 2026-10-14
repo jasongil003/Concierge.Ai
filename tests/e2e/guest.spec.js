@@ -170,6 +170,48 @@ async function setIntelligentUi(request, enabled, { welcome = "", prompts = [], 
   expect(saved.ok(), await saved.text()).toBeTruthy();
 }
 
+function streamEvents(payload, blocks, textDelta = null) {
+  const conversationId = payload.session_id;
+  const response = { schema_version: "1.0", conversation_id: conversationId, turn_id: payload.turn_id, blocks };
+  const events = [["turn.started", { schema_version: "1.0", conversation_id: conversationId, turn_id: payload.turn_id }]];
+  if (textDelta) events.push(["text.delta", { text: textDelta }]);
+  for (const block of blocks.filter((item) => item.type !== "text")) events.push(["component.ready", { block }]);
+  if (!textDelta) {
+    const finalText = blocks.filter((item) => item.type === "text").map((item) => item.content).join("\n");
+    if (finalText) events.push(["text.completed", { streamed: false, text: finalText }]);
+  }
+  events.push(["turn.completed", { response }]);
+  return events.map(([type, data], index) =>
+    `id: ${payload.turn_id}:${index + 1}\nevent: ${type}\ndata: ${JSON.stringify(data)}\n\n`,
+  ).join("");
+}
+
+async function updateGuestSessionClock(page, sessionId, mode) {
+  const result = await page.evaluate(async ({ id, clockMode }) => {
+    const response = await fetch("/__e2e__/guest-session-clock", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-E2E-Control": "playwright-local-session-clock-control" },
+      body: JSON.stringify({ session_id: id, mode: clockMode }),
+    });
+    return { status: response.status, body: await response.json() };
+  }, { id: sessionId, clockMode: mode });
+  if (result.status !== 200) throw new Error(`Session clock control failed (${result.status}).`);
+  return result.body;
+}
+
+async function waitForGuestSession(page) {
+  await page.waitForFunction(() => {
+    const startupError = document.querySelector("#startup-error");
+    return Boolean(sessionStorage.getItem("concierge-v2-session-id")) || Boolean(startupError && !startupError.hidden);
+  }, undefined, { timeout: 10000 });
+  const sessionId = await page.evaluate(() => sessionStorage.getItem("concierge-v2-session-id"));
+  if (!sessionId) {
+    const message = await page.locator("#startup-error-copy").innerText().catch(() => "Guest UI could not start.");
+    throw new Error(`Guest UI startup failed: ${message}`);
+  }
+  return sessionId;
+}
+
 // --- 1. Guest initial load ---
 
 test("guest: opens on the personal stay home, with chat available separately", async ({ page }) => {
@@ -1201,6 +1243,7 @@ test("Intelligent UI: property opt-in answers from verified hotel data and keeps
     await expect(page.locator(".message-row.assistant .message-text").last()).toContainText("Level 3");
     await page.screenshot({ path: join(screenshotDirectory, `conversation-${testInfo.project.name}.png`), fullPage: true });
 
+    const existingMessageImages = await page.locator("#message-list img").count();
     const conversationId = await page.evaluate(() => sessionStorage.getItem("concierge-v2-session-id"));
     await page.route("**/api/guest/intelligent-chat/stream", async (route) => {
       const requestBody = route.request().postDataJSON();
@@ -1224,7 +1267,7 @@ test("Intelligent UI: property opt-in answers from verified hotel data and keeps
     await page.getByLabel("Message your concierge").fill("Show me a text example");
     await page.getByRole("button", { name: "Send message" }).click();
     await expect(page.locator(".message-row.assistant .message-text").last()).toContainText("<img src=x");
-    expect(await page.locator("#message-list img").count()).toBe(0);
+    expect(await page.locator("#message-list img").count()).toBe(existingMessageImages);
     expect(await page.evaluate(() => window.__guestUiXss || false)).toBe(false);
   } finally {
     await setIntelligentUi(request, false);
@@ -1338,18 +1381,29 @@ test("Intelligent UI: indoor directions follow configured guest-visible map node
     expect(response.ok(), await response.text()).toBeTruthy();
     return response.json();
   };
-  const building = await create("buildings", { name: "Synthetic Test Tower" });
-  const floor = await create("floors", { building_id: building.building_id, name: "Ground floor", level: 0 });
-  const lobby = await create("navigation/nodes", { floor_id: floor.floor_id, label: "Lobby", x: 20, y: 50, guest_visible: true });
-  const pool = await create("navigation/nodes", { floor_id: floor.floor_id, label: "Rooftop Pool", x: 180, y: 50, guest_visible: true });
-  await create("navigation/nodes", { floor_id: floor.floor_id, label: "Staff Office", x: 100, y: 80, guest_visible: false });
-  await create("navigation/edges", { from_node_id: lobby.node_id, to_node_id: pool.node_id, distance: 42, guest_visible: true });
-  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="#eee"/><path d="M20 50h160" stroke="#777" stroke-width="3"/></svg>';
-  const uploadedMap = await request.post(`/api/admin/properties/${propertyId}/floors/${floor.floor_id}/maps`, {
-    headers: { "X-CSRF-Token": csrf },
-    data: { filename: "synthetic-test-map.svg", content_type: "image/svg+xml", content_base64: Buffer.from(svg).toString("base64"), width: 200, height: 100 },
-  });
-  expect(uploadedMap.ok(), await uploadedMap.text()).toBeTruthy();
+  const existing = await (await request.get(`/api/admin/properties/${propertyId}/zones`)).json();
+  const building = existing.buildings.find((item) => item.name === "Synthetic Test Tower")
+    || await create("buildings", { name: "Synthetic Test Tower" });
+  const floor = existing.floors.find((item) => item.building_id === building.building_id && item.name === "Ground floor")
+    || await create("floors", { building_id: building.building_id, name: "Ground floor", level: 0 });
+  const lobby = existing.navigation_nodes.find((item) => item.floor_id === floor.floor_id && item.label === "Lobby")
+    || await create("navigation/nodes", { floor_id: floor.floor_id, label: "Lobby", x: 20, y: 50, guest_visible: true });
+  const pool = existing.navigation_nodes.find((item) => item.floor_id === floor.floor_id && item.label === "Rooftop Pool")
+    || await create("navigation/nodes", { floor_id: floor.floor_id, label: "Rooftop Pool", x: 180, y: 50, guest_visible: true });
+  if (!existing.navigation_nodes.some((item) => item.floor_id === floor.floor_id && item.label === "Staff Office")) {
+    await create("navigation/nodes", { floor_id: floor.floor_id, label: "Staff Office", x: 100, y: 80, guest_visible: false });
+  }
+  if (!existing.navigation_edges.some((item) => item.from_node_id === lobby.node_id && item.to_node_id === pool.node_id && item.guest_visible)) {
+    await create("navigation/edges", { from_node_id: lobby.node_id, to_node_id: pool.node_id, distance: 42, guest_visible: true });
+  }
+  if (!existing.maps.some((item) => item.floor_id === floor.floor_id)) {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="#eee"/><path d="M20 50h160" stroke="#777" stroke-width="3"/></svg>';
+    const uploadedMap = await request.post(`/api/admin/properties/${propertyId}/floors/${floor.floor_id}/maps`, {
+      headers: { "X-CSRF-Token": csrf },
+      data: { filename: "synthetic-test-map.svg", content_type: "image/svg+xml", content_base64: Buffer.from(svg).toString("base64"), width: 200, height: 100 },
+    });
+    expect(uploadedMap.ok(), await uploadedMap.text()).toBeTruthy();
+  }
   await setIntelligentUi(request, true);
   try {
     await page.setViewportSize({ width: 390, height: 844 });
@@ -1364,7 +1418,267 @@ test("Intelligent UI: indoor directions follow configured guest-visible map node
     await expect(page.locator(".directions-panel")).not.toContainText("Staff Office");
     const map = page.locator(".map-panel");
     await expect(map).toBeVisible();
-    await expect(map.locator(".floor-map-marker")).toHaveText(["Lobby", "Rooftop Pool"]);
+    await expect(map.locator(".floor-map-location-list")).toContainText("Lobby");
+    await expect(map.locator(".floor-map-location-list")).toContainText("Rooftop Pool");
+    await expect(map.getByRole("button", { name: "Show location: Rooftop Pool, Ground floor" })).toBeVisible();
+  } finally {
+    await setIntelligentUi(request, false);
+  }
+});
+
+test("Intelligent UI: synthetic hotel map supports selection, floors, safe routes, zoom, and admin updates", async ({ page, request }, testInfo) => {
+  const csrf = await loginAdmin(request);
+  const propertyId = "e2e-property";
+  const create = async (path, data) => {
+    const response = await request.post(`/api/admin/properties/${propertyId}/${path}`, {
+      headers: { "X-CSRF-Token": csrf }, data: { data },
+    });
+    expect(response.ok(), await response.text()).toBeTruthy();
+    return response.json();
+  };
+  const existing = await (await request.get(`/api/admin/properties/${propertyId}/zones`)).json();
+  const building = existing.buildings.find((item) => item.name === "Hotel De Luna Conceptual Demo")
+    || await create("buildings", { name: "Hotel De Luna Conceptual Demo" });
+  const ensureFloor = async (name, level) => existing.floors.find((item) => item.building_id === building.building_id && item.name === name)
+    || create("floors", { building_id: building.building_id, name, level });
+  const level5 = await ensureFloor("Level 5 · conceptual demo", 5);
+  const lobbyFloor = await ensureFloor("Ground Floor · conceptual demo", 0);
+  const level16 = await ensureFloor("Level 16 · conceptual demo", 16);
+  const ensureMap = async (floor, filename) => {
+    if (existing.maps.some((item) => item.floor_id === floor.floor_id)) return;
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="960" height="620"><rect width="960" height="620" fill="#f7f4ec"/></svg>';
+    const uploaded = await request.post(`/api/admin/properties/${propertyId}/floors/${floor.floor_id}/maps`, {
+      headers: { "X-CSRF-Token": csrf },
+      data: { filename, content_type: "image/svg+xml", content_base64: Buffer.from(svg).toString("base64"), width: 960, height: 620 },
+    });
+    expect(uploaded.ok(), await uploaded.text()).toBeTruthy();
+  };
+  await ensureMap(level5, "hotel-de-luna-level-5-conceptual.svg");
+  await ensureMap(lobbyFloor, "hotel-de-luna-ground-floor-conceptual.svg");
+  await ensureMap(level16, "hotel-de-luna-level-16-conceptual.svg");
+  const ensureNode = async (floor, label, x, y) => existing.navigation_nodes.find((item) => item.floor_id === floor.floor_id && item.label === label)
+    || create("navigation/nodes", { floor_id: floor.floor_id, label, x, y, node_type: "facility", guest_visible: true });
+  const pool = await ensureNode(level5, "Infinity Pool", 153, 167);
+  let fitness = existing.navigation_nodes.find((item) => item.floor_id === level5.floor_id && item.label === "Fitness Center");
+  if (!fitness) {
+    fitness = existing.navigation_nodes.find((item) => item.floor_id === level5.floor_id && item.label === "Fitness Studio");
+    if (fitness) {
+      const reset = await request.put(`/api/admin/properties/${propertyId}/navigation/nodes/${fitness.node_id}`, {
+        headers: { "X-CSRF-Token": csrf },
+        data: { data: { label: "Fitness Center", floor_id: level5.floor_id, x: 451, y: 167, guest_visible: true } },
+      });
+      expect(reset.ok(), await reset.text()).toBeTruthy();
+    } else {
+      fitness = await create("navigation/nodes", { floor_id: level5.floor_id, label: "Fitness Center", x: 451, y: 167, node_type: "facility", guest_visible: true });
+    }
+  }
+  await ensureNode(level5, "Kids Club", 749, 167);
+  const elevator = await ensureNode(level5, "Elevator Lobby", 153, 415);
+  await ensureNode(lobbyFloor, "Main Lobby", 480, 310);
+  await ensureNode(level16, "Guest Rooms", 153, 167);
+  await ensureNode(level16, "Elevator Lobby", 451, 167);
+  for (const edge of existing.navigation_edges.filter((item) =>
+    [
+      [elevator.node_id, pool.node_id], [pool.node_id, elevator.node_id],
+    ].some(([from, to]) => item.from_node_id === from && item.to_node_id === to)
+  )) {
+    const removed = await request.delete(`/api/admin/properties/${propertyId}/navigation/edges/${edge.edge_id}`, {
+      headers: { "X-CSRF-Token": csrf },
+    });
+    expect(removed.ok(), await removed.text()).toBeTruthy();
+  }
+  const profile = async (payload) => {
+    const response = await request.put(`/api/admin/properties/${propertyId}/hospitality/facilities`, {
+      headers: { "X-CSRF-Token": csrf }, data: { data: payload },
+    });
+    expect(response.ok(), await response.text()).toBeTruthy();
+  };
+  await profile({
+    facility_id: "demo-map-pool", name: "Infinity Pool", facility_type: "pool", floor_id: level5.floor_id,
+    description: "Pool access for registered guests.", opening_hours: { display: "06:00–21:00" },
+    status_note: "DEMO artwork is an illustration, not a property photograph.",
+    images: ["/api/guest/hotel-assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?property_id=e2e-property"],
+    policies: ["Children must be supervised."], location: "Pool deck",
+  });
+  await profile({
+    facility_id: "demo-map-fitness", name: "Fitness Center", facility_type: "fitness", floor_id: level5.floor_id,
+    description: "Fitness facilities for registered guests.", opening_hours: { display: "05:00–23:00" },
+    status_note: "Demo schedule.", location: "Fitness room",
+  });
+  await profile({
+    facility_id: "demo-map-guest-rooms", name: "Guest Rooms", facility_type: "guest_rooms", floor_id: level16.floor_id,
+    description: "Guest accommodation on Level 16.", opening_hours: {}, status_note: "Demo location.", location: "Level 16",
+  });
+
+  await page.route("**/api/guest/hotel-assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220"><rect width="480" height="220" fill="#1d514b"/><text x="24" y="120" fill="#fff" font-family="sans-serif" font-size="30">Infinity Pool · Demo Illustration</text></svg>',
+    });
+  });
+  await setIntelligentUi(request, true);
+  try {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/");
+    await page.waitForFunction(() => Boolean(sessionStorage.getItem("concierge-v2-session-id")));
+    await page.getByLabel("Message your concierge").fill("How do I get to Infinity Pool?");
+    await page.getByRole("button", { name: "Send message" }).click();
+    const map = page.locator(".map-panel");
+    await expect(map).toBeVisible();
+    await expect(map.locator(".floor-map-demo-note")).toHaveText("Demo map — illustrative layout");
+    await expect(map.locator(".floor-map-room")).toHaveCount(4);
+    await expect(map.locator(".floor-map-directions")).toContainText("Where are you starting from?");
+    await expect(map.locator(".floor-map-facility-detail h4")).toHaveText("Infinity Pool");
+    await expect(map.locator(".entity-card-image-caption")).toContainText("not a property photo");
+    const facilityImage = map.locator(".floor-map-facility-image");
+    await facilityImage.scrollIntoViewIfNeeded();
+    await expect(facilityImage).toBeVisible();
+    await expect.poll(() => facilityImage.evaluate((image) => image.naturalWidth)).toBeGreaterThan(0);
+    await expect(page.locator(".directions-panel")).toHaveCount(0);
+
+    await map.getByRole("button", { name: "Show location: Fitness Center, Level 5" }).click();
+    await expect(map.locator(".floor-map-facility-detail h4")).toHaveText("Fitness Center");
+    const keyboardTarget = map.getByRole("button", { name: "Show location: Kids Club, Level 5" });
+    await keyboardTarget.focus();
+    await keyboardTarget.press("Enter");
+    await expect(map.locator(".floor-map-facility-detail h4")).toHaveText("Kids Club");
+    await map.getByLabel("Choose a floor").selectOption({ label: "Ground Floor" });
+    await expect(map.locator(".floor-map-room[aria-pressed='true']")).toHaveCount(0);
+    await expect(map.locator(".floor-map-facility-detail")).toContainText("Choose a place on this floor");
+    await map.getByRole("button", { name: "Show location: Main Lobby, Ground Floor" }).click();
+    await expect(map.locator(".floor-map-facility-detail h4")).toHaveText("Main Lobby");
+    await map.getByLabel("Choose a floor").selectOption({ label: "Level 5" });
+    await expect(map.locator(".floor-map-facility-detail h4")).toHaveText("Infinity Pool");
+
+    const startSelect = map.getByLabel("Starting location");
+    await startSelect.selectOption(elevator.node_id);
+    await map.getByRole("button", { name: "Check for a route" }).click();
+    await expect(page.locator(".assistant .message-text").last()).toContainText("couldn't confirm a walking route");
+    await expect(page.locator(".directions-panel")).toHaveCount(0);
+
+    const edge = await create("navigation/edges", {
+      from_node_id: elevator.node_id, to_node_id: pool.node_id, distance: 32, guest_visible: true,
+    });
+    expect(edge.guest_visible).toBeTruthy();
+    await page.getByLabel("Message your concierge").fill("Directions from Elevator Lobby to Infinity Pool");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await expect(page.locator(".directions-panel")).toContainText("Elevator Lobby");
+    await expect(page.locator(".directions-panel")).toContainText("Infinity Pool");
+    await expect(page.locator(".map-panel .floor-map-route-overlay").last()).toBeVisible();
+    const routeCaptureRoot = testInfo.outputPath("screenshots");
+    mkdirSync(routeCaptureRoot, { recursive: true });
+    const routeMap = page.locator(".map-panel").last().locator(".floor-map-viewport");
+    await routeMap.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(routeCaptureRoot, "hotel-map-verified-route-mobile-viewport.png") });
+    await routeMap.screenshot({ path: join(routeCaptureRoot, "hotel-map-verified-route-map.png") });
+
+    const updatedNode = await request.put(`/api/admin/properties/${propertyId}/navigation/nodes/${fitness.node_id}`, {
+      headers: { "X-CSRF-Token": csrf },
+      data: { data: { label: "Fitness Studio", floor_id: level5.floor_id, x: 451, y: 167, guest_visible: true } },
+    });
+    expect(updatedNode.ok(), await updatedNode.text()).toBeTruthy();
+    await page.getByLabel("Message your concierge").fill("Where is the Fitness Studio?");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await expect(page.locator(".map-panel .floor-map-location-list").last()).toContainText("Fitness Studio");
+
+    const captureRoot = testInfo.outputPath("screenshots");
+    mkdirSync(captureRoot, { recursive: true });
+    for (const viewport of [
+      { width: 390, height: 844, name: "mobile" },
+      { width: 820, height: 1180, name: "tablet" },
+      { width: 1280, height: 900, name: "desktop" },
+    ]) {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      const currentMap = page.locator(".map-panel").last();
+      await currentMap.locator(".floor-map-viewport").scrollIntoViewIfNeeded();
+      await page.screenshot({ path: join(captureRoot, `hotel-map-${viewport.name}-viewport.png`) });
+      await currentMap.screenshot({ path: join(captureRoot, `hotel-map-${viewport.name}.png`) });
+      const room = currentMap.getByRole("button", { name: "Show location: Infinity Pool, Level 5" });
+      if (await room.count()) await room.click();
+      await currentMap.getByRole("button", { name: "Zoom in" }).click();
+      const mapViewport = currentMap.locator(".floor-map-viewport");
+      const scrollable = await mapViewport.evaluate((node) => node.scrollWidth > node.clientWidth || node.scrollHeight > node.clientHeight);
+      expect(scrollable, `The ${viewport.name} map must support pan after zooming`).toBeTruthy();
+      await mapViewport.evaluate((node) => { node.scrollLeft = node.scrollWidth; node.scrollTop = node.scrollHeight; });
+      await expect(currentMap.locator(".floor-map-room").first()).toBeVisible();
+      await currentMap.getByRole("button", { name: "Reset map view" }).click();
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator(".floor-map-directions-link").last().scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(captureRoot, "hotel-map-mobile-details-viewport.png") });
+    const geometry = await page.evaluate(() => ({
+      contentBottom: document.querySelector(".floor-map-directions-link").getBoundingClientRect().bottom,
+      composerTop: document.querySelector(".composer-dock").getBoundingClientRect().top,
+    }));
+    expect(geometry.contentBottom).toBeLessThanOrEqual(geometry.composerTop);
+
+    const screenshotRoot = testInfo.outputPath("screenshots");
+    mkdirSync(screenshotRoot, { recursive: true });
+    await page.getByLabel("Message your concierge").fill("Where is the Infinity Pool?");
+    await page.getByRole("button", { name: "Send message" }).click();
+    const previousAssistant = page.locator(".message-row.assistant").last();
+    const previousMessageId = await previousAssistant.getAttribute("data-message-id");
+    const previousMap = page.locator(`[data-message-id="${previousMessageId}"] .map-panel`);
+    await expect(previousAssistant.locator(".message-text")).toContainText("The Infinity Pool is on Level 5");
+    await expect(previousMap.getByRole("heading", { name: "Hotel map · Level 5" })).toBeVisible();
+    await expect(previousMap.getByRole("button", { name: "Show location: Infinity Pool, Level 5" })).toHaveAttribute("aria-pressed", "true");
+    await previousMap.getByLabel("Choose a floor").selectOption({ label: "Level 16" });
+    await expect(previousMap.locator(".floor-map-room[aria-pressed='true']")).toHaveCount(0);
+    await previousMap.getByRole("button", { name: "Show location: Guest Rooms, Level 16" }).click();
+    await expect(previousMap.locator(".floor-map-facility-detail h4")).toHaveText("Guest Rooms");
+    await page.screenshot({ path: join(screenshotRoot, "hotel-map-sync-level16-before-pool.png") });
+
+    await page.getByLabel("Message your concierge").fill("Where is the Infinity Pool?");
+    await page.getByRole("button", { name: "Send message" }).click();
+    const poolMap = page.locator(".map-panel").last();
+    await expect(poolMap.getByRole("heading", { name: "Hotel map · Level 5" })).toBeVisible();
+    await expect(poolMap.getByRole("button", { name: "Show location: Infinity Pool, Level 5" })).toHaveAttribute("aria-pressed", "true");
+    await expect(poolMap.locator(".floor-map-facility-detail h4")).toHaveText("Infinity Pool");
+    await expect(page.locator(".message-row.assistant").last().locator(".message-text")).toContainText("The Infinity Pool is on Level 5");
+    await expect(previousMap.getByRole("heading", { name: "Hotel map · Level 16" })).toBeVisible();
+    await expect(previousMap.locator(".floor-map-facility-detail h4")).toHaveText("Guest Rooms");
+    await page.screenshot({ path: join(screenshotRoot, "hotel-map-sync-pool-after.png") });
+
+    const poolMapBeforeReset = await poolMap.screenshot({ path: join(screenshotRoot, "hotel-map-pool-before-reset.png") });
+    expect(poolMapBeforeReset.length).toBeGreaterThan(0);
+    for (const viewport of [
+      { width: 390, height: 844, name: "mobile" },
+      { width: 820, height: 1180, name: "tablet" },
+      { width: 1280, height: 900, name: "desktop" },
+    ]) {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      const mapBounds = await poolMap.locator(".floor-map-viewport").boundingBox();
+      expect(mapBounds.width / mapBounds.height, `${viewport.name} map should stay compact`).toBeGreaterThan(1.2);
+      await page.screenshot({ path: join(screenshotRoot, `hotel-map-sync-pool-${viewport.name}-viewport.png`) });
+      await poolMap.screenshot({ path: join(screenshotRoot, `hotel-map-sync-pool-${viewport.name}.png`) });
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
+    await poolMap.getByLabel("Choose a floor").selectOption({ label: "Level 16" });
+    await expect(poolMap.locator(".floor-map-room[aria-pressed='true']")).toHaveCount(0);
+    await poolMap.getByRole("button", { name: "Reset map view" }).click();
+    await expect(poolMap.getByRole("heading", { name: "Hotel map · Level 5" })).toBeVisible();
+    await expect(poolMap.getByRole("button", { name: "Show location: Infinity Pool, Level 5" })).toHaveAttribute("aria-pressed", "true");
+    await page.reload();
+    const restoredPoolMap = page.locator(".map-panel").last();
+    await expect(restoredPoolMap.getByRole("heading", { name: "Hotel map · Level 5" })).toBeVisible();
+    await expect(restoredPoolMap.locator(".floor-map-facility-detail h4")).toHaveText("Infinity Pool");
+
+    const mapCountBeforeUnknown = await page.locator(".map-panel").count();
+    await page.getByLabel("Message your concierge").fill("Where is the spa?");
+    await page.getByLabel("Message your concierge").press("Enter");
+    await expect(page.locator(".message-row.assistant").last().locator(".message-text")).toContainText("I couldn't find a mapped location");
+    await expect(page.locator(".map-panel")).toHaveCount(mapCountBeforeUnknown);
+
+    const latestRow = page.locator(".message-row.assistant").last();
+    const clipping = await page.evaluate(() => ({
+      messageTop: document.querySelector(".message-row.assistant:last-child").getBoundingClientRect().top,
+      workspaceTop: document.querySelector("#conversation-workspace").getBoundingClientRect().top,
+      headerBottom: document.querySelector(".topbar").getBoundingClientRect().bottom,
+    }));
+    expect(clipping.messageTop).toBeGreaterThanOrEqual(clipping.workspaceTop - 1);
+    expect(clipping.workspaceTop).toBeGreaterThanOrEqual(clipping.headerBottom - 1);
+    await expect(latestRow).toBeVisible();
   } finally {
     await setIntelligentUi(request, false);
   }
@@ -1605,6 +1919,75 @@ test("Intelligent UI: verified floor maps render interactive markers and a text 
       mkdirSync(screenshotDirectory, { recursive: true });
       await map.screenshot({ path: join(screenshotDirectory, "map-chromium.png") });
     }
+  } finally {
+    await setIntelligentUi(request, false);
+  }
+});
+
+test("Intelligent UI: facility directory searches by building and floor and opens official maps", async ({ page, request }) => {
+  await setIntelligentUi(request, true, { prompts: ["Find a location"] });
+  try {
+    await page.route("**/api/guest/intelligent-chat/stream", async (route) => {
+      const payload = route.request().postDataJSON();
+      const directory = {
+        id: "rwg-directory",
+        type: "facility_directory",
+        title: "Resorts World Genting locations",
+        description: "Reference listings checked 2026-10-14. Outlet hours and live status are not connected.",
+        locations: [
+          {
+            id: "atm-1", title: "ATM", category: "banking", building: "SkyAvenue", floor: "1",
+            location: "Near currency exchange", description: "Official directory listing.", listed_hours: "",
+            source_url: "https://www.rwgenting.com/en/things-to-do/shopping/skyavenue-complex.html", source_ids: [],
+          },
+          {
+            id: "coffee-1", title: "Coffee Terrace", category: "restaurant", building: "Genting Grand Hotel Complex", floor: "G",
+            location: "Lot G/G5.00", description: "", listed_hours: "", source_url: "", source_ids: [],
+          },
+        ],
+        map_links: [{
+          id: "skyavenue-directory", title: "SkyAvenue official directory", scope: "SkyAvenue",
+          format: "html", url: "https://www.rwgenting.com/en/things-to-do/shopping/skyavenue-complex.html",
+          license_status: "not-cleared", source_ids: [],
+        }],
+        source_ids: [],
+      };
+      const conversationId = payload.session_id;
+      const response = { schema_version: "1.0", conversation_id: conversationId, turn_id: payload.turn_id, blocks: [directory] };
+      const events = [
+        ["turn.started", { schema_version: "1.0", conversation_id: conversationId, turn_id: payload.turn_id }],
+        ["component.ready", { block: directory }],
+        ["turn.completed", { response }],
+      ];
+      await route.fulfill({
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+        body: events.map(([type, data], index) =>
+          `id: ${payload.turn_id}:${index + 1}\nevent: ${type}\ndata: ${JSON.stringify(data)}\n\n`,
+        ).join(""),
+      });
+    });
+    await page.goto("/");
+    await page.getByLabel("Message your concierge").fill("Find a location");
+    await page.getByRole("button", { name: "Send message" }).click();
+    const directory = page.locator(".facility-directory");
+    await expect(directory.getByRole("heading", { name: "Resorts World Genting locations" })).toBeVisible();
+    await expect(directory.getByText("2 locations")).toBeVisible();
+    await expect(directory.getByRole("heading", { name: "ATM" })).toBeVisible();
+
+    await directory.getByLabel("Search locations by name, building, floor, or category").fill("coffee");
+    await expect(directory.getByText("1 location")).toBeVisible();
+    await expect(directory.getByRole("heading", { name: "Coffee Terrace" })).toBeVisible();
+    await expect(directory.getByRole("heading", { name: "ATM" })).toHaveCount(0);
+
+    await directory.getByLabel("Search locations by name, building, floor, or category").fill("");
+    await directory.getByLabel("Filter by building").selectOption("SkyAvenue");
+    await expect(directory.getByRole("heading", { name: "ATM" })).toBeVisible();
+    await expect(directory.getByRole("heading", { name: "Coffee Terrace" })).toHaveCount(0);
+    await expect(directory.getByRole("link", { name: /Open official directory: SkyAvenue/ })).toHaveAttribute(
+      "href", "https://www.rwgenting.com/en/things-to-do/shopping/skyavenue-complex.html",
+    );
+    await expect(directory).toContainText("does not provide indoor routes");
   } finally {
     await setIntelligentUi(request, false);
   }
@@ -1915,4 +2298,302 @@ test("admin: no console errors on load", async ({ page }) => {
   await page.waitForLoadState("networkidle");
 
   expect(errors).toEqual([]);
+});
+
+test("Intelligent UI regression: composer clears on accepted send and retries do not duplicate messages", async ({ page, request }) => {
+  await setIntelligentUi(request, true);
+  const sent = [];
+  try {
+    await page.route("**/api/guest/intelligent-chat/stream", async (route) => {
+      const payload = route.request().postDataJSON();
+      sent.push(payload);
+      if (payload.message === "hi") await new Promise((resolve) => setTimeout(resolve, 250));
+      if (payload.message === "retry safely" && sent.filter((item) => item.message === payload.message).length === 1) {
+        await route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ detail: "Temporary test outage." }) });
+        return;
+      }
+      const answer = payload.message === "hi" ? "Hello! How can I help with your stay?" : `Received: ${payload.message}`;
+      await route.fulfill({ status: 200, headers: { "content-type": "text/event-stream" }, body: streamEvents(payload, [{ id: `answer-${sent.length}`, type: "text", content: answer }], answer) });
+    });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const failedResponses = [];
+    const startupConsole = [];
+    page.on("console", (message) => { if (message.type() === "error") startupConsole.push(message.text()); });
+    page.on("response", (response) => {
+      if (response.status() >= 400) failedResponses.push(`${response.status()} ${new URL(response.url()).pathname}`);
+    });
+    await page.goto("/");
+    try { await waitForGuestSession(page); }
+    catch (error) { throw new Error(`${error.message} (${failedResponses.join(", ")})`); }
+    await expect(page.locator("#app-shell"), `Guest app startup responses: ${failedResponses.join(", ")}; console: ${startupConsole.join(" | ")}`).toBeVisible();
+
+    const composer = page.getByLabel("Message your concierge");
+    await composer.fill("hi");
+    await composer.press("Enter");
+    await expect(composer).toHaveValue("");
+    await composer.fill("second question");
+    await expect(page.getByRole("button", { name: "Send message" })).toBeDisabled();
+    await expect(page.locator(".message-row.assistant .message-text").last()).toContainText("Hello!");
+    await expect(composer).toHaveValue("second question");
+    await expect(page.locator(".message-row.guest .message-text", { hasText: "hi" })).toHaveCount(1);
+
+    const aligned = await page.evaluate(() => {
+      const workspace = document.querySelector("#conversation-workspace").getBoundingClientRect();
+      const assistant = document.querySelector(".message-row.assistant").getBoundingClientRect();
+      const guest = document.querySelector(".message-row.guest").getBoundingClientRect();
+      return { workspaceLeft: workspace.left, workspaceRight: workspace.right, assistantLeft: assistant.left, guestRight: guest.right };
+    });
+    expect(Math.abs(aligned.assistantLeft - aligned.workspaceLeft)).toBeLessThanOrEqual(2);
+    expect(aligned.guestRight).toBeLessThanOrEqual(aligned.workspaceRight + 1);
+    expect(aligned.guestRight).toBeGreaterThan((aligned.workspaceLeft + aligned.workspaceRight) / 2);
+
+    await page.getByRole("button", { name: "Send message" }).click();
+    await expect(page.locator(".message-row.guest .message-text")).toHaveCount(2);
+    await expect(page.locator(".message-row.assistant .message-text")).toHaveCount(2);
+    const messageGap = await page.evaluate(() => {
+      const rows = [...document.querySelectorAll(".message-row")];
+      return rows[1].getBoundingClientRect().top - rows[0].getBoundingClientRect().bottom;
+    });
+    expect(messageGap).toBeGreaterThanOrEqual(0);
+    expect(messageGap).toBeLessThanOrEqual(28);
+
+    await composer.fill("composed text");
+    await composer.evaluate((input) => {
+      input.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", keyCode: 229, isComposing: true, bubbles: true }));
+    });
+    await expect(composer).toHaveValue("composed text");
+    expect(sent).toHaveLength(2);
+    await composer.evaluate((input) => input.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true })));
+
+    await composer.fill("retry safely");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await expect(page.locator(".error-panel").last()).toContainText("Temporary test outage");
+    await expect(composer).toHaveValue("retry safely");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await expect(page.locator(".message-row.guest .message-text", { hasText: "retry safely" })).toHaveCount(1);
+    const retryTurns = sent.filter((item) => item.message === "retry safely").map((item) => item.turn_id);
+    expect(retryTurns).toHaveLength(2);
+    expect(retryTurns[0]).toBe(retryTurns[1]);
+
+    await composer.fill("unsent draft");
+    await page.getByRole("button", { name: "Start a new private conversation" }).click();
+    await expect(page.locator("#welcome")).toBeVisible();
+    await expect(composer).toHaveValue("");
+  } finally {
+    await setIntelligentUi(request, false);
+  }
+});
+
+test("Intelligent UI regression: restaurant menu stays above the persistent composer at phone, tablet, and desktop sizes", async ({ page, request }, testInfo) => {
+  await setIntelligentUi(request, true);
+  const restaurant = {
+    id: "regression-restaurant", type: "restaurant", title: "Luna Test Dining", subtitle: "All-day dining",
+    description: "A regression restaurant card with a published menu.", resource_id: "regression-restaurant",
+    image_url: "https://images.example.test/restaurant.svg", menu_available: true, policies: [], source_ids: [],
+  };
+  let releaseImage;
+  let notifyImageRequest;
+  const imageGate = new Promise((resolve) => { releaseImage = resolve; });
+  const imageRequested = new Promise((resolve) => { notifyImageRequest = resolve; });
+  try {
+    await page.route("**/api/guest/intelligent-chat/stream", async (route) => {
+      const payload = route.request().postDataJSON();
+      const block = { id: "restaurant-cards", type: "card_collection", title: "Dining options", cards: [restaurant] };
+      const body = streamEvents(payload, [block]);
+      await route.fulfill({ status: 200, headers: { "content-type": "text/event-stream" }, body });
+    });
+    await page.route("**/api/guest/restaurants/regression-restaurant/menus", (route) => route.fulfill({
+      status: 200, contentType: "application/json",
+      body: JSON.stringify({ menus: [{ name: "Dinner", meal_period: "Evening", source_ids: [], items: [{ name: "Test noodles", description: "A menu item for layout verification.", source_ids: [] }] }] }),
+    }));
+    await page.route("https://images.example.test/restaurant.svg", async (route) => {
+      notifyImageRequest();
+      await imageGate;
+      await route.fulfill({
+        status: 200, contentType: "image/svg+xml",
+        body: '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="100"><rect width="160" height="100" fill="#d8e6dc"/><circle cx="80" cy="50" r="24" fill="#315f50"/></svg>',
+      });
+    });
+    await page.goto("/");
+    await waitForGuestSession(page);
+    await page.getByLabel("Message your concierge").fill("Where can I have dinner?");
+    await page.getByRole("button", { name: "Send message" }).click();
+    const card = page.locator(".entity-card").filter({ hasText: "Luna Test Dining" });
+    await expect(card).toBeVisible();
+    await imageRequested;
+    const cardTitleTopBeforeImage = await card.locator("h3").evaluate((title) => title.getBoundingClientRect().top);
+    releaseImage();
+    await expect(card.locator("img")).toHaveJSProperty("naturalWidth", 160);
+    const cardTitleTopAfterImage = await card.locator("h3").evaluate((title) => title.getBoundingClientRect().top);
+    expect(Math.abs(cardTitleTopAfterImage - cardTitleTopBeforeImage)).toBeLessThanOrEqual(1);
+    await card.getByRole("button", { name: "View published menu" }).click();
+    await expect(card.locator(".menu-details")).toContainText("Test noodles");
+
+    const screenshots = testInfo.outputPath("chat-regression-screenshots");
+    if (testInfo.project.name === "chromium") mkdirSync(screenshots, { recursive: true });
+    for (const viewport of [
+      { width: 390, height: 844, label: "mobile" },
+      { width: 768, height: 1024, label: "tablet" },
+      { width: 1440, height: 900, label: "desktop" },
+    ]) {
+      await page.setViewportSize(viewport);
+      await card.locator(".menu-details").scrollIntoViewIfNeeded();
+      const geometry = await page.evaluate(() => ({
+        width: document.documentElement.scrollWidth,
+        viewport: window.innerWidth,
+        contentBottom: document.querySelector(".menu-details").getBoundingClientRect().bottom,
+        composerTop: document.querySelector(".composer-dock").getBoundingClientRect().top,
+        dockBottom: document.querySelector(".composer-dock").getBoundingClientRect().bottom,
+        viewportBottom: window.innerHeight,
+      }));
+      expect(geometry.width).toBeLessThanOrEqual(viewport.width);
+      expect(geometry.contentBottom).toBeLessThanOrEqual(geometry.composerTop);
+      expect(geometry.dockBottom).toBeLessThanOrEqual(geometry.viewportBottom);
+      if (testInfo.project.name === "chromium") await page.screenshot({ path: join(screenshots, `restaurant-${viewport.label}.png`) });
+    }
+  } finally {
+    await setIntelligentUi(request, false);
+  }
+});
+
+test("Intelligent UI regression: long chat keeps its scroll anchor while a response changes", async ({ page, request }) => {
+  await setIntelligentUi(request, true);
+  let slowResponseStarted;
+  const slowResponse = new Promise((resolve) => { slowResponseStarted = resolve; });
+  try {
+    await page.route("**/api/guest/intelligent-chat/stream", async (route) => {
+      const payload = route.request().postDataJSON();
+      const answer = `Answer for ${payload.message}. ${"More hotel information. ".repeat(45)}`;
+      if (payload.message === "follow up") {
+        slowResponseStarted();
+        await new Promise((resolve) => setTimeout(resolve, 450));
+      }
+      await route.fulfill({ status: 200, headers: { "content-type": "text/event-stream" }, body: streamEvents(payload, [{ id: `answer-${payload.turn_id}`, type: "text", content: answer }]) });
+    });
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto("/");
+    const composer = page.getByLabel("Message your concierge");
+    for (let index = 1; index <= 8; index += 1) {
+      await composer.fill(`question ${index}`);
+      await page.getByRole("button", { name: "Send message" }).click();
+      await expect(page.locator(".message-row.assistant .message-text").last()).toContainText(`Answer for question ${index}`);
+    }
+    const workspace = page.locator("#conversation-workspace");
+    await expect.poll(() => workspace.evaluate((node) => node.scrollHeight > node.clientHeight)).toBeTruthy();
+    await workspace.evaluate((node) => { node.scrollTop = 100; });
+    const previousTop = await workspace.evaluate((node) => node.scrollTop);
+    await composer.fill("follow up");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await slowResponse;
+    await expect(workspace).toHaveJSProperty("scrollTop", previousTop);
+    await expect(page.locator(".loading-line")).toBeVisible();
+  } finally {
+    await setIntelligentUi(request, false);
+  }
+});
+
+test("Intelligent UI regression: expired chat keeps failed text and starts a fresh session only on request", async ({ page, request }) => {
+  await setIntelligentUi(request, true);
+  let streamCount = 0;
+  try {
+    await page.route("**/api/guest/intelligent-chat/stream", async (route) => {
+      streamCount += 1;
+      await route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ detail: "Concierge session expired." }) });
+    });
+    await page.goto("/");
+    await waitForGuestSession(page);
+    const oldSession = await page.evaluate(() => sessionStorage.getItem("concierge-v2-session-id"));
+    const composer = page.getByLabel("Message your concierge");
+    await composer.fill("hi");
+    await composer.press("Enter");
+    await expect(page.locator(".message-row.guest .message-text", { hasText: "hi" })).toHaveCount(1);
+    await expect(page.locator(".error-panel").last()).toContainText("session has expired");
+    await expect(page.locator(".error-panel").last().getByRole("button", { name: "Start a new chat" })).toBeVisible();
+    await expect(composer).toHaveValue("hi");
+    await expect(page.locator("#send-button")).toBeDisabled();
+
+    await page.locator(".error-panel").last().getByRole("button", { name: "Start a new chat" }).click();
+    await expect(page.locator("#welcome")).toBeVisible();
+    await expect(composer).toHaveValue("");
+    const newSession = await page.evaluate(() => sessionStorage.getItem("concierge-v2-session-id"));
+    expect(newSession).toBeTruthy();
+    expect(newSession).not.toBe(oldSession);
+    expect(streamCount).toBe(1);
+  } finally {
+    await setIntelligentUi(request, false);
+  }
+});
+
+test("Intelligent UI regression: a stale saved session is not silently resumed as a new session", async ({ page, request }) => {
+  await setIntelligentUi(request, true);
+  let startCalls = 0;
+  try {
+    await page.addInitScript(() => {
+      sessionStorage.setItem("concierge-v2-session-id", "expired-session-from-old-browser-state");
+      sessionStorage.setItem("concierge-v2-property-id", "e2e-property");
+    });
+    await page.route("**/api/session/resume", (route) => route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ detail: "Concierge session expired." }) }));
+    await page.on("request", (browserRequest) => {
+      if (browserRequest.url().endsWith("/api/session/start")) startCalls += 1;
+    });
+    await page.goto("/");
+    await expect(page.locator(".error-panel")).toContainText("session has expired");
+    await expect(page.locator(".error-panel").getByRole("button", { name: "Start a new chat" })).toBeVisible();
+    expect(startCalls).toBe(0);
+    await page.locator(".error-panel").getByRole("button", { name: "Start a new chat" }).click();
+    await expect(page.locator("#welcome")).toBeVisible();
+    expect(startCalls).toBe(1);
+  } finally {
+    await setIntelligentUi(request, false);
+  }
+});
+
+test("Intelligent UI regression: controlled idle expiry preserves the unsent message and explicit recovery works", async ({ page, request }) => {
+  await setIntelligentUi(request, true);
+  try {
+    await page.goto("/");
+    await waitForGuestSession(page);
+    const oldSession = await page.evaluate(() => sessionStorage.getItem("concierge-v2-session-id"));
+    await updateGuestSessionClock(page, oldSession, "idle_expired");
+    const composer = page.getByLabel("Message your concierge");
+    await composer.fill("hi");
+    await composer.press("Enter");
+    await expect(page.locator(".error-panel").last()).toContainText("session has expired");
+    await expect(composer).toHaveValue("hi");
+    await page.locator(".error-panel").last().getByRole("button", { name: "Start a new chat" }).click();
+    await expect(page.locator("#welcome")).toBeVisible();
+    await expect(composer).toHaveValue("");
+    expect(await page.evaluate(() => sessionStorage.getItem("concierge-v2-session-id"))).not.toBe(oldSession);
+  } finally {
+    await setIntelligentUi(request, false);
+  }
+});
+
+test("Intelligent UI regression: permitted activity slides credential expiry and revoked sessions cannot renew", async ({ page, request }) => {
+  await setIntelligentUi(request, true);
+  try {
+    await page.goto("/");
+    await waitForGuestSession(page);
+    const sessionId = await page.evaluate(() => sessionStorage.getItem("concierge-v2-session-id"));
+    const nearExpiry = await updateGuestSessionClock(page, sessionId, "near_expiry");
+    const historyStatus = await page.evaluate(async (id) => (await fetch("/api/guest/intelligent-history", {
+      headers: { "X-Concierge-Session": id },
+    })).status, sessionId);
+    expect(historyStatus).toBe(200);
+    const renewed = await updateGuestSessionClock(page, sessionId, "read");
+    expect(renewed.guest_token_expires_at).toBeGreaterThan(nearExpiry.guest_token_expires_at + 60);
+
+    await updateGuestSessionClock(page, sessionId, "revoked");
+    const clientId = await page.evaluate(() => localStorage.getItem("concierge-client-id"));
+    const resumeStatus = await page.evaluate(async ({ id, client }) => (await fetch("/api/session/resume", {
+      method: "POST", headers: { "Content-Type": "application/json", "X-Concierge-Session": id },
+      body: JSON.stringify({ session_id: id, client_id: client }),
+    })).status, { id: sessionId, client: clientId });
+    expect(resumeStatus).toBe(401);
+    const stillRevoked = await updateGuestSessionClock(page, sessionId, "read");
+    expect(stillRevoked.guest_token_revoked_at).toBeGreaterThan(0);
+  } finally {
+    await setIntelligentUi(request, false);
+  }
 });

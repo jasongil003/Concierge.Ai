@@ -111,8 +111,9 @@ from .guest_grounding import normalize_guest_text, requires_verified_guest_answe
 from .hospitality import HospitalityStore
 from .intro import IntroExperienceStore
 from .location_analytics import LocationAnalyticsStore
-from .operations import OperationsStore
+from .operations import OperationsStore, RWG_REFERENCE_SOURCE_PREFIX
 from .knowledge_management import KnowledgeStore, CATEGORIES, parse_document, validate_file
+from .rwg_knowledge import decode_imported_reference_records
 from .network_access import (
     DEFAULT_MANAGEMENT_CIDRS,
     ManagementAccessGuard,
@@ -532,6 +533,20 @@ def _intelligent_guest_ui_config(record: PropertyRecord) -> GuestExperienceSetti
         return GuestExperienceSettings()
 
 
+def _intelligent_guest_suggestions(property_id: str, configured: GuestExperienceSettings) -> list[str]:
+    prompts = list(configured.suggested_prompts or [
+        "Show me dining options",
+        "What hotel facilities are available?",
+        "What can I explore nearby?",
+        "Can I have some extra towels please?",
+    ])
+    if _intelligent_guest_facility_directory_block(property_id) and not any(
+        "location" in prompt.casefold() or "facility map" in prompt.casefold() for prompt in prompts
+    ):
+        prompts = prompts[:5] + ["Find a location"]
+    return prompts[:6]
+
+
 def _intelligent_guest_ui_enabled(record: PropertyRecord) -> bool:
     return bool(
         settings.intelligent_guest_ui_global_enabled
@@ -678,7 +693,12 @@ def _guest_session(request: Request, session_id: str | None, action_level: int =
         raise GuardrailDenied(decision, status_code=401)
     validated_at = store.verify_guest_credentials_at(session.session_id, token, context)
     if validated_at is None:
-        request.state.guest_cookie_cleanup_session_id = session.session_id
+        # A stale request can arrive after a concurrent resume rotated the
+        # per-session cookie. Clearing that cookie in its 401 response could
+        # erase the newer Set-Cookie from the successful resume response.
+        # Only clear credentials that the server has explicitly revoked.
+        if session.guest_token_revoked_at is not None:
+            request.state.guest_cookie_cleanup_session_id = session.session_id
         # Legacy sessions without browser credentials fail closed in every environment.
         decision = GuardrailDecision(False, "Concierge session expired.", "session_validation", None, action_level, False, False, _request_id(request))
         raise GuardrailDenied(decision, status_code=401)
@@ -1431,12 +1451,7 @@ async def intelligent_guest_ui_config(request: Request) -> Response:
         "welcome_message": configured.welcome_message.strip()
         or str(property_record.welcome or "").strip()[:300]
         or "Your personal concierge is here to make your stay easier.",
-        "suggested_prompts": configured.suggested_prompts or [
-            "Show me dining options",
-            "What hotel facilities are available?",
-            "What can I explore nearby?",
-            "Can I have some extra towels please?",
-        ],
+        "suggested_prompts": _intelligent_guest_suggestions(property_record.property_id, configured),
     }
     return JSONResponse(payload, headers={"Cache-Control": "no-store"})
 
@@ -1459,6 +1474,39 @@ async def guest_zones(request: Request, property_id: str | None = None) -> dict[
         for item in overview["maps"]
     ]
     return overview
+
+
+@app.get("/api/guest/hotel-assets/{asset_id}")
+async def guest_hotel_asset(request: Request, asset_id: str, property_id: str | None = None) -> FileResponse:
+    """Serve content-addressed public hotel images from the configured upload store."""
+    record = _guest_property(request, property_id)
+    _enforce_guest_network(request, record)
+    if not re.fullmatch(r"[a-f0-9]{64}", asset_id):
+        raise HTTPException(status_code=404, detail="Hotel image not found.")
+    media_root = (settings.upload_root / record.property_id / "hotel_media").resolve()
+    property_root = (settings.upload_root / record.property_id).resolve()
+    if media_root.parent != property_root or not media_root.is_dir():
+        raise HTTPException(status_code=404, detail="Hotel image not found.")
+    for extension, media_type in ((".jpg", "image/jpeg"), (".jpeg", "image/jpeg"), (".png", "image/png"), (".webp", "image/webp")):
+        candidate = media_root / f"{asset_id}{extension}"
+        if candidate.is_symlink():
+            continue
+        try:
+            resolved = candidate.resolve(strict=True)
+        except FileNotFoundError:
+            continue
+        if resolved.parent != media_root or not resolved.is_file():
+            continue
+        return FileResponse(
+            resolved,
+            media_type=media_type,
+            headers={
+                "Cache-Control": "public, max-age=31536000, immutable",
+                "X-Content-Type-Options": "nosniff",
+                "Content-Security-Policy": "default-src 'none'; sandbox",
+            },
+        )
+    raise HTTPException(status_code=404, detail="Hotel image not found.")
 
 
 @app.get("/api/guest/floor-maps/{map_id}/asset")
@@ -1525,7 +1573,7 @@ async def guest_restaurant_menus(restaurant_id: str, request: Request, property_
         "name": menu.get("name", ""), "meal_period": menu.get("meal_period", ""),
         "source_ids": [guest_source_id(record.property_id, "menu", str(menu.get("menu_id") or "unknown"))],
         "items": [{
-            **{key: value for key, value in item.items() if key in {"name", "description", "price", "ingredients", "allergens", "dietary_tags", "available"}},
+            **{key: value for key, value in item.items() if key in {"name", "description", "price", "image_url", "ingredients", "allergens", "dietary_tags", "available"}},
             "source_ids": [guest_source_id(record.property_id, "menu_item", str(item.get("item_id") or item.get("menu_item_id") or "unknown"))],
         } for item in menu.get("items", [])],
     } for menu in menus]
@@ -6220,8 +6268,8 @@ async def _chat_response(
                     continue
     personalization_context = personalization.context_for(session.property_id, session.session_id, sanitized_message)
     recommendation_text = sanitized_message.casefold()
-    dining_request = any(token in recommendation_text for token in ("restaurant", "eat", "food", "dinner", "lunch", "breakfast", "cafe", "café"))
-    activity_request = any(token in recommendation_text for token in ("activity", "things to do", "plan", "attraction", "visit", "tour", "surprise", "do this", "do today", "afternoon", "free tonight", "hours free", "free before", "free for", "what should i do"))
+    dining_request = any(token in recommendation_text for token in ("restaurant", "eat", "hungry", "starving", "something to eat", "food", "dinner", "lunch", "breakfast", "cafe", "café"))
+    activity_request = any(token in recommendation_text for token in ("activity", "things to do", "plan", "attraction", "visit", "tour", "surprise", "do this", "do today", "afternoon", "free tonight", "hours free", "free before", "free for", "what should i do", "where can i go", "places to go", "near the hotel", "nearby", "around here"))
     dining_preferences = {"food", "dietary", "budget", "travel_party", "transportation", "accessibility"}
     activity_preferences = {"interests", "activities", "travel_party", "budget", "transportation", "accessibility", "activity_time", "trip_purpose"}
     uses_guest_recommendations = any(
@@ -6345,8 +6393,8 @@ async def _chat_response(
     allow_personalized_places = personalization_policy["enabled"] and personalization_policy["allow_internet_recommendations"]
     place_query = sanitized_message
     search_hints = personalization.search_hints(session.property_id, session.session_id, sanitized_message) if allow_personalized_places else ""
-    dining_search = any(token in sanitized_message.casefold() for token in ("restaurant", "eat", "food", "dinner", "lunch", "breakfast", "cafe", "café"))
-    activity_search = any(token in sanitized_message.casefold() for token in ("activity", "things to do", "plan", "attraction", "visit", "tour", "surprise", "do this", "do today", "afternoon", "free tonight", "hours free", "free before", "free for", "what should i do"))
+    dining_search = any(token in sanitized_message.casefold() for token in ("restaurant", "eat", "hungry", "starving", "something to eat", "food", "dinner", "lunch", "breakfast", "cafe", "café"))
+    activity_search = any(token in sanitized_message.casefold() for token in ("activity", "things to do", "plan", "attraction", "visit", "tour", "surprise", "do this", "do today", "afternoon", "free tonight", "hours free", "free before", "free for", "what should i do", "where can i go", "places to go", "near the hotel", "nearby", "around here"))
     if search_hints and dining_search:
         place_query = f"{sanitized_message} {search_hints}"
     elif search_hints and activity_search:
@@ -6573,12 +6621,7 @@ async def _compose_intelligent_guest_response(
 
     if _is_intelligent_guest_greeting(payload.message):
         settings_for_guest = _intelligent_guest_ui_config(property_record)
-        prompts = settings_for_guest.suggested_prompts or [
-            "Show me dining options",
-            "What hotel facilities are available?",
-            "What can I explore nearby?",
-            "Can I have some extra towels please?",
-        ]
+        prompts = _intelligent_guest_suggestions(session.property_id, settings_for_guest)
         blocks: list[dict[str, Any]] = [{
             "id": new_ui_id("text"),
             "type": "text",
@@ -6589,6 +6632,45 @@ async def _compose_intelligent_guest_response(
                 "id": new_ui_id("suggestions"),
                 "type": "suggestion_chips",
                 "items": [{"label": prompt[:80], "prompt": prompt[:300]} for prompt in prompts[:4]],
+            })
+        return make_intelligent_ui_response(session.session_id, blocks, payload.turn_id)
+
+    if _is_intelligent_room_request(conversation_query):
+        room_cards = []
+        for room in (property_record.rooms or [])[:8]:
+            name = str(room.get("name") or "Room type").strip()
+            if not name:
+                continue
+            rate = room.get("nightly_rate_php_demo")
+            rate_text = f"Demo nightly reference: PHP {int(rate):,}" if isinstance(rate, (int, float)) and rate > 0 else "Demo rate not provided"
+            capacity = room.get("capacity") or room.get("max_guests")
+            size = room.get("size_sqm")
+            subtitle_parts = [value for value in (f"{size} m²" if size else "", str(room.get("beds") or "")) if value]
+            images = room.get("images") or room.get("gallery") or []
+            room_cards.append({
+                "id": new_ui_id("room"),
+                "type": "room",
+                "title": name[:120],
+                "subtitle": " · ".join(subtitle_parts)[:120],
+                "description": str(room.get("description") or "")[:500],
+                "detail": " · ".join([rate_text, f"Up to {capacity} guests" if capacity else ""])[:300],
+                "image_url": str(images[0])[:500] if images and isinstance(images[0], str) else "",
+                "location": "",
+                "opening_hours": "",
+                "menu_available": False,
+                "source_ids": [guest_source_id(session.property_id, "room", str(room.get("id") or name))],
+            })
+        blocks = [{
+            "id": new_ui_id("text"),
+            "type": "text",
+            "content": "These room types, images, and nightly prices are synthetic demo references. Rates and availability are not live bookings.",
+        }]
+        if room_cards:
+            blocks.append({
+                "id": new_ui_id("rooms"),
+                "type": "card_collection",
+                "title": "Room types · demo reference information",
+                "cards": room_cards,
             })
         return make_intelligent_ui_response(session.session_id, blocks, payload.turn_id)
 
@@ -6627,30 +6709,141 @@ async def _compose_intelligent_guest_response(
         })
         return make_intelligent_ui_response(session.session_id, blocks, payload.turn_id)
 
+    if _is_intelligent_facility_directory_request(conversation_query):
+        directory = _intelligent_guest_facility_directory_block(session.property_id)
+        if directory:
+            return make_intelligent_ui_response(session.session_id, [{
+                "id": new_ui_id("text"),
+                "type": "text",
+                "content": "Search the published building and floor listings below. This package does not contain validated indoor routes.",
+            }, directory], payload.turn_id)
+
     if _is_intelligent_map_request(conversation_query):
         floor_map = _intelligent_guest_floor_map_block(session.property_id, conversation_query)
+        directions_enabled = normalize_guardrails(property_record.guardrails)["directions_enabled"]
         directions = _intelligent_guest_directions_block(
             session.property_id,
             conversation_query,
-            enabled=normalize_guardrails(property_record.guardrails)["directions_enabled"],
+            enabled=directions_enabled,
         )
+        if not floor_map and not directions:
+            directory = _intelligent_guest_facility_directory_block(session.property_id)
+            if directory:
+                direction_question = any(term in conversation_query.casefold() for term in (
+                    "how do i get", "how can i reach", "directions", "route", "navigate",
+                ))
+                message = (
+                    "This directory has no validated indoor route data. Use the building and floor details or open an official map below."
+                    if direction_question else
+                    "I couldn't confirm an indoor route from the available floorplan data. Search the published location details or open an official map below."
+                )
+                return make_intelligent_ui_response(session.session_id, [{
+                    "id": new_ui_id("text"), "type": "text", "content": message,
+                }, directory], payload.turn_id)
+        if floor_map:
+            floor_map["directions_enabled"] = directions_enabled
+            if directions:
+                floor_map["route_node_ids"] = directions["node_ids"]
+        selected_location = next((
+            item for item in (floor_map or {}).get("locations", [])
+            if item.get("marker_id") == (floor_map or {}).get("focused_marker_id")
+        ), None)
+        selected_marker = next((
+            item for item in (floor_map or {}).get("markers", [])
+            if item.get("id") == (floor_map or {}).get("focused_marker_id")
+        ), None)
+        direction_question = any(term in conversation_query.casefold() for term in (
+            "how do i get", "how can i reach", "directions", "route", "navigate",
+        ))
+        explicit_endpoints = bool(re.search(r"\bfrom\s+.+?\s+to\s+.+", conversation_query, re.IGNORECASE))
+        if directions:
+            route_steps = directions.get("steps") or []
+            map_copy = (
+                f"Here are the published directions from {route_steps[0]['label']} to {route_steps[-1]['label']}."
+                if route_steps else "Here are the published walking directions."
+            )
+        elif floor_map and (selected_location or selected_marker):
+            place_name = (selected_location or selected_marker).get("title") or (selected_location or selected_marker).get("label") or "That location"
+            map_copy = f"The {place_name} is on {floor_map['floor_label']}. Its location is highlighted below."
+            if explicit_endpoints and directions_enabled:
+                map_copy = f"I couldn't confirm a walking route to {place_name}. I've marked its location below; please ask the hotel team for directions."
+            elif direction_question and directions_enabled:
+                map_copy += " Where are you starting from? I can check whether directions are available."
+            elif direction_question:
+                map_copy += " Please ask the Front Desk for directions."
+        elif floor_map:
+            map_copy = f"Here is the map for {floor_map['floor_label']}. Select a location to see its details."
+        else:
+            map_copy = "I couldn't find a mapped location for that place. Please contact the Front Desk for help."
         blocks: list[dict[str, Any]] = [{
             "id": new_ui_id("text"),
             "type": "text",
-            "content": (
-                "Here is the hotel's configured floor plan. Select a marker to identify its location. "
-                "The route below follows published navigation points."
-                if directions else
-                "Here is the hotel's configured floor plan. Select a marker to identify its location. "
-                "A route from your current position is not available yet; tell me your starting point and destination to check for a published route."
-                if floor_map else
-                "This hotel has no published floor map or verified route for that location. Please contact the Front Desk for directions."
-            ),
+            "content": map_copy,
         }]
         if floor_map:
             blocks.append(floor_map)
         if directions:
             blocks.append(directions)
+        if _is_intelligent_facility_request(conversation_query):
+            facilities = [
+                item for item in hospitality.guest_facilities(session.property_id).get("facilities", [])
+                if not item.get("archived") and item.get("status") not in {"disabled", "archived"}
+            ]
+            facility_cards = []
+            for facility in _guest_relevant_facilities(facilities, conversation_query)[:8]:
+                opening = facility.get("opening_hours") or {}
+                hours = opening.get("display", "") if isinstance(opening, dict) else str(opening or "")
+                images = facility.get("images") or []
+                facility_cards.append({
+                    "id": new_ui_id("facility"),
+                    "type": "facility",
+                    "title": str(facility.get("name") or "Hotel facility")[:120],
+                    "subtitle": str(facility.get("facility_type") or "")[:120],
+                    "description": str(facility.get("description") or "")[:500],
+                    "detail": str(facility.get("status_note") or "")[:300],
+                    "resource_id": str(facility.get("facility_id") or "")[:80],
+                    "image_url": str(images[0])[:500] if images and isinstance(images[0], str) else "",
+                    "image_label": "Demo illustration · not a property photo" if re.search(r"\bdemo\b", str(facility.get("status_note") or ""), re.IGNORECASE) and images else "",
+                    "location": str(facility.get("location") or "")[:240],
+                    "opening_hours": str(hours or "")[:160],
+                    "policies": [item[:240] for item in facility.get("policies", [])[:8] if isinstance(item, str)] if isinstance(facility.get("policies"), list) else [],
+                    "source_ids": [guest_source_id(session.property_id, "facility", str(facility.get("facility_id") or "unknown"))],
+                })
+            if facility_cards and not ((floor_map or {}).get("locations")):
+                blocks.append({
+                    "id": new_ui_id("facility-locations"),
+                    "type": "card_collection",
+                    "title": "Facility details",
+                    "cards": facility_cards,
+                })
+        return make_intelligent_ui_response(session.session_id, blocks, payload.turn_id)
+
+    menu_item = _matching_published_menu_item(session.property_id, payload.message)
+    if menu_item:
+        item_id = str(menu_item.get("item_id") or menu_item.get("menu_item_id") or "unknown")
+        price = str(menu_item.get("price") or "").strip()
+        detail = f"Price: {price}" if price else "Price is not published"
+        blocks = [
+            {
+                "id": new_ui_id("text"),
+                "type": "text",
+                "content": "Here are the published details for that menu item. Prices are demo references.",
+            },
+            {
+                "id": new_ui_id("menu-item"),
+                "type": "entity_card",
+                "card": {
+                    "id": new_ui_id("menu-item-card"),
+                    "type": "menu_item",
+                    "title": str(menu_item.get("name") or "Published menu item")[:120],
+                    "description": str(menu_item.get("description") or "")[:500],
+                    "detail": detail[:300],
+                    "resource_id": item_id[:80],
+                    "image_url": str(menu_item.get("image_url") or "")[:500],
+                    "source_ids": [guest_source_id(session.property_id, "menu_item", item_id)],
+                },
+            },
+        ]
         return make_intelligent_ui_response(session.session_id, blocks, payload.turn_id)
 
     if _is_guest_service_request(payload.message):
@@ -6867,6 +7060,7 @@ async def _compose_intelligent_guest_response(
                 "detail": detail[:300],
                 "resource_id": str(facility.get("facility_id") or "")[:80],
                 "image_url": image_url,
+                "image_label": "Demo illustration · not a property photo" if re.search(r"\bdemo\b", status_note, re.IGNORECASE) and image_url else "",
                 "location": location[:240],
                 "opening_hours": hours[:160],
                 "policies": [item[:240] for item in facility.get("policies", [])[:8] if isinstance(item, str)] if isinstance(facility.get("policies"), list) else [],
@@ -6884,7 +7078,8 @@ async def _compose_intelligent_guest_response(
             blocks.append(floor_map)
     elif _is_intelligent_attraction_request(conversation_query):
         place_cards = []
-        for place in (result.get("places") or [])[:8]:
+        external_places = (result.get("places") or [])[:8]
+        for place in external_places:
             name = str(place.get("name") or "").strip()
             if not name:
                 continue
@@ -6914,6 +7109,31 @@ async def _compose_intelligent_guest_response(
                 "open_now": place.get("open_now") if isinstance(place.get("open_now"), bool) else None,
                 "source_ids": [place_ref],
             })
+        if not place_cards:
+            # Offline/demo mode still uses recommendations entered by hotel staff.
+            # These are explicitly labeled as recommendations without live hours
+            # or travel details, and remain scoped to this property's published data.
+            for recommendation in hospitality.recommendations(session.property_id, guest=True)[:8]:
+                recommendation_id = str(recommendation.get("recommendation_id") or "").strip()
+                name = str(recommendation.get("name") or "").strip()
+                if not recommendation_id or not name:
+                    continue
+                place_cards.append({
+                    "id": new_ui_id("hotel-recommendation"),
+                    "type": "place",
+                    "title": name[:120],
+                    "subtitle": str(recommendation.get("category") or "Hotel recommendation")[:120],
+                    "description": str(recommendation.get("description") or "")[:500],
+                    "image_url": str((recommendation.get("images") or [""])[0] or "")[:500],
+                    "location": str(recommendation.get("address") or "")[:240],
+                    "maps_url": str(recommendation.get("map_url") or "")[:1000],
+                    "source_ids": [guest_source_id(session.property_id, "recommendation", recommendation_id)],
+                })
+            if place_cards:
+                blocks[0]["content"] = (
+                    "Here are a few places saved as hotel recommendations. This demo has no live hours or travel details; "
+                    "please check current information before you go."
+                )
         if place_cards:
             blocks.append({
                 "id": new_ui_id("nearby-places"),
@@ -6973,7 +7193,14 @@ def _guest_source_evidence(
     """Resolve current guest-visible source IDs to the text they can support."""
     evidence: dict[str, str] = {}
 
-    def register(record_type: str, record_id: str, value: Any, field: str = "") -> None:
+    def register(
+        record_type: str,
+        record_id: str,
+        value: Any,
+        field: str = "",
+        *,
+        structured_reference: bool = False,
+    ) -> None:
         ref = guest_source_id(property_id, record_type, str(record_id), field)
         if isinstance(value, dict):
             text = " ".join(str(part) for part in value.values() if part is not None)
@@ -6982,6 +7209,8 @@ def _guest_source_evidence(
         else:
             text = str(value or "")
         evidence[ref] = text
+        if structured_reference:
+            evidence[f"__structured_reference__:{ref}"] = ""
 
     facilities_payload = hospitality.guest_facilities(property_id)
     restaurants = facilities_payload.get("restaurants", [])
@@ -7015,6 +7244,10 @@ def _guest_source_evidence(
         facility_id = str(facility.get("facility_id") or "")
         if facility_id:
             register("facility", facility_id, facility)
+    for recommendation in hospitality.recommendations(property_id, guest=True):
+        recommendation_id = str(recommendation.get("recommendation_id") or "")
+        if recommendation_id:
+            register("recommendation", recommendation_id, recommendation)
     for service in hospitality.catalog(property_id, guest=True).get("services", []):
         service_id = str(service.get("service_id") or "")
         if service_id:
@@ -7038,13 +7271,34 @@ def _guest_source_evidence(
             "wifi_guidance": contact.get("wifi_guidance"),
             "phone": _concierge_phone(property_record),
         }
+        contact_labels = {
+            "breakfast": "Breakfast information",
+            "checkin": "Standard check-in",
+            "checkout": "Standard checkout",
+            "wifi_guidance": "Wi-Fi guidance",
+            "phone": "Concierge phone",
+        }
         for field, value in contact_fields.items():
             if value:
-                register("profile", "contact", value, field)
+                register("profile", "contact", f"{contact_labels[field]}: {value}", field)
         for kind in ("pool", "gym", "spa"):
             value = getattr(property_record, kind, None)
             if value:
                 register("profile_facility", f"profile-{kind}", value)
+        for room in property_record.rooms or []:
+            room_id = str(room.get("id") or room.get("name") or "").strip()
+            if room_id:
+                room_evidence = dict(room)
+                nightly_rate = room.get("nightly_rate_php_demo")
+                if isinstance(nightly_rate, (int, float)) and nightly_rate > 0:
+                    room_evidence["demo_rate_label"] = f"Demo nightly reference PHP {int(nightly_rate):,}"
+                capacity = room.get("capacity") or room.get("max_guests")
+                if capacity:
+                    room_evidence["capacity_label"] = f"Up to {capacity} guests"
+                size = room.get("size_sqm")
+                if size:
+                    room_evidence["size_label"] = f"{size} m²"
+                register("room", room_id, room_evidence)
         for location in (property_record.app_settings or {}).get("locations", []):
             if location.get("guest_visible", True) and location.get("name"):
                 register("guest_location", str(location["name"]), location)
@@ -7064,7 +7318,14 @@ def _guest_source_evidence(
         if item.get("enabled") and item.get("status") == "ready":
             item_id = str(item.get("item_id") or "")
             if item_id:
-                register("legacy_knowledge", item_id, item.get("answer") or item.get("body"))
+                is_structured_rwg_reference = (
+                    item.get("source_name", "").startswith(RWG_REFERENCE_SOURCE_PREFIX)
+                    and item.get("kind") != "faq"
+                )
+                register(
+                    "legacy_knowledge", item_id, item.get("answer") or item.get("body"),
+                    structured_reference=is_structured_rwg_reference,
+                )
 
     overview = zones.overview(property_id, guest=True)
     guest_nodes = [item for item in overview.get("navigation_nodes", []) if item.get("guest_visible")]
@@ -7105,6 +7366,16 @@ def _text_is_supported_by_sources(value: str, refs: list[str], evidence: dict[st
     return False
 
 
+def _is_serialized_json_text(value: Any) -> bool:
+    text = str(value or "").strip()
+    if not text.startswith(("{", "[")):
+        return False
+    try:
+        return isinstance(json.loads(text), (dict, list))
+    except (TypeError, ValueError):
+        return False
+
+
 def _intelligent_response_sources_are_current(response: dict[str, Any], evidence: dict[str, str]) -> bool:
     """Require resolvable current records and source-backed displayed facts."""
     if response.get("schema_version") != "1.0":
@@ -7128,8 +7399,13 @@ def _intelligent_response_sources_are_current(response: dict[str, Any], evidence
             refs = block["source_ids"]
             if not all(ref in evidence for ref in refs):
                 return False
-            if kind == "grounded_claim" and not _text_is_supported_by_sources(block.get("content", ""), refs, evidence):
-                return False
+            if kind == "grounded_claim":
+                if any(f"__structured_reference__:{ref}" in evidence for ref in refs):
+                    return False
+                if _is_serialized_json_text(block.get("content", "")):
+                    return False
+                if not _text_is_supported_by_sources(block.get("content", ""), refs, evidence):
+                    return False
         if kind in {"card_collection", "entity_card"}:
             cards = block.get("cards", []) if kind == "card_collection" else [block.get("card", {})]
             for card in cards:
@@ -7407,7 +7683,7 @@ def _is_intelligent_dining_request(message: str) -> bool:
     if any(term in normalized for term in (
         "restaurant", "restaurante", "restawran", "dining", "dinner", "supper", "cena", "hapunan",
         "lunch", "almuerzo", "tanghalian", "breakfast", "desayuno", "agahan", "eat", "food",
-        "comida", "cafe", "café", "menu", "cuisine", "reservation", "book a table", "reserve a table",
+        "comida", "cafe", "café", "hungry", "starving", "something to eat", "menu", "cuisine", "reservation", "book a table", "reserve a table",
     )):
         return True
     dietary_query = any(term in normalized for term in (
@@ -7419,10 +7695,62 @@ def _is_intelligent_dining_request(message: str) -> bool:
     ))
 
 
+def _matching_published_menu_item(property_id: str, message: str) -> dict[str, Any] | None:
+    """Return one unambiguous published menu item when a guest asks about it."""
+    normalized = str(message or "").casefold()
+    if not any(term in normalized for term in (
+        "what", "tell me", "describe", "show", "price", "cost", "how much", "about",
+        "ingredient", "allergen", "dietary", "does it", "do you have", "is there",
+    )):
+        return None
+    ignored = {
+        "a", "about", "an", "and", "are", "can", "cost", "describe", "details", "does", "do",
+        "for", "have", "how", "i", "in", "ingredients", "item", "its", "it", "me", "menu",
+        "much", "of", "on", "please", "price", "tell", "the", "there", "this", "to", "what",
+        "whats", "with", "you", "your", "is", "description", "allergen", "allergens", "dietary",
+    }
+    query_terms = {
+        term for term in re.findall(r"[a-z0-9]+", normalized)
+        if term not in ignored and len(term) > 1
+    }
+    if not query_terms:
+        return None
+
+    catalog = hospitality.guest_facilities(property_id)
+    restaurants = {
+        str(item.get("restaurant_id") or ""): item
+        for item in catalog.get("restaurants", [])
+    }
+    matches: list[dict[str, Any]] = []
+    for item in catalog.get("menu_items", []):
+        name_terms = set(re.findall(r"[a-z0-9]+", str(item.get("name") or "").casefold()))
+        restaurant = restaurants.get(str(item.get("restaurant_id") or ""), {})
+        restaurant_terms = set(re.findall(r"[a-z0-9]+", str(restaurant.get("name") or "").casefold()))
+        specific_terms = query_terms - restaurant_terms
+        if specific_terms and specific_terms <= name_terms:
+            matches.append({**item, "_restaurant_name": str(restaurant.get("name") or "")})
+    return matches[0] if len(matches) == 1 else None
+
+
 def _guest_relevant_restaurants(restaurants: list[dict[str, Any]], message: str) -> list[dict[str, Any]]:
     """Filter guest-visible restaurants by configured meal period and availability."""
     query = " ".join(re.findall(r"[a-z0-9]+", str(message or "").casefold()))
     query_words = set(query.split())
+    generic_dining_words = {
+        "a", "an", "and", "at", "can", "close", "closing", "does", "dinner", "eat", "food", "for",
+        "have", "i", "is", "it", "lunch", "me", "menu", "near", "of", "open", "restaurant", "restaurants",
+        "show", "the", "time", "to", "what", "where", "which", "with",
+    }
+    specific_words = query_words - generic_dining_words
+    named_restaurants = [
+        restaurant for restaurant in restaurants
+        if specific_words.intersection(set(re.findall(
+            r"[a-z0-9]+",
+            f"{restaurant.get('name', '')} {restaurant.get('cuisine', '')}".casefold(),
+        )))
+    ]
+    if named_restaurants:
+        restaurants = named_restaurants
     requested: set[str] = set()
     if query_words.intersection({"breakfast", "desayuno", "agahan"}):
         requested.add("breakfast")
@@ -7525,24 +7853,170 @@ def _is_intelligent_facility_request(message: str) -> bool:
     ))
 
 
+def _is_intelligent_room_request(message: str) -> bool:
+    normalized = " ".join(str(message or "").casefold().split())
+    if "room service" in normalized:
+        return False
+    return any(term in normalized for term in (
+        "room type", "room types", "guest room", "guest rooms", "room options", "room rates",
+        "room price", "rooms available", "suite", "suites", "accommodation",
+    )) or bool(re.search(r"\b(?:show|describe|tell me about|what are|list)\b.{0,30}\brooms?\b", normalized))
+
+
 def _is_intelligent_attraction_request(message: str) -> bool:
     normalized = str(message or "").casefold()
     return any(term in normalized for term in (
         "attraction", "things to do", "local places", "nearby places", "nearby activities",
-        "what to do nearby", "what to do near", "places to visit", "local sights", "tour",
+        "what to do nearby", "what to do near", "places to visit", "places to go", "local sights", "tour",
+        "where can i go", "near the hotel", "nearby", "around here",
     ))
 
 
 def _is_intelligent_map_request(message: str) -> bool:
     normalized = " ".join(str(message or "").casefold().split())
-    return any(term in normalized for term in ("directions", "route to", "navigate to", "floor map", "show me the map", "map of")) or bool(re.search(
+    return any(term in normalized for term in (
+        "directions", "route to", "navigate to", "floor map", "facility map", "show me the map", "map of",
+    )) or bool(re.search(
         r"\b(?:where is|where can i find|where is the way to|how do i get to|how can i reach|directions? to|show me (?:the )?map|is there a map)\b",
         normalized,
     ))
 
 
+def _is_intelligent_facility_directory_request(message: str) -> bool:
+    normalized = " ".join(str(message or "").casefold().split())
+    if any(term in normalized for term in (
+        "facility directory", "location directory", "find a facility", "find a location",
+        "search locations", "show locations", "show the facility", "facility map",
+    )):
+        return True
+    if any(term in normalized for term in ("menu", "allerg", "vegan", "vegetarian", "gluten", "price", "cost")):
+        return False
+    return any(term in normalized for term in (
+        "hotel facilities", "hotel amenities", "what facilities", "resort facilities", "resort amenities",
+        "what restaurants", "restaurant options", "dining options", "dining at the hotel",
+        "where can i have dinner", "where can we eat", "show me dining", "show me restaurants",
+        "what attractions", "nearby attractions", "things to do", "what can i explore", "places to visit",
+    ))
+
+
+def _intelligent_guest_facility_directory_block(property_id: str) -> dict[str, Any] | None:
+    """Build the searchable resort directory from published rows in this property scope."""
+    rows = operations.imported_reference_knowledge(property_id, enabled_only=True)
+    imported = decode_imported_reference_records(rows)
+    if not imported:
+        return None
+
+    hotel_names = {
+        str(item["payload"].get("id") or item["source_record_id"]): str(item["payload"].get("name") or "")
+        for item in imported if item["record_type"] == "hotel"
+    }
+    verified_as_of = next((
+        str(item["payload"].get("verified_as_of") or "").strip()
+        for item in imported if item["record_type"] == "dataset_metadata"
+    ), "")
+    source_ids = {
+        (str(item["record_type"]), str(item["source_record_id"])):
+        [guest_source_id(property_id, "legacy_knowledge", str(item["item_id"]))]
+        for item in imported if item.get("item_id")
+    }
+    locations: list[dict[str, Any]] = []
+
+    def add_location(item: dict[str, Any], *, record_type: str, record_id: str) -> None:
+        title = str(item.get("name") or item.get("title") or "").strip()
+        if not title:
+            return
+        category = re.sub(r"[_\s]+", " ", str(item.get("category") or item.get("type") or "")).strip()
+        hotel_id = str(item.get("hotel_id") or "")
+        building = ""
+        floor = ""
+        location = ""
+        description = str(item.get("description") or "").strip()
+        listed_hours = ""
+        source_url = str(item.get("source_url") or item.get("website") or item.get("map_url") or "").strip()
+
+        if record_type == "facility_location":
+            building = str(item.get("complex") or "").strip()
+            floor = str(item.get("level") or "").strip()
+            location = str(item.get("location_description") or "").strip()
+            status = str(item.get("status") or "").casefold()
+            description = (
+                "Listed in the official directory. Please confirm current details with hotel staff."
+                if "official-directory-listed" in status else ""
+            )
+        elif record_type == "restaurant":
+            building = hotel_names.get(hotel_id, "Resorts World Genting" if not hotel_id else "")
+            location = str(item.get("location") or "").strip()
+            level_match = re.match(r"\s*(?:level|floor)\s+([^,]+)", location, re.IGNORECASE)
+            mezzanine_match = re.match(r"\s*(M)\s+Floor\b", location, re.IGNORECASE)
+            floor = (level_match.group(1).strip() if level_match else mezzanine_match.group(1).upper() if mezzanine_match else "")
+            hours_data = item.get("hours_display")
+            if isinstance(hours_data, dict):
+                listed_hours = "; ".join(
+                    f"{str(key).replace('_', ' ')}: {value}"
+                    for key, value in hours_data.items() if isinstance(value, str) and value.strip()
+                )[:160]
+        elif record_type == "facility":
+            building = hotel_names.get(hotel_id, "Resorts World Genting" if not hotel_id else "")
+            floor = str(item.get("level") or "").strip()
+        elif record_type == "attraction":
+            building = "Resorts World Genting"
+        elif record_type == "hotel":
+            building = title
+            location = str(item.get("location") or "").strip()
+
+        locations.append({
+            "id": f"rwg-{record_type}-{record_id}"[:100],
+            "title": title[:160],
+            "category": category[:100],
+            "building": building[:160],
+            "floor": floor[:80],
+            "location": location[:300],
+            "description": description[:500],
+            "listed_hours": listed_hours,
+            "source_url": source_url[:2000],
+            "source_ids": source_ids.get((record_type, record_id), []),
+        })
+
+    for entry in imported:
+        kind = str(entry["record_type"])
+        if kind in {"facility_location", "restaurant", "facility", "attraction", "hotel"}:
+            add_location(entry["payload"], record_type=kind, record_id=str(entry["source_record_id"]))
+
+    map_links = []
+    for entry in imported:
+        if entry["record_type"] != "map":
+            continue
+        item = entry["payload"]
+        url = str(item.get("official_url") or "").strip()
+        if not url:
+            continue
+        record_id = str(entry["source_record_id"])
+        map_links.append({
+            "id": f"rwg-map-{record_id}"[:100],
+            "title": str(item.get("title") or record_id)[:160],
+            "scope": str(item.get("scope") or "")[:160],
+            "format": str(item.get("format") or "")[:20],
+            "url": url[:2000],
+            "license_status": str(item.get("license_status") or "")[:120],
+            "source_ids": source_ids.get(("map", record_id), []),
+        })
+
+    if not locations and not map_links:
+        return None
+    snapshot_note = f"Reference snapshot checked {verified_as_of}. " if verified_as_of else "Reference snapshot. "
+    return {
+        "id": new_ui_id("facility-directory"),
+        "type": "facility_directory",
+        "title": "Resorts World Genting locations",
+        "description": snapshot_note + "Listings can change; confirm current details with hotel staff. Search hotel, dining, attraction, and facility listings by name, building, floor, or category. Outlet hours and live status are not connected.",
+        "locations": locations[:80],
+        "map_links": map_links[:12],
+        "source_ids": [],
+    }
+
+
 def _intelligent_guest_floor_map_block(property_id: str, query: str) -> dict[str, Any] | None:
-    """Build an offline map only from this property's published map and nodes."""
+    """Build map views only from this property's guest-visible maps and nodes."""
     overview = zones.overview(property_id, guest=True)
     floors = {str(item.get("floor_id")): item for item in overview.get("floors", [])}
     buildings = {str(item.get("building_id")): item for item in overview.get("buildings", [])}
@@ -7552,29 +8026,41 @@ def _intelligent_guest_floor_map_block(property_id: str, query: str) -> dict[str
             nodes_by_floor.setdefault(str(node.get("floor_id") or ""), []).append(node)
 
     query_terms = set(re.findall(r"[a-z0-9]+", str(query or "").casefold()))
-    stop_words = {"where", "is", "can", "i", "find", "how", "do", "get", "to", "the", "show", "me", "map", "of", "directions"}
+    stop_words = {
+        "where", "is", "can", "i", "find", "how", "do", "get", "to", "the", "show", "me",
+        "map", "of", "directions", "from", "floor", "level", "hotel", "facility", "location",
+    }
     target_terms = query_terms - stop_words
+    if "swimming" in target_terms:
+        target_terms.add("pool")
+    if "gym" in target_terms:
+        target_terms.add("fitness")
+    if "children" in target_terms or "child" in target_terms:
+        target_terms.add("kids")
     image_types = {"image/png", "image/jpeg", "image/svg+xml"}
-    for map_record in overview.get("maps", []):
+
+    def clean_floor_label(floor: dict[str, Any]) -> str:
+        label = str(floor.get("name") or "").strip()
+        label = re.sub(r"\s*[·|—-]\s*conceptual demo\b.*$", "", label, flags=re.IGNORECASE).strip()
+        if label:
+            return label[:120]
+        level = floor.get("level")
+        return f"Level {level}" if isinstance(level, int) and level > 0 else ("Ground Floor" if level == 0 else "Lower Level")
+
+    def make_floor_view(map_record: dict[str, Any]) -> dict[str, Any] | None:
         if map_record.get("content_type") not in image_types:
-            continue
+            return None
         try:
             width = int(float(map_record.get("width") or 0))
             height = int(float(map_record.get("height") or 0))
         except (TypeError, ValueError, OverflowError):
-            continue
+            return None
         if not (1 <= width <= 25_000 and 1 <= height <= 25_000):
-            continue
+            return None
         floor_id = str(map_record.get("floor_id") or "")
         floor_nodes = nodes_by_floor.get(floor_id, [])
         if not floor_nodes:
-            continue
-        matching = [
-            node for node in floor_nodes
-            if target_terms.intersection(re.findall(r"[a-z0-9]+", str(node.get("label") or "").casefold()))
-        ]
-        if target_terms and not matching and "map" not in query_terms:
-            continue
+            return None
 
         markers = []
         for node in floor_nodes[:80]:
@@ -7585,43 +8071,252 @@ def _intelligent_guest_floor_map_block(property_id: str, query: str) -> dict[str
             if not math.isfinite(x) or not math.isfinite(y) or not (0 <= x <= width and 0 <= y <= height):
                 continue
             label = str(node.get("label") or "").strip()[:120]
-            if not label:
+            node_id = str(node.get("node_id") or "")[:80]
+            if not label or not node_id:
                 continue
             markers.append({
-                "id": str(node.get("node_id") or "")[:80],
+                "id": node_id,
                 "label": label,
                 "x_percent": round(x * 100 / width, 3),
                 "y_percent": round(y * 100 / height, 3),
-                "source_ids": [guest_source_id(property_id, "map_node", str(node.get("node_id") or "unknown"))],
+                "source_ids": [guest_source_id(property_id, "map_node", node_id)],
             })
         if not markers:
-            continue
-        if target_terms and not any(
-            target_terms.intersection(re.findall(r"[a-z0-9]+", marker["label"].casefold()))
-            for marker in markers
-        ) and "map" not in query_terms:
-            continue
+            return None
         floor = floors.get(floor_id, {})
         building = buildings.get(str(floor.get("building_id") or ""), {})
-        floor_label = " · ".join(
-            str(value).strip() for value in (building.get("name"), floor.get("name")) if str(value or "").strip()
+        # Only map assets that the property explicitly names as conceptual demo
+        # fixtures receive synthetic architectural styling. Published property
+        # drawings continue to be rendered from their uploaded asset.
+        synthetic_demo = bool(
+            "demo" in str(building.get("name") or "").casefold()
+            and "conceptual" in str(floor.get("name") or "").casefold()
+            and "conceptual" in str(map_record.get("original_filename") or "").casefold()
         )
         map_id = str(map_record.get("map_id") or "")
         image_url = f"/api/guest/floor-maps/{quote(map_id, safe='')}/asset?property_id={quote(property_id, safe='')}"
-        title = f"Hotel map{f' · {floor_label}' if floor_label else ''}"
-        labels = ", ".join(marker["label"] for marker in markers)
         return {
-            "id": new_ui_id("map"),
-            "type": "map_view",
-            "title": title[:120],
+            "floor_id": floor_id[:80],
+            "label": clean_floor_label(floor),
             "map_image_url": image_url[:500],
-            "map_alt": f"Configured floor plan. Marked locations: {labels}"[:500],
             "image_width": width,
             "image_height": height,
             "markers": markers,
+            "synthetic_demo": synthetic_demo,
             "source_ids": [guest_source_id(property_id, "floor_map", map_id)],
         }
-    return None
+
+    latest_map_by_floor: dict[str, dict[str, Any]] = {}
+    for record in overview.get("maps", []):
+        latest_map_by_floor.setdefault(str(record.get("floor_id") or ""), record)
+    floor_views = [view for record in latest_map_by_floor.values() if (view := make_floor_view(record))]
+    floor_views.sort(key=lambda item: (floors.get(item["floor_id"], {}).get("level", 0), item["label"].casefold()))
+    if not floor_views:
+        return None
+
+    facilities = [
+        item for item in hospitality.guest_facilities(property_id).get("facilities", [])
+        if not item.get("archived") and item.get("live_status") not in {"maintenance", "private_event"}
+    ]
+    destination_match = re.search(r"\bfrom\s+.+?\s+to\s+(.+?)\s*[?.!,]*$", str(query or ""), re.IGNORECASE)
+    requested_destination = normalize_guest_text(destination_match.group(1)).strip(" .,!? ") if destination_match else ""
+    if requested_destination:
+        target_terms = set(re.findall(r"[a-z0-9]+", requested_destination))
+
+    def words(value: Any) -> set[str]:
+        return set(re.findall(r"[a-z0-9]+", normalize_guest_text(str(value or ""))))
+
+    requested_facilities: list[tuple[int, dict[str, Any]]] = []
+    query_normalized = normalize_guest_text(query)
+    for facility in facilities:
+        name = str(facility.get("name") or "").strip()
+        name_terms = words(name)
+        overlap = len(target_terms.intersection(name_terms))
+        if not name or not overlap:
+            continue
+        score = overlap
+        if normalize_guest_text(name) in query_normalized:
+            score += len(name_terms) + 2
+        requested_facilities.append((score, facility))
+
+    requested_facility = None
+    if requested_facilities:
+        best_score = max(score for score, _ in requested_facilities)
+        best_facilities = [facility for score, facility in requested_facilities if score == best_score]
+        if len(best_facilities) == 1:
+            requested_facility = best_facilities[0]
+
+    explicit_floor_match = re.search(r"\b(?:level|floor)\s+(ground|\d{1,3})\b", str(query or ""), re.IGNORECASE)
+    explicit_floor_view = None
+    if explicit_floor_match:
+        requested_level = explicit_floor_match.group(1).casefold()
+        explicit_floor_view = next((view for view in floor_views if (
+            normalize_guest_text(view["label"]) == normalize_guest_text(f"Level {requested_level}")
+            or (requested_level == "ground" and "ground" in view["label"].casefold())
+            or str(floors.get(view["floor_id"], {}).get("level", "")) == requested_level
+        )), None)
+
+    selected_view = None
+    focused_marker = None
+    def resolve_facility_location(facility: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]] | None:
+        facility_floor_id = str(facility.get("floor_id") or "")
+        facility_zone_id = str(facility.get("zone_id") or "")
+        if not facility_floor_id and facility_zone_id:
+            associated_nodes = [
+                node for node in overview.get("navigation_nodes", [])
+                if node.get("guest_visible") and str(node.get("zone_id") or "") == facility_zone_id
+            ]
+            associated_floor_ids = {str(node.get("floor_id") or "") for node in associated_nodes}
+            if len(associated_floor_ids) == 1:
+                facility_floor_id = next(iter(associated_floor_ids))
+        facility_words = words(facility.get("name"))
+        candidate_markers = []
+        facility_views = [view for view in floor_views if not facility_floor_id or view["floor_id"] == facility_floor_id]
+        for view in facility_views:
+            for marker in view["markers"]:
+                node = next((item for item in nodes_by_floor.get(view["floor_id"], []) if str(item.get("node_id") or "") == marker["id"]), {})
+                same_zone = bool(facility_zone_id and str(node.get("zone_id") or "") == facility_zone_id)
+                exact_name = normalize_guest_text(marker["label"]) == normalize_guest_text(str(facility.get("name") or ""))
+                overlap = len(facility_words.intersection(words(marker["label"])))
+                if same_zone or exact_name or overlap:
+                    score = len(facility_words) + 2 if same_zone else len(facility_words) + 1 if exact_name else overlap
+                    candidate_markers.append((score, view, marker))
+        if candidate_markers:
+            best_score = max(score for score, _, _ in candidate_markers)
+            best_markers = [(view, marker) for score, view, marker in candidate_markers if score == best_score]
+            if len(best_markers) == 1:
+                return best_markers[0]
+        return None
+
+    requested_facility_name = normalize_guest_text(str(requested_facility.get("name") or "")) if requested_facility else ""
+    facility_name_is_specific = bool(
+        requested_facility and requested_facility_name and requested_facility_name in query_normalized
+    )
+    if requested_facility and facility_name_is_specific:
+        resolved_facility = resolve_facility_location(requested_facility)
+        if resolved_facility:
+            selected_view, focused_marker = resolved_facility
+        else:
+            # A configured facility without a matching marker must never highlight
+            # an unrelated location or silently substitute another floor.
+            return None
+    elif requested_destination:
+        destination_markers = [
+            marker for view in floor_views for marker in view["markers"]
+            if normalize_guest_text(marker["label"]) == requested_destination
+            or normalize_guest_text(marker["label"]) in requested_destination
+        ]
+        if len(destination_markers) == 1:
+            focused_marker = destination_markers[0]
+            selected_view = next(view for view in floor_views if focused_marker in view["markers"])
+        elif destination_markers:
+            return None
+
+    if selected_view is None and target_terms:
+        marker_matches = [
+            (len(target_terms.intersection(words(marker["label"]))), view, marker)
+            for view in floor_views for marker in view["markers"]
+            if target_terms.intersection(words(marker["label"]))
+        ]
+        if marker_matches:
+            best_score = max(score for score, _, _ in marker_matches)
+            best_matches = [(view, marker) for score, view, marker in marker_matches if score == best_score]
+            if len(best_matches) == 1:
+                selected_view, focused_marker = best_matches[0]
+            else:
+                return None
+
+    if selected_view is None and requested_facility:
+        resolved_facility = resolve_facility_location(requested_facility)
+        if resolved_facility:
+            selected_view, focused_marker = resolved_facility
+        else:
+            # The query matched a facility record but it cannot be connected to a
+            # guest-visible marker, so do not guess a different place or floor.
+            return None
+
+    if selected_view is None:
+        if explicit_floor_view:
+            selected_view = explicit_floor_view
+        elif target_terms and "map" not in query_terms:
+            return None
+        else:
+            selected_view = floor_views[0]
+
+    markers = selected_view["markers"]
+    locations = []
+    facilities_by_marker: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for facility in facilities:
+        facility_floor_id = str(facility.get("floor_id") or "")
+        facility_zone_id = str(facility.get("zone_id") or "")
+        facility_name = normalize_guest_text(str(facility.get("name") or ""))
+        matches = []
+        for view in floor_views:
+            if facility_floor_id and view["floor_id"] != facility_floor_id:
+                continue
+            for marker in view["markers"]:
+                node = next((item for item in nodes_by_floor.get(view["floor_id"], []) if str(item.get("node_id") or "") == marker["id"]), {})
+                same_zone = bool(facility_zone_id and str(node.get("zone_id") or "") == facility_zone_id)
+                same_name = bool(facility_name and facility_name == normalize_guest_text(marker["label"]))
+                if same_zone or same_name:
+                    matches.append((view["floor_id"], marker["id"]))
+        if len(matches) == 1:
+            facilities_by_marker.setdefault(matches[0], []).append(facility)
+
+    for view in floor_views:
+        for marker in view["markers"]:
+            marker_facilities = facilities_by_marker.get((view["floor_id"], marker["id"]), [])
+            if len(marker_facilities) != 1:
+                continue
+            facility = marker_facilities[0]
+            opening = facility.get("opening_hours") or {}
+            hours = opening.get("display", "") if isinstance(opening, dict) else str(opening or "")
+            status_note = str(facility.get("status_note") or "")
+            images = facility.get("images") or []
+            is_demo_image = bool(re.search(r"\bdemo\b", status_note, re.IGNORECASE))
+            policies = []
+            for value in (facility.get("policies") or [])[:8]:
+                if not isinstance(value, str):
+                    continue
+                policy = value.strip()
+                if "verify_with_staff" in policy.casefold():
+                    policy = "Please confirm accessible directions with the hotel team."
+                elif "synthetic demo content" in policy.casefold():
+                    policy = "This is demo information; confirm current access and availability with the hotel team."
+                if policy:
+                    policies.append(policy[:240])
+            locations.append({
+                "marker_id": marker["id"],
+                "title": str(facility.get("name") or marker["label"])[:120],
+                "description": str(facility.get("description") or "")[:500],
+                "floor_label": view["label"],
+                "location": str(facility.get("location") or view["label"])[:240],
+                "hours": str(hours or "")[:160],
+                "policies": policies,
+                "image_url": str(images[0])[:500] if images and isinstance(images[0], str) else "",
+                "image_label": "Demo illustration · not a property photo" if is_demo_image and images else "",
+                "source_ids": [guest_source_id(property_id, "facility", str(facility.get("facility_id") or "unknown"))],
+            })
+
+    labels = ", ".join(marker["label"] for marker in markers)
+    return {
+        "id": new_ui_id("map"),
+        "type": "map_view",
+        "title": f"Hotel map · {selected_view['label']}"[:120],
+        "map_image_url": selected_view["map_image_url"],
+        "map_alt": f"{selected_view['label']} floor map. Marked locations: {labels}"[:500],
+        "image_width": selected_view["image_width"],
+        "image_height": selected_view["image_height"],
+        "markers": markers,
+        "floor_id": selected_view["floor_id"],
+        "floor_label": selected_view["label"],
+        "floors": floor_views,
+        "focused_marker_id": focused_marker["id"] if focused_marker else "",
+        "synthetic_demo": selected_view["synthetic_demo"],
+        "route_node_ids": [],
+        "locations": locations,
+        "source_ids": selected_view["source_ids"],
+    }
 
 
 def _intelligent_guest_directions_block(
@@ -7630,7 +8325,7 @@ def _intelligent_guest_directions_block(
     *,
     enabled: bool = True,
 ) -> dict[str, Any] | None:
-    """Return a route only for explicit endpoints on the guest-visible graph."""
+    """Return same-floor routes only from explicit, guest-visible graph endpoints."""
     if not enabled:
         return None
     match = re.search(r"\bfrom\s+(.+?)\s+to\s+(.+?)\s*[?.!,]*$", str(query or ""), re.IGNORECASE)
@@ -7640,17 +8335,22 @@ def _intelligent_guest_directions_block(
     end_text = normalize_guest_text(match.group(2)).strip(" .,!?")
     if not start_text or not end_text:
         return None
+    overview = zones.overview(property_id, guest=True)
     nodes = [
-        item for item in zones.overview(property_id, guest=True).get("navigation_nodes", [])
+        item for item in overview.get("navigation_nodes", [])
         if item.get("guest_visible") and str(item.get("label") or "").strip()
     ]
 
-    def resolve(text: str) -> dict[str, Any] | None:
+    def resolve(text: str, preferred_floor_id: str = "") -> dict[str, Any] | None:
         matches = [
             item for item in nodes
             if normalize_guest_text(str(item.get("label") or "")) == text
             or normalize_guest_text(str(item.get("label") or "")) in text
         ]
+        if preferred_floor_id:
+            same_floor = [item for item in matches if str(item.get("floor_id") or "") == preferred_floor_id]
+            if same_floor:
+                matches = same_floor
         if not matches:
             return None
         matches.sort(key=lambda item: len(normalize_guest_text(str(item.get("label") or ""))), reverse=True)
@@ -7658,8 +8358,11 @@ def _intelligent_guest_directions_block(
             return None
         return matches[0]
 
-    start = resolve(start_text)
     end = resolve(end_text)
+    # A repeated start label (for example, Elevator Lobby on several floors)
+    # is safe to resolve only when the destination identifies one of those
+    # floors. Otherwise the guest must provide a more specific starting point.
+    start = resolve(start_text, str(end.get("floor_id") or "") if end else "")
     if not start or not end or start.get("node_id") == end.get("node_id"):
         return None
     try:
@@ -7670,10 +8373,39 @@ def _intelligent_guest_directions_block(
     node_ids = route.get("node_ids") or []
     if len(labels) < 2 or len(labels) != len(node_ids) or len(labels) > 40:
         return None
+    visible_nodes = {str(item.get("node_id")): item for item in nodes}
+    # Navigation edges currently have guest visibility but no configured
+    # vertical-transfer/access-rule model. Do not imply a verified route across
+    # floors until the required lift/stair and access rules are represented.
+    route_nodes = [visible_nodes.get(str(node_id)) for node_id in node_ids]
+    if (
+        any(node is None or not node.get("floor_id") for node in route_nodes)
+        or len({str(node.get("floor_id") or "") for node in route_nodes if node}) != 1
+    ):
+        return None
+    route_floor_id = str(route_nodes[0].get("floor_id") or "") if route_nodes else ""
+    floorplan_exists = False
+    for map_record in overview.get("maps", []):
+        if (
+            str(map_record.get("floor_id") or "") != route_floor_id
+            or map_record.get("content_type") not in {"image/png", "image/jpeg", "image/svg+xml"}
+        ):
+            continue
+        try:
+            width, height = int(float(map_record.get("width") or 0)), int(float(map_record.get("height") or 0))
+            map_path = zones.floor_map_path(property_id, str(map_record.get("map_id") or ""))
+        except (KeyError, TypeError, ValueError, OSError, OverflowError):
+            continue
+        if 1 <= width <= 25_000 and 1 <= height <= 25_000 and map_path.is_file():
+            floorplan_exists = True
+            break
+    if not floorplan_exists:
+        return None
     return {
         "id": new_ui_id("directions"),
         "type": "directions",
-        "title": "Published directions",
+        "title": f"Directions · {str(start.get('label') or 'Starting point')[:50]} to {str(end.get('label') or 'destination')[:50]}",
+        "node_ids": [str(node_id)[:80] for node_id in node_ids],
         "steps": [{
             "label": str(label)[:120],
             "source_ids": [guest_source_id(property_id, "map_node", str(node_id))],
@@ -7723,9 +8455,22 @@ def _contextual_query(message: str, history: list[dict[str, Any]]) -> str:
     follow_up_tokens = ("it", "there", "that", "they", "what time", "how much", "how long", "does it", "can they")
     if not any(token in normalized for token in follow_up_tokens):
         return message
-    recent = " ".join(str(item.get("content") or "") for item in history[-4:]).lower()
+    prior_history = history
+    if history and history[-1].get("role") == "guest":
+        latest_content = " ".join(str(history[-1].get("content") or "").casefold().split())
+        if latest_content == " ".join(normalized.split()):
+            prior_history = history[:-1]
+    previous_guest_message = next(
+        (str(item.get("content") or "").lower() for item in reversed(prior_history) if item.get("role") == "guest"),
+        "",
+    )
+    explicit_subjects = ("checkout", "check-out", "departure", "checkin", "check-in", "pool", "swimming", "gym", "fitness", "spa", "breakfast", "lunch", "dinner", "restaurant", "wifi", "wi-fi")
+    if any(subject in normalized for subject in explicit_subjects):
+        return message
+    if "japanese" in previous_guest_message and "restaurant" in previous_guest_message:
+        return f"{message} (follow-up about Japanese restaurant)"
     for subject in ("pool", "gym", "spa", "breakfast", "restaurant", "rooftop bar", "business center", "airport", "wi-fi", "wifi"):
-        if subject in recent and subject not in normalized:
+        if subject in previous_guest_message and subject not in normalized:
             return f"{message} (follow-up about {subject})"
     return message
 

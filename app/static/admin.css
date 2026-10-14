@@ -1671,6 +1671,8 @@ select[multiple] { min-height: 112px; padding: 6px; }
 .room-catalog-filters input, .room-catalog-filters select { min-width: 0; min-height: 34px; padding: 7px 9px; border: 1px solid #e2dfd8; border-radius: 5px; background: #fff; font-size: 9px; }
 .room-list { align-content: start; gap: 8px; }
 .room-entry { display: grid; gap: 8px; padding: 12px; border-color: #ebe9e3; border-radius: 7px; }
+.room-entry-images { display: flex; gap: 6px; overflow: auto; }
+.room-entry-images img { width: min(31%, 150px); height: 72px; flex: 0 0 auto; border-radius: 5px; background: #f1efeb; object-fit: cover; }
 .room-entry-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 9px; }
 .room-entry-heading > strong { min-width: 0; color: #302e29; font-family: Georgia, "Times New Roman", serif; font-size: 15px; font-weight: 500; overflow-wrap: anywhere; }
 .room-status-pill { display: inline-flex; flex: 0 0 auto; align-items: center; min-height: 22px; padding: 4px 7px; border: 1px solid #e7e4dc; border-radius: 999px; color: #777269; background: #f8f7f4; font-size: 7px; font-weight: 700; }

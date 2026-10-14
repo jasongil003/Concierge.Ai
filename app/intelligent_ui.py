@@ -101,13 +101,14 @@ class SuggestionChipsBlock(StrictSchema):
 
 class EntityCard(StrictSchema):
     id: str = Field(min_length=1, max_length=80)
-    type: Literal["restaurant", "facility", "service", "place"]
+    type: Literal["restaurant", "facility", "service", "place", "room", "menu_item"]
     title: str = Field(min_length=1, max_length=120)
     subtitle: str = Field(default="", max_length=120)
     description: str = Field(default="", max_length=500)
     detail: str = Field(default="", max_length=300)
     resource_id: str = Field(default="", max_length=80)
     image_url: str = Field(default="", max_length=500)
+    image_label: str = Field(default="", max_length=80)
     location: str = Field(default="", max_length=240)
     opening_hours: str = Field(default="", max_length=160)
     policies: list[str] = Field(default_factory=list, max_length=8)
@@ -302,6 +303,7 @@ class DirectionsBlock(StrictSchema):
     type: Literal["directions"]
     title: str = Field(min_length=1, max_length=120)
     steps: list[DirectionStep] = Field(min_length=2, max_length=40)
+    node_ids: list[str] = Field(default_factory=list, max_length=40)
 
 
 class MapMarker(StrictSchema):
@@ -317,6 +319,64 @@ class MapMarker(StrictSchema):
         return _validate_source_ids(values)
 
 
+class MapFloorOption(StrictSchema):
+    floor_id: str = Field(min_length=1, max_length=80)
+    label: str = Field(min_length=1, max_length=120)
+    map_image_url: str = Field(min_length=1, max_length=500)
+    image_width: int = Field(ge=1, le=25000)
+    image_height: int = Field(ge=1, le=25000)
+    markers: list[MapMarker] = Field(default_factory=list, max_length=80)
+    synthetic_demo: StrictBool = False
+    source_ids: list[str] = Field(default_factory=list, max_length=16)
+
+    @field_validator("map_image_url")
+    @classmethod
+    def validate_map_image_url(cls, value: str) -> str:
+        value = value.strip()
+        if not value.startswith("/") or value.startswith("//") or any(character in value for character in "\\\r\n\x00"):
+            raise ValueError("Map image URLs must be safe same-origin paths.")
+        return value
+
+    @field_validator("source_ids")
+    @classmethod
+    def validate_sources(cls, values: list[str]) -> list[str]:
+        return _validate_source_ids(values)
+
+
+class MapLocationDetails(StrictSchema):
+    marker_id: str = Field(min_length=1, max_length=80)
+    title: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=500)
+    floor_label: str = Field(default="", max_length=120)
+    location: str = Field(default="", max_length=240)
+    hours: str = Field(default="", max_length=160)
+    policies: list[str] = Field(default_factory=list, max_length=8)
+    image_url: str = Field(default="", max_length=500)
+    image_label: str = Field(default="", max_length=80)
+    source_ids: list[str] = Field(default_factory=list, max_length=16)
+
+    @field_validator("image_url")
+    @classmethod
+    def validate_image_url(cls, value: str) -> str:
+        value = value.strip()
+        if value and (not value.startswith("/") or value.startswith("//") or any(character in value for character in "\\\r\n\x00")):
+            raise ValueError("Map detail images must be safe same-origin paths.")
+        return value
+
+    @field_validator("source_ids")
+    @classmethod
+    def validate_sources(cls, values: list[str]) -> list[str]:
+        return _validate_source_ids(values)
+
+    @field_validator("policies")
+    @classmethod
+    def validate_policies(cls, values: list[str]) -> list[str]:
+        clean = [value.strip() for value in values]
+        if any(not value or len(value) > 240 for value in clean):
+            raise ValueError("Facility policies must contain 1 to 240 characters.")
+        return clean
+
+
 class MapViewBlock(StrictSchema):
     id: str = Field(min_length=1, max_length=80)
     type: Literal["map_view"]
@@ -329,6 +389,14 @@ class MapViewBlock(StrictSchema):
     image_width: int | None = Field(default=None, ge=1, le=25000)
     image_height: int | None = Field(default=None, ge=1, le=25000)
     markers: list[MapMarker] = Field(default_factory=list, max_length=80)
+    floor_id: str = Field(default="", max_length=80)
+    floor_label: str = Field(default="", max_length=120)
+    floors: list[MapFloorOption] = Field(default_factory=list, max_length=24)
+    focused_marker_id: str = Field(default="", max_length=80)
+    synthetic_demo: StrictBool = False
+    directions_enabled: StrictBool = False
+    route_node_ids: list[str] = Field(default_factory=list, max_length=40)
+    locations: list[MapLocationDetails] = Field(default_factory=list, max_length=80)
     source_ids: list[str] = Field(default_factory=list, max_length=16)
 
     @field_validator("source_ids")
@@ -360,6 +428,93 @@ class MapViewBlock(StrictSchema):
         return self
 
 
+def _validate_official_reference_url(value: str) -> str:
+    value = value.strip()
+    parts = urlsplit(value)
+    host = (parts.hostname or "").casefold().rstrip(".")
+    official_hosts = {"rwgenting.com", "gentingskyworlds.com"}
+    try:
+        port = parts.port
+    except ValueError as exc:
+        raise ValueError("Official reference links must use a valid HTTPS URL.") from exc
+    if (
+        parts.scheme != "https" or not host or parts.username or parts.password
+        or (port is not None and port != 443)
+        or not any(host == domain or host.endswith("." + domain) for domain in official_hosts)
+        or any(character in value for character in "\\\r\n\x00")
+    ):
+        raise ValueError("Official reference links must use HTTPS on a Resorts World Genting domain.")
+    return value
+
+
+class FacilityDirectoryLocation(StrictSchema):
+    id: str = Field(min_length=1, max_length=100)
+    title: str = Field(min_length=1, max_length=160)
+    category: str = Field(default="", max_length=100)
+    building: str = Field(default="", max_length=160)
+    floor: str = Field(default="", max_length=80)
+    location: str = Field(default="", max_length=300)
+    description: str = Field(default="", max_length=500)
+    listed_hours: str = Field(default="", max_length=160)
+    source_url: str = Field(default="", max_length=2000)
+    source_ids: list[str] = Field(default_factory=list, max_length=16)
+
+    @field_validator("source_url")
+    @classmethod
+    def validate_source_url(cls, value: str) -> str:
+        return _validate_official_reference_url(value) if value else ""
+
+    @field_validator("source_ids")
+    @classmethod
+    def validate_sources(cls, values: list[str]) -> list[str]:
+        return _validate_source_ids(values)
+
+
+class OfficialMapLink(StrictSchema):
+    id: str = Field(min_length=1, max_length=100)
+    title: str = Field(min_length=1, max_length=160)
+    scope: str = Field(default="", max_length=160)
+    format: str = Field(default="", max_length=20)
+    url: str = Field(min_length=1, max_length=2000)
+    license_status: str = Field(default="", max_length=120)
+    source_ids: list[str] = Field(default_factory=list, max_length=16)
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, value: str) -> str:
+        return _validate_official_reference_url(value)
+
+    @field_validator("source_ids")
+    @classmethod
+    def validate_sources(cls, values: list[str]) -> list[str]:
+        return _validate_source_ids(values)
+
+
+class FacilityDirectoryBlock(StrictSchema):
+    id: str = Field(min_length=1, max_length=80)
+    type: Literal["facility_directory"]
+    title: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=500)
+    locations: list[FacilityDirectoryLocation] = Field(default_factory=list, max_length=80)
+    map_links: list[OfficialMapLink] = Field(default_factory=list, max_length=12)
+    source_ids: list[str] = Field(default_factory=list, max_length=16)
+
+    @field_validator("source_ids")
+    @classmethod
+    def validate_sources(cls, values: list[str]) -> list[str]:
+        return _validate_source_ids(values)
+
+    @model_validator(mode="after")
+    def require_directory_content(self) -> "FacilityDirectoryBlock":
+        if not self.locations and not self.map_links:
+            raise ValueError("A facility directory needs at least one location or official map link.")
+        if len({item.id for item in self.locations}) != len(self.locations):
+            raise ValueError("Facility directory location IDs must be unique.")
+        if len({item.id for item in self.map_links}) != len(self.map_links):
+            raise ValueError("Official map IDs must be unique.")
+        return self
+
+
 class LoadingStateBlock(StrictSchema):
     id: str = Field(min_length=1, max_length=80)
     type: Literal["loading_state"]
@@ -387,6 +542,7 @@ PresentationBlock = Annotated[
         RequestStatusBlock,
         DirectionsBlock,
         MapViewBlock,
+        FacilityDirectoryBlock,
         LoadingStateBlock,
         ErrorStateBlock,
     ],

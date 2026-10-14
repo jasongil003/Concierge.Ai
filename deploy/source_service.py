@@ -578,6 +578,11 @@ def main() -> int:
         elif args.command == "restart":
             restart_service(root, args.platform, args.unattended)
         elif args.command == "serve":
+            config_path = root / ".env"
+            if config_path.is_file():
+                from dotenv import load_dotenv
+
+                load_dotenv(dotenv_path=config_path, override=False)
             assert_source_port_available(root, args.platform, allow_current_service=False)
             os.execv(
                 str(root / ".venv" / "bin" / "python"),
