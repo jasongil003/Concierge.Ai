@@ -1681,6 +1681,12 @@ test("Intelligent UI: synthetic hotel map supports selection, floors, safe route
     await expect(latestRow).toBeVisible();
   } finally {
     await setIntelligentUi(request, false);
+    for (const facilityId of ["demo-map-pool", "demo-map-fitness", "demo-map-guest-rooms"]) {
+      const response = await request.delete(`/api/admin/properties/${propertyId}/hospitality/facilities/${facilityId}`, {
+        headers: { "X-CSRF-Token": csrf },
+      });
+      expect(response.status() === 404 || response.ok(), await response.text()).toBeTruthy();
+    }
   }
 });
 

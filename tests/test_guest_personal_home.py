@@ -147,6 +147,10 @@ def test_guest_home_and_request_endpoints_are_property_and_session_scoped(admin_
     assert proposal_data["card"]["source_ids"] == [f"guest:{property_id}:service:{service['service_id']}"]
     created = admin_client.post("/api/guest/actions/confirm", json={"session_id": session_a, "proposal_token": proposal_data["proposal_token"]})
     assert created.status_code == 200, created.text
+    replayed = admin_client.post("/api/guest/actions/confirm", json={"session_id": session_a, "proposal_token": proposal_data["proposal_token"]})
+    assert replayed.status_code == 200, replayed.text
+    assert replayed.json()["status"] == "existing"
+    assert replayed.json()["request"]["request_id"] == created.json()["request"]["request_id"]
     assert created.json()["source_ids"] == [
         f"guest:{property_id}:service_request:{created.json()['request']['request_id']}"
     ]

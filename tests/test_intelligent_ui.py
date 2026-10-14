@@ -1,9 +1,11 @@
 from dataclasses import replace
 import base64
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 
+from app.hospitality import HospitalityStore
 import app.main as main_module
 from app.intelligent_ui import GuestExperienceSettings, make_response, validate_guest_experience_settings
 from app.operations import OperationsStore
@@ -515,6 +517,88 @@ def test_intelligent_menu_shows_only_published_items_and_their_prices(monkeypatc
     assert any("Grilled Salmon" in claim and "PHP 850" in claim for claim in claims)
     assert "Unpublished Dessert" not in str(payload)
     assert f"guest:test-property:menu_item:{published_item['item_id']}" in str(payload)
+
+
+def test_restaurant_menu_and_location_followups_keep_the_unique_property_selection(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    _enable_property_ui()
+    monkeypatch.setattr(main_module, "settings", replace(main_module.settings, intelligent_guest_ui_global_enabled=True))
+    monkeypatch.setattr(main_module, "hospitality", HospitalityStore(tmp_path / "restaurant-followup.db"))
+    suffix = uuid4().hex[:8]
+    japanese_name = f"Sakura Japanese Dining {suffix[:4]}"
+    italian_name = f"Via Roma {suffix[4:]}"
+    restaurants = []
+    for name, cuisine, location, item_name, image_url in (
+        (japanese_name, "Japanese", "Lobby level", "Miso Salmon Set", "/uploads/miso-salmon.webp"),
+        (italian_name, "Italian", "Garden wing", "Truffle Tagliatelle", "/uploads/tagliatelle.webp"),
+    ):
+        restaurant = main_module.hospitality.create_restaurant("test-property", {
+            "name": name,
+            "cuisine": cuisine,
+            "location": location,
+            "meal_periods": ["dinner"],
+            "images": [f"/uploads/{cuisine.casefold()}.webp"],
+        })
+        menu = main_module.hospitality.create_menu(
+            "test-property", restaurant["restaurant_id"], {"name": f"{cuisine} Dinner Menu"},
+            actor_user_id="test-admin",
+        )
+        main_module.hospitality.create_menu_item("test-property", menu["menu_id"], {
+            "name": item_name,
+            "description": f"Published {cuisine} menu item.",
+            "price": "PHP 850",
+            "image_url": image_url,
+        }, actor_user_id="test-admin")
+        main_module.hospitality.approve_menu("test-property", menu["menu_id"], "test-admin")
+        main_module.hospitality.publish_menu("test-property", menu["menu_id"], "test-admin")
+        restaurants.append(restaurant)
+
+    with TestClient(main_module.app) as client:
+        session = client.post("/api/session/start", json={
+            "client_id": f"restaurant-followup-{suffix}", "property_id": "test-property",
+        })
+        assert session.status_code == 200, session.text
+        session_id = session.json()["session_id"]
+        responses = []
+        for message in ("I'm hungry.", "Do you have Japanese food?"):
+            response = client.post("/api/guest/intelligent-chat", json={
+                "session_id": session_id, "message": message,
+            })
+            assert response.status_code == 200, response.text
+            responses.append(response.json())
+        history = main_module.store.recent_messages(session_id, "test-property", limit=10)
+        selected, ambiguous = main_module._recent_guest_restaurant_context(
+            "test-property", history, "Show me the menu.",
+        )
+        assert not ambiguous and selected and selected["name"] == japanese_name
+        for message in ("Show me the menu.", "Where is it?"):
+            response = client.post("/api/guest/intelligent-chat", json={
+                "session_id": session_id, "message": message,
+            })
+            assert response.status_code == 200, response.text
+            responses.append(response.json())
+
+    def cards(response, card_type):
+        return [card for block in response["blocks"] if block["type"] == "card_collection"
+                for card in block["cards"] if card["type"] == card_type]
+
+    hungry_cards = cards(responses[0], "restaurant")
+    assert {card["title"] for card in hungry_cards} == {japanese_name, italian_name}
+    assert next(card for card in hungry_cards if card["title"] == japanese_name)["image_url"] == "/uploads/japanese.webp"
+
+    japanese_cards = cards(responses[1], "restaurant")
+    assert [card["title"] for card in japanese_cards] == [japanese_name]
+
+    menu_cards = cards(responses[2], "menu_item")
+    assert [card["title"] for card in menu_cards] == ["Miso Salmon Set"]
+    assert menu_cards[0]["description"] == "Published Japanese menu item."
+    assert menu_cards[0]["detail"] == "Price: PHP 850"
+    assert menu_cards[0]["image_url"] == "/uploads/miso-salmon.webp"
+    assert "Truffle Tagliatelle" not in str(responses[2])
+
+    location_text = str(responses[3])
+    assert japanese_name in location_text and "Lobby level" in location_text
+    assert "Turn-by-turn indoor routing is not configured" in location_text
+    assert italian_name not in location_text
 
 
 def test_published_knowledge_survives_missing_inventory_and_conflicts_fail_closed(monkeypatch: pytest.MonkeyPatch):

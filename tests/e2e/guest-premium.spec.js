@@ -96,6 +96,15 @@ async function openGuestView(page, view) {
   return navigation;
 }
 
+test("active guest shell serves its first-party favicon", async ({ page }) => {
+  await page.goto("/");
+  const icon = page.locator('link[rel="icon"]');
+  await expect(icon).toHaveAttribute("href", "/static/assets/favicon.svg");
+  const response = await page.request.get("/static/assets/favicon.svg");
+  expect(response.status()).toBe(200);
+  expect(response.headers()["content-type"]).toContain("image/svg+xml");
+});
+
 test("empty property keeps an honest home, a direct concierge action, and all five guest views", async ({ page }, testInfo) => {
   await installEmptyProperty(page);
   const emptyCaptureRoot = process.env.GUEST_UI_AUDIT_DIR && testInfo.project.name === "chromium"

@@ -1,4 +1,6 @@
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier
 
 import app.main as main_module
 from app.hospitality import HospitalityStore
@@ -93,6 +95,27 @@ def test_guest_service_request_is_idempotent(admin_client, tmp_path: Path, monke
     assert second.json()["status"] == "existing"
     assert second.json()["request"]["request_id"] == first.json()["request"]["request_id"]
     assert len(hospitality.overview(property_id)["service_requests"]) == 1
+
+
+def test_concurrent_service_request_retries_return_one_ticket(tmp_path: Path):
+    hospitality = HospitalityStore(tmp_path / "concurrent-idempotent-requests.db")
+    barrier = Barrier(8)
+    payload = {
+        "description": "Please send an extra pillow",
+        "stay_id": "stay-concurrent",
+        "client_request_id": "pillow-request-12345",
+    }
+
+    def submit():
+        barrier.wait(timeout=5)
+        return hospitality.create_service_request("hotel-a", payload)
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        responses = list(executor.map(lambda _: submit(), range(8)))
+
+    assert len({response["request_id"] for response in responses}) == 1
+    assert sum(bool(response.get("idempotent_replay")) for response in responses) == 7
+    assert len(hospitality.overview("hotel-a")["service_requests"]) == 1
 
 
 def test_facility_hours_answer_combines_every_requested_facility(monkeypatch):

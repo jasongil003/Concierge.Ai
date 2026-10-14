@@ -1366,54 +1366,57 @@ class HospitalityStore:
         now = _now()
         service_id = payload.get("service_id") or None
         client_request_id = _clean(payload.get("client_request_id"), 120) or None
-        if client_request_id:
-            stay_id = payload.get("stay_id")
-            if stay_id is None:
-                lookup_query = "SELECT * FROM service_requests WHERE property_id=? AND stay_id IS NULL AND client_request_id=?"
-                lookup_values = (property_id, client_request_id)
-            else:
-                lookup_query = "SELECT * FROM service_requests WHERE property_id=? AND stay_id=? AND client_request_id=?"
-                lookup_values = (property_id, stay_id, client_request_id)
-            with self._connect() as db:
+        sla = payload.get("sla_target_seconds")
+        record: dict[str, Any]
+        with self._connect() as db:
+            if client_request_id:
+                # Serialize lookup and insert so simultaneous retries return the
+                # existing ticket instead of racing into the unique constraint.
+                db.execute("BEGIN IMMEDIATE")
+                stay_id = payload.get("stay_id")
+                if stay_id is None:
+                    lookup_query = "SELECT * FROM service_requests WHERE property_id=? AND stay_id IS NULL AND client_request_id=?"
+                    lookup_values = (property_id, client_request_id)
+                else:
+                    lookup_query = "SELECT * FROM service_requests WHERE property_id=? AND stay_id=? AND client_request_id=?"
+                    lookup_values = (property_id, stay_id, client_request_id)
                 existing = db.execute(lookup_query, lookup_values).fetchone()
-            if existing:
-                return {**self._service_dict(existing), "idempotent_replay": True}
-        catalog_service = None
-        if service_id:
-            with self._connect() as db:
+                if existing:
+                    return {**self._service_dict(existing), "idempotent_replay": True}
+            catalog_service = None
+            if service_id:
                 catalog_service = db.execute(
                     "SELECT s.*, d.name AS department_name FROM service_catalog s LEFT JOIN departments d ON d.department_id=s.department_id AND d.property_id=s.property_id WHERE s.property_id=? AND s.service_id=? AND s.enabled=1 AND s.archived=0",
                     (property_id, service_id),
                 ).fetchone()
             if not catalog_service:
-                raise ValueError("The selected service is not available.")
-        sla = payload.get("sla_target_seconds")
-        if sla is None and catalog_service:
-            sla = int(catalog_service["sla_minutes"]) * 60
-        due_at = now + int(sla) if sla else None
-        record = {
-            "request_id": _id("req"),
-            "property_id": property_id,
-            "service_id": service_id,
-            "stay_id": payload.get("stay_id"),
-            "room": _clean(payload.get("room"), 80) or None,
-            "request_type": _clean((catalog_service["name"] if catalog_service else payload.get("request_type")) or "general", 80),
-            "description": _clean(payload.get("description"), 1000),
-            "priority": _clean(payload.get("priority") or "normal", 40),
-            "department": _clean((catalog_service["department_name"] if catalog_service else payload.get("department")) or "front_desk", 80),
-            "assigned_to": _clean(payload.get("assigned_to"), 160) or None,
-            "notes": _json(list(payload.get("notes") or [])[:100]),
-            "status": "new",
-            "sla_target_seconds": sla,
-            "due_at": due_at,
-            "completed_at": None,
-            "created_at": now,
-            "updated_at": now,
-            "client_request_id": client_request_id,
-        }
-        if not record["description"]:
-            raise ValueError("Service request description is required.")
-        with self._connect() as db:
+                if service_id:
+                    raise ValueError("The selected service is not available.")
+            if sla is None and catalog_service:
+                sla = int(catalog_service["sla_minutes"]) * 60
+            due_at = now + int(sla) if sla else None
+            record = {
+                "request_id": _id("req"),
+                "property_id": property_id,
+                "service_id": service_id,
+                "stay_id": payload.get("stay_id"),
+                "room": _clean(payload.get("room"), 80) or None,
+                "request_type": _clean((catalog_service["name"] if catalog_service else payload.get("request_type")) or "general", 80),
+                "description": _clean(payload.get("description"), 1000),
+                "priority": _clean(payload.get("priority") or "normal", 40),
+                "department": _clean((catalog_service["department_name"] if catalog_service else payload.get("department")) or "front_desk", 80),
+                "assigned_to": _clean(payload.get("assigned_to"), 160) or None,
+                "notes": _json(list(payload.get("notes") or [])[:100]),
+                "status": "new",
+                "sla_target_seconds": sla,
+                "due_at": due_at,
+                "completed_at": None,
+                "created_at": now,
+                "updated_at": now,
+                "client_request_id": client_request_id,
+            }
+            if not record["description"]:
+                raise ValueError("Service request description is required.")
             db.execute(
                 """INSERT INTO service_requests
                 (request_id,property_id,stay_id,room,request_type,description,priority,department,status,

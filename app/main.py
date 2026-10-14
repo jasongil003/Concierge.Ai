@@ -6633,6 +6633,19 @@ async def _compose_intelligent_guest_response(
         if str(item.get("content") or "").strip()
     ]
     conversation_query = _contextual_query(payload.message, server_history)
+    restaurant_context = None
+    if _is_restaurant_followup_message(payload.message):
+        restaurant_context, ambiguous_restaurants = _recent_guest_restaurant_context(
+            session.property_id, server_history, payload.message,
+        )
+        if ambiguous_restaurants:
+            return make_intelligent_ui_response(session.session_id, [{
+                "id": new_ui_id("text"),
+                "type": "text",
+                "content": "I found more than one matching restaurant. Please tell me which restaurant you mean, and I can show its menu or location.",
+            }], payload.turn_id)
+        if restaurant_context:
+            conversation_query = f"{payload.message} (follow-up about {restaurant_context['name']})"
 
     if _is_intelligent_guest_greeting(payload.message):
         settings_for_guest = _intelligent_guest_ui_config(property_record)
@@ -6755,6 +6768,34 @@ async def _compose_intelligent_guest_response(
                 return make_intelligent_ui_response(session.session_id, [{
                     "id": new_ui_id("text"), "type": "text", "content": message,
                 }, directory], payload.turn_id)
+            if restaurant_context:
+                restaurant_id = str(restaurant_context.get("restaurant_id") or "")
+                location = str(restaurant_context.get("location") or "").strip()
+                name = str(restaurant_context.get("name") or "Restaurant")[:120]
+                content = (
+                    f"{name} is listed at {location}. Turn-by-turn indoor routing is not configured."
+                    if location else
+                    f"I don't have a published location or validated indoor route for {name}. Please ask the hotel team for directions."
+                )
+                images = restaurant_context.get("images") or []
+                image_url = str(images[0])[:500] if images and isinstance(images[0], str) else ""
+                card = {
+                    "id": new_ui_id("restaurant-location"),
+                    "type": "restaurant",
+                    "title": name,
+                    "description": str(restaurant_context.get("description") or "")[:500],
+                    "detail": location[:240],
+                    "resource_id": restaurant_id[:80],
+                    "image_url": image_url,
+                    "location": location[:240],
+                    "source_ids": [guest_source_id(session.property_id, "restaurant", restaurant_id or "unknown")],
+                }
+                return make_intelligent_ui_response(session.session_id, [{
+                    "id": new_ui_id("text"), "type": "text", "content": content,
+                }, {
+                    "id": new_ui_id("restaurant-location-card"),
+                    "type": "entity_card", "card": card,
+                }], payload.turn_id)
         if floor_map:
             floor_map["directions_enabled"] = directions_enabled
             if directions:
@@ -7001,7 +7042,37 @@ async def _compose_intelligent_guest_response(
                 "title": "Dining at this hotel",
                 "cards": restaurant_cards,
             })
-        elif result.get("places"):
+        if "menu" in conversation_query.casefold():
+            relevant_ids = {str(item.get("restaurant_id") or "") for item in relevant_restaurants}
+            menu_cards = []
+            for item in facilities.get("menu_items", []):
+                if str(item.get("restaurant_id") or "") not in relevant_ids:
+                    continue
+                item_id = str(item.get("item_id") or item.get("menu_item_id") or "")
+                if not item_id:
+                    continue
+                images = item.get("images") or []
+                image_url = str(item.get("image_url") or (images[0] if images else ""))[:500]
+                price = str(item.get("price") or "").strip()
+                menu_cards.append({
+                    "id": new_ui_id("menu-item"),
+                    "type": "menu_item",
+                    "title": str(item.get("name") or "Published menu item")[:120],
+                    "description": str(item.get("description") or "")[:500],
+                    "detail": f"Price: {price}" if price else "Price not published",
+                    "resource_id": item_id[:80],
+                    "image_url": image_url,
+                    "source_ids": [guest_source_id(session.property_id, "menu_item", item_id)],
+                })
+            if menu_cards:
+                menu_title = f"Published menu · {relevant_restaurants[0]['name']}" if len(relevant_restaurants) == 1 else "Published menu"
+                blocks.append({
+                    "id": new_ui_id("menu-cards"),
+                    "type": "card_collection",
+                    "title": menu_title[:100],
+                    "cards": menu_cards[:8],
+                })
+        elif result.get("places") and not restaurant_cards:
             nearby_dining_cards = []
             for place in result.get("places", [])[:8]:
                 name = str(place.get("name") or "").strip()
@@ -8488,6 +8559,52 @@ def _contextual_query(message: str, history: list[dict[str, Any]]) -> str:
         if subject in previous_guest_message and subject not in normalized:
             return f"{message} (follow-up about {subject})"
     return message
+
+
+def _is_restaurant_followup_message(message: str) -> bool:
+    normalized = normalize_guest_text(message)
+    if "menu" in normalized:
+        return True
+    return bool(re.search(r"\bwhere\s+(?:is|are)\s+(?:it|that|there|they)\b", normalized))
+
+
+def _recent_guest_restaurant_context(
+    property_id: str,
+    history: list[dict[str, Any]],
+    current_message: str,
+) -> tuple[dict[str, Any] | None, list[str]]:
+    """Resolve a unique restaurant from recent guest turns and current property data."""
+    prior_history = history
+    if history and history[-1].get("role") == "guest":
+        if normalize_guest_text(str(history[-1].get("content") or "")) == normalize_guest_text(current_message):
+            prior_history = history[:-1]
+    restaurants = [
+        item for item in hospitality.guest_facilities(property_id).get("restaurants", [])
+        if not item.get("archived") and item.get("status") not in {"disabled", "archived"}
+    ]
+    for entry in reversed(prior_history):
+        if entry.get("role") != "guest":
+            continue
+        text = normalize_guest_text(str(entry.get("content") or ""))
+        if not text:
+            continue
+        named = []
+        for restaurant in restaurants:
+            name = normalize_guest_text(str(restaurant.get("name") or ""))
+            if len(name) >= 3 and re.search(rf"(?<!\w){re.escape(name)}(?!\w)", text):
+                named.append(restaurant)
+        matches = named or [
+            restaurant for restaurant in restaurants
+            if (cuisine := normalize_guest_text(str(restaurant.get("cuisine") or "")))
+            and len(cuisine) >= 3
+            and re.search(rf"(?<!\w){re.escape(cuisine)}(?!\w)", text)
+        ]
+        unique = {str(item.get("restaurant_id") or item.get("name") or ""): item for item in matches}
+        if len(unique) == 1:
+            return next(iter(unique.values())), []
+        if len(unique) > 1:
+            return None, sorted(str(item.get("name") or "Restaurant") for item in unique.values())
+    return None, []
 
 
 def _safety_fast_answer(message: str) -> str | None:
