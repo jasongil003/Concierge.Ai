@@ -136,6 +136,13 @@ def test_external_github_actions_are_pinned_to_full_commit_ids():
             assert re.search(r"@[0-9a-f]{40}$", reference), f"Unpinned action in {workflow.name}: {reference}"
 
 
+def test_secret_scan_forces_redacted_text_diff_across_all_reachable_history():
+    source = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+    assert '"$RUNNER_TEMP/gitleaks" detect --source . --redact --no-banner \\' in source
+    assert '--log-opts="--all --text"' in source
+
+
 def test_external_container_images_use_verified_digest_syntax():
     references = _external_image_references(ROOT)
     _assert_external_images_are_pinned(references)
