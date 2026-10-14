@@ -20,3 +20,13 @@ The changed backend paths passed the final full pytest run (1,187 passed, 18 ski
 - `ANA-M01`: property-timezone calendar periods across analytics, dashboard history, and restaurant diagnostics; requires a consistent validated timezone contract and daylight-saving regression cases.
 - “Open now” dining computation: current configured status does not prove schedule-derived opening; define authoritative status precedence and property-local hours rules before changing guest claims.
 - Live gateway/provider/device, target-host recovery, and 30,000-concurrent-guest acceptance require authorized representative environments.
+
+## 2026-10-14 follow-up on `6de7319`
+
+| ID / priority | Evidence and cause | Correction | Verification |
+| --- | --- | --- | --- |
+| AI-P1 | The SSE route released `text.delta` before the response's published-source check. A rejected claim could appear transiently and remain visible if the stream broke. | Hold guarded deltas until the final response passes grounding; release them only when they exactly match the validated final text. Otherwise send only the validated final text. This preserves the SSE contract but defers answer text until validation completes. | New fabricated-claim stream regression; focused 2/2 backend tests passed. |
+| GUEST-P1 | New-chat flow revoked the old guest credentials before starting a replacement. A failed start left the composer disabled although the UI said the conversation remained available. | Start the replacement first, then end the prior session. On a failed start, retain the old session and its composer. If ending the old session fails, disclose that status while activating the replacement. | New failed-start Chromium and mobile Chromium regressions passed. |
+| GUEST-P2 | A history fetch error was caught as an empty transcript, concealing server-retained messages after a transient outage. | Keep the existing session and show the reloadable startup error until server history can be fetched. | New transient-history Chromium and mobile Chromium regressions passed. |
+
+The 384-row feature matrix remains a prior acceptance snapshot; these fixes do not establish acceptance for its unverified requirements. External-place cards still fall back on completed-turn replay/history because live place evidence is not retained or revalidated there. That behavior needs a freshness and privacy design before correction.
