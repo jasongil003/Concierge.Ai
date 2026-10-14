@@ -54,3 +54,5 @@ Working changes: local and uncommitted; no push or deployment occurred.
 ### GitHub Actions follow-up
 
 Run [38560724104](https://github.com/jasongil003/Concierge.Ai/actions/runs/38560724104) had a failed `browser-tests` job; its other jobs passed. The browser failures exposed an incorrect Playwright server override in CI, which skipped the test-only session-clock routes, plus one desktop scroll-anchor timing failure. CI now uses `tests/e2e/run_server.py`, and the scroll test establishes its starting position without smooth-scroll animation. All 12 affected local browser cases passed across Chromium and Pixel 7 emulation when repeated twice. A new GitHub run is still needed to verify the workflow correction remotely.
+
+The later [run 38565924765](https://github.com/jasongil003/Concierge.Ai/actions/runs/38565924765) confirms `secret-scan` catches the unresolved historical credential: the current-tree scan passed, while the forced-text full-history scan reported 3 findings across 216 commits. This failure is expected until the credential owner confirms invalidation and a repository owner authorizes history cleanup.
