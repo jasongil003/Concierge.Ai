@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 const csrfByRequest = new WeakMap();
 
@@ -1226,6 +1226,185 @@ test("Intelligent UI: property opt-in answers from verified hotel data and keeps
     await expect(page.locator(".message-row.assistant .message-text").last()).toContainText("<img src=x");
     expect(await page.locator("#message-list img").count()).toBe(0);
     expect(await page.evaluate(() => window.__guestUiXss || false)).toBe(false);
+  } finally {
+    await setIntelligentUi(request, false);
+  }
+});
+
+test("Intelligent UI: greeting, empty request status, confirmed request tracking, and responsive evidence", async ({ page, request }, testInfo) => {
+  await ensureGuestData(request);
+  await setIntelligentUi(request, true);
+  const captureRoot = process.env.GUEST_UI_AUDIT_DIR
+    ? resolve(process.env.GUEST_UI_AUDIT_DIR)
+    : testInfo.outputPath("redesign-screenshots");
+  const capture = testInfo.project.name === "chromium";
+  if (capture) mkdirSync(captureRoot, { recursive: true });
+
+  try {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/");
+    await expect(page.locator("#app-shell")).toBeVisible();
+    await expect(page.locator("#welcome-suggestions button")).toHaveCount(4);
+    if (capture) await page.screenshot({ path: join(captureRoot, "welcome-1440x900.png"), fullPage: true });
+
+    for (const viewport of [
+      { width: 390, height: 844, label: "390x844" },
+      { width: 768, height: 1024, label: "768x1024" },
+      { width: 1440, height: 900, label: "1440x900" },
+    ]) {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      const metrics = await page.evaluate(() => ({
+        document: document.documentElement.scrollWidth,
+        viewport: window.innerWidth,
+        suggestionHeight: Math.min(...[...document.querySelectorAll(".suggestion-chip")].map((item) => item.getBoundingClientRect().height)),
+      }));
+      expect(metrics.document, `Guest welcome overflowed at ${viewport.label}`).toBeLessThanOrEqual(viewport.width);
+      expect(metrics.suggestionHeight, `Suggestion touch target is too short at ${viewport.label}`).toBeGreaterThanOrEqual(44);
+      if (capture) await page.screenshot({ path: join(captureRoot, `welcome-${viewport.label}.png`), fullPage: true });
+    }
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const composer = page.getByLabel("Message your concierge");
+    await expect(composer).toBeFocused();
+    await composer.fill("Hi");
+    await page.keyboard.press("Enter");
+    const greeting = page.locator(".message-row.assistant .message-text").last();
+    await expect(greeting).toContainText("Hello!");
+    await expect(greeting).not.toContainText("verified answer");
+
+    if (capture) {
+      for (const viewport of [
+        { width: 390, height: 844, label: "390x844" },
+        { width: 768, height: 1024, label: "768x1024" },
+        { width: 1440, height: 900, label: "1440x900" },
+      ]) {
+        await page.setViewportSize({ width: viewport.width, height: viewport.height });
+        const metrics = await page.evaluate(() => ({ document: document.documentElement.scrollWidth, viewport: window.innerWidth }));
+        expect(metrics.document, `Conversation overflowed at ${viewport.label}`).toBeLessThanOrEqual(viewport.width);
+        await page.screenshot({ path: join(captureRoot, `greeting-${viewport.label}.png`) });
+      }
+    }
+
+    await composer.fill("Where are my requests?");
+    await page.keyboard.press("Enter");
+    await expect(page.locator(".message-row.assistant .message-text").last()).toContainText("I don’t see a service request linked to this guest session");
+    await expect(page.locator(".request-status-panel")).toHaveCount(0);
+
+    await composer.fill("Please send two towels to my room");
+    await page.keyboard.press("Enter");
+    const review = page.locator(".request-review");
+    await expect(review).toContainText("Towels");
+    await review.getByRole("button", { name: "Confirm request" }).click();
+    await expect(page.locator(".verified-confirmation").last()).toContainText("Your request has been sent");
+
+    await composer.fill("What is the status of my request?");
+    await page.keyboard.press("Enter");
+    const status = page.locator(".request-status-panel");
+    await expect(status).toBeVisible();
+    await expect(status).toContainText("Towels");
+    await expect(status).toContainText("Received");
+    expect(await status.locator(".request-status-card").count()).toBeGreaterThan(0);
+    if (capture) {
+      for (const viewport of [
+        { width: 390, height: 844, label: "390x844" },
+        { width: 768, height: 1024, label: "768x1024" },
+        { width: 1440, height: 900, label: "1440x900" },
+      ]) {
+        await page.setViewportSize({ width: viewport.width, height: viewport.height });
+        await expect(status).toBeVisible();
+        await status.scrollIntoViewIfNeeded();
+        const metrics = await page.evaluate(() => ({ document: document.documentElement.scrollWidth, viewport: window.innerWidth }));
+        expect(metrics.document, `Request status overflowed at ${viewport.label}`).toBeLessThanOrEqual(viewport.width);
+        const geometry = await page.evaluate(() => ({
+          messageBottom: document.querySelector(".request-status-panel").getBoundingClientRect().bottom,
+          composerTop: document.querySelector(".composer-dock").getBoundingClientRect().top,
+        }));
+        expect(geometry.messageBottom, `Request status is covered by the composer at ${viewport.label}`).toBeLessThanOrEqual(geometry.composerTop);
+        await page.screenshot({ path: join(captureRoot, `request-status-${viewport.label}.png`) });
+      }
+    }
+  } finally {
+    await setIntelligentUi(request, false);
+  }
+});
+
+test("Intelligent UI: indoor directions follow configured guest-visible map nodes", async ({ page, request }) => {
+  const csrf = await loginAdmin(request);
+  const propertyId = "e2e-property";
+  const create = async (path, data) => {
+    const response = await request.post(`/api/admin/properties/${propertyId}/${path}`, {
+      headers: { "X-CSRF-Token": csrf }, data: { data },
+    });
+    expect(response.ok(), await response.text()).toBeTruthy();
+    return response.json();
+  };
+  const building = await create("buildings", { name: "Synthetic Test Tower" });
+  const floor = await create("floors", { building_id: building.building_id, name: "Ground floor", level: 0 });
+  const lobby = await create("navigation/nodes", { floor_id: floor.floor_id, label: "Lobby", x: 20, y: 50, guest_visible: true });
+  const pool = await create("navigation/nodes", { floor_id: floor.floor_id, label: "Rooftop Pool", x: 180, y: 50, guest_visible: true });
+  await create("navigation/nodes", { floor_id: floor.floor_id, label: "Staff Office", x: 100, y: 80, guest_visible: false });
+  await create("navigation/edges", { from_node_id: lobby.node_id, to_node_id: pool.node_id, distance: 42, guest_visible: true });
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="#eee"/><path d="M20 50h160" stroke="#777" stroke-width="3"/></svg>';
+  const uploadedMap = await request.post(`/api/admin/properties/${propertyId}/floors/${floor.floor_id}/maps`, {
+    headers: { "X-CSRF-Token": csrf },
+    data: { filename: "synthetic-test-map.svg", content_type: "image/svg+xml", content_base64: Buffer.from(svg).toString("base64"), width: 200, height: 100 },
+  });
+  expect(uploadedMap.ok(), await uploadedMap.text()).toBeTruthy();
+  await setIntelligentUi(request, true);
+  try {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/");
+    await expect(page.locator("#welcome-suggestions button")).toHaveCount(4);
+    await page.waitForFunction(() => Boolean(sessionStorage.getItem("concierge-v2-session-id")));
+    await page.getByLabel("Message your concierge").fill("Directions from Lobby to Rooftop Pool");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await expect(page.locator(".directions-panel")).toBeVisible();
+    await expect(page.locator(".directions-panel")).toContainText("Lobby");
+    await expect(page.locator(".directions-panel")).toContainText("Rooftop Pool");
+    await expect(page.locator(".directions-panel")).not.toContainText("Staff Office");
+    const map = page.locator(".map-panel");
+    await expect(map).toBeVisible();
+    await expect(map.locator(".floor-map-marker")).toHaveText(["Lobby", "Rooftop Pool"]);
+  } finally {
+    await setIntelligentUi(request, false);
+  }
+});
+
+test("Intelligent UI: loading, backend error, and expired-session states offer safe recovery", async ({ page, request }) => {
+  await setIntelligentUi(request, true);
+  try {
+    await page.goto("/");
+    await page.waitForFunction(() => Boolean(sessionStorage.getItem("concierge-v2-session-id")));
+    await page.route("**/api/guest/intelligent-chat/stream", async (route) => {
+      const message = route.request().postDataJSON()?.message || "";
+      if (message === "Wait for the concierge") {
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+        try { await route.abort(); } catch { /* The guest may have stopped the response already. */ }
+        return;
+      }
+      if (message === "Backend error") {
+        await route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ detail: "The concierge service is temporarily unavailable." }) });
+        return;
+      }
+      await route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ detail: "Concierge session expired." }) });
+    });
+
+    const composer = page.getByLabel("Message your concierge");
+    await composer.fill("Wait for the concierge");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await expect(page.locator(".loading-line")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Stop response" })).toBeVisible();
+    await page.getByRole("button", { name: "Stop response" }).click();
+    await expect(page.locator(".error-panel")).toContainText("Response stopped");
+
+    await composer.fill("Backend error");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await expect(page.locator(".error-panel").last()).toContainText("temporarily unavailable");
+
+    await composer.fill("Expired session");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await expect(page.locator(".error-panel").last()).toContainText("session has expired");
+    await expect(page.locator(".error-panel").last()).toContainText("Start a new chat");
   } finally {
     await setIntelligentUi(request, false);
   }

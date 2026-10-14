@@ -1430,11 +1430,12 @@ async def intelligent_guest_ui_config(request: Request) -> Response:
     payload = {
         "welcome_message": configured.welcome_message.strip()
         or str(property_record.welcome or "").strip()[:300]
-        or "Your personal concierge is here to help with your stay.",
+        or "Your personal concierge is here to make your stay easier.",
         "suggested_prompts": configured.suggested_prompts or [
-            "What time is the pool open?",
-            "Where can I have dinner?",
-            "How can I request something for my room?",
+            "Show me dining options",
+            "What hotel facilities are available?",
+            "What can I explore nearby?",
+            "Can I have some extra towels please?",
         ],
     }
     return JSONResponse(payload, headers={"Cache-Control": "no-store"})
@@ -6564,20 +6565,92 @@ async def _compose_intelligent_guest_response(
     if not _intelligent_guest_ui_enabled(property_record):
         raise HTTPException(status_code=404, detail="Guest experience not found.")
 
-    if _is_intelligent_map_request(payload.message):
-        floor_map = _intelligent_guest_floor_map_block(session.property_id, payload.message)
+    server_history = [
+        item for item in store.recent_messages(session.session_id, session.property_id, limit=10)
+        if str(item.get("content") or "").strip()
+    ]
+    conversation_query = _contextual_query(payload.message, server_history)
+
+    if _is_intelligent_guest_greeting(payload.message):
+        settings_for_guest = _intelligent_guest_ui_config(property_record)
+        prompts = settings_for_guest.suggested_prompts or [
+            "Show me dining options",
+            "What hotel facilities are available?",
+            "What can I explore nearby?",
+            "Can I have some extra towels please?",
+        ]
+        blocks: list[dict[str, Any]] = [{
+            "id": new_ui_id("text"),
+            "type": "text",
+            "content": "Hello! I’m here to make your stay easier. Ask about dining, hotel facilities, nearby places, or anything you need in your room.",
+        }]
+        if prompts:
+            blocks.append({
+                "id": new_ui_id("suggestions"),
+                "type": "suggestion_chips",
+                "items": [{"label": prompt[:80], "prompt": prompt[:300]} for prompt in prompts[:4]],
+            })
+        return make_intelligent_ui_response(session.session_id, blocks, payload.turn_id)
+
+    if _is_intelligent_request_status_request(payload.message):
+        context = StayContextEngine().build(
+            property_record, session, hospitality, guest_identities, personalization, store,
+        )
+        requests = context.get("recent_requests") or []
+        blocks = []
+        if requests:
+            blocks.append({
+                "id": new_ui_id("request-status"),
+                "type": "request_status",
+                "title": "Your recent service requests",
+                "items": [{
+                    "name": str(item.get("name") or "Service request")[:100],
+                    "description": str(item.get("description") or "")[:240],
+                    "department": str(item.get("department") or "")[:100],
+                    "status": str(item.get("status") or "new"),
+                    "updated_at": max(0, int(item.get("updated_at") or 0)),
+                } for item in requests[:10]],
+            })
+            blocks.insert(0, {
+                "id": new_ui_id("text"), "type": "text",
+                "content": "Here is the latest status recorded for requests linked to this guest session.",
+            })
+        else:
+            blocks.append({
+                "id": new_ui_id("text"), "type": "text",
+                "content": "I don’t see a service request linked to this guest session yet. Tell me what you need, and I can check the hotel’s configured services.",
+            })
+        prompts = _intelligent_followup_prompts(payload.message)
+        blocks.append({
+            "id": new_ui_id("suggestions"), "type": "suggestion_chips",
+            "items": [{"label": prompt[:80], "prompt": prompt[:300]} for prompt in prompts[:4]],
+        })
+        return make_intelligent_ui_response(session.session_id, blocks, payload.turn_id)
+
+    if _is_intelligent_map_request(conversation_query):
+        floor_map = _intelligent_guest_floor_map_block(session.property_id, conversation_query)
+        directions = _intelligent_guest_directions_block(
+            session.property_id,
+            conversation_query,
+            enabled=normalize_guardrails(property_record.guardrails)["directions_enabled"],
+        )
         blocks: list[dict[str, Any]] = [{
             "id": new_ui_id("text"),
             "type": "text",
             "content": (
                 "Here is the hotel's configured floor plan. Select a marker to identify its location. "
-                "A verified route from your current room is not available in this map."
+                "The route below follows published navigation points."
+                if directions else
+                "Here is the hotel's configured floor plan. Select a marker to identify its location. "
+                "A route from your current position is not available yet; tell me your starting point and destination to check for a published route."
                 if floor_map else
                 "This hotel has no published floor map or verified route for that location. Please contact the Front Desk for directions."
             ),
         }]
         if floor_map:
             blocks.append(floor_map)
+        if directions:
+            blocks.append(directions)
         return make_intelligent_ui_response(session.session_id, blocks, payload.turn_id)
 
     if _is_guest_service_request(payload.message):
@@ -6624,11 +6697,8 @@ async def _compose_intelligent_guest_response(
 
     # Keep conversation policy, retrieval, provider selection, and rate limits in
     # the existing handler. The presentation adapter only shapes its response.
-    server_history = [
-        item for item in store.recent_messages(session.session_id, session.property_id, limit=10)
-        if str(item.get("content") or "").strip()
-    ]
     server_payload = payload.model_copy(update={
+        "message": conversation_query,
         "conversation_history": [GuestChatHistoryItem.model_validate(item) for item in server_history],
     })
     result = await _chat_response(server_payload, request, stream_callback=stream_callback)
@@ -6669,7 +6739,7 @@ async def _compose_intelligent_guest_response(
             "fields": details[:12],
             "source_ids": [source for item in details for source in item.get("source_ids", [])][:16],
         })
-    if _is_intelligent_dining_request(payload.message):
+    if _is_intelligent_dining_request(conversation_query):
         facilities = hospitality.guest_facilities(session.property_id)
         published_restaurant_ids = {
             str(item.get("restaurant_id") or "")
@@ -6680,7 +6750,7 @@ async def _compose_intelligent_guest_response(
         relevant_restaurants = _guest_relevant_restaurants(
             [item for item in facilities.get("restaurants", [])
              if not item.get("archived") and item.get("status") not in {"disabled", "archived"}],
-            payload.message,
+            conversation_query,
         )
         for restaurant in relevant_restaurants[:8]:
             if restaurant.get("archived") or restaurant.get("status") in {"disabled", "archived"}:
@@ -6754,12 +6824,12 @@ async def _compose_intelligent_guest_response(
                     "title": "Nearby dining",
                     "cards": nearby_dining_cards,
                 })
-    elif _is_intelligent_facility_request(payload.message):
+    elif _is_intelligent_facility_request(conversation_query):
         facilities = [
             item for item in hospitality.guest_facilities(session.property_id).get("facilities", [])
             if not item.get("archived") and item.get("status") not in {"disabled", "archived"}
         ]
-        facilities = _guest_relevant_facilities(facilities, payload.message)
+        facilities = _guest_relevant_facilities(facilities, conversation_query)
         map_overview = zones.overview(session.property_id, guest=True)
         zone_lookup = {str(item.get("zone_id")): item for item in map_overview.get("zones", [])}
         floor_lookup = {str(item.get("floor_id")): item for item in map_overview.get("floors", [])}
@@ -6809,10 +6879,10 @@ async def _compose_intelligent_guest_response(
                 "title": "Hotel facilities",
                 "cards": facility_cards,
             })
-        floor_map = _intelligent_guest_floor_map_block(session.property_id, payload.message)
+        floor_map = _intelligent_guest_floor_map_block(session.property_id, conversation_query)
         if floor_map:
             blocks.append(floor_map)
-    elif _is_intelligent_attraction_request(payload.message):
+    elif _is_intelligent_attraction_request(conversation_query):
         place_cards = []
         for place in (result.get("places") or [])[:8]:
             name = str(place.get("name") or "").strip()
@@ -6876,7 +6946,7 @@ async def _compose_intelligent_guest_response(
         if not payload.conversation_history:
             prompts = _intelligent_guest_ui_config(property_record).suggested_prompts
         else:
-            prompts = _intelligent_followup_prompts(payload.message)
+            prompts = _intelligent_followup_prompts(conversation_query)
         if prompts:
             blocks.append({
                 "id": new_ui_id("suggestions"),
@@ -7089,6 +7159,13 @@ def _intelligent_response_sources_are_current(response: dict[str, Any], evidence
                 return False
             for marker in block.get("markers", []):
                 if not _text_is_supported_by_sources(marker.get("label", ""), marker.get("source_ids", []), evidence):
+                    return False
+        if kind == "directions":
+            for step in block.get("steps", []):
+                refs = step.get("source_ids", [])
+                if not refs or not all(ref in evidence for ref in refs):
+                    return False
+                if not _text_is_supported_by_sources(step.get("label", ""), refs, evidence):
                     return False
         if kind == "request_review":
             refs = block.get("source_ids", [])
@@ -7307,6 +7384,22 @@ async def intelligent_guest_chat_stream(payload: ChatRequest, request: Request) 
             "X-Accel-Buffering": "no",
         },
     )
+
+
+def _is_intelligent_guest_greeting(message: str) -> bool:
+    normalized = " ".join(AIInputSanitizer.sanitize_text(str(message or "")).casefold().split())
+    return bool(re.fullmatch(
+        r"(?:hi|hello|hey|good morning|good afternoon|good evening|good night|how are you|what's up|whats up|nice to meet you|thank you|thanks|kumusta|hola|bonjour|ciao)[!. ,?]*",
+        normalized,
+    ))
+
+
+def _is_intelligent_request_status_request(message: str) -> bool:
+    normalized = " ".join(str(message or "").casefold().split())
+    return bool(
+        re.search(r"\b(?:request|requests|service request|service requests)\b", normalized)
+        and re.search(r"\b(?:status|track|tracking|update|updates|where|progress|submitted|sent)\b", normalized)
+    ) or bool(re.fullmatch(r"(?:my requests|recent requests|request history)[!. ,?]*", normalized))
 
 
 def _is_intelligent_dining_request(message: str) -> bool:
@@ -7529,6 +7622,63 @@ def _intelligent_guest_floor_map_block(property_id: str, query: str) -> dict[str
             "source_ids": [guest_source_id(property_id, "floor_map", map_id)],
         }
     return None
+
+
+def _intelligent_guest_directions_block(
+    property_id: str,
+    query: str,
+    *,
+    enabled: bool = True,
+) -> dict[str, Any] | None:
+    """Return a route only for explicit endpoints on the guest-visible graph."""
+    if not enabled:
+        return None
+    match = re.search(r"\bfrom\s+(.+?)\s+to\s+(.+?)\s*[?.!,]*$", str(query or ""), re.IGNORECASE)
+    if not match:
+        return None
+    start_text = normalize_guest_text(match.group(1)).strip(" .,!?")
+    end_text = normalize_guest_text(match.group(2)).strip(" .,!?")
+    if not start_text or not end_text:
+        return None
+    nodes = [
+        item for item in zones.overview(property_id, guest=True).get("navigation_nodes", [])
+        if item.get("guest_visible") and str(item.get("label") or "").strip()
+    ]
+
+    def resolve(text: str) -> dict[str, Any] | None:
+        matches = [
+            item for item in nodes
+            if normalize_guest_text(str(item.get("label") or "")) == text
+            or normalize_guest_text(str(item.get("label") or "")) in text
+        ]
+        if not matches:
+            return None
+        matches.sort(key=lambda item: len(normalize_guest_text(str(item.get("label") or ""))), reverse=True)
+        if len(matches) > 1 and len(normalize_guest_text(str(matches[0].get("label") or ""))) == len(normalize_guest_text(str(matches[1].get("label") or ""))):
+            return None
+        return matches[0]
+
+    start = resolve(start_text)
+    end = resolve(end_text)
+    if not start or not end or start.get("node_id") == end.get("node_id"):
+        return None
+    try:
+        route = zones.route(property_id, str(start["node_id"]), str(end["node_id"]), guest=True)
+    except (KeyError, ValueError):
+        return None
+    labels = route.get("labels") or []
+    node_ids = route.get("node_ids") or []
+    if len(labels) < 2 or len(labels) != len(node_ids) or len(labels) > 40:
+        return None
+    return {
+        "id": new_ui_id("directions"),
+        "type": "directions",
+        "title": "Published directions",
+        "steps": [{
+            "label": str(label)[:120],
+            "source_ids": [guest_source_id(property_id, "map_node", str(node_id))],
+        } for label, node_id in zip(labels, node_ids)],
+    }
 
 
 def _is_guest_service_request(message: str) -> bool:

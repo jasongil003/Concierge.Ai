@@ -1,0 +1,76 @@
+{
+  "contract": "contract.md",
+  "targetViewports": ["390x844", "768x1024", "1440x900"],
+  "accessibility": {
+    "status": "pass",
+    "evidence": "Checked labeled composer and send control, keyboard Enter submission, visible focus styling, semantic request status panel/list and directions list, minimum 44px suggestion targets at all three viewports, and reduced-motion CSS support. Playwright exercised keyboard submission and measured touch target height; no automated screen-reader audit was run."
+  },
+  "responsive": {
+    "status": "pass",
+    "evidence": "Playwright measured no horizontal overflow at 390x844, 768x1024, and 1440x900 for welcome, conversation, and request-status states. The request-status panel remains above the fixed composer at all three widths; screenshots were visually inspected."
+  },
+  "contentStates": {
+    "loading": {
+      "status": "pass",
+      "evidence": "Playwright held a submitted chat response pending and verified the loading state and Stop control."
+    },
+    "empty": {
+      "status": "pass",
+      "evidence": "A new guest session asking for request status receives the no-linked-request response, without a fabricated request-status card."
+    },
+    "error": {
+      "status": "pass",
+      "evidence": "A mocked backend 502 produces bounded recovery guidance; the guest can retry."
+    },
+    "partial": {
+      "status": "pass",
+      "evidence": "Indoor directions are generated only from configured, guest-visible nodes and edges. Playwright verified Lobby-to-Rooftop-Pool directions and map markers while excluding a hidden Staff Office node. A unit assertion also verifies that a location question without an explicit route does not invent an origin or path; the response asks for a starting point or points to the Front Desk."
+    },
+    "success": {
+      "status": "pass",
+      "evidence": "The service-request journey required guest confirmation, then showed the backend-confirmed request and its current Received status in structured components."
+    },
+    "permission": {
+      "status": "pass",
+      "evidence": "Playwright expired the guest session and verified the access recovery message instead of displaying private request data."
+    }
+  },
+  "renderedEvidence": [
+    {
+      "viewport": "390x844",
+      "artifact": "welcome-390x844.png",
+      "observation": "Compact welcome, wrapped suggestion chips, and integrated composer fit the phone width without horizontal scrolling."
+    },
+    {
+      "viewport": "768x1024",
+      "artifact": "welcome-768x1024.png",
+      "observation": "Tablet welcome keeps the conversation as the primary action and maintains centered spacing."
+    },
+    {
+      "viewport": "1440x900",
+      "artifact": "welcome-1440x900.png",
+      "observation": "Desktop welcome uses a restrained content width with the composer and contextual prompts as the primary interaction."
+    },
+    {
+      "viewport": "390x844",
+      "artifact": "request-status-390x844.png",
+      "observation": "Confirmed towel request and Received status remain visible above the composer on a phone."
+    },
+    {
+      "viewport": "768x1024",
+      "artifact": "request-status-768x1024.png",
+      "observation": "Structured status card fits tablet layout and does not overlap the fixed composer."
+    },
+    {
+      "viewport": "1440x900",
+      "artifact": "request-status-1440x900.png",
+      "observation": "Desktop request status keeps request details, semantic status badge, and composer visually separated."
+    }
+  ],
+  "verification": {
+    "python": "46 passed, 2 dependency deprecation warnings",
+    "playwright": "74 passed in Chromium across guest and premium guest suites",
+    "targetedPlaywright": "Greeting, request tracking, responsive screenshots, map directions, loading/error/session recovery journeys passed after the composer overlap fix.",
+    "static": "node --check app/guest_v2/app.js and git diff --check passed"
+  }
+}
