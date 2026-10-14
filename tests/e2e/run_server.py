@@ -33,7 +33,7 @@ def main() -> int:
                 sys.executable,
                 "-m",
                 "uvicorn",
-                "app.main:app",
+                "tests.e2e.server_app:app",
                 "--host",
                 "127.0.0.1",
                 "--port",

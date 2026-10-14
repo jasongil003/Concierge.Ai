@@ -752,6 +752,27 @@ class PropertyStore:
             db.execute(self.UPSERT_SQL, [payload[column] for column in self.COLUMNS])
         return record
 
+    def create_if_absent(self, record: PropertyRecord) -> bool:
+        """Create a property scope without ever replacing a concurrent record."""
+        if self.get(record.property_id) is not None:
+            return False
+        now = int(time.time())
+        record.created_at = now
+        record.updated_at = now
+        if isinstance(record.guardrails, dict) and "guest_access_hosts" in record.guardrails:
+            record.guardrails["guest_access_hosts"] = normalize_guest_access_hosts(
+                record.guardrails["guest_access_hosts"]
+            )
+        payload = self._serialize_record(record)
+        placeholders = ", ".join("?" for _ in self.COLUMNS)
+        columns = ", ".join(self.COLUMNS)
+        with self._connect() as db:
+            cursor = db.execute(
+                f"INSERT INTO properties ({columns}) VALUES ({placeholders}) ON CONFLICT(property_id) DO NOTHING",
+                [payload[column] for column in self.COLUMNS],
+            )
+        return cursor.rowcount == 1
+
     def delete(self, property_id: str) -> bool:
         with self._connect() as db:
             cursor = db.execute("DELETE FROM properties WHERE property_id = ?", (property_id,))

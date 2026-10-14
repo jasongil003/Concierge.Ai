@@ -10,6 +10,7 @@ __pycache__/
 .DS_Store
 debug.log
 state/
+.local-demo/
 *.db
 node_modules/
 playwright-report/

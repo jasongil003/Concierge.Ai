@@ -1,5 +1,6 @@
 import base64
 import binascii
+import hashlib
 import json
 import re
 import sqlite3
@@ -22,6 +23,7 @@ TEXT_DOCUMENT_TYPES = {
     "application/json",
     "text/html",
 }
+RWG_REFERENCE_SOURCE_PREFIX = "rwg-hotel-knowledge-v2:"
 
 
 class OperationsStore:
@@ -179,6 +181,134 @@ class OperationsStore:
             row = db.execute("SELECT * FROM knowledge_items WHERE item_id = ?", (item_id,)).fetchone()
         return self._knowledge_row(row)
 
+    def import_reference_knowledge(
+        self,
+        property_id: str,
+        dataset_id: str,
+        record_type: str,
+        source_record_id: str,
+        payload: dict[str, Any],
+        *,
+        enabled: bool = True,
+    ) -> tuple[dict[str, Any], bool]:
+        """Add one namespaced reference record without replacing existing knowledge."""
+        result = self.import_reference_knowledge_batch([{
+            "property_id": property_id,
+            "dataset_id": dataset_id,
+            "record_type": record_type,
+            "source_record_id": source_record_id,
+            "payload": payload,
+            "enabled": enabled,
+        }])
+        return result[0]
+
+    def import_reference_knowledge_batch(self, records: list[dict[str, Any]]) -> list[tuple[dict[str, Any], bool]]:
+        """Atomically add stable package records; identical repeats are skipped."""
+        prepared: list[dict[str, Any]] = []
+        for item in records:
+            property_id = str(item.get("property_id") or "")
+            dataset_id = str(item.get("dataset_id") or "")
+            record_type = str(item.get("record_type") or "")
+            source_record_id = str(item.get("source_record_id") or "")
+            payload = item.get("payload")
+            enabled = bool(item.get("enabled", True))
+            if not property_id or not dataset_id or not record_type or not source_record_id:
+                raise ValueError("Property, dataset, record type, and source record identifiers are required.")
+            if not isinstance(payload, dict):
+                raise ValueError("Imported reference records must contain a JSON object.")
+            if record_type == "faq":
+                question = str(payload.get("question") or "").strip()[:500]
+                answer = str(payload.get("answer") or "").strip()[:12000]
+                if not question or not answer:
+                    raise ValueError("Imported FAQs require a question and answer.")
+                kind = "faq"
+                title = question[:200]
+                body = json.dumps({"source_url": payload.get("source_url") or ""}, ensure_ascii=False, sort_keys=True)
+            else:
+                kind = "entry"
+                title = str(payload.get("name") or payload.get("title") or source_record_id).strip()[:200]
+                body = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+                question = ""
+                answer = ""
+                if not title:
+                    raise ValueError("Imported knowledge entries require a title.")
+            if len(body) > 50000:
+                raise ValueError("Imported knowledge records must not exceed 50,000 characters.")
+            source_name = f"rwg-hotel-knowledge-v2:{dataset_id}:{record_type}:{source_record_id}"[:220]
+            item_id = "rwg2_" + hashlib.sha256(
+                f"{property_id}|{dataset_id}|{record_type}|{source_record_id}".encode("utf-8")
+            ).hexdigest()[:48]
+            prepared.append({
+                "item_id": item_id,
+                "property_id": property_id,
+                "kind": kind,
+                "title": title,
+                "question": question,
+                "answer": answer,
+                "body": body,
+                "source_name": source_name,
+                "content_type": "application/json",
+                "enabled": enabled,
+            })
+
+        results: list[tuple[dict[str, Any], bool]] = []
+        with self._connect() as db:
+            for item in prepared:
+                now = int(time.time())
+                cursor = db.execute(
+                    """
+                    INSERT INTO knowledge_items (
+                        item_id, property_id, kind, title, question, answer, body, source_name,
+                        content_type, status, error, enabled, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready', '', ?, ?, ?)
+                    ON CONFLICT(item_id) DO NOTHING
+                    """,
+                    (
+                        item["item_id"], item["property_id"], item["kind"], item["title"],
+                        item["question"], item["answer"], item["body"], item["source_name"],
+                        item["content_type"], int(item["enabled"]), now, now,
+                    ),
+                )
+                row = db.execute("SELECT * FROM knowledge_items WHERE item_id = ?", (item["item_id"],)).fetchone()
+                if row is None:
+                    raise RuntimeError("Imported knowledge could not be read after insertion.")
+                record = self._knowledge_row(row)
+                if cursor.rowcount == 1:
+                    results.append((record, True))
+                    continue
+                expected = {key: item[key] for key in (
+                    "property_id", "kind", "title", "question", "answer", "body", "source_name", "content_type",
+                )}
+                expected["enabled"] = item["enabled"]
+                if any(record.get(key) != value for key, value in expected.items()):
+                    raise ValueError(
+                        f"Imported record {item['source_name']} conflicts with an existing record; no data was replaced."
+                    )
+                results.append((record, False))
+        return results
+
+    def imported_reference_knowledge(
+        self,
+        property_id: str,
+        dataset_id: str = "",
+        *,
+        enabled_only: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Read package entries only for the requested property scope."""
+        prefix = "rwg-hotel-knowledge-v2:"
+        query = "SELECT * FROM knowledge_items WHERE property_id = ? AND source_name LIKE ?"
+        params: list[Any] = [property_id, prefix + "%"]
+        if enabled_only:
+            query += " AND enabled = 1 AND status = 'ready'"
+        query += " ORDER BY source_name, item_id"
+        with self._connect() as db:
+            rows = db.execute(query, params).fetchall()
+        records = [self._knowledge_row(row) for row in rows]
+        if dataset_id:
+            scoped_prefix = f"{prefix}{dataset_id}:"
+            records = [item for item in records if item["source_name"].startswith(scoped_prefix)]
+        return records
+
     def upload_document(self, property_id: str, filename: str, content_type: str, content_base64: str) -> dict[str, Any]:
         try:
             content = base64.b64decode(content_base64, validate=True)
@@ -227,12 +357,18 @@ class OperationsStore:
         return cursor.rowcount > 0
 
     def search_knowledge(self, property_id: str, query: str, limit: int = 5, *, include_documents: bool = True) -> list[dict[str, str]]:
-        stop = {"the", "a", "an", "is", "are", "what", "when", "where", "how", "can", "i", "to", "of", "for"}
+        stop = {"the", "a", "an", "is", "are", "what", "when", "where", "how", "can", "i", "to", "of", "for", "in", "at", "on"}
         terms = {term for term in re.findall(r"[a-z0-9]+", query.casefold()) if len(term) > 1 and term not in stop}
         if not terms:
             return []
         scored: list[tuple[int, dict[str, str]]] = []
         for item in self.list_knowledge(property_id):
+            is_rwg_reference = item["source_name"].startswith(RWG_REFERENCE_SOURCE_PREFIX)
+            # Package hotels, restaurants, maps, and facilities are structured
+            # reference records. Their JSON body is for typed guest components
+            # such as the location directory, never a free-form FAQ answer.
+            if is_rwg_reference and item["kind"] != "faq":
+                continue
             if item["kind"] == "document" and not include_documents:
                 continue
             if not item["enabled"] or item["status"] != "ready":
@@ -241,6 +377,10 @@ class OperationsStore:
             haystack_terms = set(re.findall(r"[a-z0-9]+", haystack))
             score = len(terms & haystack_terms)
             if score:
+                # Prevent a shared hotel name from making an unrelated package
+                # FAQ (for example, check-in) answer a dining query.
+                if is_rwg_reference and item["kind"] == "faq" and len(terms) > 1 and score < 2:
+                    continue
                 answer = item["answer"] or item["body"][:1800]
                 scored.append((score, {"item_id": item["item_id"], "title": item["title"], "answer": answer}))
         scored.sort(key=lambda value: value[0], reverse=True)

@@ -467,7 +467,7 @@ def test_expired_guest_credential_is_rejected(tmp_path: Path, monkeypatch: pytes
     assert response.status_code == 401
 
 
-def test_expired_guest_credentials_cannot_resume_and_their_cookie_is_cleared(
+def test_expired_guest_credentials_cannot_resume_or_extend_recent_session(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     session_store = _guest_replay_stores(tmp_path, monkeypatch)
@@ -484,11 +484,14 @@ def test_expired_guest_credentials_cannot_resume_and_their_cookie_is_cleared(
         assert rejected.status_code == 401
         with session_store._connect() as db:
             expired_row = db.execute(
-                "SELECT guest_token_expires_at FROM sessions WHERE session_id=?", (session_id,)
+                "SELECT guest_token_expires_at,last_seen_at FROM sessions WHERE session_id=?", (session_id,)
             ).fetchone()
-        # Expired guest rows are removed by session cleanup; they must not be
-        # recreated or extended by activity using the expired cookie.
-        assert expired_row is None
+        # Expired credentials fail closed. Keep recently active session state
+        # until its idle window ends so a request authenticated just before
+        # expiry can complete and slide the cookie safely.
+        assert expired_row is not None
+        assert expired_row["guest_token_expires_at"] == expired_at
+        assert expired_row["last_seen_at"] >= expired_at - 1800
         assert not any("Max-Age=1800" in cookie for cookie in rejected.headers.get_list("set-cookie"))
 
         resumed = client.post(
@@ -496,7 +499,85 @@ def test_expired_guest_credentials_cannot_resume_and_their_cookie_is_cleared(
             json={"client_id": "browser-client", "session_id": session_id},
         )
         assert resumed.status_code == 401
-        assert client.cookies.get(token_cookie_name) is None
+        assert client.cookies.get(token_cookie_name)
+
+
+def test_authenticated_request_can_finish_across_credential_expiry_cleanup_race(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    session_store = _guest_replay_stores(tmp_path, monkeypatch)
+    with TestClient(app, base_url="http://a.example.test") as client:
+        session_id = _start_guest(client)
+
+        class Clock:
+            def __init__(self, current: int):
+                self.current = current
+
+            def time(self) -> float:
+                return float(self.current)
+
+            def advance(self, seconds: int) -> None:
+                self.current += seconds
+
+        clock = Clock(int(time.time()))
+        monkeypatch.setattr(session_store_module, "time", clock)
+        with session_store._connect() as db:
+            db.execute(
+                "UPDATE sessions SET last_seen_at=?,guest_token_expires_at=? WHERE session_id=?",
+                (clock.current, clock.current + 1, session_id),
+            )
+
+        original_evaluate = main_module.network_guard.evaluate
+
+        def expire_after_authentication(*args, **kwargs):
+            result = original_evaluate(*args, **kwargs)
+            # Credential validation already succeeded; let the expiry pass
+            # before _guest_session performs its final store read.
+            clock.advance(2)
+            return result
+
+        monkeypatch.setattr(main_module.network_guard, "evaluate", expire_after_authentication)
+        response = client.get("/api/guest/personalization")
+        assert response.status_code == 200, response.text
+        with session_store._connect() as db:
+            renewed_expiry = db.execute(
+                "SELECT guest_token_expires_at FROM sessions WHERE session_id=?", (session_id,)
+            ).fetchone()[0]
+        assert renewed_expiry >= clock.current + 1700
+        assert any(
+            cookie.startswith(main_module._guest_cookie_names(session_id)[0] + "=")
+            and "Max-Age=1800" in cookie
+            for cookie in response.headers.get_list("set-cookie")
+        )
+
+
+def test_stale_rotated_guest_cookie_does_not_clear_newer_cookie_from_a_racing_response(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    session_store = _guest_replay_stores(tmp_path, monkeypatch)
+    with TestClient(app, base_url="http://a.example.test") as client:
+        session_id = _start_guest(client)
+        cookie_name = main_module._guest_cookie_names(session_id)[0]
+        old_token, old_context = _client_guest_credentials(client, session_id)
+        rotated = session_store.rotate_guest_credentials(
+            session_id,
+            old_token,
+            old_context,
+            ttl_seconds=1800,
+        )
+        assert rotated is not None
+        # Simulate an in-flight request carrying the old cookie after another
+        # tab has already received the rotated credentials.
+        client.cookies.set(cookie_name, f"{old_token}.{old_context}", domain="a.example.test", path="/")
+        rejected = client.get("/api/guest/personalization")
+        assert rejected.status_code == 401
+        assert not any(
+            cookie.startswith(cookie_name + "=") and "Max-Age=0" in cookie
+            for cookie in rejected.headers.get_list("set-cookie")
+        )
+
+        client.cookies.set(cookie_name, f"{rotated[0]}.{rotated[1]}", domain="a.example.test", path="/")
+        assert client.get("/api/guest/personalization").status_code == 200
 
 
 def test_active_guest_activity_slides_expiry_and_refreshes_cookie_age(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

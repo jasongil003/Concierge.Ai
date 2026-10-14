@@ -432,6 +432,28 @@ def test_service_restart_command_uses_platform_restart(tmp_path: Path, monkeypat
     assert calls == [(tmp_path.resolve(), "linux", False)]
 
 
+def test_source_serve_loads_private_env_before_starting_uvicorn(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    secret = "test-local-development-secret-value-123456"
+    (tmp_path / ".env").write_text(f"CREDENTIAL_ENCRYPTION_SECRET={secret}\n", encoding="utf-8")
+    monkeypatch.delenv("CREDENTIAL_ENCRYPTION_SECRET", raising=False)
+    monkeypatch.setattr(source_service, "assert_source_port_available", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(sys, "argv", [
+        "source_service.py", "--root", str(tmp_path), "--platform", "macos", "serve",
+    ])
+
+    class UvicornStarted(Exception):
+        pass
+
+    def capture_exec(*_args):
+        raise UvicornStarted
+
+    monkeypatch.setattr(source_service.os, "execv", capture_exec)
+    with pytest.raises(UvicornStarted):
+        source_service.main()
+
+    assert os.environ["CREDENTIAL_ENCRYPTION_SECRET"] == secret
+
+
 def test_launchd_restart_kickstarts_loaded_agent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     calls: list[list[str]] = []
     monkeypatch.setattr(source_service, "_platform_mode", lambda _platform: "launchd")
