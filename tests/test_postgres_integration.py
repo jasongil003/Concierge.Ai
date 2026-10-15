@@ -672,3 +672,24 @@ def test_postgres_notification_claim_release_and_concurrent_workers(tmp_path):
             db.execute("DELETE FROM guest_inbox_notifications WHERE property_id=?", (property_id,))
             db.execute("DELETE FROM guest_notification_frequency_locks WHERE property_id=?", (property_id,))
             db.execute("DELETE FROM guest_notification_preferences WHERE property_id=?", (property_id,))
+
+
+def test_postgres_observability_history_uses_typed_property_scope(tmp_path):
+    """PostgreSQL must handle both property-scoped and global history queries."""
+    _configure()
+    from app.observability import ObservabilityStore
+
+    property_id = f"pg-metrics-{uuid.uuid4().hex[:12]}"
+    metric = f"scope_{uuid.uuid4().hex[:12]}"
+    store = ObservabilityStore(tmp_path / "postgres-observability-ignored.db")
+    now = int(time.time())
+    try:
+        store.record(property_id, metric, 12, recorded_at=now - 1)
+        store.record(None, metric, 99, recorded_at=now - 1)
+        scoped = store.history(property_id, metric, "1h")
+        global_history = store.history(None, metric, "1h")
+        assert [item["value"] for item in scoped] == [12.0]
+        assert [item["value"] for item in global_history] == [99.0]
+    finally:
+        with connect_database(tmp_path / "postgres-observability-ignored.db") as db:
+            db.execute("DELETE FROM metric_samples WHERE metric=?", (metric,))

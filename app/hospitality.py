@@ -1905,15 +1905,25 @@ class HospitalityStore:
             self._expire_guest_inbox_rows(
                 db, moment, property_id=scoped_property,
             )
-            candidates = db.execute(
-                """SELECT * FROM guest_inbox_notifications
-                    WHERE (expires_at IS NULL OR expires_at>?)
-                      AND ((dispatch_status IN ('queued','retry_wait') AND next_attempt_at<=?)
-                           OR (dispatch_status='sending' AND claimed_at<=?))
-                      AND (? IS NULL OR property_id=?)
-                    ORDER BY next_attempt_at,created_at,notification_id LIMIT ?""",
-                [moment, moment, lease_cutoff, scoped_property, scoped_property, int(limit) * 10],
-            ).fetchall()
+            if scoped_property is None:
+                candidates = db.execute(
+                    """SELECT * FROM guest_inbox_notifications
+                        WHERE (expires_at IS NULL OR expires_at>?)
+                          AND ((dispatch_status IN ('queued','retry_wait') AND next_attempt_at<=?)
+                               OR (dispatch_status='sending' AND claimed_at<=?))
+                        ORDER BY next_attempt_at,created_at,notification_id LIMIT ?""",
+                    (moment, moment, lease_cutoff, int(limit) * 10),
+                ).fetchall()
+            else:
+                candidates = db.execute(
+                    """SELECT * FROM guest_inbox_notifications
+                        WHERE (expires_at IS NULL OR expires_at>?)
+                          AND ((dispatch_status IN ('queued','retry_wait') AND next_attempt_at<=?)
+                               OR (dispatch_status='sending' AND claimed_at<=?))
+                          AND property_id=?
+                        ORDER BY next_attempt_at,created_at,notification_id LIMIT ?""",
+                    (moment, moment, lease_cutoff, scoped_property, int(limit) * 10),
+                ).fetchall()
 
             for row in candidates:
                 if len(claimed) >= int(limit):

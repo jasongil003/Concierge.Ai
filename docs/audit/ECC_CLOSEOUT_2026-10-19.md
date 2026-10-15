@@ -4,8 +4,9 @@
 **Requested milestone:** 2026-10-19  
 **Code baseline:** `ba56274262053fe03b2db71b9c57ee25c8445377` (merged PR #57)  
 **Working branch:** `codex/ecc-closeout-20261019`  
-**Implementation commit:** pending publication  
-**Pull request:** pending publication
+**First implementation commit:** `3a6de95ae2eec8eb2230ccdf1aab11b216592040`  
+**Pull request:** [#58](https://github.com/jasongil003/Concierge.Ai/pull/58) (draft)  
+**Hosted CI run:** [run #233](https://github.com/jasongil003/Concierge.Ai/actions/runs/38731792563) on the first implementation commit; follow-up fixes are being verified on the updated PR head.
 
 This closeout records work and verification completed on the stated synthetic/local environments. It does not assert production readiness, legal approval, or live-provider acceptance.
 
@@ -16,7 +17,7 @@ This closeout records work and verification completed on the stated synthetic/lo
 | Facility maps and directions | **GREEN (synthetic)** | Existing map editor, revisions, publish/restore, guest-visible nodes, floor switching, route transitions, accessible routing, and missing-route behavior passed backend and browser coverage. Synthetic facility data is verified; real building accuracy remains **BLOCKED** on hotel-approved plans and a property walkthrough. |
 | AI providers | **GREEN (deterministic); BLOCKED (live)** | Adapter, routing, fallback, interrupted-stream, timeout, quota, credential encryption, and consent regression tests are in the full backend suite. No approved live provider credential was configured here, so no live connection is claimed. |
 | Nearby recommendations | **GREEN (synthetic); BLOCKED (live)** | Synthetic coordinate scoping, bounded radius/results, provider response validation, safe map links, consent gating, error handling, and structured guest cards are covered by backend and browser tests. No approved Google Places credential was configured; live discovery and provider licensing/quota acceptance remain unverified. |
-| Notification engine | **YELLOW** | The PostgreSQL claim-release defect is fixed; property-local quiet hours, retries, dedupe, consent/preferences, service-request updates, and scheduled hotel-event reminders are tested. Actual PostgreSQL execution is pending hosted CI. Facility-closure and current-weather-source triggers are not complete; no approved weather source is configured. |
+| Notification engine | **YELLOW** | The PostgreSQL claim-release and candidate-scope query defects are fixed; property-local quiet hours, retries, dedupe, consent/preferences, service-request updates, and scheduled hotel-event reminders are tested. The first hosted PostgreSQL run exposed the candidate-scope defect; the fix and regression coverage are on the updated PR head and hosted rerun is pending. Facility-closure and current-weather-source triggers are not complete; no approved weather source is configured. |
 | Guest privacy | **YELLOW** | Periodic retention, checkout cleanup, immediate optional-consent withdrawal, notification preference deletion, export/deletion protections already in the baseline, aggregate metrics, and cross-property tests pass locally. Property-owner/privacy approval of policy, retention exceptions, and legal text remains outstanding. |
 | Deployment and recovery | **YELLOW; target recovery BLOCKED** | Installer, startup/configuration, migration, backup/restore, proxy, recovery-ledger, and outage behavior have synthetic tests. Docker is unavailable on this host; PostgreSQL/Redis service checks, clean target installs, reboot/upgrade recovery, encrypted off-host backup, separate key escrow, and a disposable-host restore were not performed. |
 | Security and CI | **RED** | The current tracked tree scan is clean, but Gitleaks still finds three reachable-history findings in retained audit evidence. Repository rules do not require CI status checks. No finding was suppressed and no history rewrite or credential-revocation claim was made. |
@@ -28,6 +29,8 @@ This closeout records work and verification completed on the stated synthetic/lo
 ### PostgreSQL notification claim release
 
 `_release_guest_delivery_claim` no longer sends the SQLite-oriented predicate `claim_token IS ?` to PostgreSQL. It now uses two fixed query forms: `claim_token IS NULL` for a null token and `claim_token = ?` for a non-null stale token. This preserves compare-and-release semantics without interpolating caller-controlled SQL.
+
+The first hosted PostgreSQL execution also exposed an untyped nullable parameter in the candidate query (`? IS NULL OR property_id=?`), which PostgreSQL rejected as `IndeterminateDatatype`. Scoped and unscoped claims now use separate fixed query forms. `ObservabilityStore.history` had the same nullable-parameter pattern; it now uses a bound property comparison for scoped history and a literal `property_id IS NULL` predicate for global history. PostgreSQL coverage was added for scoped/global metric history.
 
 Regression coverage checks SQLite quiet-hours release, stale claim rejection, retry/reclaim, frequency limits, and concurrent workers. The added PostgreSQL integration test exercises the same paths against a live PostgreSQL service when `DATABASE_URL` is configured. That test was collected but skipped locally because no PostgreSQL URL/service was available; the repository's hosted `postgres-redis-integration` job is the remaining execution gate.
 
@@ -41,7 +44,7 @@ Regression coverage checks SQLite quiet-hours release, stale claim rejection, re
 
 ### Property-local notification time
 
-Property updates now validate timezone names as IANA zones. Notification scheduling and event reminder display use the property's zone, including overnight and daylight-saving cases covered by tests. A corrupt legacy timezone causes event reminder scheduling for that property to be skipped and logged without stopping inbox dispatch.
+Property updates now validate timezone names as IANA zones. Notification scheduling and event reminder display use the property's zone, including overnight and daylight-saving cases covered by tests. Calendar `today`/`yesterday` reporting windows now use property-local midnight and account for 23/25-hour days; invalid legacy zones use explicit UTC fallback instead of the host timezone. A corrupt legacy timezone causes event reminder scheduling for that property to be skipped and logged without stopping inbox dispatch.
 
 ### Verified event reminders
 
@@ -55,10 +58,12 @@ Staff-entered, all-guest hotel events can produce one in-app reminder inside the
 - `app/hospitality.py`
 - `app/main.py`
 - `app/metrics.py`
+- `app/observability.py`
 - `app/properties.py`
 - `tests/test_guest_privacy_consent.py`
 - `tests/test_notification_delivery.py`
 - `tests/test_notification_quiet_hours.py`
+- `tests/test_observability_reporting.py`
 - `tests/test_postgres_integration.py`
 - `tests/test_properties.py`
 - `docs/audit/ECC_CLOSEOUT_2026-10-19.md`
@@ -69,13 +74,13 @@ No database migration was added. Browser-generated files under `audit/evidence/`
 
 ### Backend and static checks
 
-- `.venv/bin/pytest -q -rs`: **1,308 passed, 19 skipped**, 2 deprecation warnings, 56.44 seconds.
+- `.venv/bin/pytest -q -rs`: **1,309 passed, 20 skipped**, 2 deprecation warnings, 56.58 seconds.
 - `.venv/bin/python -m compileall -q app`: passed.
 - `.venv/bin/bandit -q -r app -x app/static --severity-level medium --confidence-level medium`: passed. Bandit emitted existing parser and `nosec` warnings; it reported no gate failure.
 - `git diff --check`: passed.
 - The suite's persistent SQLite safety check reported the workspace database unchanged.
 
-Skip breakdown: 15 PostgreSQL-related cases (including PostgreSQL backup/restore and SQLite-to-PostgreSQL migration), 2 Redis service cases, 1 Linux-only memory-limit acceptance, and 1 `systemd-analyze` case because that utility is absent. The PostgreSQL/Redis integration workflow is configured in `.github/workflows/ci.yml`, but its result for this branch is pending the pull request.
+Skip breakdown: 16 PostgreSQL-related cases (including notification claims, metric history, backup/restore, and SQLite-to-PostgreSQL migration), 2 Redis service cases, 1 Linux-only memory-limit acceptance, and 1 `systemd-analyze` case because that utility is absent. Hosted PostgreSQL/Redis results are listed below.
 
 ### Browser and visual checks
 
@@ -97,7 +102,7 @@ Skip breakdown: 15 PostgreSQL-related cases (including PostgreSQL backup/restore
 ## Hosted CI and repository controls
 
 - Baseline PR: [PR #57](https://github.com/jasongil003/Concierge.Ai/pull/57) was merged at the stated baseline. Its recorded CI was 9/10 jobs successful; the historical secret scan remained failing.
-- This closeout PR: pending publication. After opening, the run list will be available at `https://github.com/jasongil003/Concierge.Ai/actions` and the PR checks at its `/checks` page. Results are not claimed until fetched.
+- [PR #58 checks](https://github.com/jasongil003/Concierge.Ai/pull/58/checks) and [hosted run #233](https://github.com/jasongil003/Concierge.Ai/actions/runs/38731792563): `dependency-security`, `python-dependency-security`, `static-security`, `backend-tests`, `docker-runtime-smoke`, `deployment-validation-linux`, and `deployment-validation-macos` passed on the first commit. `secret-scan` failed on the forced reachable-history scan. `postgres-redis-integration` ran 17 tests and exposed the second nullable scope parameter; that query is fixed on the updated PR head. Browser checks were still running when the first run was inspected. The updated PR head must complete its hosted rerun before merge.
 - The repository ruleset inspected for `main` protects branch deletion and non-fast-forward updates but does not require CI status checks. The integration could not access the branch-protection administration endpoint. A repository administrator must make the required CI checks mandatory before merging.
 
 ## External blocker owners and actions

@@ -8,7 +8,9 @@ import shutil
 import sqlite3
 import threading
 import time
+from datetime import datetime, time as datetime_time, timedelta, timezone
 from typing import Any, Callable
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .database import connect_database, table_exists
 from . import metrics
@@ -25,8 +27,15 @@ PERIODS: dict[str, tuple[int, int]] = {
 }
 
 
-def period_window(period: str, start_at: int | None = None, end_at: int | None = None) -> tuple[int, int, int]:
-    now = int(time.time())
+def period_window(
+    period: str,
+    start_at: int | None = None,
+    end_at: int | None = None,
+    *,
+    now: int | None = None,
+    timezone_name: str = "UTC",
+) -> tuple[int, int, int]:
+    moment = int(time.time()) if now is None else int(now)
     if period == "custom":
         if start_at is None or end_at is None or start_at >= end_at:
             raise ValueError("Custom periods require a valid start and end time.")
@@ -36,11 +45,21 @@ def period_window(period: str, start_at: int | None = None, end_at: int | None =
         bucket = 300 if span <= 21600 else (3600 if span <= 172800 else (21600 if span <= 1209600 else 86400))
         return start_at, end_at, bucket
     if period in {"today", "yesterday"}:
-        local = time.localtime(now)
-        midnight = int(time.mktime((local.tm_year, local.tm_mon, local.tm_mday, 0, 0, 0, local.tm_wday, local.tm_yday, local.tm_isdst)))
-        return (midnight, now, 3600) if period == "today" else (midnight - 86400, midnight, 3600)
+        try:
+            zone = ZoneInfo(timezone_name)
+        except (ZoneInfoNotFoundError, TypeError, ValueError):
+            # Invalid legacy settings use an explicit UTC fallback, never the
+            # host's timezone. Property writes reject invalid IANA names.
+            zone = ZoneInfo("UTC")
+        local_now = datetime.fromtimestamp(moment, timezone.utc).astimezone(zone)
+        today = datetime.combine(local_now.date(), datetime_time.min, tzinfo=zone)
+        midnight = int(today.timestamp())
+        if period == "today":
+            return midnight, moment, 3600
+        yesterday = datetime.combine(local_now.date() - timedelta(days=1), datetime_time.min, tzinfo=zone)
+        return int(yesterday.timestamp()), midnight, 3600
     seconds, bucket = PERIODS.get(period, PERIODS["24h"])
-    return now - seconds, now, bucket
+    return moment - seconds, moment, bucket
 
 
 @dataclass(frozen=True)
@@ -66,6 +85,20 @@ class ObservabilityStore:
 
     def _connect(self) -> sqlite3.Connection:
         return connect_database(self.path)
+
+    @staticmethod
+    def _timezone_for_property(db: sqlite3.Connection, property_id: str | None) -> str:
+        if not property_id or not table_exists(db, "properties"):
+            return "UTC"
+        row = db.execute("SELECT timezone FROM properties WHERE property_id=?", (property_id,)).fetchone()
+        if row is None or not row["timezone"]:
+            return "UTC"
+        name = str(row["timezone"])
+        try:
+            ZoneInfo(name)
+        except (ZoneInfoNotFoundError, TypeError, ValueError):
+            return "UTC"
+        return name
 
     def _init_db(self) -> None:
         with self._connect() as db:
@@ -199,17 +232,31 @@ class ObservabilityStore:
             return {"state": "critical", "latency_ms": None, "size_bytes": None, "evidence": f"Database probe failed: {exc.__class__.__name__}."}
 
     def history(self, property_id: str | None, metric: str, period: str, start_at: int | None = None, end_at: int | None = None) -> list[dict[str, Any]]:
-        cutoff, period_end, bucket = period_window(period, start_at, end_at)
         with self._connect() as db:
-            rows = db.execute(
-                """SELECT (recorded_at / ?) * ? AS bucket_at, AVG(value) AS average,
-                SUM(CASE WHEN value IS NOT NULL THEN 1 ELSE 0 END) AS samples,
-                MAX(unit) AS unit, MIN(availability) AS availability
-                FROM metric_samples
-                WHERE metric=? AND recorded_at>=? AND recorded_at<=? AND (property_id=? OR (? IS NULL AND property_id IS NULL))
-                GROUP BY bucket_at ORDER BY bucket_at""",
-                (bucket, bucket, metric, cutoff, period_end, property_id, property_id),
-            ).fetchall()
+            timezone_name = self._timezone_for_property(db, property_id)
+            cutoff, period_end, bucket = period_window(
+                period, start_at, end_at, timezone_name=timezone_name,
+            )
+            if property_id is None:
+                rows = db.execute(
+                    """SELECT (recorded_at / ?) * ? AS bucket_at, AVG(value) AS average,
+                    SUM(CASE WHEN value IS NOT NULL THEN 1 ELSE 0 END) AS samples,
+                    MAX(unit) AS unit, MIN(availability) AS availability
+                    FROM metric_samples
+                    WHERE metric=? AND recorded_at>=? AND recorded_at<=? AND property_id IS NULL
+                    GROUP BY bucket_at ORDER BY bucket_at""",
+                    (bucket, bucket, metric, cutoff, period_end),
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    """SELECT (recorded_at / ?) * ? AS bucket_at, AVG(value) AS average,
+                    SUM(CASE WHEN value IS NOT NULL THEN 1 ELSE 0 END) AS samples,
+                    MAX(unit) AS unit, MIN(availability) AS availability
+                    FROM metric_samples
+                    WHERE metric=? AND recorded_at>=? AND recorded_at<=? AND property_id=?
+                    GROUP BY bucket_at ORDER BY bucket_at""",
+                    (bucket, bucket, metric, cutoff, period_end, property_id),
+                ).fetchall()
         return [
             {"timestamp": int(row["bucket_at"]), "value": None if row["average"] is None else round(float(row["average"]), 2), "samples": int(row["samples"]), "unit": row["unit"], "availability": row["availability"]}
             for row in rows
@@ -219,10 +266,13 @@ class ObservabilityStore:
         return table_exists(db, table)
 
     def property_analytics(self, property_id: str, period: str, department_id: str | None = None, start_at: int | None = None, end_at: int | None = None) -> dict[str, Any]:
-        start, end, bucket = period_window(period, start_at, end_at)
-        seconds = end - start
-        previous_start = start - seconds
         with self._connect() as db:
+            timezone_name = self._timezone_for_property(db, property_id)
+            start, end, bucket = period_window(
+                period, start_at, end_at, timezone_name=timezone_name,
+            )
+            seconds = end - start
+            previous_start = start - seconds
             department_name = None
             if department_id:
                 if not self._table_exists(db, "departments"):
