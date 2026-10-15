@@ -5,9 +5,11 @@
 **Code baseline:** `ba56274262053fe03b2db71b9c57ee25c8445377` (merged PR #57)  
 **Working branch:** `codex/ecc-closeout-20261019`  
 **First implementation commit:** `3a6de95ae2eec8eb2230ccdf1aab11b216592040`  
-**Code head verified by hosted CI:** `6cac90a4e72fc8ce3c802133b2690491d2323635`  
+**Code head verified by hosted CI run #234:** `6cac90a4e72fc8ce3c802133b2690491d2323635`  
 **Pull request:** [#58](https://github.com/jasongil003/Concierge.Ai/pull/58) (draft)  
-**Hosted CI runs:** [run #233](https://github.com/jasongil003/Concierge.Ai/actions/runs/38731792563) on the first implementation commit; [run #234](https://github.com/jasongil003/Concierge.Ai/actions/runs/38732935629) on updated head `6cac90a4e72fc8ce3c802133b2690491d2323635`.
+**Hosted CI runs:** [run #233](https://github.com/jasongil003/Concierge.Ai/actions/runs/38731792563) on the first implementation commit; [run #234](https://github.com/jasongil003/Concierge.Ai/actions/runs/38732935629) on updated head `6cac90a4e72fc8ce3c802133b2690491d2323635`; [run #235](https://github.com/jasongil003/Concierge.Ai/actions/runs/38734890994) on the report-only follow-up.
+
+The report-only follow-up run #235 exposed a reproducible guest-card image layout shift; its fix is on the current PR branch and awaits hosted verification.
 
 This closeout records work and verification completed on the stated synthetic/local environments. It does not assert production readiness, legal approval, or live-provider acceptance.
 
@@ -51,10 +53,15 @@ Property updates now validate timezone names as IANA zones. Notification schedul
 
 Staff-entered, all-guest hotel events can produce one in-app reminder inside the configured lead window when the property enables reminders and the active stay has experience notifications and proactive consent enabled. Dedupe keys include the source event ID and start time. Reminder facts come from the stored event; an AI response does not create or augment them. Scheduling and dispatch now have separate worker error handling so an event scheduling error does not suppress the inbox dispatch pass.
 
+### Lazy guest image layout stability
+
+The restaurant-card regression exposed a 49–52 px title shift when a lazy remote image loaded. The card image had no intrinsic dimensions before the request completed. Guest entity images now reserve a 160×100 (16:10) box before loading, and the existing layout-shift regression passes in isolation.
+
 ## Changed files
 
 - `.env.example`
 - `app/config.py`
+- `app/guest_v2/app.js`
 - `app/guest_identity.py`
 - `app/hospitality.py`
 - `app/main.py`
@@ -90,6 +97,7 @@ Skip breakdown: 16 PostgreSQL-related cases (including notification claims, metr
 - Hosted `browser-tests` on the updated code head passed: **339 passed, 39 skipped** in 10.2 minutes.
 - Focused `npx playwright test tests/e2e/visual.spec.js --grep @visual`: **4 passed** across desktop Chromium and mobile Chromium.
 - Focused synthetic journey `npx playwright test tests/e2e/admin-actions.spec.js:224 tests/e2e/admin-actions.spec.js:336 tests/e2e/guest.spec.js:934 tests/e2e/guest.spec.js:1386 --project=chromium`: **4 passed** (admin map editing, cross-floor transitions, nearby cards, and guest indoor directions).
+- The existing restaurant-card image stability regression failed before image dimensions were reserved (52 px local title shift) and passed after the fix.
 - Existing guest-interface evidence: [verified pool answer](evidence/guest-ui-acceptance-2026-10-14/verified-pool-answer-desktop.png), [restaurant desktop](evidence/guest-ui-acceptance-2026-10-14/restaurant-desktop-1440x900.png), [restaurant tablet](evidence/guest-ui-acceptance-2026-10-14/restaurant-tablet-768x1024.png), and [restaurant mobile](evidence/guest-ui-acceptance-2026-10-14/restaurant-mobile-390x844.png). These screenshots are dated 2026-10-14, not newly captured by this closeout.
 
 ### Security, dependencies, and live integrations
@@ -105,7 +113,7 @@ Skip breakdown: 16 PostgreSQL-related cases (including notification claims, metr
 
 - Baseline PR: [PR #57](https://github.com/jasongil003/Concierge.Ai/pull/57) was merged at the stated baseline. Its recorded CI was 9/10 jobs successful; the historical secret scan remained failing.
 - [PR #58 checks](https://github.com/jasongil003/Concierge.Ai/pull/58/checks) and [hosted run #234](https://github.com/jasongil003/Concierge.Ai/actions/runs/38732935629) completed on code head `6cac90a4`: `backend-tests` passed (**1,311 passed, 18 skipped**), `postgres-redis-integration` passed (**19 passed**), `browser-tests` passed (**339 passed, 39 skipped**), and Docker runtime, npm/pip dependency, static-security, Linux deployment, and macOS deployment jobs passed. `secret-scan` failed on the forced reachable-history text scan (3 findings); its current-tree scan reported no leaks. This is 9 of 10 jobs passing; the run conclusion is failure because the historical finding remains.
-- Earlier run #233 was canceled after PostgreSQL exposed the claim-candidate defect; the fixed code was exercised by the completed run #234.
+- Hosted run #235 on the report-only follow-up passed all jobs except `secret-scan` and `browser-tests`; its browser result was **338 passed, 39 skipped, 1 failed**. The failure was the restaurant-card image shift, reproduced locally and fixed as described above. The fix is awaiting hosted CI. Earlier run #233 was canceled after PostgreSQL exposed the claim-candidate defect; the fixed database paths were exercised by the completed run #234.
 - The repository ruleset inspected for `main` protects branch deletion and non-fast-forward updates but does not require CI status checks. The integration could not access the branch-protection administration endpoint. A repository administrator must make the required CI checks mandatory before merging.
 
 ## External blocker owners and actions
@@ -120,4 +128,4 @@ Skip breakdown: 16 PostgreSQL-related cases (including notification claims, metr
 
 ## Release decision
 
-**NO-GO for an internal release candidate at this time.** The local synthetic implementation and most automated suites pass, but the historical credential finding and missing required-check enforcement are security gates, the full browser run had four flaky failures, and live PostgreSQL/Redis and deployment recovery evidence is pending. An isolated internal synthetic demo remains suitable only with synthetic data and no live provider or guest-data claims. This repository must not be described as production-ready.
+**NO-GO for an internal release candidate at this time.** The local synthetic implementation and most automated suites pass, but the historical credential finding and missing required-check enforcement are security gates, the full local browser run had four flaky failures, and live deployment recovery evidence is pending. A separate image-layout defect found in hosted run #235 is fixed locally and awaits the hosted rerun. An isolated internal synthetic demo remains suitable only with synthetic data and no live provider or guest-data claims. This repository must not be described as production-ready.
