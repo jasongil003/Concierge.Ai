@@ -14,8 +14,8 @@
 | --- | --- | --- | --- |
 | Facility maps and directions | GREEN (synthetic) | Map revisions, routes, accessibility checks, and guest fallbacks are covered. | Approved hotel plans and on-site route walkthrough are missing. |
 | AI providers | GREEN (deterministic) | Adapter, fallback, timeout, streaming, encrypted credentials, and privacy tests pass. | Live credentials and data-sharing authorization are missing. |
-| Nearby recommendations | YELLOW | Complete-word intent matching and separate restaurant/attraction permissions pass the full local suite in draft [PR #60](https://github.com/jasongil003/Concierge.Ai/pull/60). | Hosted CI run #241 is queued; approved privacy policy and live Places account/provider checks remain outstanding. |
-| Guest notifications | YELLOW | Facility closed/maintenance/reopen notice flow is implemented and covered locally. | Draft PR #59 hosted browser run is still active; secret-scan fails. Actual hotel delivery and weather alerts are unverified. |
+| Nearby recommendations | YELLOW | Complete-word intent matching and separate restaurant/attraction permissions pass the full local suite in draft [PR #60](https://github.com/jasongil003/Concierge.Ai/pull/60). | Hosted run #242 passed 339 browser tests (39 skipped) and every job except `secret-scan`; approved privacy policy and live Places checks remain outstanding. |
+| Guest notifications | YELLOW | Facility closed/maintenance/reopen notice flow is implemented and covered locally. | Draft PR #59 secret-scan fails. Its first browser attempt had two admin-control failures; the targeted browser rerun remains active. Actual hotel delivery and weather alerts are unverified. |
 | Guest privacy and security | RED | Consent controls and tracked snapshot checks exist. | Three reachable-history secret detections need issuer/repository-owner coordination; approved location/privacy policy is missing. |
 | Deployment and recovery | YELLOW | Synthetic configuration, migration, backup, and CI deployment coverage exists. | Authorized clean target hosts, reboot/rollback, off-host backup, and separate key recovery are missing. |
 | 30,000 concurrent users | DEFERRED | No capacity claim made. | Explicitly outside this completion pass. |
@@ -32,7 +32,7 @@
 - `GooglePlaces.should_search` and chat recommendation intent checks now match complete words/phrases, preventing fragments such as `eat` in “theater” or `plan` in “planetarium” from triggering a Places request.
 - Fixed queries add explicit requested categories and map dining categories to `restaurant_search_enabled` and attraction/activity categories to `attractions_enabled`. A request for both requires both permissions; a single enabled category no longer authorizes searches for the disabled category. Generic pharmacy, shopping, and grocery categories keep the broad nearby gate.
 - Regression tests first reproduced both defects. Focused nearby/privacy/context suite passes: **56 passed**. Full local suite: **1,319 passed, 20 skipped**, 2 warnings. `compileall`, `git diff --check`, and Bandit medium-severity/confidence scan pass.
-- Current branch: `codex/fix-nearby-intent-permissions-20261015`, published as draft [PR #60](https://github.com/jasongil003/Concierge.Ai/pull/60). Hosted CI run [#241](https://github.com/jasongil003/Concierge.Ai/actions/runs/38749049577) was queued when this entry was updated.
+- Current branch: `codex/fix-nearby-intent-permissions-20261015`, published as draft [PR #60](https://github.com/jasongil003/Concierge.Ai/pull/60). Hosted run [#242](https://github.com/jasongil003/Concierge.Ai/actions/runs/38749188951) passed 339 browser tests (39 skipped); every job passed except `secret-scan`.
 
 ## External blockers and next steps
 
@@ -47,6 +47,6 @@ Do not merge a PR with failed required checks. Reassess release status only afte
 
 ## GitHub follow-up
 
-- PR #59 contains facility closed/maintenance/reopen notices. On latest checked run #240, all completed jobs except `secret-scan` passed; `browser-tests` was still in progress.
-- PR #60 contains Nearby phrase-boundary and independent category permission fixes. Run #241 was queued at publication.
+- PR #59 contains facility closed/maintenance/reopen notices. Run #240's first browser attempt had 337 passed, 39 skipped, and two failed admin-control tests; the targeted browser rerun is active. `secret-scan` failed.
+- PR #60 contains Nearby phrase-boundary and independent category permission fixes. Run #242 passed 339 browser tests (39 skipped), backend, PostgreSQL/Redis, Docker, dependency, static-security, and deployment jobs. `secret-scan` failed.
 - Both PRs remain drafts; neither has been merged. The Git push could not authenticate from this workspace, so the verified local trees were published through the authenticated GitHub connector. No CI gate was bypassed.
