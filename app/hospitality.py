@@ -7,7 +7,7 @@ from typing import Any
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from .database import connect_database, enable_foreign_keys, table_columns
+from .database import connect_database, enable_foreign_keys, table_columns, table_exists
 from urllib.parse import urlsplit
 
 
@@ -1656,13 +1656,20 @@ class HospitalityStore:
         current_zone_id: str | None = None,
         now: int | None = None,
     ) -> dict[str, Any]:
-        moment = now or _now()
+        moment = _now() if now is None else int(now)
         with self._connect() as db:
             row = db.execute("SELECT * FROM notification_rules WHERE property_id=? AND rule_id=?", (property_id, rule_id)).fetchone()
+            property_row = (
+                db.execute("SELECT timezone FROM properties WHERE property_id=?", (property_id,)).fetchone()
+                if table_exists(db, "properties") else None
+            )
         if not row:
             raise KeyError("Notification rule not found.")
         rule = self._notification_rule_dict(row)
-        allowed, reason = self._notification_allowed(rule, verified_payload, guest_preferences or {}, current_zone_id, moment)
+        allowed, reason = self._notification_allowed(
+            rule, verified_payload, guest_preferences or {}, current_zone_id, moment,
+            property_timezone=property_row["timezone"] if property_row else "UTC",
+        )
         if allowed:
             policy = rule.get("policy") or {}
             scheduled_at = policy.get("scheduled_at", policy.get("not_before"))
@@ -1898,15 +1905,25 @@ class HospitalityStore:
             self._expire_guest_inbox_rows(
                 db, moment, property_id=scoped_property,
             )
-            candidates = db.execute(
-                """SELECT * FROM guest_inbox_notifications
-                    WHERE (expires_at IS NULL OR expires_at>?)
-                      AND ((dispatch_status IN ('queued','retry_wait') AND next_attempt_at<=?)
-                           OR (dispatch_status='sending' AND claimed_at<=?))
-                      AND (? IS NULL OR property_id=?)
-                    ORDER BY next_attempt_at,created_at,notification_id LIMIT ?""",
-                [moment, moment, lease_cutoff, scoped_property, scoped_property, int(limit) * 10],
-            ).fetchall()
+            if scoped_property is None:
+                candidates = db.execute(
+                    """SELECT * FROM guest_inbox_notifications
+                        WHERE (expires_at IS NULL OR expires_at>?)
+                          AND ((dispatch_status IN ('queued','retry_wait') AND next_attempt_at<=?)
+                               OR (dispatch_status='sending' AND claimed_at<=?))
+                        ORDER BY next_attempt_at,created_at,notification_id LIMIT ?""",
+                    (moment, moment, lease_cutoff, int(limit) * 10),
+                ).fetchall()
+            else:
+                candidates = db.execute(
+                    """SELECT * FROM guest_inbox_notifications
+                        WHERE (expires_at IS NULL OR expires_at>?)
+                          AND ((dispatch_status IN ('queued','retry_wait') AND next_attempt_at<=?)
+                               OR (dispatch_status='sending' AND claimed_at<=?))
+                          AND property_id=?
+                        ORDER BY next_attempt_at,created_at,notification_id LIMIT ?""",
+                    (moment, moment, lease_cutoff, scoped_property, int(limit) * 10),
+                ).fetchall()
 
             for row in candidates:
                 if len(claimed) >= int(limit):
@@ -2248,6 +2265,78 @@ class HospitalityStore:
                 (moment, moment, property_id, stay_id),
             ).rowcount
 
+    def purge_guest_inbox_for_stay(self, property_id: str, stay_id: str) -> int:
+        """Erase guest-linked notification content on checkout, including read items."""
+        property_id = self._guest_scope_value(property_id, "Property id")
+        stay_id = self._guest_scope_value(stay_id, "Stay id")
+        with self._connect() as db:
+            deleted = db.execute(
+                "DELETE FROM guest_inbox_notifications WHERE property_id=? AND stay_id=?",
+                (property_id, stay_id),
+            ).rowcount
+            db.execute(
+                "DELETE FROM guest_notification_preferences WHERE property_id=? AND stay_id=?",
+                (property_id, stay_id),
+            )
+            db.execute(
+                "DELETE FROM guest_notification_frequency_locks WHERE property_id=? AND stay_id=?",
+                (property_id, stay_id),
+            )
+            return deleted
+
+    def purge_guest_inbox_category(self, property_id: str, stay_id: str, category: str) -> int:
+        """Remove guest-linked content immediately after an opt-out."""
+        property_id = self._guest_scope_value(property_id, "Property id")
+        stay_id = self._guest_scope_value(stay_id, "Stay id")
+        if category not in NOTIFICATION_CATEGORIES:
+            raise ValueError("Invalid notification category.")
+        with self._connect() as db:
+            return db.execute(
+                "DELETE FROM guest_inbox_notifications WHERE property_id=? AND stay_id=? AND category=?",
+                (property_id, stay_id, category),
+            ).rowcount
+
+    def cleanup_guest_inbox_retention(self, *, now: int | None = None, retention_days: int = 7) -> int:
+        """Delete checked-out inbox data and aged expired messages.
+
+        Active-stay messages remain available unless their explicit expiry and
+        configured retention period have both elapsed. Operational metrics
+        retain only aggregate deletion counts, never guest identifiers.
+        """
+        if isinstance(retention_days, bool) or not 0 <= retention_days <= 365:
+            raise ValueError("Notification retention days must be between 0 and 365.")
+        moment = _now() if now is None else int(now)
+        cutoff = moment - retention_days * 86400
+        with self._connect() as db:
+            if not table_exists(db, "concierge_stays"):
+                # Some isolated deployments keep inbox tables without the
+                # identity module. Explicit expiry remains enforceable there.
+                return db.execute(
+                    "DELETE FROM guest_inbox_notifications WHERE status='expired' AND expired_at IS NOT NULL AND expired_at<=?",
+                    (cutoff,),
+                ).rowcount
+            deleted = db.execute(
+                """DELETE FROM guest_inbox_notifications
+                   WHERE EXISTS (
+                       SELECT 1 FROM concierge_stays s
+                       WHERE s.property_id=guest_inbox_notifications.property_id
+                         AND s.stay_id=guest_inbox_notifications.stay_id
+                         AND (s.status!='active' OR (s.retention_until IS NOT NULL AND s.retention_until<=?))
+                   )
+                   OR (status='expired' AND expired_at IS NOT NULL AND expired_at<=?)""",
+                (moment, cutoff),
+            ).rowcount
+            for table in ("guest_notification_preferences", "guest_notification_frequency_locks"):
+                db.execute(
+                    f"""DELETE FROM {table} WHERE EXISTS (
+                        SELECT 1 FROM concierge_stays s
+                        WHERE s.property_id={table}.property_id AND s.stay_id={table}.stay_id
+                          AND (s.status!='active' OR (s.retention_until IS NOT NULL AND s.retention_until<=?))
+                    )""",  # nosec B608 - table names are the fixed tuple above.
+                    (moment,),
+                )
+            return deleted
+
     def _transition_guest_inbox_notification(
         self,
         property_id: str,
@@ -2486,18 +2575,30 @@ class HospitalityStore:
 
     @staticmethod
     def _release_guest_delivery_claim(db: sqlite3.Connection, row: sqlite3.Row | dict[str, Any], next_attempt_at: int, moment: int) -> None:
+        # A queued row has no token; a stale sending row must still match its
+        # lease. PostgreSQL does not accept a bound value with `IS ?`.
         params: list[Any] = [
             next_attempt_at, moment, row["notification_id"], row["property_id"],
-            row["stay_id"], row["dispatch_status"], row["claim_token"],
+            row["stay_id"], row["dispatch_status"],
         ]
-        db.execute(
-            """UPDATE guest_inbox_notifications
-               SET status='queued',dispatch_status='retry_wait',next_attempt_at=?,
-                   claim_token=NULL,claimed_at=NULL,updated_at=?
-               WHERE notification_id=? AND property_id=? AND stay_id=? AND dispatch_status=?
-                 AND claim_token IS ?""",
-            params,
-        )
+        if row["claim_token"] is None:
+            db.execute(
+                """UPDATE guest_inbox_notifications
+                   SET status='queued',dispatch_status='retry_wait',next_attempt_at=?,
+                       claim_token=NULL,claimed_at=NULL,updated_at=?
+                   WHERE notification_id=? AND property_id=? AND stay_id=? AND dispatch_status=?
+                     AND claim_token IS NULL""",
+                params,
+            )
+        else:
+            db.execute(
+                """UPDATE guest_inbox_notifications
+                   SET status='queued',dispatch_status='retry_wait',next_attempt_at=?,
+                       claim_token=NULL,claimed_at=NULL,updated_at=?
+                   WHERE notification_id=? AND property_id=? AND stay_id=? AND dispatch_status=?
+                     AND claim_token=?""",
+                (*params, row["claim_token"]),
+            )
 
     @staticmethod
     def _guest_event_id(value: Any) -> str:
@@ -2686,7 +2787,7 @@ class HospitalityStore:
             ).fetchall()
         return [self._service_dict(row) for row in rows]
 
-    def _notification_allowed(self, rule: dict[str, Any], payload: dict[str, Any], prefs: dict[str, Any], current_zone_id: str | None, moment: int) -> tuple[bool, str]:
+    def _notification_allowed(self, rule: dict[str, Any], payload: dict[str, Any], prefs: dict[str, Any], current_zone_id: str | None, moment: int, *, property_timezone: str = "UTC") -> tuple[bool, str]:
         policy = rule.get("policy") or {}
         if not rule["enabled"]:
             return False, "rule_disabled"
@@ -2695,17 +2796,13 @@ class HospitalityStore:
         if rule["category"] == "promotional" and not prefs.get("promotional_consent", False):
             return False, "promotional_opt_out"
         quiet = policy.get("quiet_hours") or {}
-        timezone_name = policy.get("timezone")
-        if timezone_name:
-            try:
-                zone = ZoneInfo(str(timezone_name))
-            except (ZoneInfoNotFoundError, ValueError):
-                return False, "invalid_timezone"
-            local = datetime.fromtimestamp(moment, timezone.utc).astimezone(zone)
-            minute = local.hour * 60 + local.minute
-        else:
-            # Preserve existing deployments/tests until they configure an IANA zone.
-            minute = time.localtime(moment).tm_hour * 60
+        timezone_name = policy.get("timezone", property_timezone)
+        try:
+            zone = ZoneInfo(str(timezone_name))
+        except (ZoneInfoNotFoundError, ValueError):
+            return False, "invalid_timezone"
+        local = datetime.fromtimestamp(moment, timezone.utc).astimezone(zone)
+        minute = local.hour * 60 + local.minute
         if quiet:
             try:
                 interval = self._normalize_daily_interval(

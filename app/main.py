@@ -232,11 +232,39 @@ if not settings.database_url:
     stamp_sqlite_schema_current(settings.db_path)
 
 
+def _run_retention_maintenance() -> dict[str, int]:
+    """Idempotent retention pass; only aggregate counts leave the data layer."""
+    counts = {
+        "consents": privacy_consents.cleanup_retention(),
+        "location": location_analytics.cleanup_retention(),
+        "notifications": hospitality.cleanup_guest_inbox_retention(
+            retention_days=settings.guest_notification_retention_days,
+        ),
+        "personalization": personalization.cleanup_expired(),
+        "stays": guest_identities.cleanup_retention(),
+    }
+    for category, count in counts.items():
+        metrics.RETENTION_CLEANUP_ROWS.labels(category).inc(count or 0)
+    metrics.RETENTION_CLEANUP_RUNS.labels("success").inc()
+    logger.info("Retention maintenance completed: %s", counts)
+    return counts
+
+
+async def _retention_maintenance_worker(interval_seconds: float) -> None:
+    """Retry on the next tick after a failure; restart resumes automatically."""
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            await asyncio.to_thread(_run_retention_maintenance)
+        except Exception as exc:
+            metrics.RETENTION_CLEANUP_RUNS.labels("failure").inc()
+            metrics.WORKER_FAILURES.labels("retention_maintenance").inc()
+            logger.error("Retention maintenance failed (%s)", exc.__class__.__name__)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    personalization.cleanup_expired()
-    privacy_consents.cleanup_retention()
-    location_analytics.cleanup_retention()
+    _run_retention_maintenance()
     async def process_pending_knowledge():
         while True:
             try:
@@ -253,16 +281,31 @@ async def lifespan(app: FastAPI):
                 metrics.WORKER_FAILURES.labels("knowledge_poll").inc()
                 logger.error("Knowledge queue poll failed (%s)", exc.__class__.__name__)
             try:
+                await asyncio.to_thread(_queue_hotel_event_reminders)
+            except Exception as exc:
+                metrics.WORKER_FAILURES.labels("guest_event_reminders").inc()
+                logger.error("Guest event reminder scheduling failed (%s)", exc.__class__.__name__)
+            try:
                 await asyncio.to_thread(_dispatch_guest_inbox_notifications)
             except Exception as exc:
                 metrics.WORKER_FAILURES.labels("guest_notification_dispatch").inc()
                 logger.error("Guest notification dispatch failed (%s)", exc.__class__.__name__)
             await asyncio.sleep(10)
     knowledge_worker = None
+    retention_worker = None
     if settings.background_workers_enabled:
         improvement_loops.resume_persisted()
         knowledge_worker = asyncio.create_task(process_pending_knowledge())
+        retention_worker = asyncio.create_task(
+            _retention_maintenance_worker(settings.retention_maintenance_interval_seconds)
+        )
     yield
+    if retention_worker is not None:
+        retention_worker.cancel()
+        try:
+            await retention_worker
+        except asyncio.CancelledError:
+            pass
     if knowledge_worker is not None:
         knowledge_worker.cancel()
         try:
@@ -1777,6 +1820,11 @@ async def set_guest_notification_preference(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not payload.enabled:
+        deleted = hospitality.purge_guest_inbox_category(
+            session.property_id, str(linked_stay["stay_id"]), payload.category,
+        )
+        metrics.RETENTION_CLEANUP_ROWS.labels("notifications").inc(deleted)
     return {"preferences": preferences}
 
 
@@ -1830,6 +1878,16 @@ async def set_guest_privacy(payload: GuestPrivacyPayload, request: Request, sess
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if payload.consents.get("location_services") is False and linked_stay:
         location_analytics.delete_stay_data(session.property_id, linked_stay["stay_id"])
+    if linked_stay:
+        for consent_name, category in (
+            ("proactive_notifications", "experience"),
+            ("promotional_messages", "promotional"),
+        ):
+            if payload.consents.get(consent_name) is False:
+                deleted = hospitality.purge_guest_inbox_category(
+                    session.property_id, str(linked_stay["stay_id"]), category,
+                )
+                metrics.RETENTION_CLEANUP_ROWS.labels("notifications").inc(deleted)
     return {"consents": updated}
 
 
@@ -2717,7 +2775,10 @@ def _diagnostic_result(
         if principal is None:
             raise PermissionError("The assigned restaurant scope is unavailable.")
         assigned_ids = _assigned_restaurant_ids(principal, context.property_id)
-        start_at, end_at, _ = period_window(period)
+        property_record = properties.get(context.property_id)
+        start_at, end_at, _ = period_window(
+            period, timezone_name=property_record.timezone if property_record else "UTC",
+        )
         restaurant_reports = []
         for restaurant_id in sorted(assigned_ids):
             restaurant = hospitality.get_restaurant(context.property_id, restaurant_id)
@@ -3979,7 +4040,7 @@ def _guest_mutation_origin_allowed(request: Request) -> bool:
                 )
                 if normalized
             )
-        except (TypeError, ValueError):
+        except (KeyError, TypeError, ValueError):
             pass
         portal_origin = _property_guest_portal_origin(record)
         if portal_origin:
@@ -4243,6 +4304,11 @@ async def upsert_property(property_id: str, payload: PropertyPayload, request: R
         raise HTTPException(status_code=422, detail="Property name is required.")
     if "timezone" in updates and not payload.timezone.strip():
         raise HTTPException(status_code=422, detail="Timezone is required.")
+    if "timezone" in updates:
+        try:
+            ZoneInfo(payload.timezone.strip())
+        except (ValueError, KeyError) as exc:
+            raise HTTPException(status_code=422, detail="Timezone must be a valid IANA timezone.") from exc
     existing = properties.get(property_id)
     principal = _admin_principal(request)
     if existing is None and not principal.can("properties.all"):
@@ -5633,6 +5699,8 @@ async def checkout_stay(property_id: str, stay_id: str) -> dict[str, Any]:
         linked_sessions = guest_identities.sessions_for_stay(property_id, stay_id)
         result = guest_identities.checkout(property_id, stay_id, anonymize=True)
         hospitality.expire_guest_inbox_for_stay(property_id, stay_id)
+        deleted_notifications = hospitality.purge_guest_inbox_for_stay(property_id, stay_id)
+        metrics.RETENTION_CLEANUP_ROWS.labels("notifications").inc(deleted_notifications)
         privacy_consents.delete_sessions(property_id, linked_sessions)
         location_analytics.delete_stay_data(property_id, stay_id)
         policy = personalization.policy(property_id)
@@ -6105,7 +6173,9 @@ async def publish_restaurant_promotion(property_id: str, promotion_id: str, requ
 async def create_hotel_event(property_id: str, payload: GenericPayload) -> dict[str, Any]:
     _require_property(property_id)
     try:
-        return hospitality.create_event(property_id, payload.data)
+        event = hospitality.create_event(property_id, payload.data)
+        _queue_hotel_event_reminders(property_id=property_id)
+        return event
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -6181,6 +6251,69 @@ def _dispatch_service_status_to_guest_inbox(
         logger.exception("Could not dispatch service status update to guest inbox")
 
 
+def _queue_hotel_event_reminders(*, property_id: str | None = None, now: int | None = None) -> int:
+    """Queue each authorized, staff-entered event once per active guest stay."""
+    moment = int(time.time()) if now is None else int(now)
+    queued_count = 0
+    selected = [properties.get(property_id)] if property_id else properties.list()
+    for property_record in selected:
+        if property_record is None:
+            continue
+        policy = (property_record.app_settings or {}).get("guest_notification_delivery", {})
+        if not isinstance(policy, dict) or policy.get("event_reminders_enabled") is not True:
+            continue
+        try:
+            lead_minutes = int(policy.get("event_reminder_minutes", 60))
+        except (TypeError, ValueError):
+            continue
+        if not 0 <= lead_minutes <= 1440:
+            continue
+        try:
+            property_timezone = ZoneInfo(property_record.timezone)
+        except (TypeError, ValueError):
+            metrics.WORKER_FAILURES.labels("guest_event_reminders_timezone").inc()
+            logger.error("Guest event reminders skipped for property with invalid timezone")
+            continue
+        events = hospitality.guest_facilities(property_record.property_id)["events"]
+        active_stays = [
+            stay for stay in guest_identities.list_stays(property_record.property_id)
+            if stay["status"] == "active"
+        ]
+        for event in events:
+            start = int(event["starts_at"])
+            if not moment <= start <= moment + lead_minutes * 60 or event.get("audience") != "all_guests":
+                continue
+            for stay in active_stays:
+                stay_id = str(stay["stay_id"])
+                if not hospitality.get_guest_notification_preferences(property_record.property_id, stay_id)["experience"]:
+                    continue
+                consented = any(
+                    privacy_consents.get(property_record.property_id, session_id)["proactive_notifications"]
+                    for session_id in guest_identities.sessions_for_stay(property_record.property_id, stay_id)
+                )
+                if not consented:
+                    continue
+                local_start = datetime.fromtimestamp(start, timezone.utc).astimezone(property_timezone)
+                try:
+                    queued = hospitality.create_guest_inbox_notification(
+                        property_record.property_id, stay_id,
+                        f"hotel-event:{event['event_id']}:{start}", "experience",
+                        "Hotel event reminder",
+                        f"{event['title']} starts at {local_start.strftime('%I:%M %p').lstrip('0')}.",
+                        expires_at=max(start + 3600, int(event.get("ends_at") or 0)),
+                        timezone_name=property_record.timezone,
+                        quiet_hours=policy.get("quiet_hours", {"start": "22:00", "end": "08:00"}),
+                        send_window=policy.get("send_window", {}),
+                        max_per_window=policy.get("max_per_window", 10),
+                        frequency_window_seconds=policy.get("frequency_window_seconds", 86400),
+                        now=moment,
+                    )
+                except (PermissionError, ValueError):
+                    continue
+                queued_count += int(queued["created"])
+    return queued_count
+
+
 def _dispatch_guest_inbox_notifications(*, property_id: str | None = None) -> int:
     """Deliver due in-app messages and preserve sent vs. client-acknowledged states."""
     try:
@@ -6202,6 +6335,19 @@ def _dispatch_guest_inbox_notifications(*, property_id: str | None = None) -> in
             if not active:
                 hospitality.expire_guest_inbox_for_stay(scope_property, scope_stay)
                 continue
+            if notification["category"] in {"experience", "promotional"}:
+                consent_name = (
+                    "proactive_notifications" if notification["category"] == "experience"
+                    else "promotional_messages"
+                )
+                enabled = hospitality.get_guest_notification_preferences(scope_property, scope_stay)[notification["category"]]
+                consented = any(
+                    privacy_consents.get(scope_property, session_id)[consent_name]
+                    for session_id in guest_identities.sessions_for_stay(scope_property, scope_stay)
+                )
+                if not enabled or not consented:
+                    hospitality.purge_guest_inbox_category(scope_property, scope_stay, notification["category"])
+                    continue
             hospitality.mark_guest_inbox_notification_sent(
                 scope_property, scope_stay, notification_id, claim_token=claim_token,
             )

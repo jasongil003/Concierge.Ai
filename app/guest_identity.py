@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .database import connect_database
+from .database import connect_database, table_exists
 
 
 def _now() -> int:
@@ -207,14 +207,32 @@ class GuestIdentityStore:
 
     def cleanup_retention(self, property_id: str | None = None) -> int:
         now = _now()
-        query = "DELETE FROM concierge_stays WHERE retention_until IS NOT NULL AND retention_until < ?"
+        query = "SELECT property_id,stay_id,device_id FROM concierge_stays WHERE retention_until IS NOT NULL AND retention_until<=?"
         params: tuple[Any, ...] = (now,)
         if property_id:
             query += " AND property_id=?"
             params = (now, property_id)
         with self._connect() as db:
-            cursor = db.execute(query, params)
-            return cursor.rowcount
+            if not table_exists(db, "concierge_stays"):
+                return 0
+            expired = db.execute(query, params).fetchall()
+            for stay in expired:
+                db.execute(
+                    "DELETE FROM guest_sessions WHERE property_id=? AND stay_id=?",
+                    (stay["property_id"], stay["stay_id"]),
+                )
+                db.execute(
+                    "DELETE FROM concierge_stays WHERE property_id=? AND stay_id=?",
+                    (stay["property_id"], stay["stay_id"]),
+                )
+                db.execute(
+                    """DELETE FROM device_identities WHERE property_id=? AND device_id=?
+                       AND NOT EXISTS (SELECT 1 FROM concierge_stays s
+                           WHERE s.property_id=device_identities.property_id
+                             AND s.device_id=device_identities.device_id)""",
+                    (stay["property_id"], stay["device_id"]),
+                )
+            return len(expired)
 
     def list_stays(self, property_id: str) -> list[dict[str, Any]]:
         with self._connect() as db:
