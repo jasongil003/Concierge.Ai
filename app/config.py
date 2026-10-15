@@ -75,6 +75,12 @@ class Settings:
     redis_url: str = os.getenv("REDIS_URL", "").strip()
     metrics_token: str = os.getenv("METRICS_TOKEN", "").strip()
     background_workers_enabled: bool = _bool("ENABLE_BACKGROUND_WORKERS", True)
+    retention_maintenance_interval_seconds: int = max(
+        30, min(int(os.getenv("RETENTION_MAINTENANCE_INTERVAL_SECONDS", "300")), 86400)
+    )
+    guest_notification_retention_days: int = max(
+        0, min(int(os.getenv("GUEST_NOTIFICATION_RETENTION_DAYS", "7")), 365)
+    )
     db_pool_size: int = max(1, int(os.getenv("DB_POOL_SIZE", "8")))
     db_max_overflow: int = max(0, int(os.getenv("DB_MAX_OVERFLOW", "4")))
     db_pool_timeout_seconds: float = max(0.1, float(os.getenv("DB_POOL_TIMEOUT_SECONDS", "5")))

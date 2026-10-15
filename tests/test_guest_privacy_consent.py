@@ -1,4 +1,5 @@
 import sqlite3
+import asyncio
 import time
 import uuid
 from pathlib import Path
@@ -7,6 +8,7 @@ import app.main as main_module
 from app.guest_identity import GuestIdentityStore, pseudonymous_device_id
 from app.location_analytics import LocationAnalyticsStore
 from app.privacy_consent import CONSENT_CATEGORIES, PrivacyConsentStore
+from app.hospitality import HospitalityStore
 from app.properties import PropertyRecord
 
 
@@ -251,3 +253,52 @@ def test_consent_and_location_retention_cleanup(tmp_path: Path):
     assert analytics.cleanup_retention(now=101) >= 1
     assert consents.get(property_id, session_id, now=101)["location_services"] is False
     assert analytics.live(property_id)["currently_detected"] == 0
+
+
+def test_periodic_retention_cleans_expired_data_without_app_restart(tmp_path: Path, monkeypatch):
+    db_path = tmp_path / "periodic-retention.db"
+    identities = GuestIdentityStore(db_path)
+    consents = PrivacyConsentStore(db_path)
+    analytics = LocationAnalyticsStore(db_path)
+    hospitality = HospitalityStore(db_path)
+    property_id = "periodic-property"
+    session_id = "periodic-session"
+    device_id = identities.observe_device(property_id, "02:00:00:00:00:52")
+    stay = identities.reconnect_or_create_stay(property_id, device_id, concierge_session_id=session_id)
+    consents.set(property_id, session_id, {"location_services": True},
+                 expires_at=101, location_stay_id=stay["stay_id"], now=100)
+    analytics.record_observation(property_id, device_id, "zone", "ap", stay_id=stay["stay_id"], observed_at=100)
+    with sqlite3.connect(db_path) as db:
+        db.execute("UPDATE concierge_stays SET retention_until=101 WHERE stay_id=?", (stay["stay_id"],))
+    monkeypatch.setattr(main_module, "privacy_consents", consents)
+    monkeypatch.setattr(main_module, "location_analytics", analytics)
+    monkeypatch.setattr(main_module, "hospitality", hospitality)
+    monkeypatch.setattr(main_module, "guest_identities", identities)
+    monkeypatch.setattr(main_module.personalization, "cleanup_expired", lambda: 0)
+
+    async def run_worker():
+        worker = asyncio.create_task(main_module._retention_maintenance_worker(0.01))
+        try:
+            for _ in range(100):
+                await asyncio.sleep(0.01)
+                with sqlite3.connect(db_path) as db:
+                    remaining = db.execute("SELECT COUNT(*) FROM location_observations").fetchone()[0]
+                if remaining == 0:
+                    break
+            assert remaining == 0
+        finally:
+            worker.cancel()
+            try:
+                await worker
+            except asyncio.CancelledError:
+                pass
+
+    asyncio.run(run_worker())
+    assert consents.get(property_id, session_id)["location_services"] is False
+    assert identities.list_stays(property_id) == []
+    with sqlite3.connect(db_path) as db:
+        assert db.execute("SELECT COUNT(*) FROM guest_sessions").fetchone()[0] == 0
+        assert db.execute("SELECT COUNT(*) FROM device_identities").fetchone()[0] == 0
+    counts = main_module._run_retention_maintenance()
+    assert counts["location"] == 0
+    assert counts["stays"] == 0

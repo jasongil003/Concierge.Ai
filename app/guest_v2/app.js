@@ -798,6 +798,9 @@
     if (imageUrl) {
       const image = document.createElement("img");
       image.className = "entity-card-image";
+      // Reserve the card's 16:10 image box before the lazy remote image loads.
+      image.width = 160;
+      image.height = 100;
       image.src = imageUrl;
       image.alt = "";
       image.loading = "lazy";

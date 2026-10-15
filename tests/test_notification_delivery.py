@@ -2,6 +2,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from threading import Barrier
 import importlib
+import time
 import uuid
 
 from alembic.migration import MigrationContext
@@ -10,6 +11,7 @@ import pytest
 from sqlalchemy import create_engine, inspect
 
 from app.hospitality import HospitalityStore
+from app.properties import PropertyRecord, PropertyStore
 import app.main as main_module
 
 
@@ -305,6 +307,32 @@ def test_due_scheduling_quiet_hours_timezone_and_frequency_limits(tmp_path):
     assert second["reason"] == "frequency_limit"
 
 
+def test_notification_rules_use_property_timezone_across_countries_and_dst(tmp_path):
+    db_path = tmp_path / "property-clocks.db"
+    properties = PropertyStore(db_path)
+    store = HospitalityStore(db_path)
+    cases = (
+        ("singapore", "Asia/Singapore", True),
+        ("australia", "Australia/Sydney", True),
+        ("uae", "Asia/Dubai", False),
+    )
+    at_utc_midnight = int(datetime(2026, 1, 1, tzinfo=timezone.utc).timestamp())
+    for property_id, zone, expected in cases:
+        properties.upsert(PropertyRecord(property_id=property_id, hotel_name=property_id, timezone=zone))
+        rule = store.create_notification_rule(property_id, {
+            "name": "Local morning", "policy": {"send_window": {"start": "08:00", "end": "12:00"}},
+        })
+        result = store.evaluate_notification(property_id, rule["rule_id"], "stay", {}, now=at_utc_midnight)
+        assert result["allowed"] is expected
+
+    sydney_rule = store.create_notification_rule("australia", {
+        "name": "Sydney summer hour", "policy": {"send_window": {"start": "11:00", "end": "12:00"}},
+    })
+    july = int(datetime(2026, 7, 1, tzinfo=timezone.utc).timestamp())
+    assert store.evaluate_notification("australia", sydney_rule["rule_id"], "summer", {}, now=at_utc_midnight)["allowed"] is True
+    assert store.evaluate_notification("australia", sydney_rule["rule_id"], "winter", {}, now=july)["reason"] == "outside_send_window"
+
+
 def test_inbox_schedule_and_frequency_limits_are_enforced_on_atomic_claim(tmp_path):
     store = HospitalityStore(tmp_path / "inbox-schedule.db")
     at_utc_ten = int(datetime(2026, 1, 1, 10, 0, tzinfo=timezone.utc).timestamp())
@@ -341,6 +369,28 @@ def test_inbox_schedule_and_frequency_limits_are_enforced_on_atomic_claim(tmp_pa
     assert second_row["next_attempt_at"] == at_utc_ten + 3700
     assert store.claim_guest_inbox_notifications(now=at_utc_ten + 3699) == []
     assert [item["notification_id"] for item in store.claim_guest_inbox_notifications(now=at_utc_ten + 3700)] == [second["notification_id"]]
+
+
+def test_stale_claim_is_released_when_quiet_hours_begin(tmp_path):
+    store = HospitalityStore(tmp_path / "stale-quiet.db")
+    before_quiet = int(datetime(2026, 1, 1, 21, 59, tzinfo=timezone.utc).timestamp())
+    queued = _queue(
+        store, event_id="stale-quiet", now=before_quiet,
+        quiet_hours={"start": "22:00", "end": "07:00"},
+    )
+    first = store.claim_guest_inbox_notifications(now=before_quiet, lease_seconds=5)
+    assert [item["notification_id"] for item in first] == [queued["notification_id"]]
+    assert store.claim_guest_inbox_notifications(now=before_quiet + 61, lease_seconds=5) == []
+    row = store.list_guest_inbox_notifications("hotel-a", "stay-1", now=before_quiet + 61)[0]
+    assert row["dispatch_status"] == "retry_wait"
+    assert row["claim_token"] is None
+    assert row["attempt_count"] == 1
+    assert row["next_attempt_at"] >= before_quiet + 9 * 3600
+    with pytest.raises(ValueError, match="claim is no longer active"):
+        store.mark_guest_inbox_notification_sent(
+            "hotel-a", "stay-1", queued["notification_id"],
+            claim_token=first[0]["claim_token"], now=before_quiet + 62,
+        )
 
 
 def test_sent_delivery_and_read_require_distinct_evidence(tmp_path):
@@ -457,6 +507,20 @@ def test_checkout_expires_pending_and_visible_inbox_items(tmp_path):
     assert rows[pending["notification_id"]]["status"] == "expired"
     assert rows[visible["notification_id"]]["status"] == "expired"
     assert rows[visible["notification_id"]]["dispatch_status"] == "expired"
+
+
+def test_checkout_purges_read_and_pending_content_without_cross_property_deletion(tmp_path):
+    store = HospitalityStore(tmp_path / "checkout-purge.db")
+    pending = _queue(store, event_id="pending")
+    read_item = _queue(store, event_id="read")
+    other_property = _queue(store, property_id="hotel-b", event_id="other")
+    store.mark_guest_inbox_notification_sent("hotel-a", "stay-1", read_item["notification_id"], now=101)
+    store.acknowledge_guest_inbox_notification("hotel-a", "stay-1", read_item["notification_id"], "delivered", now=102)
+    store.acknowledge_guest_inbox_notification("hotel-a", "stay-1", read_item["notification_id"], "read", now=103)
+    assert store.purge_guest_inbox_for_stay("hotel-a", "stay-1") == 2
+    assert store.purge_guest_inbox_for_stay("hotel-a", "stay-1") == 0
+    assert store.list_guest_inbox_notifications("hotel-a", "stay-1", now=104) == []
+    assert store.list_guest_inbox_notifications("hotel-b", "stay-1", now=104)[0]["notification_id"] == other_property["notification_id"]
 
 
 def test_preferences_are_guest_scoped_and_input_validation_is_strict(tmp_path):
@@ -596,3 +660,65 @@ def test_notification_evaluation_cannot_trust_caller_preferences_or_inactive_sta
         json={"stay_id": stay["stay_id"], "verified_payload": {"event": "synthetic"}},
     )
     assert inactive.status_code == 409
+
+
+def test_verified_hotel_event_reaches_only_consented_guest_once(admin_client):
+    property_id = f"event-property-{uuid.uuid4().hex[:10]}"
+    main_module.properties.upsert(PropertyRecord(
+        property_id=property_id, hotel_name="Verified Event Hotel", timezone="Asia/Singapore",
+        app_settings={"guest_notification_delivery": {
+            "event_reminders_enabled": True, "event_reminder_minutes": 30,
+            "quiet_hours": {}, "send_window": {},
+        }},
+    ))
+    opted_session, opted_stay = _start_authenticated_guest(admin_client, property_id)
+    disabled_session, disabled_stay = _start_authenticated_guest(admin_client, property_id)
+    main_module.hospitality.set_guest_notification_preference(
+        property_id, opted_stay["stay_id"], "experience", True,
+    )
+    main_module.hospitality.set_guest_notification_preference(
+        property_id, disabled_stay["stay_id"], "experience", True,
+    )
+    main_module.privacy_consents.set(
+        property_id, opted_session, {"proactive_notifications": True},
+    )
+    now = int(time.time())
+    event = main_module.hospitality.create_event(property_id, {
+        "title": "Poolside film", "starts_at": now + 120,
+        "status": "scheduled", "audience": "all_guests",
+    })
+    assert main_module._queue_hotel_event_reminders(property_id=property_id, now=now) == 1
+    assert main_module._queue_hotel_event_reminders(property_id=property_id, now=now) == 0
+    assert main_module._dispatch_guest_inbox_notifications(property_id=property_id) == 1
+    opted = main_module.hospitality.list_guest_inbox_notifications(property_id, opted_stay["stay_id"])
+    disabled = main_module.hospitality.list_guest_inbox_notifications(property_id, disabled_stay["stay_id"])
+    assert len(opted) == 1 and opted[0]["status"] == "sent"
+    assert opted[0]["event_id"] == f"hotel-event:{event['event_id']}:{now + 120}"
+    assert "Poolside film" in opted[0]["body"]
+    assert disabled == []
+
+
+def test_withdrawing_proactive_consent_immediately_removes_optional_notifications(admin_client):
+    session_id, stay = _start_authenticated_guest(admin_client)
+    stay_id = stay["stay_id"]
+    main_module.privacy_consents.set(
+        "test-property", session_id, {"proactive_notifications": True},
+    )
+    main_module.hospitality.set_guest_notification_preference(
+        "test-property", stay_id, "experience", True,
+    )
+    optional = _queue(
+        main_module.hospitality, property_id="test-property", stay_id=stay_id,
+        event_id=f"withdraw-{uuid.uuid4().hex}", category="experience",
+    )
+    operational = _queue(
+        main_module.hospitality, property_id="test-property", stay_id=stay_id,
+        event_id=f"operational-{uuid.uuid4().hex}",
+    )
+    response = admin_client.put("/api/guest/privacy", json={
+        "session_id": session_id, "consents": {"proactive_notifications": False},
+    })
+    assert response.status_code == 200, response.text
+    rows = main_module.hospitality.list_guest_inbox_notifications("test-property", stay_id)
+    assert [row["notification_id"] for row in rows] == [operational["notification_id"]]
+    assert optional["notification_id"] not in {row["notification_id"] for row in rows}

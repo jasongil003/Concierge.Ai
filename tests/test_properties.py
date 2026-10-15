@@ -308,6 +308,14 @@ def test_property_round_trip_rich_configuration(tmp_path: Path):
     assert loaded.public_profile["quick_actions"][0]["label"] == "Checkout"
 
 
+def test_property_store_rejects_invalid_iana_timezone(tmp_path: Path):
+    store = PropertyStore(tmp_path / "invalid-timezone.db")
+    with pytest.raises(ValueError, match="valid IANA timezone"):
+        store.upsert(PropertyRecord(
+            property_id="invalid-zone", hotel_name="Invalid Zone", timezone="Mars/Olympus_Mons",
+        ))
+
+
 def test_guest_hotel_api_omits_untrusted_ai_settings_and_isolates_properties(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
