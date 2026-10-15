@@ -1,4 +1,4 @@
-"""Add durable guest notification preferences and dispatch state.
+"""Add guest privacy choices and durable notification dispatch state.
 
 Revision ID: 20261015_0003
 Revises: 20261015_0002
@@ -18,6 +18,26 @@ def upgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
     tables = set(inspector.get_table_names())
+
+    if "guest_privacy_consents" not in tables:
+        op.create_table(
+            "guest_privacy_consents",
+            sa.Column("property_id", sa.Text(), nullable=False),
+            sa.Column("session_id", sa.Text(), nullable=False),
+            sa.Column("category", sa.Text(), nullable=False),
+            sa.Column("granted", sa.Integer(), nullable=False),
+            sa.Column("stay_id", sa.Text()),
+            sa.Column("updated_at", sa.BigInteger(), nullable=False),
+            sa.Column("expires_at", sa.BigInteger(), nullable=False),
+            sa.PrimaryKeyConstraint("property_id", "session_id", "category"),
+            sa.CheckConstraint("granted IN (0,1)", name="ck_guest_privacy_consents_granted"),
+        )
+    elif "stay_id" not in {column["name"] for column in inspector.get_columns("guest_privacy_consents")}:
+        op.add_column("guest_privacy_consents", sa.Column("stay_id", sa.Text()))
+
+    privacy_indexes = {index["name"] for index in sa.inspect(bind).get_indexes("guest_privacy_consents")}
+    if "idx_guest_privacy_expiry" not in privacy_indexes:
+        op.create_index("idx_guest_privacy_expiry", "guest_privacy_consents", ["expires_at"])
 
     if "guest_notification_preferences" not in tables:
         op.create_table(

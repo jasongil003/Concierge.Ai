@@ -95,10 +95,16 @@ def test_postgres_notification_migration_creates_dispatch_schema_idempotently():
         inspector = inspect(connection)
         tables = set(inspector.get_table_names())
         assert {
+            "guest_privacy_consents",
             "guest_notification_preferences",
             "guest_inbox_notifications",
             "guest_notification_frequency_locks",
         } <= tables
+        privacy_columns = {item["name"] for item in inspector.get_columns("guest_privacy_consents")}
+        assert {"property_id", "session_id", "category", "granted", "stay_id", "updated_at", "expires_at"} <= privacy_columns
+        assert "idx_guest_privacy_expiry" in {
+            item["name"] for item in inspector.get_indexes("guest_privacy_consents")
+        }
         columns = {item["name"] for item in inspector.get_columns("guest_inbox_notifications")}
         assert {
             "dispatch_status", "attempt_count", "next_attempt_at", "claim_token",
