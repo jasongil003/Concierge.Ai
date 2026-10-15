@@ -287,6 +287,9 @@ class RequestStatusBlock(StrictSchema):
 
 class DirectionStep(StrictSchema):
     label: str = Field(min_length=1, max_length=120)
+    instruction: str = Field(default="", max_length=240)
+    floor_id: str = Field(default="", max_length=80)
+    floor_label: str = Field(default="", max_length=120)
     source_ids: list[str] = Field(min_length=1, max_length=2)
 
     @field_validator("source_ids")

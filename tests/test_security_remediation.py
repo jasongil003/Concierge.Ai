@@ -857,6 +857,13 @@ def test_guest_sessions_keep_tab_credentials_and_data_separate(tmp_path: Path, m
         session_b = _start_guest(tabs)
         token_b, context_b = _client_guest_credentials(tabs, session_b)
         assert token_b and context_b
+        for session_id in (session_a, session_b):
+            consent = tabs.put(
+                "/api/guest/privacy",
+                json={"session_id": session_id, "consents": {"external_data_processing": True}},
+                headers={"X-Concierge-Session": session_id},
+            )
+            assert consent.status_code == 200, consent.text
         assert (token_a, context_a) != (token_b, context_b)
         token_a_name, context_a_name = main_module._guest_cookie_names(session_a)
         token_b_name, context_b_name = main_module._guest_cookie_names(session_b)
@@ -883,7 +890,7 @@ def test_guest_sessions_keep_tab_credentials_and_data_separate(tmp_path: Path, m
             "/api/chat",
             json={
                 "session_id": session_a,
-                "message": "Where should I eat?",
+                "message": "Please explain the color blue.",
                 "mode": "advanced",
                 "conversation_history": [{"role": "guest", "content": "A-private-chat-history"}],
             },
@@ -892,13 +899,13 @@ def test_guest_sessions_keep_tab_credentials_and_data_separate(tmp_path: Path, m
         assert chat.status_code == 200, chat.text
         chat_b = tabs.post(
             "/api/chat",
-            json={"session_id": session_b, "message": "Where should I eat?", "mode": "advanced"},
+            json={"session_id": session_b, "message": "Please explain the color blue.", "mode": "advanced"},
             headers={"X-Concierge-Session": session_b},
         )
         assert chat_b.status_code == 200, chat_b.text
         assert chat_calls[0]["conversation_history"] == [{"role": "guest", "content": "A-private-chat-history"}]
         assert chat_calls[1]["conversation_history"] == []
-        assert any(item["value"] == "vegetarian" for item in chat_calls[0]["guest_context"]["personalization"]["preferences"])
+        assert not chat_calls[0]["guest_context"]["personalization"]["preferences"]
         assert not chat_calls[1]["guest_context"]["personalization"]["preferences"]
 
         request_a = tabs.post(

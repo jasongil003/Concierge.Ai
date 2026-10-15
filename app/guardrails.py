@@ -37,6 +37,9 @@ DEFAULT_GUARDRAILS: dict[str, Any] = {
     "directions_enabled": True,
     "restaurant_search_enabled": True,
     "attractions_enabled": True,
+    "nearby_places_enabled": True,
+    "nearby_search_radius_meters": 5000,
+    "nearby_max_results": 6,
     "weather_enabled": True,
     "service_requests_enabled": True,
     "reservations_enabled": False,
@@ -236,6 +239,14 @@ def normalize_guardrails(config: dict[str, Any] | None) -> dict[str, Any]:
     if timeout < 5 or timeout > 1440:
         raise ValueError("guest_session_timeout must be between 5 and 1440 minutes.")
     normalized["guest_session_timeout"] = timeout
+    nearby_radius = normalized.get("nearby_search_radius_meters", 5000)
+    if isinstance(nearby_radius, bool) or not isinstance(nearby_radius, int) or not 1 <= nearby_radius <= 50_000:
+        raise ValueError("nearby_search_radius_meters must be an integer between 1 and 50000.")
+    normalized["nearby_search_radius_meters"] = nearby_radius
+    nearby_max_results = normalized.get("nearby_max_results", 6)
+    if isinstance(nearby_max_results, bool) or not isinstance(nearby_max_results, int) or not 1 <= nearby_max_results <= 20:
+        raise ValueError("nearby_max_results must be an integer between 1 and 20.")
+    normalized["nearby_max_results"] = nearby_max_results
     for key, default in DEFAULT_GUARDRAILS.items():
         if isinstance(default, bool):
             normalized[key] = bool(normalized.get(key, default))

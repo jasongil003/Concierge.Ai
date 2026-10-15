@@ -22,6 +22,9 @@
   let adjustingConversationScroll = false;
   let conversationReadingAnchor = null;
   let conversationResizeObserver = null;
+  let guestNotifications = [];
+  let guestNotificationPreferences = {};
+  let guestPrivacyConsents = {};
 
   function newId() {
     if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
@@ -477,6 +480,7 @@
           && (block.node_ids === undefined || (Array.isArray(block.node_ids) && block.node_ids.length <= 40
             && block.node_ids.every((id) => validText(id, 80) && id.trim())))
           && steps.every((step) => validText(step?.label, 120) && step.label.trim()
+            && validText(step.instruction || "", 240)
             && Array.isArray(step.source_ids) && step.source_ids.length >= 1 && validSourceIds(step.source_ids))
           ? block : { id: block.id, type: "unknown" };
       }
@@ -578,6 +582,203 @@
     if (className) node.className = className;
     if (text !== undefined) node.textContent = String(text);
     return node;
+  }
+
+  const notificationPreferenceDefaults = {
+    operational: true,
+    assistance: true,
+    experience: false,
+    promotional: false,
+  };
+  const privacyConsentCategories = [
+    "location_services", "proactive_notifications", "promotional_messages", "external_data_processing",
+  ];
+  const notificationStatuses = new Set(["queued", "sent", "delivered", "read", "failed", "expired"]);
+  const notificationStatusLabels = {
+    queued: "Queued", sent: "Sent", delivered: "Delivered", read: "Read", failed: "Failed", expired: "Expired",
+  };
+
+  function safeGuestCopy(value, limit) {
+    return (typeof value === "string" || typeof value === "number" ? String(value) : "").slice(0, limit);
+  }
+
+  function setGuestToolsStatus(message) {
+    $("guest-tools-status").textContent = message;
+  }
+
+  function normalizeGuestNotification(row) {
+    if (!row || typeof row !== "object" || typeof row.notification_id !== "string" || !row.notification_id.trim()) return null;
+    return {
+      notification_id: row.notification_id.slice(0, 240),
+      title: safeGuestCopy(row.title, 160),
+      body: safeGuestCopy(row.body, 2000),
+      status: notificationStatuses.has(row.status) ? row.status : "queued",
+    };
+  }
+
+  function renderGuestInbox() {
+    const list = $("guest-inbox-list");
+    const empty = $("guest-inbox-empty");
+    list.replaceChildren();
+    empty.hidden = guestNotifications.length !== 0;
+    for (const notification of guestNotifications) {
+      const item = element("li", "guest-inbox-item");
+      const heading = element("div", "guest-inbox-item-header");
+      const title = element("h4", "", notification.title || "Stay update");
+      const status = element("span", "guest-inbox-status", notificationStatusLabels[notification.status]);
+      heading.append(title, status);
+      item.appendChild(heading);
+      item.appendChild(element("p", "", notification.body));
+      if (notification.status === "delivered") {
+        const readButton = element("button", "", "Mark as read");
+        readButton.type = "button";
+        readButton.addEventListener("click", () => markGuestNotificationRead(notification, readButton));
+        item.appendChild(readButton);
+      }
+      list.appendChild(item);
+    }
+  }
+
+  function renderGuestPreferences(preferences, canManage = false) {
+    guestNotificationPreferences = { ...notificationPreferenceDefaults };
+    if (preferences && typeof preferences === "object" && !Array.isArray(preferences)) {
+      for (const category of Object.keys(notificationPreferenceDefaults)) {
+        if (typeof preferences[category] === "boolean") guestNotificationPreferences[category] = preferences[category];
+      }
+    }
+    for (const input of document.querySelectorAll("[data-notification-category]")) {
+      input.checked = guestNotificationPreferences[input.dataset.notificationCategory] === true;
+      input.disabled = !canManage;
+    }
+  }
+
+  function renderPrivacyConsents(consents) {
+    guestPrivacyConsents = Object.fromEntries(privacyConsentCategories.map((category) => [category, false]));
+    if (consents && typeof consents === "object" && !Array.isArray(consents)) {
+      for (const category of privacyConsentCategories) {
+        if (typeof consents[category] === "boolean") guestPrivacyConsents[category] = consents[category];
+      }
+    }
+    for (const input of document.querySelectorAll("[data-consent-category]")) {
+      input.checked = guestPrivacyConsents[input.dataset.consentCategory] === true;
+      input.disabled = false;
+    }
+  }
+
+  async function loadGuestTools() {
+    if (!sessionId || sessionExpired) {
+      setGuestToolsStatus("Start a new private chat to manage this session's inbox and privacy choices.");
+      return;
+    }
+    setGuestToolsStatus("Loading inbox and privacy choices…");
+    $("refresh-guest-inbox").disabled = true;
+    try {
+      const [inbox, privacy] = await Promise.all([
+        api("/api/guest/notifications"),
+        api("/api/guest/privacy"),
+      ]);
+      guestNotifications = Array.isArray(inbox.notifications)
+        ? inbox.notifications.slice(0, 100).map(normalizeGuestNotification).filter(Boolean)
+        : [];
+      renderGuestInbox();
+      renderGuestPreferences(inbox.preferences, inbox.can_manage === true);
+      renderPrivacyConsents(privacy.consents);
+      setGuestToolsStatus("");
+
+      // An in-app delivered status records this guest client acknowledging that
+      // it received and rendered a dispatched item. Merely fetching queued data
+      // does not change its status.
+      for (const notification of guestNotifications.filter((item) => item.status === "sent")) {
+        try {
+          await requestBody(`/api/guest/notifications/${encodeURIComponent(notification.notification_id)}/ack`, { action: "delivered" });
+          notification.status = "delivered";
+          renderGuestInbox();
+        } catch { /* Keep the item marked sent until the client can acknowledge receipt. */ }
+      }
+    } catch {
+      setGuestToolsStatus("Inbox or privacy choices could not be loaded. Select Refresh to try again.");
+      guestNotifications = [];
+      renderGuestInbox();
+    } finally {
+      $("refresh-guest-inbox").disabled = false;
+    }
+  }
+
+  async function markGuestNotificationRead(notification, button) {
+    button.disabled = true;
+    try {
+      await requestBody(
+        `/api/guest/notifications/${encodeURIComponent(notification.notification_id)}/ack`,
+        { action: "read" },
+      );
+      notification.status = "read";
+      renderGuestInbox();
+      setGuestToolsStatus("Notification marked as read by this guest client.");
+    } catch {
+      button.disabled = false;
+      setGuestToolsStatus("That notification could not be marked as read. Please try again.");
+    }
+  }
+
+  function setupGuestTools() {
+    const dialog = $("guest-tools-dialog");
+    const openButton = $("open-guest-tools");
+    const closeButton = $("close-guest-tools");
+    const closeDialog = () => {
+      if (dialog.open) dialog.close();
+      openButton.setAttribute("aria-expanded", "false");
+    };
+    openButton.addEventListener("click", () => {
+      if (!dialog.open) dialog.showModal();
+      openButton.setAttribute("aria-expanded", "true");
+      void loadGuestTools();
+    });
+    closeButton.addEventListener("click", closeDialog);
+    dialog.addEventListener("close", () => openButton.setAttribute("aria-expanded", "false"));
+    dialog.addEventListener("click", (event) => {
+      if (event.target === dialog) closeDialog();
+    });
+    $("refresh-guest-inbox").addEventListener("click", loadGuestTools);
+
+    for (const input of document.querySelectorAll("[data-notification-category]")) {
+      input.addEventListener("change", async () => {
+        const category = input.dataset.notificationCategory;
+        const enabled = input.checked;
+        input.disabled = true;
+        try {
+          await api("/api/guest/notifications/preferences", {
+            method: "PUT", body: JSON.stringify({ category, enabled }),
+          });
+          guestNotificationPreferences[category] = enabled;
+          setGuestToolsStatus("Notification preference saved.");
+        } catch {
+          input.checked = !enabled;
+          setGuestToolsStatus("That notification preference could not be saved. Please try again.");
+        } finally {
+          input.disabled = false;
+        }
+      });
+    }
+
+    $("save-privacy-choices").addEventListener("click", async () => {
+      const button = $("save-privacy-choices");
+      const consents = Object.fromEntries(privacyConsentCategories.map((category) => [
+        category, document.querySelector(`[data-consent-category="${category}"]`).checked,
+      ]));
+      button.disabled = true;
+      try {
+        const result = await api("/api/guest/privacy", {
+          method: "PUT",
+          body: JSON.stringify({ session_id: sessionId, consents }),
+        });
+        renderPrivacyConsents(result.consents || consents);
+        setGuestToolsStatus("Privacy choices saved.");
+      } catch {
+        setGuestToolsStatus("Privacy choices could not be saved. Please try again.");
+      } finally {
+        button.disabled = false;
+      }
+    });
   }
 
   function appendSuggestionButtons(parent, items) {
@@ -747,7 +948,7 @@
     panel.appendChild(element("h3", "", block.title));
     const list = element("ol", "directions-list");
     for (const step of block.steps) {
-      const item = attachSourceIds(element("li", "", step.label), step.source_ids);
+      const item = attachSourceIds(element("li", "", step.instruction || step.label), step.source_ids);
       list.appendChild(item);
     }
     panel.appendChild(list);
@@ -860,9 +1061,9 @@
     if (block.directions_enabled) {
       directionsForm = element("form", "floor-map-directions");
       directionsForm.appendChild(element("h4", "", "Get directions"));
-      directionsForm.appendChild(element("p", "", "Where are you starting from? Choose a place to check for a published walking route."));
+      directionsForm.appendChild(element("p", "", "Choose a starting location and a destination on the map. Routes between floors use a published lift, stair, or ramp connection."));
       const startLabel = element("label", "floor-map-floor-field");
-      startLabel.appendChild(element("span", "", "Starting location"));
+      startLabel.appendChild(element("span", "", "Starting location · any mapped floor"));
       startSelect = document.createElement("select");
       startSelect.setAttribute("aria-label", "Starting location");
       const emptyOption = document.createElement("option");
@@ -870,19 +1071,26 @@
       emptyOption.textContent = "Choose a place";
       startSelect.appendChild(emptyOption);
       startLabel.appendChild(startSelect);
+      const accessibleLabel = element("label", "floor-map-accessible-choice");
+      const accessibleInput = document.createElement("input");
+      accessibleInput.type = "checkbox";
+      accessibleInput.setAttribute("aria-label", "Wheelchair accessible route");
+      accessibleLabel.append(accessibleInput, element("span", "", "Wheelchair accessible route"));
       const routeButton = element("button", "floor-map-directions-submit", "Check for a route");
       routeButton.type = "submit";
-      directionsForm.append(startLabel, routeButton);
+      directionsForm.append(startLabel, accessibleLabel, routeButton);
       directionsForm.addEventListener("submit", (event) => {
         event.preventDefault();
         const floor = floorViews.find((item) => item.floor_id === selectedFloorId);
-        const start = floor?.markers?.find((marker) => marker.id === startSelect.value);
+        const startFloor = floorViews.find((item) => item.markers?.some((marker) => marker.id === startSelect.value));
+        const start = startFloor?.markers?.find((marker) => marker.id === startSelect.value);
         const destination = floor?.markers?.find((marker) => marker.id === selectedMarkerId);
         if (!start || !destination || start.id === destination.id) {
           startSelect.focus();
           return;
         }
-        sendMessage(`Directions from ${start.label} to ${destination.label}`);
+        const routePrefix = accessibleInput.checked ? "Accessible route" : "Directions";
+        sendMessage(`${routePrefix} from ${start.label} on ${startFloor.label} to ${destination.label}`);
       });
       panel.appendChild(directionsForm);
     }
@@ -1125,12 +1333,15 @@
         startSelect.replaceChildren();
         const placeholder = document.createElement("option");
         placeholder.value = ""; placeholder.textContent = "Choose a place"; startSelect.appendChild(placeholder);
-        for (const marker of markers) {
+        for (const marker of floorViews.flatMap((item) => item.markers || [])) {
           if (marker.id === selectedMarkerId) continue;
           const option = document.createElement("option");
-          option.value = marker.id; option.textContent = marker.label; startSelect.appendChild(option);
+          const markerFloor = floorViews.find((item) => item.markers?.some((entry) => entry.id === marker.id));
+          option.value = marker.id;
+          option.textContent = markerFloor ? `${marker.label} · ${markerFloor.label}` : marker.label;
+          startSelect.appendChild(option);
         }
-        startSelect.value = markers.some((marker) => marker.id === currentStart && marker.id !== selectedMarkerId) ? currentStart : "";
+        startSelect.value = floorViews.some((item) => item.markers?.some((marker) => marker.id === currentStart && marker.id !== selectedMarkerId)) ? currentStart : "";
       }
       const selected = markers.find((marker) => marker.id === selectedMarkerId);
       if (selected) {
@@ -1779,6 +1990,11 @@
       sessionStorage.setItem(storageKeys.property, property.property_id);
       messages = [];
       mapViewStates.clear();
+      guestNotifications = [];
+      guestNotificationPreferences = {};
+      guestPrivacyConsents = {};
+      if ($("guest-tools-dialog").open) $("guest-tools-dialog").close();
+      $("open-guest-tools").setAttribute("aria-expanded", "false");
       $("composer-input").value = "";
       $("conversation-workspace").scrollTop = 0;
       renderMessages();
@@ -1797,6 +2013,7 @@
   }
 
   function setupComposer() {
+    setupGuestTools();
     const input = $("composer-input");
     const conversationViewport = $("conversation-workspace");
     conversationViewport.addEventListener("scroll", () => {

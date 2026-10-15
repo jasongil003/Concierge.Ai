@@ -36,6 +36,18 @@ async function loginAdmin(request) {
   return csrf;
 }
 
+async function publishGuestMap(request, propertyId, csrf) {
+  const headers = { "X-CSRF-Token": csrf };
+  const draftResponse = await request.post(`/api/admin/properties/${propertyId}/map-revisions`, { headers });
+  expect(draftResponse.ok(), await draftResponse.text()).toBeTruthy();
+  const draft = await draftResponse.json();
+  const publishResponse = await request.post(
+    `/api/admin/properties/${propertyId}/map-revisions/${draft.revision_id}/publish`,
+    { headers, data: {} },
+  );
+  expect(publishResponse.ok(), await publishResponse.text()).toBeTruthy();
+}
+
 test.beforeEach(async ({ page, request }) => {
   const csrf = await loginAdmin(request);
   // The preceding admin onboarding flow intentionally leaves its newly created
@@ -1404,6 +1416,7 @@ test("Intelligent UI: indoor directions follow configured guest-visible map node
     });
     expect(uploadedMap.ok(), await uploadedMap.text()).toBeTruthy();
   }
+  await publishGuestMap(request, propertyId, csrf);
   await setIntelligentUi(request, true);
   try {
     await page.setViewportSize({ width: 390, height: 844 });
@@ -1509,6 +1522,7 @@ test("Intelligent UI: synthetic hotel map supports selection, floors, safe route
     facility_id: "demo-map-guest-rooms", name: "Guest Rooms", facility_type: "guest_rooms", floor_id: level16.floor_id,
     description: "Guest accommodation on Level 16.", opening_hours: {}, status_note: "Demo location.", location: "Level 16",
   });
+  await publishGuestMap(request, propertyId, csrf);
 
   await page.route("**/api/guest/hotel-assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?*", async (route) => {
     await route.fulfill({
@@ -1528,7 +1542,7 @@ test("Intelligent UI: synthetic hotel map supports selection, floors, safe route
     await expect(map).toBeVisible();
     await expect(map.locator(".floor-map-demo-note")).toHaveText("Demo map — illustrative layout");
     await expect(map.locator(".floor-map-room")).toHaveCount(4);
-    await expect(map.locator(".floor-map-directions")).toContainText("Where are you starting from?");
+    await expect(map.locator(".floor-map-directions")).toContainText("Choose a starting location and a destination on the map.");
     await expect(map.locator(".floor-map-facility-detail h4")).toHaveText("Infinity Pool");
     await expect(map.locator(".entity-card-image-caption")).toContainText("not a property photo");
     const facilityImage = map.locator(".floor-map-facility-image");
@@ -1561,6 +1575,7 @@ test("Intelligent UI: synthetic hotel map supports selection, floors, safe route
       from_node_id: elevator.node_id, to_node_id: pool.node_id, distance: 32, guest_visible: true,
     });
     expect(edge.guest_visible).toBeTruthy();
+    await publishGuestMap(request, propertyId, csrf);
     await page.getByLabel("Message your concierge").fill("Directions from Elevator Lobby to Infinity Pool");
     await page.getByRole("button", { name: "Send message" }).click();
     await expect(page.locator(".directions-panel")).toContainText("Elevator Lobby");
@@ -1578,6 +1593,7 @@ test("Intelligent UI: synthetic hotel map supports selection, floors, safe route
       data: { data: { label: "Fitness Studio", floor_id: level5.floor_id, x: 451, y: 167, guest_visible: true } },
     });
     expect(updatedNode.ok(), await updatedNode.text()).toBeTruthy();
+    await publishGuestMap(request, propertyId, csrf);
     await page.getByLabel("Message your concierge").fill("Where is the Fitness Studio?");
     await page.getByRole("button", { name: "Send message" }).click();
     await expect(page.locator(".map-panel .floor-map-location-list").last()).toContainText("Fitness Studio");
