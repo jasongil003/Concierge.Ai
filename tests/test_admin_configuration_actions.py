@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import base64
 from pathlib import Path
+import uuid
 
 import pytest
 from fastapi.testclient import TestClient
@@ -103,6 +104,58 @@ def test_admin_design_is_proposed_then_saved_as_draft_and_audited(admin_client, 
     assert "assistant.action.proposed" in events
     assert "assistant.action.confirmed" in events
     assert "assistant.action.executed" in events
+
+
+def test_confirmed_facility_status_action_queues_scoped_guest_notice(admin_client, monkeypatch, request):
+    property_id = f"facility-action-{uuid.uuid4().hex[:10]}"
+    request.addfinalizer(lambda: main_module.properties.delete(property_id))
+    main_module.properties.upsert(PropertyRecord(
+        property_id=property_id,
+        hotel_name="Facility Action Hotel",
+        timezone="UTC",
+        app_settings={"guest_notification_delivery": {"quiet_hours": {}, "send_window": {}}},
+    ))
+    session = admin_client.post("/api/session/start", json={
+        "client_id": f"facility-action-{uuid.uuid4().hex}", "property_id": property_id,
+    })
+    assert session.status_code == 200, session.text
+    session_id = session.json()["session_id"]
+    main_module.store.mark_authenticated(session_id)
+    device_id = main_module.guest_identities.observe_device(property_id, "02:00:00:00:00:71")
+    stay = main_module.guest_identities.reconnect_or_create_stay(
+        property_id, device_id, concierge_session_id=session_id,
+    )
+    facility = main_module.hospitality.upsert_facility_profile(property_id, {
+        "name": "Fitness Center", "live_status": "open",
+    })
+
+    async def fake_chat(**kwargs):
+        return _plan("facility.update", {
+            "facility_id": facility["facility_id"],
+            "changes": {"live_status": "closed", "status_note": "Equipment inspection."},
+        })
+
+    monkeypatch.setattr(main_module.ai_models, "concierge_chat", fake_chat)
+    proposed = admin_client.post(
+        f"/api/admin/properties/{property_id}/assistant/query",
+        json={"question": "Update the Fitness Center facility status to closed for equipment inspection."},
+    )
+    assert proposed.status_code == 200, proposed.text
+    assert "configuration_proposal" in proposed.json(), proposed.json()
+    proposal = proposed.json()["configuration_proposal"]
+    assert proposal["action"] == "facility.update"
+
+    confirmed = admin_client.post(
+        f"/api/admin/properties/{property_id}/assistant/actions/{proposal['proposal_id']}/confirm",
+        json={},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    notices = main_module.hospitality.list_guest_inbox_notifications(
+        property_id, stay["stay_id"],
+    )
+    assert len(notices) == 1
+    assert notices[0]["category"] == "operational"
+    assert "Fitness Center is now closed." in notices[0]["body"]
 
 
 def test_guest_network_change_requires_strong_confirmation_and_keeps_csrf(admin_client, monkeypatch, request):
