@@ -160,7 +160,7 @@ def test_everyday_dining_and_nearby_place_phrases_route_to_structured_cards(monk
     places = next(block for block in nearby.json()["blocks"] if block["type"] == "card_collection")
     assert [card["title"] for card in places["cards"]] == [recommendation["name"]]
     assert places["cards"][0]["source_ids"] == [f"guest:test-property:recommendation:{recommendation['recommendation_id']}"]
-    assert "no live hours or travel details" in nearby.json()["blocks"][0]["content"]
+    assert "may not include live hours or travel details" in nearby.json()["blocks"][0]["content"]
 
 
 def test_request_status_and_directions_are_typed_structured_components():
@@ -262,9 +262,13 @@ def test_guest_directions_use_only_named_guest_visible_map_nodes(monkeypatch: py
     }
     monkeypatch.setattr(main_module.zones, "overview", lambda _property_id, guest: overview if guest else {})
     monkeypatch.setattr(main_module.zones, "floor_map_path", lambda _property_id, _map_id: floorplan)
-    monkeypatch.setattr(main_module.zones, "route", lambda _property_id, start, end, guest: {
-        "node_ids": [start, end], "labels": ["Lobby", "Rooftop Pool"], "distance": 12,
-    })
+    route_calls = []
+    monkeypatch.setattr(main_module.zones, "route", lambda _property_id, start, end, guest, accessible=False: (
+        route_calls.append({"accessible": accessible}) or {
+            "node_ids": [start, end], "labels": ["Lobby", "Rooftop Pool"], "distance": 12,
+            "steps": [], "transitions": [], "floor_ids": ["floor-5"], "accessible": accessible,
+        }
+    ))
 
     route = main_module._intelligent_guest_directions_block("test-property", "Directions from Lobby to Rooftop Pool")
     assert route is not None
@@ -272,6 +276,12 @@ def test_guest_directions_use_only_named_guest_visible_map_nodes(monkeypatch: py
     assert [step["label"] for step in route["steps"]] == ["Lobby", "Rooftop Pool"]
     assert route["steps"][1]["source_ids"] == ["guest:test-property:map_node:pool"]
     assert route["node_ids"] == ["lobby", "pool"]
+    assert route_calls[-1]["accessible"] is False
+    accessible_route = main_module._intelligent_guest_directions_block(
+        "test-property", "Accessible route from Lobby to Rooftop Pool",
+    )
+    assert accessible_route["title"].startswith("Accessible directions")
+    assert route_calls[-1]["accessible"] is True
     # Duplicate starting labels resolve to the unique endpoint's floor.
     assert main_module._intelligent_guest_directions_block(
         "test-property", "Directions from Lobby to Rooftop Pool",
@@ -286,6 +296,64 @@ def test_guest_directions_use_only_named_guest_visible_map_nodes(monkeypatch: py
     overview["maps"] = []
     assert main_module._intelligent_guest_directions_block(
         "test-property", "Directions from Lobby to Rooftop Pool",
+    ) is None
+
+
+def test_guest_directions_require_explicit_cross_floor_transition_and_maps(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    floor_one = tmp_path / "floor-one.png"
+    floor_two = tmp_path / "floor-two.png"
+    floor_one.write_bytes(b"floor-one-map")
+    floor_two.write_bytes(b"floor-two-map")
+    nodes = [
+        {"node_id": "lobby", "floor_id": "floor-one", "label": "Lobby", "guest_visible": True},
+        {"node_id": "lift-1", "floor_id": "floor-one", "label": "Elevator Lobby", "guest_visible": True},
+        {"node_id": "lift-2", "floor_id": "floor-two", "label": "Elevator Lobby", "guest_visible": True},
+        {"node_id": "pool", "floor_id": "floor-two", "label": "Rooftop Pool", "guest_visible": True},
+    ]
+    overview = {
+        "navigation_nodes": nodes,
+        "floors": [
+            {"floor_id": "floor-one", "name": "Level 1"},
+            {"floor_id": "floor-two", "name": "Level 16"},
+        ],
+        "maps": [
+            {"map_id": "map-one", "floor_id": "floor-one", "content_type": "image/png", "width": 800, "height": 600},
+            {"map_id": "map-two", "floor_id": "floor-two", "content_type": "image/png", "width": 800, "height": 600},
+        ],
+    }
+    monkeypatch.setattr(main_module.zones, "overview", lambda _property_id, guest: overview if guest else {})
+    monkeypatch.setattr(
+        main_module.zones, "floor_map_path",
+        lambda _property_id, map_id: floor_one if map_id == "map-one" else floor_two,
+    )
+    route_calls = []
+
+    def route(_property_id, start, end, guest=True, accessible=False):
+        route_calls.append({"start": start, "end": end, "accessible": accessible})
+        return {
+            "node_ids": ["lobby", "lift-1", "lift-2", "pool"],
+            "labels": ["Lobby", "Elevator Lobby", "Elevator Lobby", "Rooftop Pool"],
+            "transitions": [{
+                "from_node_id": "lift-1", "to_node_id": "lift-2",
+                "from_floor_id": "floor-one", "to_floor_id": "floor-two",
+                "type": "elevator", "accessible": True,
+            }],
+        }
+
+    monkeypatch.setattr(main_module.zones, "route", route)
+
+    directions = main_module._intelligent_guest_directions_block(
+        "test-property", "Accessible route from Lobby on Level 1 to Rooftop Pool",
+    )
+
+    assert directions is not None
+    assert directions["title"].startswith("Accessible directions")
+    assert route_calls[-1] == {"start": "lobby", "end": "pool", "accessible": True}
+    assert any("Take the elevator to Level 16" in step["instruction"] for step in directions["steps"])
+
+    overview["maps"] = overview["maps"][:1]
+    assert main_module._intelligent_guest_directions_block(
+        "test-property", "Directions from Lobby on Level 1 to Rooftop Pool",
     ) is None
 
 
@@ -767,6 +835,8 @@ def test_intelligent_facility_cards_use_only_published_property_facility_data(mo
         "floor_id": floor["floor_id"], "zone_id": zone["zone_id"],
         "label": "Rooftop Pool", "x": 100, "y": 50, "node_type": "service", "guest_visible": True,
     })
+    revision = main_module.zones.create_map_revision("test-property")
+    main_module.zones.publish_map_revision("test-property", revision["revision_id"])
 
     async def fake_existing_chat(_payload, _request, **_kwargs):
         return {"answer": "The pool is on the rooftop.", "source": "ai", "places": []}
@@ -974,6 +1044,8 @@ def test_intelligent_map_uses_property_floor_plan_and_guest_visible_nodes(monkey
         "floor_id": floor["floor_id"], "zone_id": zone["zone_id"],
         "label": "Hidden Back Office", "x": 180, "y": 80, "node_type": "service", "guest_visible": False,
     })
+    revision = main_module.zones.create_map_revision("test-property")
+    main_module.zones.publish_map_revision("test-property", revision["revision_id"])
 
     async def fake_existing_chat(_payload, _request, **_kwargs):
         return {"answer": "The pool is on Level 3.", "source": "ai", "places": []}

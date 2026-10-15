@@ -91,6 +91,10 @@ def test_guest_controls_api_and_chat_context_respect_consent(admin_client, tmp_p
     started = admin_client.post("/api/session/start", json={"client_id": "personalized-guest", "property_id": property_id})
     assert started.status_code == 200, started.text
     session_id = started.json()["session_id"]
+    consent = admin_client.put("/api/guest/privacy", json={
+        "session_id": session_id, "consents": {"external_data_processing": True},
+    })
+    assert consent.status_code == 200, consent.text
     resumed = admin_client.post("/api/session/resume", json={"client_id": "personalized-guest", "session_id": session_id})
     assert resumed.status_code == 200, resumed.text
     assert resumed.json()["session_id"] == session_id
@@ -126,11 +130,13 @@ def test_guest_controls_api_and_chat_context_respect_consent(admin_client, tmp_p
     assert learned.status_code == 200, learned.text
     saved_preferences = memory_store.guest_state(property_id, session_id)["preferences"]
     assert any(item["value"] == "vegetarian" for item in saved_preferences), saved_preferences
+    model_calls_before_dining = len(calls)
     recommendation = admin_client.post("/api/chat", json={"session_id": session_id, "message": "Where should we eat?"})
     assert recommendation.status_code == 200, recommendation.text
-    context = calls[-1]["guest_context"]
+    assert len(calls) == model_calls_before_dining
+    context = memory_store.context_for(property_id, session_id, "Where should we eat?")
     assert context["personalization_level"] == "stay"
-    assert any(item["value"] == "vegetarian" for item in context["personalization"]["preferences"])
+    assert any(item["value"] == "vegetarian" for item in context["preferences"])
 
     shown = admin_client.post("/api/chat", json={"session_id": session_id, "message": "What do you remember about me?"})
     assert "vegetarian" in shown.json()["answer"]

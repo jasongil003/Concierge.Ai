@@ -1,5 +1,7 @@
 import math
+import re
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -10,13 +12,188 @@ PLACE_HINTS = {
     "restaurant", "restaurants", "eat", "food", "cafe", "coffee", "bar",
     "pharmacy", "mall", "shopping", "attraction", "nearby", "near me",
     "things to do", "activity", "activities", "plan", "visit", "tour",
+    "tonight", "grocery", "groceries", "supermarket",
 }
+
+_CATEGORY_CUES = (
+    ("restaurants", ("restaurant", "restaurants", "dining", "eat", "food")),
+    ("cafes", ("cafe", "cafes", "coffee", "coffee shop", "coffee shops")),
+    ("bars and nightlife", ("bar", "bars", "pub", "pubs", "nightlife")),
+    ("evening activities", ("tonight",)),
+    ("pharmacies", ("pharmacy", "pharmacies", "chemist", "chemists", "drugstore", "drugstores")),
+    ("shopping malls and shops", ("mall", "malls", "shopping", "shopping center", "shopping centres", "store", "stores")),
+    ("grocery stores", ("grocery", "groceries", "supermarket", "supermarkets")),
+)
+_GENERIC_PLACE_CUES = (
+    "nearby", "near me", "things to do", "activity", "activities", "attraction",
+    "attractions", "tourist", "visit", "sightseeing", "tour", "tours", "plan",
+)
+_PRICE_LEVELS = {
+    "PRICE_LEVEL_FREE",
+    "PRICE_LEVEL_INEXPENSIVE",
+    "PRICE_LEVEL_MODERATE",
+    "PRICE_LEVEL_EXPENSIVE",
+    "PRICE_LEVEL_VERY_EXPENSIVE",
+}
+_MAX_GOOGLE_RADIUS_METERS = 50_000
+_MAX_GOOGLE_RESULTS = 20
+
+
+def _contains_phrase(text: str, phrase: str) -> bool:
+    return re.search(r"(?<![\w])" + re.escape(phrase) + r"(?![\w])", text) is not None
+
+
+def _category_query(message: str) -> str:
+    """Return a fixed category query; never forward guest-authored text."""
+    text = message.casefold() if isinstance(message, str) else ""
+    categories = [
+        category
+        for category, cues in _CATEGORY_CUES
+        if any(_contains_phrase(text, cue) for cue in cues)
+    ]
+    if categories:
+        return ", ".join(categories)
+    if any(_contains_phrase(text, cue) for cue in _GENERIC_PLACE_CUES):
+        return "tourist attractions"
+    return "local places"
+
+
+def _finite_number(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        number = float(value)
+    except (OverflowError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _coordinates(latitude: Any, longitude: Any) -> tuple[float, float] | None:
+    lat = _finite_number(latitude)
+    lon = _finite_number(longitude)
+    if lat is None or lon is None or not -90 <= lat <= 90 or not -180 <= lon <= 180:
+        return None
+    return lat, lon
+
+
+def _safe_google_maps_url(value: Any) -> str | None:
+    if not isinstance(value, str) or not value or len(value) > 2048 or value != value.strip():
+        return None
+    if any(ord(char) < 32 or char.isspace() for char in value):
+        return None
+    try:
+        parsed = urlsplit(value)
+        hostname = (parsed.hostname or "").casefold().rstrip(".")
+        port = parsed.port
+    except ValueError:
+        return None
+    if (
+        parsed.scheme.casefold() != "https"
+        or parsed.username is not None
+        or parsed.password is not None
+        or port not in (None, 443)
+    ):
+        return None
+    path = parsed.path or "/"
+    if hostname in {"google.com", "www.google.com"}:
+        is_maps_path = path == "/maps" or path.startswith("/maps/")
+    elif hostname == "maps.google.com":
+        is_maps_path = path == "/" or path == "/maps" or path.startswith("/maps/")
+    elif hostname == "maps.app.goo.gl":
+        is_maps_path = path not in {"", "/"} and not path.startswith("//")
+    else:
+        is_maps_path = False
+    return value if is_maps_path else None
+
+
+def _safe_provider_category(place: dict[str, Any]) -> str | None:
+    display_name = place.get("primaryTypeDisplayName")
+    category = display_name.get("text") if isinstance(display_name, dict) else None
+    if (
+        isinstance(category, str)
+        and category.strip()
+        and len(category) <= 100
+        and not any(ord(char) < 32 or char in "<>" for char in category)
+    ):
+        return category.strip()
+
+    primary_type = place.get("primaryType")
+    if isinstance(primary_type, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,63}", primary_type):
+        return primary_type.replace("_", " ").title()
+    return None
+
+
+def _valid_place(place: Any, origin: tuple[float, float], radius_meters: float) -> dict[str, Any] | None:
+    if not isinstance(place, dict):
+        return None
+    point = place.get("location")
+    if not isinstance(point, dict):
+        return None
+    coordinates = _coordinates(point.get("latitude"), point.get("longitude"))
+    if coordinates is None:
+        return None
+    distance = _distance_meters(origin[0], origin[1], coordinates[0], coordinates[1])
+    if distance > radius_meters:
+        return None
+
+    display_name = place.get("displayName")
+    name = display_name.get("text") if isinstance(display_name, dict) else None
+    if not isinstance(name, str) or not name.strip():
+        return None
+
+    address = place.get("formattedAddress")
+    if not isinstance(address, str):
+        address = None
+    place_id = place.get("id")
+    if not isinstance(place_id, str) or not place_id.strip():
+        place_id = None
+
+    rating = _finite_number(place.get("rating"))
+    if rating is None or not 0 <= rating <= 5:
+        rating = None
+    reviews = place.get("userRatingCount")
+    if isinstance(reviews, bool) or not isinstance(reviews, int) or reviews < 0:
+        reviews = None
+    price_level = place.get("priceLevel")
+    if not isinstance(price_level, str) or price_level not in _PRICE_LEVELS:
+        price_level = None
+
+    hours = place.get("currentOpeningHours")
+    if not isinstance(hours, dict):
+        hours = {}
+    open_now = hours.get("openNow")
+    if not isinstance(open_now, bool):
+        open_now = None
+    weekday_descriptions = hours.get("weekdayDescriptions")
+    if not isinstance(weekday_descriptions, list):
+        weekday_descriptions = []
+    opening_hours = [
+        item[:200] for item in weekday_descriptions[:7]
+        if isinstance(item, str)
+    ]
+
+    return {
+        "place_id": place_id,
+        "name": name.strip()[:300],
+        "category": _safe_provider_category(place),
+        "address": address[:500] if address is not None else None,
+        "rating": rating,
+        "reviews": reviews,
+        "price_level": price_level,
+        "open_now": open_now,
+        "opening_hours": opening_hours,
+        "distance_meters": round(distance),
+        "distance_type": "straight_line",
+        "maps_url": _safe_google_maps_url(place.get("googleMapsUri")),
+    }
 
 
 class GooglePlaces:
     @staticmethod
     def should_search(message: str) -> bool:
-        text = message.lower()
+        if not isinstance(message, str):
+            return False
+        text = message.casefold()
         return any(hint in text for hint in PLACE_HINTS)
 
     async def search(
@@ -25,25 +202,60 @@ class GooglePlaces:
         latitude: float | None,
         longitude: float | None,
         open_now: bool = True,
+        radius_meters: int | None = None,
+        max_results: int | None = None,
     ) -> list[dict[str, Any]]:
+        places, _ = await self.search_with_status(
+            message,
+            latitude,
+            longitude,
+            open_now=open_now,
+            radius_meters=radius_meters,
+            max_results=max_results,
+        )
+        return places
+
+    async def search_with_status(
+        self,
+        message: str,
+        latitude: float | None,
+        longitude: float | None,
+        open_now: bool = True,
+        radius_meters: int | None = None,
+        max_results: int | None = None,
+    ) -> tuple[list[dict[str, Any]], str]:
+        """Search live and report why no verified results were returned.
+
+        Google Places content cannot be cached under the current provider policy,
+        so this adapter deliberately makes a fresh request for each allowed search.
+        """
+        origin = _coordinates(latitude, longitude)
+        radius = _finite_number(
+            settings.places_radius_meters if radius_meters is None else radius_meters
+        )
+        result_limit = _result_limit(
+            settings.places_max_results if max_results is None else max_results
+        )
         if (
             not settings.google_places_api_key
-            or latitude is None
-            or longitude is None
-            or not self.should_search(message)
+            or origin is None
+            or radius is None
+            or not 0 < radius <= _MAX_GOOGLE_RADIUS_METERS
         ):
-            return []
+            return [], "configuration_required"
+        if not self.should_search(message):
+            return [], "not_applicable"
 
         payload = {
-            "textQuery": message,
-            "pageSize": settings.places_max_results,
+            "textQuery": _category_query(message),
+            "pageSize": result_limit,
             "locationBias": {
                 "circle": {
                     "center": {
-                        "latitude": latitude,
-                        "longitude": longitude,
+                        "latitude": origin[0],
+                        "longitude": origin[1],
                     },
-                    "radius": settings.places_radius_meters,
+                    "radius": radius,
                 }
             },
         }
@@ -55,40 +267,47 @@ class GooglePlaces:
             "X-Goog-FieldMask": (
                 "places.id,places.displayName,places.formattedAddress,"
                 "places.rating,places.userRatingCount,places.priceLevel,"
-                "places.currentOpeningHours.openNow,places.currentOpeningHours.weekdayDescriptions,places.googleMapsUri,places.location"
+                "places.currentOpeningHours.openNow,places.currentOpeningHours.weekdayDescriptions,"
+                "places.googleMapsUri,places.location,places.primaryTypeDisplayName,places.primaryType"
             ),
         }
 
-        async with httpx.AsyncClient(timeout=20) as client:
-            response = await client.post(
-                "https://places.googleapis.com/v1/places:searchText",
-                headers=headers,
-                json=payload,
-            )
-            response.raise_for_status()
-            body = response.json()
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                response = await client.post(
+                    "https://places.googleapis.com/v1/places:searchText",
+                    headers=headers,
+                    json=payload,
+                )
+                response.raise_for_status()
+                body = response.json()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 429:
+                return [], "quota_exhausted"
+            return [], "unavailable"
+        except (httpx.HTTPError, ValueError, TypeError):
+            return [], "unavailable"
 
-        results = []
-        for place in body.get("places", []):
-            point = place.get("location", {})
-            distance_meters = None
-            if isinstance(point, dict) and point.get("latitude") is not None and point.get("longitude") is not None:
-                distance_meters = round(_distance_meters(latitude, longitude, float(point["latitude"]), float(point["longitude"])))
-            results.append(
-                {
-                    "place_id": place.get("id"),
-                    "name": place.get("displayName", {}).get("text"),
-                    "address": place.get("formattedAddress"),
-                    "rating": place.get("rating"),
-                    "reviews": place.get("userRatingCount"),
-                    "price_level": place.get("priceLevel"),
-                    "open_now": place.get("currentOpeningHours", {}).get("openNow"),
-                    "opening_hours": place.get("currentOpeningHours", {}).get("weekdayDescriptions", [])[:7],
-                    "distance_meters": distance_meters,
-                    "maps_url": place.get("googleMapsUri"),
-                }
-            )
-        return results
+        if not isinstance(body, dict):
+            return [], "unavailable"
+        provider_places = body.get("places", [])
+        if not isinstance(provider_places, list):
+            return [], "unavailable"
+        places = [
+            result
+            for place in provider_places[:result_limit]
+            if (result := _valid_place(place, origin, radius)) is not None
+        ]
+        return places, "available" if places else "empty"
+
+
+def _result_limit(value: Any) -> int:
+    if isinstance(value, bool):
+        return 6
+    try:
+        return max(1, min(int(value), _MAX_GOOGLE_RESULTS))
+    except (TypeError, ValueError, OverflowError):
+        return 6
 
 
 def _distance_meters(lat_a: float, lon_a: float, lat_b: float, lon_b: float) -> float:

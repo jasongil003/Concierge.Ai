@@ -274,6 +274,13 @@ test("admin operations buttons: map, stay memory, location, and intro", async ({
     buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"></svg>'),
   });
   await expect(page.locator("#toast")).toContainText("Floor plan uploaded");
+  await page.locator("#map-save-draft").click();
+  await expect(page.locator("#toast")).toContainText("Map draft saved");
+  await expect(page.locator("#map-revision-preview")).toContainText("Preview revision");
+  await page.locator("#map-preview-draft").click();
+  await expect(page.locator("#toast")).toContainText("Map draft preview is ready");
+  await page.locator("#map-publish-draft").click();
+  await expect(page.locator("#map-publish-status")).toContainText("Published revision");
 
   await openPanel(page, "Guest Sessions");
   await expect(page.locator("#session-last-refreshed")).toContainText("Updated");
@@ -282,8 +289,15 @@ test("admin operations buttons: map, stay memory, location, and intro", async ({
   const sessionReadsBeforeRefresh = sessionReads;
   await page.getByRole("button", { name: "Refresh records" }).click();
   await expect.poll(() => sessionReads).toBeGreaterThan(sessionReadsBeforeRefresh);
+  const guestSessionResponse = await page.request.post("/api/session/start", {
+    data: { client_id: `location-audit-${suffix}`, property_id: "e2e-property" },
+  });
+  expect(guestSessionResponse.ok(), await guestSessionResponse.text()).toBeTruthy();
+  const guestSessionId = (await guestSessionResponse.json()).session_id;
   await page.locator("#session-raw-mac").fill(mac);
   await page.locator("#session-room").fill("1503");
+  await page.locator(".session-advanced-fields").evaluate((element) => { element.open = true; });
+  await page.locator("#session-concierge-id").fill(guestSessionId);
   await page.getByRole("button", { name: "Create / Restore Stay" }).click();
   await expect(page.locator("#toast")).toContainText("Guest stay created or restored");
   await expect(page.locator("#memory-stay-id")).not.toHaveValue("");
@@ -292,10 +306,15 @@ test("admin operations buttons: map, stay memory, location, and intro", async ({
   await expect(page.locator("#toast")).toContainText("Stay notes saved");
 
   await openPanel(page, "Location");
+  await page.locator("#obs-session-id").fill(guestSessionId);
   await page.locator("#obs-raw-mac").fill(mac);
   await page.locator("#obs-ap-id").fill(accessPoint);
+  const observationRequest = page.waitForRequest((request) => request.url().endsWith("/location/observations"));
   await page.getByRole("button", { name: "Record Observation" }).click();
-  await expect(page.locator("#toast")).toContainText("Observation recorded");
+  expect((await observationRequest).postDataJSON()).toMatchObject({
+    session_id: guestSessionId, raw_mac: mac, access_point_identifier: accessPoint,
+  });
+  await expect(page.locator("#toast")).toContainText("Location collection is not enabled for this property");
   await page.getByRole("button", { name: "Load Report" }).click();
   await expect(page.locator("#location-report")).toContainText("visits");
 
@@ -312,6 +331,73 @@ test("admin operations buttons: map, stay memory, location, and intro", async ({
     await page.locator("#intro-message").fill(originalMessage);
   }
   await page.locator("#save-intro").click();
+});
+
+test("map editor creates and edits explicit cross-floor route transitions", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "The route editor workflow only needs one browser profile.");
+  const suffix = Date.now().toString(36);
+  const csrf = csrfByRequest.get(page.request);
+  const propertyId = await ensureTestProperty(page.request, csrf);
+  const headers = { "X-CSRF-Token": csrf };
+  const apiBase = `/api/admin/properties/${propertyId}`;
+  const create = async (path, data) => {
+    const response = await page.request.post(`${apiBase}${path}`, { headers, data: { data } });
+    expect(response.ok(), await response.text()).toBeTruthy();
+    return response.json();
+  };
+
+  const building = await create("/buildings", { name: `Route Building ${suffix}` });
+  const lowerFloor = await create("/floors", { building_id: building.building_id, name: `Route Level 1 ${suffix}`, level: 1 });
+  const upperFloor = await create("/floors", { building_id: building.building_id, name: `Route Level 2 ${suffix}`, level: 2 });
+  const lowerStart = await create("/navigation/nodes", { floor_id: lowerFloor.floor_id, label: `Route Start ${suffix}`, x: 100, y: 100 });
+  const lowerEnd = await create("/navigation/nodes", { floor_id: lowerFloor.floor_id, label: `Route Local ${suffix}`, x: 260, y: 100 });
+  const upperEnd = await create("/navigation/nodes", { floor_id: upperFloor.floor_id, label: `Route Upstairs ${suffix}`, x: 120, y: 180 });
+
+  await page.goto("/admin");
+  await openPanel(page, "Zones & Maps");
+  await page.locator("#zone-building-select").selectOption(building.building_id);
+  await page.locator("#zone-floor-select").selectOption(lowerFloor.floor_id);
+  await page.locator('[data-map-tool="connect"]').click();
+  const canvas = page.locator("#floor-map-canvas");
+  const bounds = await canvas.boundingBox();
+  expect(bounds).not.toBeNull();
+  const clickMapPoint = async (x, y) => page.mouse.click(bounds.x + (x / 1200) * bounds.width, bounds.y + (y / 720) * bounds.height);
+  await clickMapPoint(lowerStart.x, lowerStart.y);
+  await clickMapPoint(lowerEnd.x, lowerEnd.y);
+
+  await expect(page.locator("#map-edge-fields")).toBeVisible();
+  await page.locator("#map-edge-to-select").selectOption(upperEnd.node_id);
+  await page.locator("#save-map-object").click();
+  await expect(page.locator("#toast")).toContainText("Routes between floors require an explicit");
+
+  await page.locator("#map-edge-transition").selectOption("stairs");
+  await page.locator("#map-edge-accessible").check();
+  await page.locator("#save-map-object").click();
+  await expect(page.locator("#toast")).toContainText("Stair routes cannot be marked accessible");
+
+  await page.locator("#map-edge-transition").selectOption("elevator");
+  await page.locator("#map-edge-bidirectional").uncheck();
+  await page.locator("#map-object-visible").uncheck();
+  await page.locator("#save-map-object").click();
+  await expect(page.locator("#toast")).toContainText("Map changes saved");
+
+  const overview = await page.request.get(`${apiBase}/zones`).then((response) => response.json());
+  const savedEdge = overview.navigation_edges.find((edge) => edge.from_node_id === lowerStart.node_id && edge.to_node_id === upperEnd.node_id);
+  expect(savedEdge).toMatchObject({ transition_type: "elevator", accessible: true, bidirectional: false, guest_visible: false });
+
+  await page.reload();
+  await openPanel(page, "Zones & Maps");
+  await page.locator("#zone-building-select").selectOption(building.building_id);
+  await page.locator("#zone-floor-select").selectOption(lowerFloor.floor_id);
+  const routeRow = page.locator("#zone-tree .map-object-row").filter({ hasText: `Route Start ${suffix}` }).filter({ hasText: `Route Upstairs ${suffix}` });
+  await expect(routeRow).toBeVisible();
+  await routeRow.click();
+  await expect(page.locator("#map-edge-from-select")).toHaveValue(lowerStart.node_id);
+  await expect(page.locator("#map-edge-to-select")).toHaveValue(upperEnd.node_id);
+  await expect(page.locator("#map-edge-transition")).toHaveValue("elevator");
+  await expect(page.locator("#map-edge-accessible")).toBeChecked();
+  await expect(page.locator("#map-edge-bidirectional")).not.toBeChecked();
+  await expect(page.locator("#map-object-visible")).not.toBeChecked();
 });
 
 test("admin account buttons: create, edit, reset, status, activity, revoke, and delete", async ({ page }, testInfo) => {

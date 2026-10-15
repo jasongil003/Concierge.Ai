@@ -1732,7 +1732,17 @@ select[multiple] { min-height: 112px; padding: 6px; }
 .map-plan-context span:not(.map-plan-icon) { color: var(--muted); font-size: 9px; line-height: 1.4; }
 .map-upload-button { border: 1px solid var(--black); border-radius: 6px; color: var(--white); background: var(--black); font-weight: 650; }
 .map-upload-button:hover { background: #303030; }
-.map-workspace { display: grid; grid-template-columns: 218px minmax(360px, 1fr) 286px; grid-template-rows: minmax(0, 1fr); grid-template-areas: "sidebar canvas properties"; height: min(690px, max(420px, calc(100dvh - 390px))); min-height: 0; overflow: hidden; border: 1px solid #dfe3e7; border-radius: 10px; background: var(--white); box-shadow: 0 3px 16px rgba(22, 34, 48, .045); }
+.map-publication-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 12px; margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--line); background: #fbfcfd; }
+.map-publication-status { display: grid; gap: 3px; }
+.map-publication-status strong { color: var(--dark); font-size: 11px; }
+.map-publication-status span, .map-publication-preview { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.map-publication-preview { grid-column: 1 / -1; }
+.map-publication-preview:empty { display: none; }
+.map-publication-actions { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
+.map-publication-actions button { min-height: 34px; padding: 7px 11px; font-size: 10px; }
+.map-rollback-picker { display: grid; min-width: 180px; gap: 4px; color: var(--mid); font-size: 9px; font-weight: 650; }
+.map-rollback-picker select { min-height: 34px; padding: 0 9px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--white); font-size: 10px; }
+.map-workspace { display: grid; grid-template-columns: 218px minmax(360px, 1fr) 286px; grid-template-rows: minmax(0, 1fr); grid-template-areas: "sidebar canvas properties"; height: min(690px, max(270px, calc(100dvh - 430px))); min-height: 0; overflow: hidden; border: 1px solid #dfe3e7; border-radius: 10px; background: var(--white); box-shadow: 0 3px 16px rgba(22, 34, 48, .045); }
 .map-sidebar, .map-properties { min-width: 0; min-height: 0; padding: 14px; overflow: auto; background: #fff; }
 .map-sidebar { grid-area: sidebar; border-right: 1px solid var(--line); }
 .map-properties { grid-area: properties; border-left: 1px solid var(--line); }
@@ -1774,7 +1784,7 @@ select[multiple] { min-height: 112px; padding: 6px; }
 .map-list-empty strong { color: #53616c; font-size: 10px; }
 .map-privacy-note { margin: 5px 0 0; padding: 10px; border: 1px solid #e6eaed; border-radius: 7px; color: #7a858d; background: #f8fafb; font-size: 8px; line-height: 1.5; }
 .map-privacy-note strong { display: block; margin-bottom: 3px; color: #51616b; font-size: 8px; text-transform: uppercase; letter-spacing: .05em; }
-.map-canvas-shell { display: grid; min-width: 0; min-height: 0; overflow: hidden; grid-area: canvas; grid-template-rows: 48px minmax(270px, 1fr) 34px; background: #f4f6f7; }
+.map-canvas-shell { display: grid; min-width: 0; min-height: 0; overflow: hidden; grid-area: canvas; grid-template-rows: 48px minmax(0, 1fr) 34px; background: #f4f6f7; }
 .map-editor-toolbar { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 11px; border-bottom: 1px solid #e2e7eb; background: #fff; }
 .map-active-tool { display: flex; min-width: 0; align-items: center; gap: 8px; }
 .map-live-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: #55816e; box-shadow: 0 0 0 3px #e8f3ed; }
@@ -1786,7 +1796,7 @@ select[multiple] { min-height: 112px; padding: 6px; }
 .map-toolbar-divider { width: 1px; height: 20px; margin-inline: 3px; background: #e0e5e8; }
 .map-zoom-label { min-width: 36px; color: #687680; font-size: 9px; font-variant-numeric: tabular-nums; text-align: center; }
 .map-fit-button { min-height: 29px; padding: 5px 9px; font-size: 9px; }
-.map-canvas-viewport { position: relative; display: flex; min-width: 0; min-height: 270px; align-items: safe center; justify-content: safe center; overflow: auto; background-color: #fff; background-image: linear-gradient(#eef1f3 1px, transparent 1px), linear-gradient(90deg, #eef1f3 1px, transparent 1px); background-size: 16px 16px; }
+.map-canvas-viewport { position: relative; display: flex; min-width: 0; min-height: 0; align-items: safe center; justify-content: safe center; overflow: auto; background-color: #fff; background-image: linear-gradient(#eef1f3 1px, transparent 1px), linear-gradient(90deg, #eef1f3 1px, transparent 1px); background-size: 16px 16px; }
 #floor-map-canvas { display: block; width: 100%; min-width: 0; flex: 0 0 auto; height: auto; aspect-ratio: 5 / 3; background: transparent; box-shadow: 0 0 0 1px rgba(188, 198, 205, .45); touch-action: none; cursor: crosshair; }
 #floor-map-canvas[data-tool="select"] { cursor: default; }
 #floor-map-canvas[data-tool="waypoint"], #floor-map-canvas[data-tool="access_point"], #floor-map-canvas[data-tool="connect"] { cursor: copy; }
@@ -1832,6 +1842,9 @@ select[multiple] { min-height: 112px; padding: 6px; }
   .map-sidebar, .map-properties { padding: 11px; }
 }
 @media (max-width: 980px) {
+  .map-publication-toolbar { grid-template-columns: minmax(0, 1fr); }
+  .map-canvas-shell { grid-template-rows: 48px minmax(270px, 1fr) 34px; }
+  .map-canvas-viewport { min-height: 270px; }
   .map-context-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .map-plan-context { min-height: 36px; }
   .map-workspace { height: auto; min-height: min(690px, max(420px, calc(100dvh - 390px))); grid-template-columns: 195px minmax(0, 1fr); grid-template-rows: auto auto; grid-template-areas: "sidebar canvas" "properties properties"; }
@@ -1845,6 +1858,8 @@ select[multiple] { min-height: 112px; padding: 6px; }
 @media (max-width: 680px) {
   #zones .page-title { align-items: flex-start; }
   .map-context-toolbar { grid-template-columns: 1fr; }
+  .map-publication-actions { align-items: stretch; flex-direction: column; }
+  .map-publication-actions button, .map-rollback-picker, .map-rollback-picker select { width: 100%; }
   .map-context-select, .map-plan-context { min-width: 0; }
   .map-context-toolbar > .map-upload-button { width: 100%; }
   .map-workspace { height: auto; min-height: 0; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto; grid-template-areas: "sidebar" "canvas" "properties"; }

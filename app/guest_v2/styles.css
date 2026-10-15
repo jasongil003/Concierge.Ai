@@ -70,6 +70,45 @@ button:focus-visible, textarea:focus-visible { outline: 3px solid var(--focus); 
 }
 .new-chat:hover { border-color: #d4cec2; background: var(--surface); }
 .new-chat span:first-child { font-size: 18px; line-height: 1; }
+.guest-tools-button, .guest-tools-close, .guest-tools-secondary, .guest-tools-save {
+  display: inline-flex; min-height: 44px; align-items: center; justify-content: center; padding: 0 13px;
+  border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--ink);
+  font: inherit; font-size: 12px; cursor: pointer;
+}
+.guest-tools-button:hover, .guest-tools-close:hover, .guest-tools-secondary:hover { border-color: #cfc3ae; }
+.guest-tools-dialog {
+  width: min(680px, calc(100% - 24px)); max-width: 680px; max-height: min(88dvh, 820px); padding: 0;
+  overflow: hidden; border: 1px solid var(--line); border-radius: 20px; background: var(--page); color: var(--ink);
+  box-shadow: 0 24px 70px #17140f40;
+}
+.guest-tools-dialog::backdrop { background: #16140f66; backdrop-filter: blur(2px); }
+.guest-tools-content { max-height: min(88dvh, 820px); padding: 20px; overflow-y: auto; overscroll-behavior: contain; }
+.guest-tools-header { position: sticky; z-index: 1; top: -20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -20px -20px 0; padding: 18px 20px 12px; border-bottom: 1px solid var(--line); background: var(--page); }
+.guest-tools-header .eyebrow { margin-bottom: 5px; }
+.guest-tools-header h2 { margin: 0; font: 500 26px/1.15 Georgia, "Times New Roman", serif; }
+.guest-tools-status { min-height: 1.4em; margin: 10px 0 0; color: var(--muted); font-size: 12px; }
+.guest-tools-section { padding: 17px 0; border-bottom: 1px solid var(--line); }
+.guest-tools-section:last-child { border-bottom: 0; }
+.guest-tools-section h3 { margin: 0; font-size: 14px; font-weight: 650; }
+.guest-tools-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.guest-tools-secondary { min-height: 38px; font-size: 11px; }
+.guest-tools-copy { margin: 7px 0 10px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.guest-inbox-list { display: grid; margin: 10px 0 0; padding: 0; list-style: none; gap: 9px; }
+.guest-inbox-item { min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); }
+.guest-inbox-item-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.guest-inbox-item h4 { min-width: 0; margin: 0; font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
+.guest-inbox-status { flex: 0 0 auto; padding: 4px 7px; border-radius: 999px; background: #f0eee8; color: #514d43; font-size: 10px; font-weight: 650; }
+.guest-inbox-item p { margin: 7px 0 0; color: #55524d; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
+.guest-inbox-empty { margin: 11px 0 0; color: var(--muted); font-size: 12px; }
+.guest-inbox-item button { min-height: 40px; margin-top: 10px; padding: 0 12px; border: 1px solid var(--accent); border-radius: 999px; background: var(--accent); color: var(--accent-ink); font: inherit; font-size: 11px; cursor: pointer; }
+.guest-inbox-item button:disabled, .guest-tools-save:disabled { opacity: .55; cursor: wait; }
+.guest-tools-choice-list { display: grid; gap: 7px; margin-top: 11px; }
+.guest-tools-choice { display: grid; grid-template-columns: 21px minmax(0, 1fr); align-items: start; gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); cursor: pointer; }
+.guest-tools-choice input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--accent); }
+.guest-tools-choice span { display: grid; gap: 3px; }
+.guest-tools-choice strong { font-size: 12px; font-weight: 620; }
+.guest-tools-choice small { color: var(--muted); font-size: 11px; line-height: 1.4; }
+.guest-tools-save { margin-top: 12px; border-color: var(--accent); background: var(--accent); color: var(--accent-ink); font-weight: 650; }
 
 .conversation-workspace {
   display: flex;
@@ -217,6 +256,8 @@ button:focus-visible, textarea:focus-visible { outline: 3px solid var(--focus); 
 .entity-card-image-caption { margin: -6px 0 9px; color: var(--muted); font-size: 11px; line-height: 1.4; }
 .floor-map-toolbar { display: flex; min-width: 0; margin-top: 12px; align-items: end; justify-content: space-between; gap: 10px; }
 .floor-map-floor-field { display: grid; min-width: min(100%, 220px); gap: 5px; color: var(--muted); font-size: 12px; }
+.floor-map-accessible-choice { display: inline-flex; min-height: 44px; align-items: center; gap: 9px; color: var(--ink); font-size: 13px; }
+.floor-map-accessible-choice input { width: 20px; height: 20px; accent-color: var(--accent); }
 .floor-map-floor-field select { width: 100%; min-height: 44px; padding: 8px 34px 8px 11px; border: 1px solid var(--line); border-radius: 11px; background: #fff; color: var(--ink); font: inherit; }
 .floor-map-floor-field select:focus-visible, .floor-map-zoom-controls button:focus-visible, .floor-map-place-option:focus-visible, .floor-map-room:focus-visible, .floor-map-marker:focus-visible, .floor-map-directions button:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .floor-map-zoom-controls { display: inline-flex; min-height: 44px; align-items: center; gap: 4px; }
@@ -340,6 +381,11 @@ button:focus-visible, textarea:focus-visible { outline: 3px solid var(--focus); 
   .topbar { width: calc(100% - 32px); min-height: 66px; }
   .brand-mark { width: 34px; height: 34px; flex-basis: 34px; }
   .new-chat { min-height: 44px; padding: 0 11px; font-size: 12px; }
+  .guest-tools-button { min-height: 44px; padding: 0 9px; font-size: 11px; }
+  .guest-tools-dialog { width: 100%; max-width: none; max-height: 92dvh; margin: auto 0 0; border-radius: 18px 18px 0 0; }
+  .guest-tools-content { max-height: 92dvh; padding: 16px; }
+  .guest-tools-header { top: -16px; margin: -16px -16px 0; padding: 15px 16px 11px; }
+  .guest-tools-header h2 { font-size: 23px; }
   .conversation-workspace { width: calc(100% - 28px); }
   .welcome { padding: 28px 0 32px; }
   .welcome h1 { max-width: 400px; font-size: clamp(32px, 9vw, 42px); }

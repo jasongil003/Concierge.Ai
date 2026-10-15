@@ -72,6 +72,35 @@ def test_invalid_cidr_is_rejected_before_configuration_is_saved():
         normalize_guardrails({"allowed_cidrs": ["10.20.0.0/99"]})
 
 
+def test_nearby_places_policy_has_bounded_property_scoped_defaults():
+    policy = normalize_guardrails({})
+
+    assert policy["nearby_places_enabled"] is True
+    assert policy["nearby_search_radius_meters"] == 5000
+    assert policy["nearby_max_results"] == 6
+    assert normalize_guardrails({"nearby_search_radius_meters": 2500, "nearby_max_results": 12})[
+        "nearby_search_radius_meters"
+    ] == 2500
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("nearby_search_radius_meters", 0),
+        ("nearby_search_radius_meters", 50001),
+        ("nearby_search_radius_meters", True),
+        ("nearby_search_radius_meters", 2.5),
+        ("nearby_max_results", 0),
+        ("nearby_max_results", 21),
+        ("nearby_max_results", True),
+        ("nearby_max_results", 1.5),
+    ],
+)
+def test_nearby_places_policy_rejects_invalid_limits(field, value):
+    with pytest.raises(ValueError, match=field):
+        normalize_guardrails({field: value})
+
+
 @pytest.mark.parametrize(
     ("value", "normalized"),
     [
@@ -708,7 +737,9 @@ def test_service_request_api_requires_explicit_confirmation(admin_client, tmp_pa
 
     hospitality = HospitalityStore(tmp_path / "confirmation.db")
     monkeypatch.setattr(main_module, "hospitality", hospitality)
-    property_id = admin_client.get("/api/admin/properties").json()["properties"][0]["property_id"]
+    # The guest session uses the configured test property; do not depend on
+    # unrelated properties created by other tests being absent from the list.
+    property_id = "test-property"
     service = hospitality.upsert_service(property_id, {"name": "Extra towels"})
     session_id = admin_client.post("/api/session/start", json={"client_id": "confirmation-guest"}).json()["session_id"]
     response = admin_client.post("/api/guest/service-requests", json={"session_id": session_id, "service_id": service["service_id"], "description": "Two towels"})
@@ -868,7 +899,9 @@ def test_service_request_preserves_guest_text_for_output_encoding_contract(admin
 
     hospitality = HospitalityStore(tmp_path / "xss-contract.db")
     monkeypatch.setattr(main_module, "hospitality", hospitality)
-    property_id = admin_client.get("/api/admin/properties").json()["properties"][0]["property_id"]
+    # The guest session uses the configured test property; don't depend on
+    # unrelated properties created by other tests being absent from the list.
+    property_id = "test-property"
     service = hospitality.upsert_service(property_id, {"name": "Housekeeping"})
     session_id = admin_client.post("/api/session/start", json={"client_id": "xss-contract"}).json()["session_id"]
     payload = '<img src=x onerror="window.__xss_proof=1"> <script>alert(1)</script>'
@@ -876,7 +909,7 @@ def test_service_request_preserves_guest_text_for_output_encoding_contract(admin
         "/api/guest/service-requests",
         json={"session_id": session_id, "service_id": service["service_id"], "description": payload, "room": payload, "confirmed": True},
     )
-    assert created.status_code == 200
+    assert created.status_code == 200, created.text
     assert created.json()["request"]["description"] == payload
     stored = hospitality.overview(property_id)["service_requests"]
     assert any(item["description"] == payload for item in stored)

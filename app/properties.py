@@ -369,6 +369,7 @@ class PropertyRecord:
     domain: str = ""
     deployment_mode: str = "on-prem"
     timezone: str = "UTC"
+    country: str = ""
     latitude: float | None = None
     longitude: float | None = None
     address: str = ""
@@ -416,6 +417,7 @@ class PropertyRecord:
             "domain": self.domain,
             "deployment_mode": self.deployment_mode,
             "timezone": self.timezone,
+            "country": self.country,
             "latitude": self.latitude,
             "longitude": self.longitude,
             "address": self.address,
@@ -484,6 +486,7 @@ class PropertyRecord:
             "deployment_mode": self.deployment_mode,
             "timezone": self.timezone,
             "location": {
+                "country": self.country,
                 "latitude": self.latitude,
                 "longitude": self.longitude,
                 "address": self.address,
@@ -556,6 +559,7 @@ class PropertyStore:
         "domain",
         "deployment_mode",
         "timezone",
+        "country",
         "latitude",
         "longitude",
         "address",
@@ -626,6 +630,7 @@ class PropertyStore:
                     domain TEXT NOT NULL DEFAULT '',
                     deployment_mode TEXT NOT NULL DEFAULT 'on-prem',
                     timezone TEXT NOT NULL DEFAULT 'UTC',
+                    country TEXT NOT NULL DEFAULT '',
                     latitude REAL,
                     longitude REAL,
                     address TEXT NOT NULL DEFAULT '',
@@ -664,6 +669,7 @@ class PropertyStore:
                 )
                 """
             )
+            self._ensure_column(db, "country", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(db, "design_draft", "TEXT NOT NULL DEFAULT '{}'")
             self._ensure_column(db, "design_published", "TEXT NOT NULL DEFAULT '{}'")
             self._ensure_column(db, "design_versions", "TEXT NOT NULL DEFAULT '[]'")
@@ -1016,6 +1022,7 @@ class PropertyStore:
 
     def _ensure_column(self, db: sqlite3.Connection, name: str, definition: str) -> None:
         allowed_definitions = {
+            "country": "TEXT NOT NULL DEFAULT ''",
             "brand_assets": "TEXT NOT NULL DEFAULT '{}'",
             "design_draft": "TEXT NOT NULL DEFAULT '{}'",
             "design_published": "TEXT NOT NULL DEFAULT '{}'",
