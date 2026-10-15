@@ -4,6 +4,8 @@ import time
 import uuid
 from pathlib import Path
 
+import pytest
+
 import app.main as main_module
 from app.guest_identity import GuestIdentityStore, pseudonymous_device_id
 from app.location_analytics import LocationAnalyticsStore
@@ -118,6 +120,58 @@ def test_nearby_search_requires_external_processing_consent(admin_client, monkey
     assert response.json()["nearby_status"] == "consent_required"
     assert response.json()["live_places_used"] is False
     assert called == []
+
+
+@pytest.mark.parametrize(
+    ("message", "restaurant_enabled", "attractions_enabled", "provider_allowed"),
+    [
+        ("Find restaurants nearby.", False, True, False),
+        ("What local attractions are nearby?", True, False, False),
+        ("Find restaurants nearby.", True, False, True),
+        ("What local attractions are nearby?", False, True, True),
+        ("Find restaurants and local attractions nearby.", False, True, False),
+        ("Find restaurants and local attractions nearby.", True, False, False),
+        ("Find restaurants and local attractions nearby.", True, True, True),
+    ],
+)
+def test_nearby_search_enforces_each_requested_category_permission(
+    admin_client, monkeypatch, request, message, restaurant_enabled,
+    attractions_enabled, provider_allowed,
+):
+    property_id = f"nearby-guardrail-{uuid.uuid4().hex}"
+    main_module.properties.upsert(PropertyRecord(
+        property_id=property_id,
+        hotel_name="Nearby Guardrail Test Property",
+        guardrails={
+            "nearby_places_enabled": True,
+            "internet_search_enabled": True,
+            "restaurant_search_enabled": restaurant_enabled,
+            "attractions_enabled": attractions_enabled,
+        },
+    ))
+    request.addfinalizer(lambda: main_module.properties.delete(property_id))
+    session_id = _new_guest(admin_client, property_id)
+    consent = admin_client.put("/api/guest/privacy", json={
+        "session_id": session_id,
+        "consents": {"external_data_processing": True},
+    })
+    assert consent.status_code == 200, consent.text
+
+    calls = []
+
+    async def fake_places(*args, **kwargs):
+        calls.append((args, kwargs))
+        return [], "empty"
+
+    monkeypatch.setattr(main_module.places, "search_with_status", fake_places)
+    response = admin_client.post("/api/chat", json={
+        "session_id": session_id,
+        "message": message,
+    })
+
+    assert response.status_code == 200, response.text
+    assert (len(calls) == 1) is provider_allowed
+    assert response.json()["nearby_status"] == ("empty" if provider_allowed else "disabled")
 
 
 def test_location_observation_requires_consent_and_never_persists_unauthorized_mac(admin_client):
