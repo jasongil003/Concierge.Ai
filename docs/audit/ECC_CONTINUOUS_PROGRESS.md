@@ -25,7 +25,7 @@
 - Notice content uses the staff-entered facility name and status note. Existing per-stay operational preferences, property timezone, quiet hours, send window, dedupe, and inbox dispatch are reused. Notification failures are logged without rolling back the verified facility status update.
 - Reproduction: new regression initially failed because a maintenance update produced no guest inbox item. After the fix, tests cover operational opt-out, cross-property isolation, duplicate suppression, reopening text, and confirmed Admin AI updates.
 - Tests: `.venv/bin/pytest -q tests/test_notification_delivery.py tests/test_admin_configuration_actions.py` — **39 passed**, 2 warnings. `.venv/bin/pytest -q -rs` — **1,311 passed, 20 skipped**, 2 warnings. `npx playwright test tests/e2e/guest-tools.spec.js -g "guest inbox renders safely" --project=chromium --project=mobile-chrome` — **2 passed**. Compileall and `git diff --check` passed. A first full-suite attempt caught test-property leakage; teardown was added and the rerun passed.
-- Current branch: `codex/facility-closure-notifications-20261015`; implementation commit is created. Push and hosted CI verification are pending.
+- Current branch: `codex/facility-closure-notifications-20261015`; implementation is published as draft PR [#59](https://github.com/jasongil003/Concierge.Ai/pull/59). Hosted CI run [#239](https://github.com/jasongil003/Concierge.Ai/actions/runs/38747253293) is in progress; do not treat this change as release-ready until its checks finish.
 
 ## Remaining P0/P1 blockers and next work
 
@@ -37,4 +37,4 @@
 ## GitHub follow-up
 
 - Closed draft PR [#58](https://github.com/jasongil003/Concierge.Ai/pull/58) because its tip tree exactly equals current `main`. It was not merged; the current main secret-scan gate is failing.
-- No push, new PR, branch-protection change, secret suppression, history rewrite, production operation, or real guest-data access has occurred in this continuation so far.
+- The branch was published through the authenticated GitHub connector after the local Git push could not authenticate. Draft PR #59 is open; CI run #239 is in progress. No branch-protection change, secret suppression, history rewrite, production operation, or real guest-data access has occurred in this continuation.
