@@ -131,6 +131,10 @@
     "authentication": "required",
     "permission": "network.view"
   },
+  "GET /api/admin/properties/{property_id}/notifications/deliveries": {
+    "authentication": "required",
+    "permission": "properties.view"
+  },
   "GET /api/admin/properties/{property_id}/design": {
     "authentication": "required",
     "permission": "concierge.view"
@@ -202,6 +206,10 @@
   "GET /api/admin/properties/{property_id}/location/live": {
     "authentication": "required",
     "permission": "analytics.view"
+  },
+  "GET /api/admin/properties/{property_id}/map-revisions/{revision_id}/preview": {
+    "authentication": "required",
+    "permission": "properties.view"
   },
   "GET /api/admin/properties/{property_id}/navigation/route": {
     "authentication": "required",
@@ -548,6 +556,18 @@
     "permission": "properties.edit"
   },
   "POST /api/admin/properties/{property_id}/notifications/rules/{rule_id}/evaluate": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "POST /api/admin/properties/{property_id}/map-revisions": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "POST /api/admin/properties/{property_id}/map-revisions/{revision_id}/publish": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "POST /api/admin/properties/{property_id}/map-revisions/{revision_id}/restore": {
     "authentication": "required",
     "permission": "properties.edit"
   },

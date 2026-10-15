@@ -1,5 +1,13 @@
 # Concierge.AI v1.0-RC1 — Production Readiness Report
 
+## Continuation decision — 2026-10-15
+
+**Latest fetched `main` reviewed:** `d4649ff138c8ee9b6b8a681aae2132874894a7a2` (merged [PR #56](https://github.com/jasongil003/Concierge.Ai/pull/56)). Review continued on the existing uncommitted `codex/priority-features-20261015` working tree. Local backend checks pass: **1,301 passed / 18 skipped**. The full desktop/mobile browser suite passes **343 / 39 skipped** after correcting seven map, UI, and fixture regressions. Evidence is in `docs/audit/ECC_TEST_RESULTS.md`; remote CI for this working tree has not run.
+
+The branch adds locally tested map publication and rollback, guest privacy controls, and notification delivery paths. These remain **PARTIAL** for pilot acceptance until the property/privacy owner approves the actual consent, retention, deletion, and export policy and the hotel verifies real network and stay data. The historical credential in reachable Git history remains **BLOCKED — OWNER ACTION REQUIRED**; no shared-history rewrite or issuer-side rotation is verified. **Production-readiness decision: NOT READY FOR PILOT OR PRODUCTION.**
+
+---
+
 ## Current decision — 2026-10-15 (supersedes the 2026-09-30 snapshot below)
 
 **Latest fetched `main` HEAD reviewed:** `8ee80d2d688584795b6140582d609f81479b2137`. Work was prepared on `codex/ecc-ci-guest-audit-20261015`; the final branch/PR CI state must be checked separately. The detailed [feature achievement matrix](../docs/audit/ECC_FEATURE_MATRIX_2026-10-15.md) uses YES, PARTIAL, NO, and UNVERIFIED for implementation, working state, test state, and production verification. The older 384-row inventory remains a historical acceptance ledger.

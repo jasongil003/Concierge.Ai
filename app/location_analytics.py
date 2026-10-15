@@ -128,6 +128,54 @@ class LocationAnalyticsStore:
             ("visit_" + uuid.uuid4().hex[:16], property_id, device_id, stay_id, zone_id, entered_at, None, None),
         )
 
+    def delete_stay_data(self, property_id: str, stay_id: str) -> int:
+        """Erase location and facility analytics linked to one checked-out stay."""
+        tables = (
+            "location_observations",
+            "zone_visits",
+            "movement_transitions",
+            "ai_interaction_events",
+            "facility_conversion_events",
+        )
+        deleted = 0
+        with self._connect() as db:
+            for table in tables:
+                # Table names come only from the fixed tuple above.
+                cursor = db.execute(
+                    f"DELETE FROM {table} WHERE property_id=? AND stay_id=?",  # nosec B608
+                    (property_id, stay_id),
+                )
+                deleted += cursor.rowcount
+        return deleted
+
+    def cleanup_retention(self, now: int | None = None) -> int:
+        """Purge records without a currently retained active stay."""
+        current = _now() if now is None else int(now)
+        tables = (
+            "location_observations",
+            "zone_visits",
+            "movement_transitions",
+            "ai_interaction_events",
+            "facility_conversion_events",
+        )
+        deleted = 0
+        with self._connect() as db:
+            for table in tables:
+                # Table names come only from the fixed tuple above.
+                cursor = db.execute(
+                    f"""DELETE FROM {table}
+                    WHERE stay_id IS NULL OR NOT EXISTS (
+                        SELECT 1 FROM concierge_stays s
+                        WHERE s.property_id={table}.property_id
+                          AND s.stay_id={table}.stay_id
+                          AND s.status='active'
+                          AND (s.retention_until IS NULL OR s.retention_until>?)
+                    )""",  # nosec B608
+                    (current,),
+                )
+                deleted += cursor.rowcount
+        return deleted
+
     def record_ai_event(self, property_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         record = {
             "event_id": "aie_" + uuid.uuid4().hex[:16],

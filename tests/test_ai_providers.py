@@ -2,6 +2,7 @@ import asyncio
 from dataclasses import replace
 from pathlib import Path
 
+import httpx
 import pytest
 
 from fastapi.testclient import TestClient
@@ -110,6 +111,42 @@ def test_admin_ai_provider_api_does_not_return_secret(admin_client: TestClient):
     ai_response = client.get(f"/api/admin/properties/{property_id}/ai")
     assert ai_response.status_code == 200
     assert "gsk_live_should_not_return" not in str(ai_response.json())
+
+
+def test_gemini_model_refresh_error_does_not_return_or_log_api_key(
+    admin_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+):
+    property_id = "test-property"
+    sentinel = "synthetic-gemini-model-refresh-key-7f31"
+    main_module.ai_provider_store.save_credential(property_id, "gemini", "api_key", sentinel)
+
+    class FailingGeminiAdapter:
+        async def list_models(self, config, credential):
+            del config
+            assert credential["api_key"] == sentinel
+            request = httpx.Request(
+                "GET",
+                f"https://generativelanguage.googleapis.com/v1beta/models?key={credential['api_key']}",
+            )
+            response = httpx.Response(403, request=request)
+            response.raise_for_status()
+
+    monkeypatch.setattr(
+        main_module.ai_models,
+        "adapter_for",
+        lambda provider_id, endpoint_url="": FailingGeminiAdapter(),
+    )
+
+    response = admin_client.post(
+        f"/api/admin/properties/{property_id}/ai/providers/gemini/models/refresh"
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Authentication failed. Reconnect the provider or update the credential."
+    assert sentinel not in response.text
+    assert sentinel not in caplog.text
 
 
 def test_admin_ai_settings_support_property_default(admin_client: TestClient):
@@ -372,6 +409,59 @@ def test_local_only_never_routes_to_configured_cloud_providers(tmp_path: Path, m
     assert len(adapters["local"].requests) == 1
     assert adapters["openai"].requests == []
     assert adapters["gemini"].requests == []
+
+
+def test_guest_external_processing_consent_filters_cloud_fallback_candidates(tmp_path: Path):
+    store = AIProviderStore(tmp_path / "guest-consent-routing.db")
+    store.save_connection("hotel-a", "groq", {"enabled": True})
+    store.save_connection("hotel-a", "local", {"enabled": True})
+    store.save_settings("hotel-a", {
+        "default_provider": "groq",
+        "routing_mode": "automatic",
+        "fallback_chain": ["local"],
+    })
+
+    service = AIModelService(store)
+
+    assert [item["provider_id"] for item in service.resolve_connections("hotel-a")] == ["groq", "local"]
+    assert [item["provider_id"] for item in service.resolve_connections("hotel-a", allow_cloud=False)] == ["local"]
+
+
+def test_guest_chat_passes_explicit_external_processing_consent_to_provider_router(admin_client, monkeypatch):
+    calls = []
+
+    class ModelResult:
+        provider = "local"
+        model = "synthetic-model"
+        text = "A paper airplane crossed the moonlit room."
+
+    async def fake_chat(**kwargs):
+        calls.append(kwargs)
+        return ModelResult()
+
+    monkeypatch.setattr(main_module.ai_models, "concierge_chat", fake_chat)
+    started = admin_client.post("/api/session/start", json={
+        "client_id": "external-processing-consent-test", "property_id": "test-property",
+    })
+    assert started.status_code == 200, started.text
+    session_id = started.json()["session_id"]
+    message = "Could you help me organize my thoughts?"
+
+    private_response = admin_client.post("/api/chat", json={
+        "session_id": session_id, "message": message, "mode": "advanced",
+    })
+    assert private_response.status_code == 200, private_response.text
+    assert calls[-1]["allow_cloud"] is False
+
+    granted = admin_client.put("/api/guest/privacy", json={
+        "session_id": session_id, "consents": {"external_data_processing": True},
+    })
+    assert granted.status_code == 200, granted.text
+    consented_response = admin_client.post("/api/chat", json={
+        "session_id": session_id, "message": message, "mode": "advanced",
+    })
+    assert consented_response.status_code == 200, consented_response.text
+    assert calls[-1]["allow_cloud"] is True
 
 
 def test_all_disabled_providers_return_contact_fallback_without_adapter_calls(

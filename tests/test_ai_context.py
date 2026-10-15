@@ -139,14 +139,15 @@ def test_guest_local_attraction_query_returns_sourced_live_listings_without_ai_c
     place_calls = []
     model_calls = []
 
-    async def fake_places(query, latitude, longitude, *, open_now=True):
+    async def fake_places(query, latitude, longitude, *, open_now=True, radius_meters=None, max_results=None):
         place_calls.append({"query": query, "latitude": latitude, "longitude": longitude, "open_now": open_now})
-        return [{
+        return ([{
             "place_id": "synthetic-art-walk", "name": "Synthetic Art Walk",
             "category": "attraction", "address": "1 Example Road",
             "maps_url": "https://maps.example.test/synthetic-art-walk",
             "open_now": True, "distance_meters": 420,
-        }]
+            "distance_type": "straight_line",
+        }], "available")
 
     class ModelResult:
         provider = "local"
@@ -157,8 +158,12 @@ def test_guest_local_attraction_query_returns_sourced_live_listings_without_ai_c
         model_calls.append(kwargs)
         return ModelResult()
 
-    monkeypatch.setattr(main_module.places, "search", fake_places)
+    monkeypatch.setattr(main_module.places, "search_with_status", fake_places)
     monkeypatch.setattr(main_module.ai_models, "concierge_chat", fake_chat)
+    consent = admin_client.put("/api/guest/privacy", json={
+        "session_id": session_id, "consents": {"external_data_processing": True},
+    })
+    assert consent.status_code == 200, consent.text
     response = admin_client.post("/api/chat", json={
         "session_id": session_id, "message": "What local attractions are nearby?",
     })

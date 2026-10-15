@@ -4,6 +4,8 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .database import connect_database, enable_foreign_keys, table_columns
 from urllib.parse import urlsplit
@@ -13,6 +15,17 @@ FACILITY_STATUSES = {"open", "closed", "temporarily_closed", "full", "maintenanc
 RESTAURANT_STATUSES = FACILITY_STATUSES | {"disabled", "archived"}
 SERVICE_STATUSES = ("new", "assigned", "accepted", "in_progress", "delivered", "completed", "cancelled")
 NOTIFICATION_CATEGORIES = {"operational", "assistance", "experience", "promotional"}
+GUEST_NOTIFICATION_DEFAULT_PREFERENCES = {
+    "operational": True,
+    "assistance": True,
+    # Experience messages are optional, and promotional messages require opt-in.
+    "experience": False,
+    "promotional": False,
+}
+GUEST_INBOX_STATUSES = {"queued", "sent", "delivered", "read", "failed", "expired"}
+GUEST_INBOX_DISPATCH_STATUSES = {"queued", "sending", "retry_wait", "sent", "dead_letter", "expired"}
+MAX_GUEST_NOTIFICATION_ATTEMPTS = 10
+MAX_GUEST_NOTIFICATION_CLAIM_BATCH = 100
 
 
 def _now() -> int:
@@ -287,6 +300,58 @@ class HospitalityStore:
                     clicked_at INTEGER,
                     created_at INTEGER NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS guest_notification_preferences (
+                    property_id TEXT NOT NULL,
+                    stay_id TEXT NOT NULL,
+                    category TEXT NOT NULL CHECK(category IN ('operational','assistance','experience','promotional')),
+                    enabled INTEGER NOT NULL CHECK(enabled IN (0,1)),
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    PRIMARY KEY(property_id, stay_id, category)
+                );
+                CREATE TABLE IF NOT EXISTS guest_inbox_notifications (
+                    notification_id TEXT PRIMARY KEY,
+                    property_id TEXT NOT NULL,
+                    stay_id TEXT NOT NULL,
+                    event_id TEXT NOT NULL,
+                    category TEXT NOT NULL CHECK(category IN ('operational','assistance','experience','promotional')),
+                    title TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    status TEXT NOT NULL CHECK(status IN ('queued','sent','delivered','read','failed','expired')),
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    sent_at INTEGER,
+                    delivered_at INTEGER,
+                    read_at INTEGER,
+                    failed_at INTEGER,
+                    expired_at INTEGER,
+                    failure_reason TEXT NOT NULL DEFAULT '',
+                    expires_at INTEGER,
+                    dispatch_status TEXT NOT NULL DEFAULT 'queued',
+                    attempt_count INTEGER NOT NULL DEFAULT 0,
+                    next_attempt_at INTEGER NOT NULL DEFAULT 0,
+                    claim_token TEXT,
+                    claimed_at INTEGER,
+                    dead_letter_at INTEGER,
+                    scheduled_at INTEGER,
+                    timezone_name TEXT NOT NULL DEFAULT 'UTC',
+                    quiet_hours TEXT NOT NULL DEFAULT '{}',
+                    send_window TEXT NOT NULL DEFAULT '{}',
+                    max_per_window INTEGER,
+                    frequency_window_seconds INTEGER,
+                    UNIQUE(property_id, stay_id, event_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_guest_inbox_scope_created
+                    ON guest_inbox_notifications(property_id, stay_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_guest_inbox_expiry
+                    ON guest_inbox_notifications(status, expires_at);
+                CREATE TABLE IF NOT EXISTS guest_notification_frequency_locks (
+                    property_id TEXT NOT NULL,
+                    stay_id TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    touched_at INTEGER NOT NULL,
+                    PRIMARY KEY(property_id,stay_id,category)
+                );
                 CREATE TABLE IF NOT EXISTS guest_journey_events (
                     journey_event_id TEXT PRIMARY KEY,
                     property_id TEXT NOT NULL,
@@ -304,6 +369,29 @@ class HospitalityStore:
             self._ensure_column(db, "service_requests", "assigned_to", "TEXT")
             self._ensure_column(db, "service_requests", "notes", "TEXT NOT NULL DEFAULT '[]'")
             self._ensure_column(db, "service_requests", "client_request_id", "TEXT")
+            for name, definition in (
+                ("dispatch_status", "TEXT NOT NULL DEFAULT 'queued'"),
+                ("attempt_count", "INTEGER NOT NULL DEFAULT 0"),
+                ("next_attempt_at", "INTEGER NOT NULL DEFAULT 0"),
+                ("claim_token", "TEXT"),
+                ("claimed_at", "INTEGER"),
+                ("dead_letter_at", "INTEGER"),
+                ("scheduled_at", "INTEGER"),
+                ("timezone_name", "TEXT NOT NULL DEFAULT 'UTC'"),
+                ("quiet_hours", "TEXT NOT NULL DEFAULT '{}'"),
+                ("send_window", "TEXT NOT NULL DEFAULT '{}'"),
+                ("max_per_window", "INTEGER"),
+                ("frequency_window_seconds", "INTEGER"),
+            ):
+                self._ensure_column(db, "guest_inbox_notifications", name, definition)
+            db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_guest_inbox_dispatch_due "
+                "ON guest_inbox_notifications(dispatch_status,next_attempt_at,created_at)"
+            )
+            db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_guest_inbox_dispatch_frequency "
+                "ON guest_inbox_notifications(property_id,stay_id,category,dispatch_status,claimed_at,sent_at)"
+            )
             for name, definition in (
                 ("cuisine", "TEXT NOT NULL DEFAULT ''"),
                 ("dress_code", "TEXT NOT NULL DEFAULT ''"),
@@ -357,6 +445,20 @@ class HospitalityStore:
                 "assigned_to": "TEXT",
                 "notes": "TEXT NOT NULL DEFAULT '[]'",
                 "client_request_id": "TEXT",
+            },
+            "guest_inbox_notifications": {
+                "dispatch_status": "TEXT NOT NULL DEFAULT 'queued'",
+                "attempt_count": "INTEGER NOT NULL DEFAULT 0",
+                "next_attempt_at": "INTEGER NOT NULL DEFAULT 0",
+                "claim_token": "TEXT",
+                "claimed_at": "INTEGER",
+                "dead_letter_at": "INTEGER",
+                "scheduled_at": "INTEGER",
+                "timezone_name": "TEXT NOT NULL DEFAULT 'UTC'",
+                "quiet_hours": "TEXT NOT NULL DEFAULT '{}'",
+                "send_window": "TEXT NOT NULL DEFAULT '{}'",
+                "max_per_window": "INTEGER",
+                "frequency_window_seconds": "INTEGER",
             },
             "restaurants": {
                 "cuisine": "TEXT NOT NULL DEFAULT ''",
@@ -1561,6 +1663,40 @@ class HospitalityStore:
             raise KeyError("Notification rule not found.")
         rule = self._notification_rule_dict(row)
         allowed, reason = self._notification_allowed(rule, verified_payload, guest_preferences or {}, current_zone_id, moment)
+        if allowed:
+            policy = rule.get("policy") or {}
+            scheduled_at = policy.get("scheduled_at", policy.get("not_before"))
+            if scheduled_at is not None:
+                try:
+                    if moment < int(scheduled_at):
+                        allowed, reason = False, "scheduled_for_later"
+                except (TypeError, ValueError, OverflowError):
+                    allowed, reason = False, "invalid_schedule"
+            limit = policy.get("frequency_limit")
+            if isinstance(limit, dict):
+                max_per_window = limit.get("max")
+                window_seconds = limit.get("window_seconds", 86400)
+            else:
+                max_per_window = limit if limit is not None else policy.get("max_per_stay")
+                window_seconds = policy.get("frequency_window_seconds", 86400)
+            if allowed and max_per_window is not None and stay_id:
+                try:
+                    maximum = int(max_per_window)
+                    window = int(window_seconds)
+                    if isinstance(max_per_window, bool) or not 1 <= maximum <= 100 or not 60 <= window <= 31 * 86400:
+                        raise ValueError
+                except (TypeError, ValueError, OverflowError):
+                    allowed, reason = False, "invalid_frequency_limit"
+                else:
+                    with self._connect() as db:
+                        sent_in_window = db.execute(
+                            """SELECT COUNT(*) AS count FROM notifications
+                               WHERE property_id=? AND stay_id=? AND category=?
+                                 AND status='eligible' AND created_at>?""",
+                            (property_id, stay_id, rule["category"], moment - window),
+                        ).fetchone()
+                    if int(sent_in_window["count"] or 0) >= maximum:
+                        allowed, reason = False, "frequency_limit"
         notification = {
             "notification_id": _id("notif"),
             "property_id": property_id,
@@ -1587,6 +1723,820 @@ class HospitalityStore:
         result["allowed"] = allowed
         result["reason"] = reason
         return result
+
+    def get_guest_notification_preferences(self, property_id: str, stay_id: str) -> dict[str, bool]:
+        """Return property/stay preferences, including conservative optional defaults."""
+        property_id = self._guest_scope_value(property_id, "Property id")
+        stay_id = self._guest_scope_value(stay_id, "Stay id")
+        preferences = dict(GUEST_NOTIFICATION_DEFAULT_PREFERENCES)
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT category,enabled FROM guest_notification_preferences WHERE property_id=? AND stay_id=?",
+                (property_id, stay_id),
+            )
+            for row in rows:
+                preferences[row["category"]] = bool(row["enabled"])
+        return preferences
+
+    def set_guest_notification_preference(
+        self,
+        property_id: str,
+        stay_id: str,
+        category: str,
+        enabled: bool,
+        *,
+        now: int | None = None,
+    ) -> dict[str, bool]:
+        property_id = self._guest_scope_value(property_id, "Property id")
+        stay_id = self._guest_scope_value(stay_id, "Stay id")
+        if category not in NOTIFICATION_CATEGORIES:
+            raise ValueError("Invalid notification category.")
+        if not isinstance(enabled, bool):
+            raise ValueError("Notification preference must be a boolean.")
+        moment = _now() if now is None else int(now)
+        with self._connect() as db:
+            db.execute(
+                """INSERT INTO guest_notification_preferences
+                   (property_id,stay_id,category,enabled,created_at,updated_at)
+                   VALUES (?,?,?,?,?,?)
+                   ON CONFLICT(property_id,stay_id,category) DO UPDATE SET
+                     enabled=excluded.enabled,updated_at=excluded.updated_at""",
+                (property_id, stay_id, category, int(enabled), moment, moment),
+            )
+        return self.get_guest_notification_preferences(property_id, stay_id)
+
+    def create_guest_inbox_notification(
+        self,
+        property_id: str,
+        stay_id: str,
+        event_id: str,
+        category: str,
+        title: str,
+        body: str,
+        *,
+        expires_at: int | None = None,
+        scheduled_at: int | None = None,
+        timezone_name: str = "UTC",
+        quiet_hours: dict[str, Any] | None = None,
+        send_window: dict[str, Any] | None = None,
+        max_per_window: int | None = None,
+        frequency_window_seconds: int | None = None,
+        now: int | None = None,
+    ) -> dict[str, Any]:
+        """Queue one in-app inbox item, deduplicated within its property and stay.
+
+        A queued record is only persisted work. It is not considered sent or
+        delivered until the dispatch worker and guest client acknowledge those
+        separate steps.
+        """
+        property_id = self._guest_scope_value(property_id, "Property id")
+        stay_id = self._guest_scope_value(stay_id, "Stay id")
+        event_id = self._guest_event_id(event_id)
+        if category not in NOTIFICATION_CATEGORIES:
+            raise ValueError("Invalid notification category.")
+        clean_title = _clean(title, 160)
+        clean_body = _clean(body, 2000)
+        if not clean_title or not clean_body:
+            raise ValueError("Notification title and body are required.")
+        moment = _now() if now is None else int(now)
+        expiry = int(expires_at) if expires_at is not None else None
+        if expiry is not None and expiry <= moment:
+            raise ValueError("Notification expiry must be in the future.")
+        schedule = self._validate_guest_delivery_schedule(
+            timezone_name,
+            quiet_hours=quiet_hours,
+            send_window=send_window,
+            max_per_window=max_per_window,
+            frequency_window_seconds=frequency_window_seconds,
+        )
+        available_at = int(scheduled_at) if scheduled_at is not None else moment
+        if available_at < 0:
+            raise ValueError("Notification schedule must be a valid timestamp.")
+
+        with self._connect() as db:
+            existing = db.execute(
+                """SELECT * FROM guest_inbox_notifications
+                   WHERE property_id=? AND stay_id=? AND event_id=?""",
+                (property_id, stay_id, event_id),
+            ).fetchone()
+            if existing:
+                result = self._guest_inbox_notification_dict(existing)
+                result["created"] = False
+                return result
+
+            preference = db.execute(
+                """SELECT enabled FROM guest_notification_preferences
+                   WHERE property_id=? AND stay_id=? AND category=?""",
+                (property_id, stay_id, category),
+            ).fetchone()
+            enabled = (
+                bool(preference["enabled"])
+                if preference
+                else GUEST_NOTIFICATION_DEFAULT_PREFERENCES[category]
+            )
+            if not enabled:
+                raise PermissionError("Guest has not opted in to this notification category.")
+
+            notification_id = _id("ginbox")
+            cursor = db.execute(
+                """INSERT INTO guest_inbox_notifications
+                   (notification_id,property_id,stay_id,event_id,category,title,body,status,
+                    created_at,updated_at,expires_at,dispatch_status,attempt_count,next_attempt_at,
+                    scheduled_at,timezone_name,quiet_hours,send_window,max_per_window,frequency_window_seconds)
+                   VALUES (?,?,?,?,?,?,?,'queued',?,?,?,'queued',0,?,?,?,?,?,?,?)
+                   ON CONFLICT(property_id,stay_id,event_id) DO NOTHING""",
+                (
+                    notification_id, property_id, stay_id, event_id, category,
+                    clean_title, clean_body, moment, moment, expiry,
+                    available_at, available_at, schedule["timezone_name"],
+                    _json(schedule["quiet_hours"]), _json(schedule["send_window"]),
+                    schedule["max_per_window"], schedule["frequency_window_seconds"],
+                ),
+            )
+            row = db.execute(
+                """SELECT * FROM guest_inbox_notifications
+                   WHERE property_id=? AND stay_id=? AND event_id=?""",
+                (property_id, stay_id, event_id),
+            ).fetchone()
+            if row is None:  # Defensive: a successful insert must be visible in its transaction.
+                raise RuntimeError("Notification could not be queued.")
+            result = self._guest_inbox_notification_dict(row)
+            result["created"] = cursor.rowcount == 1
+            return result
+
+    def claim_guest_inbox_notifications(
+        self,
+        *,
+        limit: int = 20,
+        lease_seconds: int = 120,
+        max_attempts: int = 5,
+        now: int | None = None,
+        property_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Atomically claim due inbox jobs for one dispatcher worker.
+
+        Claims are leased and have unique tokens. A crashed worker's lease can
+        be reclaimed after ``lease_seconds``; every claim consumes one bounded
+        attempt so repeatedly crashing workers eventually dead-letter the row.
+        """
+        moment = _now() if now is None else int(now)
+        if isinstance(limit, bool) or not 1 <= int(limit) <= MAX_GUEST_NOTIFICATION_CLAIM_BATCH:
+            raise ValueError(f"Claim limit must be between 1 and {MAX_GUEST_NOTIFICATION_CLAIM_BATCH}.")
+        if isinstance(lease_seconds, bool) or not 5 <= int(lease_seconds) <= 3600:
+            raise ValueError("Claim lease must be between 5 and 3600 seconds.")
+        if isinstance(max_attempts, bool) or not 1 <= int(max_attempts) <= MAX_GUEST_NOTIFICATION_ATTEMPTS:
+            raise ValueError(f"Maximum attempts must be between 1 and {MAX_GUEST_NOTIFICATION_ATTEMPTS}.")
+        scoped_property = self._guest_scope_value(property_id, "Property id") if property_id is not None else None
+        lease_cutoff = moment - int(lease_seconds)
+        claimed: list[dict[str, Any]] = []
+
+        with self._connect() as db:
+            # SQLite serializes claim transactions here. On PostgreSQL the
+            # subsequent compare-and-set UPDATE prevents a concurrent worker
+            # from returning an item claimed by another transaction.
+            db.execute("BEGIN IMMEDIATE")
+            self._expire_guest_inbox_rows(
+                db, moment, property_id=scoped_property,
+            )
+            candidates = db.execute(
+                """SELECT * FROM guest_inbox_notifications
+                    WHERE (expires_at IS NULL OR expires_at>?)
+                      AND ((dispatch_status IN ('queued','retry_wait') AND next_attempt_at<=?)
+                           OR (dispatch_status='sending' AND claimed_at<=?))
+                      AND (? IS NULL OR property_id=?)
+                    ORDER BY next_attempt_at,created_at,notification_id LIMIT ?""",
+                [moment, moment, lease_cutoff, scoped_property, scoped_property, int(limit) * 10],
+            ).fetchall()
+
+            for row in candidates:
+                if len(claimed) >= int(limit):
+                    break
+                attempts = int(row["attempt_count"] or 0)
+                stale_claim = row["dispatch_status"] == "sending"
+                if attempts >= int(max_attempts):
+                    if stale_claim:
+                        db.execute(
+                            """UPDATE guest_inbox_notifications
+                               SET status='failed',dispatch_status='dead_letter',
+                                   failed_at=?,dead_letter_at=?,failure_reason=?,
+                                   claim_token=NULL,claimed_at=NULL,updated_at=?
+                               WHERE notification_id=? AND property_id=? AND stay_id=?
+                                 AND dispatch_status='sending' AND claim_token=?""",
+                            (
+                                moment, moment, "Delivery claim expired after maximum attempts.",
+                                moment, row["notification_id"], row["property_id"],
+                                row["stay_id"], row["claim_token"],
+                            ),
+                        )
+                    else:
+                        db.execute(
+                            """UPDATE guest_inbox_notifications
+                               SET status='failed',dispatch_status='dead_letter',
+                                   failed_at=?,dead_letter_at=?,failure_reason=?,updated_at=?
+                               WHERE notification_id=? AND property_id=? AND stay_id=?
+                                 AND dispatch_status IN ('queued','retry_wait')""",
+                            (
+                                moment, moment, "Delivery attempts exhausted.", moment,
+                                row["notification_id"], row["property_id"], row["stay_id"],
+                            ),
+                        )
+                    continue
+
+                if not self._guest_delivery_schedule_allows(moment, row):
+                    next_time = self._next_guest_delivery_time(moment, row)
+                    due_time = next_time if next_time is not None else moment + 24 * 60 * 60
+                    self._release_guest_delivery_claim(db, row, due_time, moment)
+                    continue
+
+                max_per_window = row["max_per_window"]
+                window = row["frequency_window_seconds"]
+                if max_per_window is not None and window is not None:
+                    # A per-stay/category write lock makes the following count
+                    # and claim serializable on PostgreSQL as well as SQLite.
+                    db.execute(
+                        """INSERT INTO guest_notification_frequency_locks
+                           (property_id,stay_id,category,touched_at) VALUES (?,?,?,?)
+                           ON CONFLICT(property_id,stay_id,category) DO UPDATE SET
+                             touched_at=excluded.touched_at""",
+                        (row["property_id"], row["stay_id"], row["category"], moment),
+                    )
+                    threshold = moment - int(window)
+                    active_count = db.execute(
+                        """SELECT COUNT(*) AS count,MIN(COALESCE(sent_at,claimed_at,created_at)) AS oldest
+                           FROM guest_inbox_notifications
+                           WHERE property_id=? AND stay_id=? AND category=?
+                             AND notification_id<>? AND dispatch_status IN ('sending','sent')
+                             AND COALESCE(sent_at,claimed_at,created_at)>?""",
+                        (
+                            row["property_id"], row["stay_id"], row["category"],
+                            row["notification_id"], threshold,
+                        ),
+                    ).fetchone()
+                    if int(active_count["count"] or 0) >= int(max_per_window):
+                        next_time = int(active_count["oldest"] or moment) + int(window)
+                        self._release_guest_delivery_claim(db, row, max(moment + 1, next_time), moment)
+                        continue
+
+                claim_token = uuid.uuid4().hex
+                if stale_claim:
+                    update = db.execute(
+                        """UPDATE guest_inbox_notifications
+                           SET dispatch_status='sending',attempt_count=attempt_count+1,
+                               claim_token=?,claimed_at=?,updated_at=?
+                           WHERE notification_id=? AND property_id=? AND stay_id=?
+                             AND dispatch_status='sending' AND claim_token=? AND claimed_at<=?""",
+                        (
+                            claim_token, moment, moment, row["notification_id"],
+                            row["property_id"], row["stay_id"], row["claim_token"], lease_cutoff,
+                        ),
+                    )
+                else:
+                    update = db.execute(
+                        """UPDATE guest_inbox_notifications
+                           SET dispatch_status='sending',attempt_count=attempt_count+1,
+                               claim_token=?,claimed_at=?,updated_at=?
+                           WHERE notification_id=? AND property_id=? AND stay_id=?
+                             AND dispatch_status IN ('queued','retry_wait') AND next_attempt_at<=?""",
+                        (
+                            claim_token, moment, moment, row["notification_id"],
+                            row["property_id"], row["stay_id"], moment,
+                        ),
+                    )
+                if update.rowcount != 1:
+                    continue
+                fresh = db.execute(
+                    "SELECT * FROM guest_inbox_notifications WHERE notification_id=? AND claim_token=?",
+                    (row["notification_id"], claim_token),
+                ).fetchone()
+                if fresh is not None:
+                    claimed.append(self._guest_inbox_notification_dict(fresh))
+            return claimed
+
+    def retry_guest_inbox_notification(
+        self,
+        property_id: str,
+        stay_id: str,
+        notification_id: str,
+        claim_token: str,
+        reason: str,
+        *,
+        max_attempts: int = 5,
+        base_backoff_seconds: int = 30,
+        max_backoff_seconds: int = 3600,
+        now: int | None = None,
+    ) -> dict[str, Any]:
+        """Release one claimed item for bounded exponential retry or dead-letter."""
+        property_id = self._guest_scope_value(property_id, "Property id")
+        stay_id = self._guest_scope_value(stay_id, "Stay id")
+        notification_id = self._guest_scope_value(notification_id, "Notification id")
+        claim_token = self._guest_scope_value(claim_token, "Claim token")
+        failure_reason = _clean(reason, 240)
+        if not failure_reason:
+            raise ValueError("Failure reason is required.")
+        if isinstance(max_attempts, bool) or not 1 <= int(max_attempts) <= MAX_GUEST_NOTIFICATION_ATTEMPTS:
+            raise ValueError(f"Maximum attempts must be between 1 and {MAX_GUEST_NOTIFICATION_ATTEMPTS}.")
+        if isinstance(base_backoff_seconds, bool) or not 1 <= int(base_backoff_seconds) <= 3600:
+            raise ValueError("Base backoff must be between 1 and 3600 seconds.")
+        if isinstance(max_backoff_seconds, bool) or not int(base_backoff_seconds) <= int(max_backoff_seconds) <= 86400:
+            raise ValueError("Maximum backoff must be between the base delay and 86400 seconds.")
+        moment = _now() if now is None else int(now)
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = self._load_guest_inbox_row(db, property_id, stay_id, notification_id, moment)
+            if row["dispatch_status"] != "sending" or row["claim_token"] != claim_token:
+                raise ValueError("Notification claim is no longer active.")
+            attempts = int(row["attempt_count"] or 0)
+            if attempts >= int(max_attempts):
+                db.execute(
+                    """UPDATE guest_inbox_notifications
+                       SET status='failed',dispatch_status='dead_letter',failure_reason=?,
+                           failed_at=?,dead_letter_at=?,claim_token=NULL,claimed_at=NULL,updated_at=?
+                       WHERE notification_id=? AND property_id=? AND stay_id=?
+                         AND dispatch_status='sending' AND claim_token=?""",
+                    (
+                        failure_reason, moment, moment, moment, notification_id,
+                        property_id, stay_id, claim_token,
+                    ),
+                )
+            else:
+                delay = min(int(base_backoff_seconds) * (2 ** max(attempts - 1, 0)), int(max_backoff_seconds))
+                db.execute(
+                    """UPDATE guest_inbox_notifications
+                       SET status='queued',dispatch_status='retry_wait',failure_reason=?,
+                           next_attempt_at=?,claim_token=NULL,claimed_at=NULL,updated_at=?
+                       WHERE notification_id=? AND property_id=? AND stay_id=?
+                         AND dispatch_status='sending' AND claim_token=?""",
+                    (
+                        failure_reason, moment + delay, moment, notification_id,
+                        property_id, stay_id, claim_token,
+                    ),
+                )
+            updated = self._load_guest_inbox_row(db, property_id, stay_id, notification_id, moment)
+            return self._guest_inbox_notification_dict(updated)
+
+    def list_guest_notification_dead_letters(
+        self,
+        property_id: str,
+        *,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Expose terminal dispatch failures to property-scoped operator tooling."""
+        property_id = self._guest_scope_value(property_id, "Property id")
+        if isinstance(limit, bool) or not 1 <= int(limit) <= 500:
+            raise ValueError("Dead-letter limit must be between 1 and 500.")
+        with self._connect() as db:
+            rows = db.execute(
+                """SELECT * FROM guest_inbox_notifications
+                   WHERE property_id=? AND dispatch_status='dead_letter'
+                   ORDER BY dead_letter_at DESC,notification_id LIMIT ?""",
+                (property_id, int(limit)),
+            ).fetchall()
+        return [self._guest_inbox_notification_dict(row) for row in rows]
+
+    def list_guest_notification_history(
+        self,
+        property_id: str,
+        *,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Return property-scoped delivery state without guest message bodies."""
+        property_id = self._guest_scope_value(property_id, "Property id")
+        if isinstance(limit, bool) or not 1 <= int(limit) <= 500:
+            raise ValueError("Notification history limit must be between 1 and 500.")
+        with self._connect() as db:
+            rows = db.execute(
+                """SELECT notification_id,stay_id,event_id,category,status,created_at,
+                          sent_at,delivered_at,read_at,failed_at,expired_at,dispatch_status,
+                          attempt_count,next_attempt_at,failure_reason
+                   FROM guest_inbox_notifications WHERE property_id=?
+                   ORDER BY created_at DESC,notification_id LIMIT ?""",
+                (property_id, int(limit)),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def mark_guest_inbox_notification_sent(
+        self,
+        property_id: str,
+        stay_id: str,
+        notification_id: str,
+        *,
+        claim_token: str | None = None,
+        now: int | None = None,
+    ) -> dict[str, Any]:
+        """Record that the in-app dispatcher handed the item to the guest inbox."""
+        return self._transition_guest_inbox_notification(
+            property_id, stay_id, notification_id, "sent", now=now, claim_token=claim_token
+        )
+
+    def acknowledge_guest_inbox_notification(
+        self,
+        property_id: str,
+        stay_id: str,
+        notification_id: str,
+        action: str,
+        *,
+        now: int | None = None,
+    ) -> dict[str, Any]:
+        """Record guest-client evidence: receipt for ``delivered``, explicit open for ``read``.
+
+        Listing an item is not an acknowledgment. ``delivered_at`` means the
+        in-app client acknowledged receipt/rendering; ``read_at`` means that
+        client explicitly marked the item read, not proof of human attention.
+        """
+        if action not in {"delivered", "read"}:
+            raise ValueError("Acknowledgement must be 'delivered' or 'read'.")
+        return self._transition_guest_inbox_notification(
+            property_id, stay_id, notification_id, action, now=now
+        )
+
+    def fail_guest_inbox_notification(
+        self,
+        property_id: str,
+        stay_id: str,
+        notification_id: str,
+        reason: str,
+        *,
+        now: int | None = None,
+    ) -> dict[str, Any]:
+        """Record a terminal in-app dispatch failure before client receipt."""
+        property_id = self._guest_scope_value(property_id, "Property id")
+        stay_id = self._guest_scope_value(stay_id, "Stay id")
+        notification_id = self._guest_scope_value(notification_id, "Notification id")
+        failure_reason = _clean(reason, 240)
+        if not failure_reason:
+            raise ValueError("Failure reason is required.")
+        moment = _now() if now is None else int(now)
+        with self._connect() as db:
+            row = self._load_guest_inbox_row(db, property_id, stay_id, notification_id, moment)
+            if row["status"] == "failed":
+                return self._guest_inbox_notification_dict(row)
+            if row["status"] not in {"queued", "sent"}:
+                raise ValueError("Only queued or sent notifications can fail.")
+            db.execute(
+                """UPDATE guest_inbox_notifications
+                   SET status='failed',dispatch_status='dead_letter',failure_reason=?,
+                       failed_at=?,dead_letter_at=?,claim_token=NULL,claimed_at=NULL,updated_at=?
+                   WHERE property_id=? AND stay_id=? AND notification_id=?
+                     AND status IN ('queued','sent')""",
+                (failure_reason, moment, moment, moment, property_id, stay_id, notification_id),
+            )
+            updated = self._load_guest_inbox_row(db, property_id, stay_id, notification_id, moment)
+            if updated["status"] != "failed":
+                raise ValueError("Notification changed state before failure was recorded.")
+            return self._guest_inbox_notification_dict(updated)
+
+    def list_guest_inbox_notifications(
+        self,
+        property_id: str,
+        stay_id: str,
+        *,
+        now: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """List inbox items for exactly one property/stay and expire stale items."""
+        property_id = self._guest_scope_value(property_id, "Property id")
+        stay_id = self._guest_scope_value(stay_id, "Stay id")
+        moment = _now() if now is None else int(now)
+        with self._connect() as db:
+            self._expire_guest_inbox_rows(db, moment, property_id=property_id, stay_id=stay_id)
+            return [
+                self._guest_inbox_notification_dict(row)
+                for row in db.execute(
+                    """SELECT * FROM guest_inbox_notifications
+                       WHERE property_id=? AND stay_id=?
+                       ORDER BY created_at DESC,notification_id""",
+                    (property_id, stay_id),
+                )
+            ]
+
+    def expire_guest_inbox_notifications(
+        self,
+        *,
+        now: int | None = None,
+        property_id: str | None = None,
+        stay_id: str | None = None,
+    ) -> int:
+        """Expire due records, optionally restricted to one guest property/stay."""
+        if (property_id is None) != (stay_id is None):
+            raise ValueError("Property and stay must be supplied together.")
+        if property_id is not None:
+            property_id = self._guest_scope_value(property_id, "Property id")
+            stay_id = self._guest_scope_value(stay_id, "Stay id")
+        moment = _now() if now is None else int(now)
+        with self._connect() as db:
+            return self._expire_guest_inbox_rows(
+                db, moment, property_id=property_id, stay_id=stay_id
+            )
+
+    def expire_guest_inbox_for_stay(
+        self,
+        property_id: str,
+        stay_id: str,
+        *,
+        now: int | None = None,
+    ) -> int:
+        """Close any pending or visible inbox items when a stay checks out."""
+        property_id = self._guest_scope_value(property_id, "Property id")
+        stay_id = self._guest_scope_value(stay_id, "Stay id")
+        moment = _now() if now is None else int(now)
+        with self._connect() as db:
+            return db.execute(
+                """UPDATE guest_inbox_notifications
+                   SET status='expired',dispatch_status='expired',expired_at=?,
+                       claim_token=NULL,claimed_at=NULL,updated_at=?
+                   WHERE property_id=? AND stay_id=?
+                     AND status IN ('queued','sent','delivered')""",
+                (moment, moment, property_id, stay_id),
+            ).rowcount
+
+    def _transition_guest_inbox_notification(
+        self,
+        property_id: str,
+        stay_id: str,
+        notification_id: str,
+        target_status: str,
+        *,
+        claim_token: str | None = None,
+        now: int | None = None,
+    ) -> dict[str, Any]:
+        property_id = self._guest_scope_value(property_id, "Property id")
+        stay_id = self._guest_scope_value(stay_id, "Stay id")
+        notification_id = self._guest_scope_value(notification_id, "Notification id")
+        moment = _now() if now is None else int(now)
+        with self._connect() as db:
+            row = self._load_guest_inbox_row(db, property_id, stay_id, notification_id, moment)
+            current = row["status"]
+            if target_status == "sent" and current == "sent":
+                if claim_token and row["claim_token"] not in {None, claim_token}:
+                    raise ValueError("Notification claim is no longer active.")
+                return self._guest_inbox_notification_dict(row)
+            if target_status == "delivered" and current in {"delivered", "read"}:
+                return self._guest_inbox_notification_dict(row)
+            if target_status == "read" and current == "read":
+                return self._guest_inbox_notification_dict(row)
+
+            transitions = {"sent": "queued", "delivered": "sent", "read": "delivered"}
+            expected = transitions[target_status]
+            if current != expected:
+                raise ValueError(f"Cannot transition notification from {current} to {target_status}.")
+
+            if target_status == "sent":
+                if row["dispatch_status"] == "sending":
+                    if not claim_token or row["claim_token"] != claim_token:
+                        raise ValueError("Notification claim is no longer active.")
+                    updated_count = db.execute(
+                        """UPDATE guest_inbox_notifications
+                           SET status='sent',dispatch_status='sent',sent_at=?,updated_at=?,
+                               claim_token=NULL,claimed_at=NULL
+                           WHERE property_id=? AND stay_id=? AND notification_id=?
+                             AND status='queued' AND dispatch_status='sending' AND claim_token=?""",
+                        (moment, moment, property_id, stay_id, notification_id, claim_token),
+                    ).rowcount
+                elif row["dispatch_status"] == "queued" and claim_token is None:
+                    if int(row["next_attempt_at"] or 0) > moment:
+                        raise ValueError("Notification is not due for dispatch yet.")
+                    if not self._guest_delivery_schedule_allows(moment, row):
+                        raise ValueError("Notification is outside its configured delivery window.")
+                    if row["max_per_window"] is not None:
+                        raise ValueError("Rate-limited notifications must be atomically claimed before sending.")
+                    updated_count = db.execute(
+                        """UPDATE guest_inbox_notifications
+                           SET status='sent',dispatch_status='sent',sent_at=?,updated_at=?
+                           WHERE property_id=? AND stay_id=? AND notification_id=?
+                             AND status='queued' AND dispatch_status='queued' AND next_attempt_at<=?""",
+                        (moment, moment, property_id, stay_id, notification_id, moment),
+                    ).rowcount
+                else:
+                    raise ValueError("Notification claim is no longer active.")
+                if updated_count != 1:
+                    raise ValueError("Notification changed state before it was sent.")
+            elif target_status == "delivered":
+                db.execute(
+                    """UPDATE guest_inbox_notifications SET status='delivered',delivered_at=?,updated_at=?
+                       WHERE property_id=? AND stay_id=? AND notification_id=? AND status='sent'""",
+                    (moment, moment, property_id, stay_id, notification_id),
+                )
+            else:
+                db.execute(
+                    """UPDATE guest_inbox_notifications SET status='read',read_at=?,updated_at=?
+                       WHERE property_id=? AND stay_id=? AND notification_id=? AND status='delivered'""",
+                    (moment, moment, property_id, stay_id, notification_id),
+                )
+            updated = self._load_guest_inbox_row(db, property_id, stay_id, notification_id, moment)
+            if updated["status"] != target_status and not (
+                target_status == "delivered" and updated["status"] == "read"
+            ):
+                raise ValueError("Notification changed state before acknowledgement was recorded.")
+            return self._guest_inbox_notification_dict(updated)
+
+    def _load_guest_inbox_row(
+        self,
+        db: sqlite3.Connection,
+        property_id: str,
+        stay_id: str,
+        notification_id: str,
+        moment: int,
+    ) -> sqlite3.Row:
+        row = db.execute(
+            """SELECT * FROM guest_inbox_notifications
+               WHERE property_id=? AND stay_id=? AND notification_id=?""",
+            (property_id, stay_id, notification_id),
+        ).fetchone()
+        if row is None:
+            raise KeyError("Notification not found.")
+        if row["status"] in {"queued", "sent", "delivered"} and row["expires_at"] is not None and row["expires_at"] <= moment:
+            self._expire_guest_inbox_rows(
+                db, moment, property_id=property_id, stay_id=stay_id,
+                notification_id=notification_id,
+            )
+            row = db.execute(
+                """SELECT * FROM guest_inbox_notifications
+                   WHERE property_id=? AND stay_id=? AND notification_id=?""",
+                (property_id, stay_id, notification_id),
+            ).fetchone()
+        return row
+
+    @staticmethod
+    def _expire_guest_inbox_rows(
+        db: sqlite3.Connection,
+        moment: int,
+        *,
+        property_id: str | None = None,
+        stay_id: str | None = None,
+        notification_id: str | None = None,
+    ) -> int:
+        sql = """UPDATE guest_inbox_notifications
+                 SET status='expired',dispatch_status='expired',expired_at=?,
+                     claim_token=NULL,claimed_at=NULL,updated_at=?
+                 WHERE status IN ('queued','sent','delivered')
+                   AND expires_at IS NOT NULL AND expires_at<=?"""
+        params: list[Any] = [moment, moment, moment]
+        if property_id is not None:
+            sql += " AND property_id=? AND stay_id=?"
+            params.extend((property_id, stay_id))
+        if notification_id is not None:
+            sql += " AND notification_id=?"
+            params.append(notification_id)
+        return db.execute(sql, params).rowcount
+
+    @staticmethod
+    def _guest_scope_value(value: Any, label: str) -> str:
+        normalized = str(value or "").strip()
+        if not normalized or len(normalized) > 240:
+            raise ValueError(f"{label} is required and must be at most 240 characters.")
+        return normalized
+
+    @staticmethod
+    def _clock_minutes(value: Any, label: str) -> int:
+        if isinstance(value, bool):
+            raise ValueError(f"{label} must be an hour or HH:MM value.")
+        if isinstance(value, int):
+            if not 0 <= value <= 23:
+                raise ValueError(f"{label} hour must be between 0 and 23.")
+            return value * 60
+        if not isinstance(value, str) or len(value) != 5 or value[2] != ":":
+            raise ValueError(f"{label} must be an hour or HH:MM value.")
+        try:
+            hour, minute = (int(part) for part in value.split(":"))
+        except ValueError as exc:
+            raise ValueError(f"{label} must be an hour or HH:MM value.") from exc
+        if not 0 <= hour <= 23 or not 0 <= minute <= 59:
+            raise ValueError(f"{label} must be a valid time of day.")
+        return hour * 60 + minute
+
+    @classmethod
+    def _normalize_daily_interval(cls, value: dict[str, Any] | None, label: str) -> dict[str, int]:
+        if value is None or value == {}:
+            return {}
+        if not isinstance(value, dict) or "start" not in value or "end" not in value:
+            raise ValueError(f"{label} requires start and end values.")
+        return {
+            "start": cls._clock_minutes(value["start"], f"{label} start"),
+            "end": cls._clock_minutes(value["end"], f"{label} end"),
+        }
+
+    @classmethod
+    def _validate_guest_delivery_schedule(
+        cls,
+        timezone_name: str,
+        *,
+        quiet_hours: dict[str, Any] | None,
+        send_window: dict[str, Any] | None,
+        max_per_window: int | None,
+        frequency_window_seconds: int | None,
+    ) -> dict[str, Any]:
+        zone_name = str(timezone_name or "UTC").strip()
+        try:
+            ZoneInfo(zone_name)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError("Notification timezone must be a valid IANA timezone.") from exc
+        quiet = cls._normalize_daily_interval(quiet_hours, "Quiet hours")
+        window = cls._normalize_daily_interval(send_window, "Send window")
+        if window and window["start"] == window["end"]:
+            raise ValueError("Send window start and end must differ.")
+        if max_per_window is not None:
+            if isinstance(max_per_window, bool) or not 1 <= int(max_per_window) <= 100:
+                raise ValueError("Frequency limit must be between 1 and 100.")
+            max_per_window = int(max_per_window)
+        if frequency_window_seconds is not None:
+            if isinstance(frequency_window_seconds, bool) or not 60 <= int(frequency_window_seconds) <= 31 * 86400:
+                raise ValueError("Frequency window must be between 60 seconds and 31 days.")
+            frequency_window_seconds = int(frequency_window_seconds)
+        elif max_per_window is not None:
+            frequency_window_seconds = 86400
+        if max_per_window is None and frequency_window_seconds is not None:
+            raise ValueError("A frequency limit is required when a frequency window is configured.")
+        return {
+            "timezone_name": zone_name,
+            "quiet_hours": quiet,
+            "send_window": window,
+            "max_per_window": max_per_window,
+            "frequency_window_seconds": frequency_window_seconds,
+        }
+
+    @staticmethod
+    def _minute_in_interval(minute: int, interval: dict[str, Any], *, quiet: bool) -> bool:
+        if not interval:
+            return False
+        start, end = int(interval["start"]), int(interval["end"])
+        if start == end:
+            return quiet
+        inside = start <= minute < end if start < end else minute >= start or minute < end
+        return inside
+
+    @classmethod
+    def _guest_delivery_schedule_allows(cls, moment: int, row: sqlite3.Row | dict[str, Any]) -> bool:
+        zone = ZoneInfo(str(row["timezone_name"] or "UTC"))
+        local = datetime.fromtimestamp(moment, timezone.utc).astimezone(zone)
+        minute = local.hour * 60 + local.minute
+        quiet = _load(row["quiet_hours"])
+        window = _load(row["send_window"])
+        if cls._minute_in_interval(minute, quiet, quiet=True):
+            return False
+        if window and not cls._minute_in_interval(minute, window, quiet=False):
+            return False
+        return True
+
+    @classmethod
+    def _next_guest_delivery_time(cls, moment: int, row: sqlite3.Row | dict[str, Any]) -> int | None:
+        for offset in range(60, 48 * 60 * 60 + 1, 60):
+            candidate = moment + offset
+            if cls._guest_delivery_schedule_allows(candidate, row):
+                return candidate
+        return None
+
+    @staticmethod
+    def _release_guest_delivery_claim(db: sqlite3.Connection, row: sqlite3.Row | dict[str, Any], next_attempt_at: int, moment: int) -> None:
+        params: list[Any] = [
+            next_attempt_at, moment, row["notification_id"], row["property_id"],
+            row["stay_id"], row["dispatch_status"], row["claim_token"],
+        ]
+        db.execute(
+            """UPDATE guest_inbox_notifications
+               SET status='queued',dispatch_status='retry_wait',next_attempt_at=?,
+                   claim_token=NULL,claimed_at=NULL,updated_at=?
+               WHERE notification_id=? AND property_id=? AND stay_id=? AND dispatch_status=?
+                 AND claim_token IS ?""",
+            params,
+        )
+
+    @staticmethod
+    def _guest_event_id(value: Any) -> str:
+        normalized = str(value or "").strip()
+        if not normalized or len(normalized) > 180:
+            raise ValueError("Event id is required and must be at most 180 characters.")
+        return normalized
+
+    @staticmethod
+    def _guest_inbox_notification_dict(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
+        return {
+            "notification_id": row["notification_id"],
+            "property_id": row["property_id"],
+            "stay_id": row["stay_id"],
+            "event_id": row["event_id"],
+            "category": row["category"],
+            "title": row["title"],
+            "body": row["body"],
+            "status": row["status"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+            "sent_at": row["sent_at"],
+            "delivered_at": row["delivered_at"],
+            "read_at": row["read_at"],
+            "failed_at": row["failed_at"],
+            "expired_at": row["expired_at"],
+            "failure_reason": row["failure_reason"],
+            "expires_at": row["expires_at"],
+            "dispatch_status": row["dispatch_status"],
+            "attempt_count": row["attempt_count"],
+            "next_attempt_at": row["next_attempt_at"],
+            "claim_token": row["claim_token"],
+            "claimed_at": row["claimed_at"],
+            "dead_letter_at": row["dead_letter_at"],
+            "scheduled_at": row["scheduled_at"],
+            "timezone_name": row["timezone_name"],
+            "max_per_window": row["max_per_window"],
+            "frequency_window_seconds": row["frequency_window_seconds"],
+        }
 
     def record_journey_event(self, property_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         record = {
@@ -1740,18 +2690,40 @@ class HospitalityStore:
         policy = rule.get("policy") or {}
         if not rule["enabled"]:
             return False, "rule_disabled"
+        if rule["category"] == "experience" and not prefs.get("proactive_notifications", False):
+            return False, "proactive_opt_out"
         if rule["category"] == "promotional" and not prefs.get("promotional_consent", False):
             return False, "promotional_opt_out"
         quiet = policy.get("quiet_hours") or {}
-        hour = time.localtime(moment).tm_hour
+        timezone_name = policy.get("timezone")
+        if timezone_name:
+            try:
+                zone = ZoneInfo(str(timezone_name))
+            except (ZoneInfoNotFoundError, ValueError):
+                return False, "invalid_timezone"
+            local = datetime.fromtimestamp(moment, timezone.utc).astimezone(zone)
+            minute = local.hour * 60 + local.minute
+        else:
+            # Preserve existing deployments/tests until they configure an IANA zone.
+            minute = time.localtime(moment).tm_hour * 60
         if quiet:
-            start = int(quiet.get("start", 22))
-            end = int(quiet.get("end", 7))
-            # Daytime intervals use conjunction; overnight intervals wrap midnight.
-            # Equal boundaries retain the existing full-day suppression behavior.
-            in_quiet_hours = start <= hour < end if start < end else hour >= start or hour < end
-            if in_quiet_hours:
+            try:
+                interval = self._normalize_daily_interval(
+                    {"start": quiet.get("start", 22), "end": quiet.get("end", 7)},
+                    "Quiet hours",
+                )
+            except ValueError:
+                return False, "invalid_quiet_hours"
+            if self._minute_in_interval(minute, interval, quiet=True):
                 return False, "quiet_hours"
+        send_window = policy.get("send_window") or {}
+        if send_window:
+            try:
+                interval = self._normalize_daily_interval(send_window, "Send window")
+            except ValueError:
+                return False, "invalid_send_window"
+            if interval["start"] == interval["end"] or not self._minute_in_interval(minute, interval, quiet=False):
+                return False, "outside_send_window"
         if current_zone_id and current_zone_id == payload.get("destination_zone_id"):
             return False, "already_at_destination"
         if payload.get("facility_status") in {"closed", "temporarily_closed", "full", "maintenance", "private_event"}:

@@ -21,6 +21,9 @@
       <button class="new-chat" id="new-conversation" type="button" aria-label="Start a new private conversation">
         <span aria-hidden="true">＋</span><span>New chat</span>
       </button>
+      <button class="guest-tools-button" id="open-guest-tools" type="button" aria-haspopup="dialog" aria-controls="guest-tools-dialog" aria-expanded="false">
+        Inbox &amp; privacy
+      </button>
     </header>
 
     <main class="conversation-workspace" id="conversation-workspace">
@@ -38,6 +41,45 @@
         </div>
       </section>
     </main>
+
+    <dialog class="guest-tools-dialog" id="guest-tools-dialog" aria-labelledby="guest-tools-title">
+      <div class="guest-tools-content">
+        <header class="guest-tools-header">
+          <div><p class="eyebrow">Your stay</p><h2 id="guest-tools-title">Inbox &amp; privacy</h2></div>
+          <button class="guest-tools-close" id="close-guest-tools" type="button" aria-label="Close inbox and privacy settings">Close</button>
+        </header>
+        <p class="guest-tools-status" id="guest-tools-status" role="status" aria-live="polite"></p>
+        <section class="guest-tools-section" aria-labelledby="guest-inbox-heading">
+          <div class="guest-tools-section-heading">
+            <h3 id="guest-inbox-heading">Notifications</h3>
+            <button class="guest-tools-secondary" id="refresh-guest-inbox" type="button">Refresh</button>
+          </div>
+          <ul class="guest-inbox-list" id="guest-inbox-list" aria-live="polite"></ul>
+          <p class="guest-inbox-empty" id="guest-inbox-empty" hidden>No notifications yet.</p>
+        </section>
+        <section class="guest-tools-section" aria-labelledby="guest-notification-preferences-heading">
+          <h3 id="guest-notification-preferences-heading">Notification preferences</h3>
+          <p class="guest-tools-copy">Optional experiences and promotional messages start off. Operational and assistance updates remain enabled.</p>
+          <div class="guest-tools-choice-list" id="guest-notification-preferences">
+            <label class="guest-tools-choice"><input type="checkbox" data-notification-category="operational"><span><strong>Operational updates</strong><small>Important information about hotel services.</small></span></label>
+            <label class="guest-tools-choice"><input type="checkbox" data-notification-category="assistance"><span><strong>Assistance updates</strong><small>Updates about help you requested.</small></span></label>
+            <label class="guest-tools-choice"><input type="checkbox" data-notification-category="experience"><span><strong>Optional experiences</strong><small>Updates about activities and experiences.</small></span></label>
+            <label class="guest-tools-choice"><input type="checkbox" data-notification-category="promotional"><span><strong>Promotional messages</strong><small>Offers and promotional information.</small></span></label>
+          </div>
+        </section>
+        <section class="guest-tools-section" aria-labelledby="guest-privacy-heading">
+          <h3 id="guest-privacy-heading">Privacy choices</h3>
+          <p class="guest-tools-copy">Each choice is optional and starts off. This screen does not request device GPS.</p>
+          <div class="guest-tools-choice-list" id="guest-privacy-choices">
+            <label class="guest-tools-choice"><input type="checkbox" data-consent-category="location_services"><span><strong>Location services</strong><small>Allow location-based hotel features. This screen does not request device GPS.</small></span></label>
+            <label class="guest-tools-choice"><input type="checkbox" data-consent-category="proactive_notifications"><span><strong>Proactive stay updates</strong><small>Allow the hotel to send relevant updates during your stay.</small></span></label>
+            <label class="guest-tools-choice"><input type="checkbox" data-consent-category="promotional_messages"><span><strong>Promotional messages</strong><small>Allow offers and promotional messages.</small></span></label>
+            <label class="guest-tools-choice"><input type="checkbox" data-consent-category="external_data_processing"><span><strong>External data processing</strong><small>Allow external service providers to process data for concierge features.</small></span></label>
+          </div>
+          <button class="guest-tools-save" id="save-privacy-choices" type="button">Save privacy choices</button>
+        </section>
+      </div>
+    </dialog>
 
     <footer class="composer-dock">
       <form class="composer" id="composer-form">

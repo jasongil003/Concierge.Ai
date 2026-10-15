@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
 
 import app.antlabs as antlabs_module
 import app.main as main_module
@@ -144,19 +144,73 @@ def test_property_integrity_migration_repairs_rows_and_preserves_existing_data(t
     engine.dispose()
 
 
+def test_property_country_migration_is_additive_and_idempotent(tmp_path: Path):
+    integrity = importlib.import_module("migrations.versions.20261005_0001_property_context_integrity")
+    country = importlib.import_module("migrations.versions.20261015_0001_property_country")
+    engine = create_engine(f"sqlite:///{tmp_path / 'property-country-migration.db'}")
+    with engine.begin() as connection:
+        connection.execute(text("""CREATE TABLE properties (
+            property_id TEXT PRIMARY KEY,
+            hotel_name TEXT,
+            created_at BIGINT NOT NULL,
+            updated_at BIGINT NOT NULL
+        )"""))
+        connection.execute(text(
+            "INSERT INTO properties(property_id, hotel_name, created_at, updated_at) "
+            "VALUES ('legacy-hotel', 'Legacy Hotel', 101, 201)"
+        ))
+        with Operations.context(MigrationContext.configure(connection)):
+            integrity.upgrade()
+            country.upgrade()
+            country.upgrade()
+
+        columns = {item["name"] for item in inspect(connection).get_columns("properties")}
+        row = connection.execute(text(
+            "SELECT hotel_name, country FROM properties WHERE property_id='legacy-hotel'"
+        )).one()
+        assert "country" in columns
+        assert tuple(row) == ("Legacy Hotel", "")
+    engine.dispose()
+
+
 def test_super_admin_can_create_the_first_property(admin_client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     properties = PropertyStore(tmp_path / "first-property.db")
     monkeypatch.setattr(main_module, "properties", properties)
 
     response = admin_client.put(
         "/api/admin/properties/first-hotel",
-        json={"property_id": "first-hotel", "hotel_name": "First Hotel", "timezone": "UTC"},
+        json={"property_id": "first-hotel", "hotel_name": "First Hotel", "timezone": "UTC",
+              "country": "Philippines", "latitude": 14.5995, "longitude": 120.9842},
     )
 
     assert response.status_code == 200, response.text
     assert properties.get("first-hotel").hotel_name == "First Hotel"
+    assert properties.get("first-hotel").country == "Philippines"
+    assert properties.get("first-hotel").public_profile["location"] == {
+        "country": "Philippines", "latitude": 14.5995, "longitude": 120.9842, "address": ""
+    }
     accessible = admin_client.get("/api/admin/properties/first-hotel")
     assert accessible.status_code == 200, accessible.text
+
+
+@pytest.mark.parametrize("coordinates", [
+    {"latitude": 91, "longitude": 0},
+    {"latitude": 14.5},
+])
+def test_property_create_rejects_invalid_coordinate_pairs(
+    admin_client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    coordinates: dict[str, float],
+):
+    properties = PropertyStore(tmp_path / "invalid-coordinates.db")
+    monkeypatch.setattr(main_module, "properties", properties)
+    response = admin_client.put(
+        "/api/admin/properties/invalid-location",
+        json={"property_id": "invalid-location", "hotel_name": "Invalid Location", "timezone": "UTC", **coordinates},
+    )
+    assert response.status_code == 422, response.text
+    assert properties.get("invalid-location") is None
 
 
 def test_unscoped_property_manager_cannot_create_a_property(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

@@ -2,6 +2,8 @@
 
 Baseline: fetched `origin/main` `8ee80d2d688584795b6140582d609f81479b2137`, plus the guest scroll and offline mirror preparation changes on `codex/ecc-ci-guest-audit-20261015`. This is the current category-level assessment; the existing [384-row acceptance inventory](../../audit/MASTER_FEATURE_ACCEPTANCE_MATRIX.md) and [granular ECC matrix](ECC_FEATURE_MATRIX.md) retain the individual requirements. `Working` means demonstrated with synthetic/local data where stated. `Production verified` requires evidence from an actual authorized hotel environment. Status values are **YES**, **PARTIAL**, **NO**, or **UNVERIFIED**.
 
+Continuation: fetched merged `origin/main` `d4649ff138c8ee9b6b8a681aae2132874894a7a2` on 2026-10-15 and reviewed the existing uncommitted `codex/priority-features-20261015` checkout. Rows that name the uncommitted priority branch are local acceptance only and do not change the production-verification column.
+
 | Feature | Implemented | Working | Tested | Production verified | Evidence / limit |
 | --- | --- | --- | --- | --- | --- |
 | Property branding and guest welcome | YES | YES | YES | UNVERIFIED | `app/guest_v2/app.js`, `tests/e2e/guest.spec.js`; local synthetic property. |
@@ -11,11 +13,14 @@ Baseline: fetched `origin/main` `8ee80d2d688584795b6140582d609f81479b2137`, plus
 | Rich restaurant cards, menu, image, prices | YES | PARTIAL | YES | UNVERIFIED | Browser menu/card test and `tests/test_intelligent_ui.py`; real published hotel data and image rights not verified. |
 | Published hotel facts and facilities | YES | PARTIAL | YES | UNVERIFIED | `app/knowledge_management.py`, `app/main.py`, grounded response tests; actual property content unverified. |
 | Indoor map assets and floor switching | YES | PARTIAL | YES | UNVERIFIED | `app/guest_v2/app.js`, `tests/test_intelligent_ui.py`; local configured maps only. |
+| Map revision draft, publication, and rollback | YES | YES | YES | UNVERIFIED | Uncommitted priority branch; `tests/test_map_revisions.py` and admin browser workflow use synthetic property maps. Real geometry approval remains outstanding. |
 | Accessible indoor route graph | YES | PARTIAL | YES | UNVERIFIED | `app/zones.py`, `tests/test_intelligent_ui.py`; real building graph and physical routes unverified. |
 | Graceful no-map fallback | YES | YES | YES | UNVERIFIED | `tests/test_intelligent_ui.py`; local synthetic absence. |
 | Guest service proposal and confirmation | YES | YES | YES | UNVERIFIED | `tests/test_service_catalog.py` direct API and `tests/test_intelligent_ui.py`; actual department receipt unverified. |
 | Request idempotency, assignment, status | YES | PARTIAL | YES | UNVERIFIED | `tests/test_service_catalog.py`, staff/browser tests; live notification and staff operations unverified. |
 | Nearby external places | PARTIAL | UNVERIFIED | PARTIAL | UNVERIFIED | `app/places.py`, deterministic shaping tests; external provider, freshness, consent not tested live. |
+| Guest external-processing and location consent controls | PARTIAL | PARTIAL | YES | UNVERIFIED | Uncommitted priority branch; `tests/test_guest_privacy_consent.py` covers local consent, denial, withdrawal, checkout, and retention. Approved property policy and live collection are absent. |
+| Guest notification inbox and dispatch | PARTIAL | PARTIAL | YES | UNVERIFIED | Uncommitted priority branch; `tests/test_notification_delivery.py` and guest browser flow use synthetic events. Actual guest delivery and staff operations are unverified. |
 | Tonight recommendations in property timezone | PARTIAL | UNVERIFIED | PARTIAL | UNVERIFIED | Schedule/content paths exist; local-time precedence and live event data not accepted. |
 | Draft preservation, retry, session recovery | YES | YES | YES | UNVERIFIED | `tests/e2e/guest.spec.js` failed-send, duplicate, new-chat, history, expiry regressions. |
 | Knowledge upload, review, publication | YES | YES | YES | UNVERIFIED | `app/knowledge_management.py`, backend and admin browser tests; real content governance unverified. |
