@@ -5,11 +5,11 @@
 **Code baseline:** `ba56274262053fe03b2db71b9c57ee25c8445377` (merged PR #57)  
 **Working branch:** `codex/ecc-closeout-20261019`  
 **First implementation commit:** `3a6de95ae2eec8eb2230ccdf1aab11b216592040`  
-**Code head verified by hosted CI run #234:** `6cac90a4e72fc8ce3c802133b2690491d2323635`  
+**Code head verified by hosted CI run #236:** 2b8665a68bc91b3e8cff1dc93b2e126364ea3e6b  
 **Pull request:** [#58](https://github.com/jasongil003/Concierge.Ai/pull/58) (draft)  
-**Hosted CI runs:** [run #233](https://github.com/jasongil003/Concierge.Ai/actions/runs/38731792563) on the first implementation commit; [run #234](https://github.com/jasongil003/Concierge.Ai/actions/runs/38732935629) on updated head `6cac90a4e72fc8ce3c802133b2690491d2323635`; [run #235](https://github.com/jasongil003/Concierge.Ai/actions/runs/38734890994) on the report-only follow-up.
+**Hosted CI runs:** [run #233](https://github.com/jasongil003/Concierge.Ai/actions/runs/38731792563) on the first implementation commit; [run #234](https://github.com/jasongil003/Concierge.Ai/actions/runs/38732935629) on updated head 6cac90a4e72fc8ce3c802133b2690491d2323635; [run #235](https://github.com/jasongil003/Concierge.Ai/actions/runs/38734890994) on the report-only follow-up; [run #236](https://github.com/jasongil003/Concierge.Ai/actions/runs/38736905365) on the current code head 2b8665a68bc91b3e8cff1dc93b2e126364ea3e6b.
 
-The report-only follow-up run #235 exposed a reproducible guest-card image layout shift; its fix is on the current PR branch and awaits hosted verification.
+Run #235 exposed a reproducible guest-card image layout shift; the fix is on the current PR branch, and run #236 verified it in the complete hosted browser suite.
 
 This closeout records work and verification completed on the stated synthetic/local environments. It does not assert production readiness, legal approval, or live-provider acceptance.
 
@@ -94,10 +94,10 @@ Skip breakdown: 16 PostgreSQL-related cases (including notification claims, metr
 
 - Full local `npx playwright test --reporter=line`: **339 passed, 39 skipped, 4 failed**. The failures were a mobile admin-navigation timeout, two responsive manual-QA timeouts (1280×720 and 375×812), and one mobile operations-console mock fallback.
 - Each failing case passed in an isolated rerun: admin navigation passed, both responsive cases passed, and the operations-console mock case passed. The full run is therefore recorded as flaky, not green.
-- Hosted `browser-tests` on the updated code head passed: **339 passed, 39 skipped** in 10.2 minutes.
+- Hosted browser run #234 passed: **339 passed, 39 skipped** in 10.2 minutes. Run #236 on the current PR head also passed: **339 passed, 39 skipped** in 10.1 minutes.
 - Focused `npx playwright test tests/e2e/visual.spec.js --grep @visual`: **4 passed** across desktop Chromium and mobile Chromium.
 - Focused synthetic journey `npx playwright test tests/e2e/admin-actions.spec.js:224 tests/e2e/admin-actions.spec.js:336 tests/e2e/guest.spec.js:934 tests/e2e/guest.spec.js:1386 --project=chromium`: **4 passed** (admin map editing, cross-floor transitions, nearby cards, and guest indoor directions).
-- The existing restaurant-card image stability regression failed before image dimensions were reserved (52 px local title shift) and passed after the fix.
+- The existing restaurant-card image stability regression failed before image dimensions were reserved (52 px local title shift) and passed after the fix. Hosted run #235 had 1 browser failure from this shift; run #236 passed the full suite with the fix.
 - Existing guest-interface evidence: [verified pool answer](evidence/guest-ui-acceptance-2026-10-14/verified-pool-answer-desktop.png), [restaurant desktop](evidence/guest-ui-acceptance-2026-10-14/restaurant-desktop-1440x900.png), [restaurant tablet](evidence/guest-ui-acceptance-2026-10-14/restaurant-tablet-768x1024.png), and [restaurant mobile](evidence/guest-ui-acceptance-2026-10-14/restaurant-mobile-390x844.png). These screenshots are dated 2026-10-14, not newly captured by this closeout.
 
 ### Security, dependencies, and live integrations
@@ -112,15 +112,15 @@ Skip breakdown: 16 PostgreSQL-related cases (including notification claims, metr
 ## Hosted CI and repository controls
 
 - Baseline PR: [PR #57](https://github.com/jasongil003/Concierge.Ai/pull/57) was merged at the stated baseline. Its recorded CI was 9/10 jobs successful; the historical secret scan remained failing.
-- [PR #58 checks](https://github.com/jasongil003/Concierge.Ai/pull/58/checks) and [hosted run #234](https://github.com/jasongil003/Concierge.Ai/actions/runs/38732935629) completed on code head `6cac90a4`: `backend-tests` passed (**1,311 passed, 18 skipped**), `postgres-redis-integration` passed (**19 passed**), `browser-tests` passed (**339 passed, 39 skipped**), and Docker runtime, npm/pip dependency, static-security, Linux deployment, and macOS deployment jobs passed. `secret-scan` failed on the forced reachable-history text scan (3 findings); its current-tree scan reported no leaks. This is 9 of 10 jobs passing; the run conclusion is failure because the historical finding remains.
-- Hosted run #235 on the report-only follow-up passed all jobs except `secret-scan` and `browser-tests`; its browser result was **338 passed, 39 skipped, 1 failed**. The failure was the restaurant-card image shift, reproduced locally and fixed as described above. The fix is awaiting hosted CI. Earlier run #233 was canceled after PostgreSQL exposed the claim-candidate defect; the fixed database paths were exercised by the completed run #234.
+- [PR #58 checks](https://github.com/jasongil003/Concierge.Ai/pull/58/checks) and hosted run #236 completed on current code head 2b8665a68bc91b3e8cff1dc93b2e126364ea3e6b: backend-tests passed (**1,311 passed, 18 skipped**), postgres-redis-integration passed (**19 passed**), and browser-tests passed (**339 passed, 39 skipped**). Docker runtime, npm/pip dependency, static-security, Linux deployment, and macOS deployment jobs passed. secret-scan failed only on the forced reachable-history text scan (3 findings); its ordinary history and current-tree scans reported no leaks. This is 9 of 10 jobs passing; the run conclusion is failure because the historical finding remains.
+- Hosted run #235 on the report-only follow-up passed all jobs except secret-scan and browser-tests; its browser result was **338 passed, 39 skipped, 1 failed** due to the restaurant-card image shift. The fix was committed on the PR branch and verified by run #236. Earlier run #233 was canceled after PostgreSQL exposed the claim-candidate defect; the fixed database paths passed in runs #234 and #236.
 - The repository ruleset inspected for `main` protects branch deletion and non-fast-forward updates but does not require CI status checks. The integration could not access the branch-protection administration endpoint. A repository administrator must make the required CI checks mandatory before merging.
 
 ## External blocker owners and actions
 
 1. **Credential issuer / repository owner:** verify revocation or rotate the historical credential, then approve coordinated history cleanup and secret re-scan. The current three-history-finding failure cannot be waived by this change.
 2. **Repository administrator:** configure required status checks for `main` and confirm merge protection rejects failing checks.
-3. **CI owner:** verify this PR's hosted secret, dependency, backend, browser, PostgreSQL/Redis, and security jobs. The local PostgreSQL and Redis tests are skipped until hosted execution.
+3. **Credential issuer / CI owner:** act on the three history findings, then rerun the secret scan. Run #236 verified backend, browser, PostgreSQL/Redis, dependency, static-security, Docker, and Linux/macOS deployment jobs; local PostgreSQL and Redis tests remain skipped without services.
 4. **Property/privacy owner:** approve the applicable policy text, retention schedule, and retention exceptions. Do not collect real guest location or optional-processing data before approval.
 5. **Hotel operations owner:** validate synthetic map positions against approved building plans and verify facility closure/event facts before enabling guest notifications.
 6. **Infrastructure/recovery owner:** provide authorized Ubuntu/macOS/Docker targets, production-like PostgreSQL/Redis, encrypted off-host backup destination, separately escrowed recovery key, and a disposable restore target. No destructive restore was attempted.
@@ -128,4 +128,4 @@ Skip breakdown: 16 PostgreSQL-related cases (including notification claims, metr
 
 ## Release decision
 
-**NO-GO for an internal release candidate at this time.** The local synthetic implementation and most automated suites pass, but the historical credential finding and missing required-check enforcement are security gates, the full local browser run had four flaky failures, and live deployment recovery evidence is pending. A separate image-layout defect found in hosted run #235 is fixed locally and awaits the hosted rerun. An isolated internal synthetic demo remains suitable only with synthetic data and no live provider or guest-data claims. This repository must not be described as production-ready.
+**NO-GO for an internal release candidate at this time.** The hosted browser, backend, PostgreSQL/Redis, dependency, static-security, Docker, and deployment suites pass on the current code head, but the historical credential finding and missing required-check enforcement remain security gates. The full local browser run had four flaky failures, and live deployment recovery evidence is pending. An isolated internal synthetic demo remains suitable only with synthetic data and no live provider or guest-data claims. This repository must not be described as production-ready.
