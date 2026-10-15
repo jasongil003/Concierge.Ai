@@ -2775,7 +2775,10 @@ def _diagnostic_result(
         if principal is None:
             raise PermissionError("The assigned restaurant scope is unavailable.")
         assigned_ids = _assigned_restaurant_ids(principal, context.property_id)
-        start_at, end_at, _ = period_window(period)
+        property_record = properties.get(context.property_id)
+        start_at, end_at, _ = period_window(
+            period, timezone_name=property_record.timezone if property_record else "UTC",
+        )
         restaurant_reports = []
         for restaurant_id in sorted(assigned_ids):
             restaurant = hospitality.get_restaurant(context.property_id, restaurant_id)

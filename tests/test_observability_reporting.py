@@ -1,6 +1,7 @@
 import io
 import sqlite3
 import time
+from datetime import datetime, timezone
 from zipfile import ZipFile
 
 import pytest
@@ -9,6 +10,8 @@ from app.ai_providers import AIProviderStore
 from app import metrics
 from app.hospitality import HospitalityStore
 from app.observability import DiagnosticContext, DiagnosticToolRegistry, ObservabilityStore
+from app.observability import period_window
+from app.properties import PropertyRecord, PropertyStore
 from app.reporting import ReportService, SHEET_NAMES
 from app.session_store import SessionStore
 
@@ -32,6 +35,33 @@ def test_metric_history_is_property_isolated(tmp_path):
 
     assert history
     assert max(item["value"] for item in history) <= 40
+
+
+def test_calendar_reporting_uses_property_timezone_and_dst(tmp_path, monkeypatch):
+    db_path = tmp_path / "property-calendar.db"
+    PropertyStore(db_path).upsert(PropertyRecord(
+        property_id="singapore", hotel_name="Singapore", timezone="Asia/Singapore",
+    ))
+    store = ObservabilityStore(db_path)
+    # Pin the UTC clock without depending on the host timezone.
+    now = int(datetime(2026, 1, 1, 18, 30, tzinfo=timezone.utc).timestamp())
+    monkeypatch.setattr("app.observability.time.time", lambda: now)
+    store.record("singapore", "calendar_scope", 1, recorded_at=now - 3 * 3600)
+    store.record("singapore", "calendar_scope", 2, recorded_at=now - 2 * 3600)
+    history = store.history("singapore", "calendar_scope", "today")
+    assert [item["value"] for item in history] == [2.0]
+
+    start, end, _ = period_window(
+        "yesterday", now=int(datetime(2026, 4, 5, 14, 30, tzinfo=timezone.utc).timestamp()),
+        timezone_name="Australia/Sydney",
+    )
+    assert end - start == 25 * 3600
+
+    utc_start, utc_end, _ = period_window(
+        "today", now=now, timezone_name="invalid/legacy-zone",
+    )
+    assert utc_start == int(datetime(2026, 1, 1, tzinfo=timezone.utc).timestamp())
+    assert utc_end == now
 
 
 def test_request_telemetry_is_scrapeable_without_database_writes(tmp_path):
