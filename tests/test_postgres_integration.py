@@ -1,6 +1,7 @@
 """Service integration tests enabled by DATABASE_URL in CI/staging."""
 
 import os
+from datetime import datetime, timezone
 import sqlite3
 import subprocess
 import sys
@@ -588,3 +589,86 @@ def test_postgres_guest_zones_knowledge_conflicts_and_service_request_replay(tmp
             db.execute("DELETE FROM floor_maps WHERE property_id=?", (property_id,))
             db.execute("DELETE FROM knowledge_items WHERE property_id=?", (property_id,))
             db.execute("DELETE FROM properties WHERE property_id=?", (property_id,))
+
+
+def test_postgres_notification_claim_release_and_concurrent_workers(tmp_path):
+    """Exercise both null and leased-token guards through the real adapter."""
+    _configure()
+    from app.hospitality import HospitalityStore
+
+    property_id = f"pg-dispatch-{uuid.uuid4().hex[:12]}"
+    store = HospitalityStore(tmp_path / "postgres-dispatch-ignored.db")
+    start = int(datetime(2026, 1, 1, 21, 59, tzinfo=timezone.utc).timestamp())
+
+    def queue(stay_id, event_id, **options):
+        return store.create_guest_inbox_notification(
+            property_id, stay_id, event_id, "operational", "Verified update",
+            "The facility hours changed.", now=start, **options,
+        )
+
+    try:
+        # A queued record has a NULL claim token. This was rejected by the
+        # PostgreSQL adapter when the release query used `claim_token IS ?`.
+        quiet = queue(
+            "quiet-stay", "quiet-event", scheduled_at=start + 60,
+            quiet_hours={"start": "22:00", "end": "07:00"},
+        )
+        assert store.claim_guest_inbox_notifications(now=start + 60, property_id=property_id) == []
+        quiet_row = store.list_guest_inbox_notifications(property_id, "quiet-stay", now=start + 60)[0]
+        assert quiet_row["notification_id"] == quiet["notification_id"]
+        assert quiet_row["dispatch_status"] == "retry_wait"
+        assert quiet_row["next_attempt_at"] >= start + 9 * 3600
+
+        # A stale worker has a non-null token and must lose its lease when
+        # quiet hours begin; its old acknowledgement must not succeed.
+        stale = queue(
+            "stale-stay", "stale-event",
+            quiet_hours={"start": "22:00", "end": "07:00"},
+        )
+        first = store.claim_guest_inbox_notifications(now=start, property_id=property_id)
+        assert [item["notification_id"] for item in first] == [stale["notification_id"]]
+        assert store.claim_guest_inbox_notifications(now=start + 61, lease_seconds=5, property_id=property_id) == []
+        stale_row = store.list_guest_inbox_notifications(property_id, "stale-stay", now=start + 61)[0]
+        assert stale_row["dispatch_status"] == "retry_wait"
+        assert stale_row["claim_token"] is None
+        with pytest.raises(ValueError, match="claim is no longer active"):
+            store.mark_guest_inbox_notification_sent(
+                property_id, "stale-stay", stale["notification_id"],
+                claim_token=first[0]["claim_token"], now=start + 62,
+            )
+
+        limited_one = queue(
+            "limited-stay", "limited-one", max_per_window=1,
+            frequency_window_seconds=3600, scheduled_at=start,
+        )
+        limited_two = queue(
+            "limited-stay", "limited-two", max_per_window=1,
+            frequency_window_seconds=3600, scheduled_at=start + 1,
+        )
+        first_limited = store.claim_guest_inbox_notifications(now=start, property_id=property_id)
+        assert [item["notification_id"] for item in first_limited] == [limited_one["notification_id"]]
+        assert store.claim_guest_inbox_notifications(now=start + 1, property_id=property_id) == []
+        deferred = store.list_guest_inbox_notifications(property_id, "limited-stay", now=start + 1)
+        deferred_row = next(item for item in deferred if item["notification_id"] == limited_two["notification_id"])
+        assert deferred_row["dispatch_status"] == "retry_wait"
+
+        race = queue("race-stay", "race-event")
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            batches = list(pool.map(
+                lambda _: store.claim_guest_inbox_notifications(now=start, property_id=property_id),
+                range(4),
+            ))
+        claims = [item for batch in batches for item in batch]
+        assert [item["notification_id"] for item in claims] == [race["notification_id"]]
+        retried = store.retry_guest_inbox_notification(
+            property_id, "race-stay", race["notification_id"], claims[0]["claim_token"],
+            "temporary failure", max_attempts=3, base_backoff_seconds=5,
+            max_backoff_seconds=10, now=start + 2,
+        )
+        assert retried["dispatch_status"] == "retry_wait"
+        assert store.claim_guest_inbox_notifications(now=start + 7, property_id=property_id)[0]["notification_id"] == race["notification_id"]
+    finally:
+        with connect_database(tmp_path / "postgres-dispatch-ignored.db") as db:
+            db.execute("DELETE FROM guest_inbox_notifications WHERE property_id=?", (property_id,))
+            db.execute("DELETE FROM guest_notification_frequency_locks WHERE property_id=?", (property_id,))
+            db.execute("DELETE FROM guest_notification_preferences WHERE property_id=?", (property_id,))
