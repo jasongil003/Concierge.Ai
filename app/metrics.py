@@ -127,6 +127,18 @@ WORKER_FAILURES = Counter(
     ("worker",),
     registry=REGISTRY,
 )
+RETENTION_CLEANUP_RUNS = Counter(
+    "concierge_retention_cleanup_runs_total",
+    "Completed or failed retention maintenance passes.",
+    ("outcome",),
+    registry=REGISTRY,
+)
+RETENTION_CLEANUP_ROWS = Counter(
+    "concierge_retention_cleanup_rows_total",
+    "Guest records removed by retention maintenance, grouped without identifiers.",
+    ("category",),
+    registry=REGISTRY,
+)
 
 _active_lock = threading.Lock()
 _active_count = 0

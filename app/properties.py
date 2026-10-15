@@ -2,6 +2,7 @@ import json
 import logging
 import sqlite3
 import time
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -704,6 +705,10 @@ class PropertyStore:
 
     def upsert(self, record: PropertyRecord) -> PropertyRecord:
         now = int(time.time())
+        try:
+            ZoneInfo(record.timezone)
+        except (ZoneInfoNotFoundError, ValueError, TypeError) as exc:
+            raise ValueError("Property timezone must be a valid IANA timezone.") from exc
         if record.domain:
             try:
                 record.domain = normalize_guest_hostname(record.domain)
