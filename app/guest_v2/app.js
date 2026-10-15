@@ -1645,8 +1645,12 @@
       blocks: [{ id: newId(), type: "loading_state", message: "Checking that for you…" }],
     };
     messages.push(assistantMessage);
-    followLatestConversation = true;
-    conversationReadingAnchor = null;
+    // A submitted turn should follow the reply only when the guest was already
+    // reading the latest messages. Capture this before the new rows change the
+    // scroll height; scroll events from the subsequent render arrive too late.
+    const viewport = $("conversation-workspace");
+    followLatestConversation = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 96;
+    conversationReadingAnchor = followLatestConversation ? null : findConversationAnchor();
     inputPending = true;
     const input = $("composer-input");
     if (input.value === originalText) input.value = "";
@@ -1654,7 +1658,7 @@
     $("conversation-status").hidden = false;
     $("conversation-status-copy").textContent = "The concierge is checking that for you.";
     $("cancel-response").hidden = false;
-    renderMessages({ forceLatest: true });
+    renderMessages({ forceLatest: followLatestConversation });
     try {
       const result = await streamGuestChat({
         session_id: sessionId,
