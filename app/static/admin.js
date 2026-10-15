@@ -1265,7 +1265,10 @@ function loadHotelInformation() {
   const property = state.property;
   $("hotel-info-name").value = property.hotel_name || "";
   $("hotel-info-description").value = property.description || "";
+  $("hotel-info-country").value = property.country || "";
   $("hotel-info-address").value = property.address || "";
+  $("hotel-info-latitude").value = property.latitude ?? "";
+  $("hotel-info-longitude").value = property.longitude ?? "";
   $("hotel-info-phone").value = property.contact_details?.phone || "";
   $("hotel-info-email").value = property.contact_details?.email || "";
   $("hotel-info-website").value = property.contact_details?.website || "";
@@ -1279,11 +1282,28 @@ function loadHotelInformation() {
 async function saveHotelInformation() {
   const name = $("hotel-info-name").value.trim();
   if (!name) throw new Error("Hotel name is required.");
+  const readCoordinate = (id, label, minimum, maximum) => {
+    const value = $(id).value.trim();
+    if (!value) return null;
+    const number = Number(value);
+    if (!Number.isFinite(number) || number < minimum || number > maximum) {
+      throw new Error(`${label} must be between ${minimum} and ${maximum}.`);
+    }
+    return number;
+  };
+  const latitude = readCoordinate("hotel-info-latitude", "Latitude", -90, 90);
+  const longitude = readCoordinate("hotel-info-longitude", "Longitude", -180, 180);
+  if ((latitude === null) !== (longitude === null)) {
+    throw new Error("Set both hotel coordinates or clear both.");
+  }
   state.property = {
     ...state.property,
     hotel_name: name,
     description: $("hotel-info-description").value.trim(),
+    country: $("hotel-info-country").value.trim(),
     address: $("hotel-info-address").value.trim(),
+    latitude,
+    longitude,
     contact_details: {
       ...(state.property.contact_details || {}),
       phone: $("hotel-info-phone").value.trim(), email: $("hotel-info-email").value.trim(), website: $("hotel-info-website").value.trim(),
@@ -1971,6 +1991,9 @@ function loadAIPolicy() {
   $("guardrail-directions").checked = guardrails.directions_enabled !== false;
   $("guardrail-restaurants").checked = guardrails.restaurant_search_enabled !== false;
   $("guardrail-attractions").checked = guardrails.attractions_enabled !== false;
+  $("guardrail-nearby-enabled").checked = guardrails.nearby_places_enabled !== false;
+  $("guardrail-nearby-radius").value = guardrails.nearby_search_radius_meters || 5000;
+  $("guardrail-nearby-results").value = guardrails.nearby_max_results || 6;
   $("guardrail-weather").checked = guardrails.weather_enabled !== false;
   $("guardrail-services").checked = guardrails.service_requests_enabled !== false;
   $("guardrail-reservations").checked = Boolean(guardrails.reservations_enabled);
@@ -1988,7 +2011,7 @@ async function savePersonality() {
 }
 
 async function saveGuardrails() {
-  const config = { ...state.property.guardrails, allowed_topics: readLines("guardrail-allowed"), restricted_topics: readLines("guardrail-restricted"), sensitive_information: $("guardrail-sensitive").value.trim(), guest_network_only: $("guardrail-network-only").checked, allowed_cidrs: readLines("guardrail-cidrs"), trusted_proxy_ranges: readLines("guardrail-proxies"), session_network_revalidation: $("guardrail-revalidation").value, guest_session_timeout: Number($("guardrail-timeout").value || 30), antlabs_gateway_enabled: $("guardrail-antlabs").checked, antlabs_gateway_ranges: readLines("guardrail-antlabs-ranges"), internet_search_enabled: $("guardrail-internet").checked, directions_enabled: $("guardrail-directions").checked, restaurant_search_enabled: $("guardrail-restaurants").checked, attractions_enabled: $("guardrail-attractions").checked, weather_enabled: $("guardrail-weather").checked, service_requests_enabled: $("guardrail-services").checked, reservations_enabled: $("guardrail-reservations").checked, financial_actions_enabled: $("guardrail-financial").checked, location_access_enabled: $("guardrail-location").checked, audit_logging_enabled: $("guardrail-audit").checked };
+  const config = { ...state.property.guardrails, allowed_topics: readLines("guardrail-allowed"), restricted_topics: readLines("guardrail-restricted"), sensitive_information: $("guardrail-sensitive").value.trim(), guest_network_only: $("guardrail-network-only").checked, allowed_cidrs: readLines("guardrail-cidrs"), trusted_proxy_ranges: readLines("guardrail-proxies"), session_network_revalidation: $("guardrail-revalidation").value, guest_session_timeout: Number($("guardrail-timeout").value || 30), antlabs_gateway_enabled: $("guardrail-antlabs").checked, antlabs_gateway_ranges: readLines("guardrail-antlabs-ranges"), internet_search_enabled: $("guardrail-internet").checked, directions_enabled: $("guardrail-directions").checked, restaurant_search_enabled: $("guardrail-restaurants").checked, attractions_enabled: $("guardrail-attractions").checked, nearby_places_enabled: $("guardrail-nearby-enabled").checked, nearby_search_radius_meters: Number($("guardrail-nearby-radius").value || 5000), nearby_max_results: Number($("guardrail-nearby-results").value || 6), weather_enabled: $("guardrail-weather").checked, service_requests_enabled: $("guardrail-services").checked, reservations_enabled: $("guardrail-reservations").checked, financial_actions_enabled: $("guardrail-financial").checked, location_access_enabled: $("guardrail-location").checked, audit_logging_enabled: $("guardrail-audit").checked };
   const signingSecret = $("guardrail-antlabs-secret").value;
   if (signingSecret) config.antlabs_signature_secret = signingSecret;
   delete config.antlabs_signature_configured;
@@ -4832,6 +4855,7 @@ function propertyPayload() {
     hotel_name: $("hotel-name-input").value,
     description: property.description || "",
     timezone: property.timezone || "UTC",
+    country: property.country || "",
     latitude: property.latitude,
     longitude: property.longitude,
     address: property.address || "",
@@ -5374,7 +5398,7 @@ async function createProperty(event) {
   try {
     await jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}`, {
       method: "PUT",
-      body: JSON.stringify({ property_id: propertyId, hotel_name: hotelName, timezone, address: $("property-create-address").value.trim() }),
+      body: JSON.stringify({ property_id: propertyId, hotel_name: hotelName, timezone, address: $("property-create-address").value.trim(), country: $("property-create-country").value.trim() }),
       allowPropertyCreation: true,
     });
     $("property-create-dialog").close();
@@ -5472,9 +5496,93 @@ async function loadZones() {
   hydrateZoneSelectors();
   state.mapSelectedFloorId = currentMapFloorId();
   state.mapSelectedBuildingId = currentMapBuildingId();
+  renderMapPublicationState();
   renderZoneTree();
   renderMapCanvas();
   renderMapInspector();
+}
+
+function renderMapPublicationState() {
+  const publication = state.zones?.map_revision_state || {};
+  const current = publication.current;
+  const draft = publication.draft;
+  const status = $("map-publish-status");
+  if (!status) return;
+  if (state.mapDirty) status.textContent = "Unsaved editor changes · save the selected map object before creating a draft.";
+  else if (publication.has_unpublished_changes) status.textContent = current
+    ? `Saved map changes are not published · guests still see revision ${current.revision_number}.`
+    : "No map revision is published · guests cannot see the working map yet.";
+  else if (current) status.textContent = `Published revision ${current.revision_number} · guest directions use this version.`;
+  else status.textContent = "No map is published yet · guests cannot see map data.";
+
+  const save = $("map-save-draft");
+  const preview = $("map-preview-draft");
+  const publish = $("map-publish-draft");
+  const rollback = $("map-rollback");
+  const rollbackSelect = $("map-rollback-revision");
+  const selectedRevisionId = rollbackSelect.value;
+  const canEdit = can("properties.edit");
+  save.disabled = !canEdit || state.mapDirty;
+  preview.disabled = !canEdit || !draft;
+  publish.disabled = !canEdit || !draft;
+  const previous = (publication.revisions || []).filter((item) => item.status === "published" && item.revision_id !== current?.revision_id);
+  rollbackSelect.replaceChildren(new Option(previous.length ? "Choose a published revision" : "No previous version", ""));
+  for (const revision of previous) {
+    const restored = revision.revision_kind === "rollback" ? " · restored" : "";
+    rollbackSelect.appendChild(new Option(`Revision ${revision.revision_number}${restored} · ${new Date(revision.published_at * 1000).toLocaleString()}`, revision.revision_id));
+  }
+  if (previous.some((revision) => revision.revision_id === selectedRevisionId)) rollbackSelect.value = selectedRevisionId;
+  rollbackSelect.disabled = !canEdit || !previous.length;
+  rollback.disabled = !canEdit || !rollbackSelect.value;
+}
+
+async function saveMapDraft() {
+  if (state.mapDirty) throw new Error("Save the selected map object before creating a revision.");
+  const base = `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/map-revisions`;
+  await jsonFetch(base, { method: "POST" });
+  await loadZones();
+  await previewMapDraft();
+  showToast("Map draft saved. Preview it before publishing.");
+}
+
+async function previewMapDraft() {
+  const draft = state.zones?.map_revision_state?.draft;
+  if (!draft) throw new Error("Save a map draft before previewing it.");
+  const base = `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/map-revisions/${encodeURIComponent(draft.revision_id)}/preview`;
+  const result = await jsonFetch(base);
+  const counts = result.preview?.counts || {};
+  const floorCount = (result.preview?.floors || []).length;
+  const summary = Object.entries(counts).map(([name, count]) => `${count} ${name.replaceAll("_", " ")}`).join(" · ");
+  $("map-revision-preview").textContent = `Preview revision ${result.revision_number}: ${floorCount} floors · ${summary || "no map objects"}.`;
+  showToast("Map draft preview is ready.");
+}
+
+async function publishMapDraft() {
+  const publication = state.zones?.map_revision_state || {};
+  const draft = publication.draft;
+  if (!draft) throw new Error("Save a map draft before publishing it.");
+  const base = `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/map-revisions/${encodeURIComponent(draft.revision_id)}/publish`;
+  await jsonFetch(base, {
+    method: "POST",
+    body: JSON.stringify({ expected_current_revision_id: publication.current?.revision_id || null }),
+  });
+  await loadZones();
+  showToast("Map revision published to guest directions.");
+}
+
+async function restoreMapRevision() {
+  const publication = state.zones?.map_revision_state || {};
+  const revisionId = $("map-rollback-revision").value;
+  if (!revisionId) throw new Error("Choose a published map version to restore.");
+  if (!window.confirm("Restore this published map version? The current map is saved as a recovery revision.")) return;
+  const base = `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/map-revisions/${encodeURIComponent(revisionId)}/restore`;
+  await jsonFetch(base, {
+    method: "POST",
+    body: JSON.stringify({ expected_current_revision_id: publication.current?.revision_id || null }),
+  });
+  await loadZones();
+  $("map-revision-preview").textContent = "The selected version is restored. The replaced map is retained as a recovery revision.";
+  showToast("Map revision restored.");
 }
 
 function currentMapFloorId() { return $("zone-floor-select")?.value || ""; }
@@ -5483,6 +5591,11 @@ function mapFloor(floorId = currentMapFloorId()) { return state.zones?.floors.fi
 function mapBuilding(buildingId = currentMapBuildingId()) { return state.zones?.buildings.find((building) => building.building_id === buildingId) || null; }
 function mapFloorZones(floorId = currentMapFloorId()) { return (state.zones?.zones || []).filter((zone) => zone.floor_id === floorId); }
 function mapFloorNodes(floorId = currentMapFloorId()) { return (state.zones?.navigation_nodes || []).filter((node) => node.floor_id === floorId); }
+function mapNodeLabel(node) {
+  if (!node) return "Select a waypoint";
+  const floorName = mapFloor(node.floor_id)?.name || "Unknown floor";
+  return `${node.label || "Waypoint"} · ${floorName}`;
+}
 
 function hydrateZoneSelectors() {
   const buildingSelect = $("zone-building-select");
@@ -5554,9 +5667,13 @@ function renderZoneTree() {
     ...(state.zones?.facilities || []).filter((item) => mapFloorZones(floorId).some((zone) => zone.zone_id === item.zone_id)).map((item) => ({ kind: "facility", id: item.facility_id, label: item.name, detail: item.facility_type || "Facility", item })),
     ...(state.zones?.access_points || []).filter((item) => mapFloorZones(floorId).some((zone) => zone.zone_id === item.zone_id)).map((item) => ({ kind: "access_point", id: item.access_point_id, label: item.name, detail: "Wi-Fi access point", item })),
     ...mapFloorNodes(floorId).map((item) => ({ kind: "navigation_node", id: item.node_id, label: item.label, detail: item.node_type || "Waypoint", item })),
-    ...(state.zones?.navigation_edges || []).filter((edge) => mapFloorNodes(floorId).some((node) => node.node_id === edge.from_node_id) && mapFloorNodes(floorId).some((node) => node.node_id === edge.to_node_id)).map((item) => {
-      const nodes = new Map(mapFloorNodes(floorId).map((node) => [node.node_id, node]));
-      return { kind: "navigation_edge", id: item.edge_id, label: `${nodes.get(item.from_node_id)?.label || "Start"} → ${nodes.get(item.to_node_id)?.label || "End"}`, detail: `${item.distance} map units`, item };
+    ...(state.zones?.navigation_edges || []).filter((edge) => mapFloorNodes(floorId).some((node) => node.node_id === edge.from_node_id || node.node_id === edge.to_node_id)).map((item) => {
+      const nodes = new Map((state.zones?.navigation_nodes || []).map((node) => [node.node_id, node]));
+      const from = nodes.get(item.from_node_id), to = nodes.get(item.to_node_id);
+      const fromFloor = from ? mapFloor(from.floor_id)?.name || "Unknown floor" : "Unknown floor";
+      const toFloor = to ? mapFloor(to.floor_id)?.name || "Unknown floor" : "Unknown floor";
+      const arrow = item.bidirectional === false || item.bidirectional === 0 ? "→" : "↔";
+      return { kind: "navigation_edge", id: item.edge_id, label: `${from?.label || "Start"} ${arrow} ${to?.label || "End"}`, detail: `${item.distance} map units · ${fromFloor} to ${toFloor} · ${item.transition_type || "path"}`, item };
     }),
   ];
   $("map-object-count").textContent = String(objects.length);
@@ -5684,6 +5801,7 @@ function renderMapCanvas() {
     ctx.restore();
   }
   renderMapContext();
+  renderMapPublicationState();
 }
 
 function drawGeometry(ctx, geometry, color, label, selected = false) {
@@ -5778,6 +5896,8 @@ function renderMapInspector() {
   $("map-ap-identifier").required = isAp || item.createAs === "access_point";
   $("map-node-fields").hidden = !isNode;
   $("map-edge-fields").hidden = !isEdge;
+  $("map-edge-from-select").required = isEdge;
+  $("map-edge-to-select").required = isEdge;
   $("map-edge-distance").required = isEdge;
   $("map-object-visible-wrap").hidden = isAp;
   $("map-object-visible").checked = item.guest_visible !== false && item.guest_visible !== 0;
@@ -5793,10 +5913,25 @@ function renderMapInspector() {
   zoneSelect.value = item.zone_id || (type === "zone" ? item.zone_id : "");
   zoneSelect.disabled = readonly;
   if (isEdge) {
-    const nodes = mapFloorNodes();
-    $("map-edge-from").textContent = nodes.find((node) => node.node_id === item.from_node_id)?.label || "Start waypoint";
-    $("map-edge-to").textContent = nodes.find((node) => node.node_id === item.to_node_id)?.label || "End waypoint";
+    const nodes = state.zones?.navigation_nodes || [];
+    const fillNodeSelect = (id, selectedId) => {
+      const select = $(id);
+      select.replaceChildren(new Option("Select a waypoint", ""));
+      for (const node of nodes) select.appendChild(new Option(mapNodeLabel(node), node.node_id));
+      select.value = selectedId || "";
+      select.disabled = readonly;
+    };
+    const fromNode = nodes.find((node) => node.node_id === item.from_node_id);
+    const toNode = nodes.find((node) => node.node_id === item.to_node_id);
+    fillNodeSelect("map-edge-from-select", item.from_node_id);
+    fillNodeSelect("map-edge-to-select", item.to_node_id);
+    $("map-edge-from").textContent = mapNodeLabel(fromNode);
+    $("map-edge-to").textContent = mapNodeLabel(toNode);
     $("map-edge-distance").value = item.distance || ""; $("map-edge-distance").disabled = readonly;
+    $("map-edge-transition").value = ["path", "elevator", "stairs", "ramp"].includes(item.transition_type) ? item.transition_type : "path";
+    $("map-edge-transition").disabled = readonly;
+    $("map-edge-accessible").checked = item.accessible === true || item.accessible === 1;
+    $("map-edge-accessible").disabled = readonly;
     $("map-edge-bidirectional").checked = item.bidirectional !== false && item.bidirectional !== 0; $("map-edge-bidirectional").disabled = readonly;
   }
   $("save-map-object").hidden = readonly; $("save-map-object").disabled = readonly;
@@ -5967,6 +6102,24 @@ async function submitMapStructure(event) {
   showToast(`${state.mapStructureMode === "floor" ? "Floor" : "Building"} added.`);
 }
 
+function validateMapEdge(fromNodeId, toNodeId, transitionType, accessible) {
+  const nodes = state.zones?.navigation_nodes || [];
+  const from = nodes.find((node) => node.node_id === fromNodeId);
+  const to = nodes.find((node) => node.node_id === toNodeId);
+  if (!from || !to) throw new Error("Choose a saved waypoint for both route endpoints.");
+  const fromFloor = mapFloor(from.floor_id), toFloor = mapFloor(to.floor_id);
+  if (!fromFloor || !toFloor) throw new Error("Both route waypoints must belong to a configured floor.");
+  if (fromFloor.building_id !== toFloor.building_id) throw new Error("Route endpoints must be in the same building.");
+  const allowedTransitions = ["path", "elevator", "stairs", "ramp"];
+  if (!allowedTransitions.includes(transitionType)) throw new Error("Choose a valid route transition type.");
+  const crossFloor = from.floor_id !== to.floor_id;
+  if (crossFloor && !["elevator", "stairs", "ramp"].includes(transitionType)) {
+    throw new Error("Routes between floors require an explicit elevator, stairs, or ramp transition.");
+  }
+  if (!crossFloor && transitionType !== "path") throw new Error("Same-floor routes must use the Path transition.");
+  if (transitionType === "stairs" && accessible) throw new Error("Stair routes cannot be marked accessible.");
+}
+
 async function saveMapObject(event) {
   event?.preventDefault();
   const item = state.selectedMapObject, floorId = currentMapFloorId();
@@ -6005,9 +6158,14 @@ async function saveMapObject(event) {
   } else if (type === "navigation_edge") {
     const distance = Number($("map-edge-distance").value);
     if (!Number.isFinite(distance) || distance <= 0) throw new Error("Route distance must be greater than zero.");
+    const fromNodeId = $("map-edge-from-select").value;
+    const toNodeId = $("map-edge-to-select").value;
+    const transitionType = $("map-edge-transition").value;
+    const accessible = $("map-edge-accessible").checked;
+    validateMapEdge(fromNodeId, toNodeId, transitionType, accessible);
     const method = item.edge_id ? "PUT" : "POST";
     const url = item.edge_id ? `${base}/navigation/edges/${encodeURIComponent(item.edge_id)}` : `${base}/navigation/edges`;
-    const result = await jsonFetch(url, { method, body: JSON.stringify({ data: { from_node_id: item.from_node_id, to_node_id: item.to_node_id, distance, bidirectional: $("map-edge-bidirectional").checked, guest_visible: visible } }) });
+    const result = await jsonFetch(url, { method, body: JSON.stringify({ data: { from_node_id: fromNodeId, to_node_id: toNodeId, distance, transition_type: transitionType, accessible, bidirectional: $("map-edge-bidirectional").checked, guest_visible: visible } }) });
     state.selectedMapObject = { ...result, objectType: "navigation_edge", isDraft: false }; state.mapObjects = state.mapObjects.filter((draft) => draft.draft_id !== item.draft_id);
   }
   state.mapHistory = []; state.mapRedo = [];
@@ -6350,9 +6508,11 @@ async function loadLocationLive() {
 }
 
 async function recordObservation() {
+  const sessionId = $("obs-session-id").value.trim();
+  if (!sessionId) throw new Error("Enter a consenting guest session ID before recording an observation.");
   await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/location/observations`, {
     method: "POST",
-    body: JSON.stringify({ raw_mac: $("obs-raw-mac").value.trim(), access_point_identifier: $("obs-ap-id").value.trim() }),
+    body: JSON.stringify({ session_id: sessionId, raw_mac: $("obs-raw-mac").value.trim(), access_point_identifier: $("obs-ap-id").value.trim() }),
   });
   await loadLocationLive();
   showToast("Observation recorded.");
@@ -8867,6 +9027,11 @@ function setup() {
   $("loop-approve").addEventListener("click", () => decideImprovementLoop("approved").catch((error) => showToast(error.message, "error")));
   $("loop-revise").addEventListener("click", () => decideImprovementLoop("revision_requested").catch((error) => showToast(error.message, "error")));
 
+  $("map-save-draft").addEventListener("click", () => saveMapDraft().catch((error) => showToast(error.message, "error")));
+  $("map-preview-draft").addEventListener("click", () => previewMapDraft().catch((error) => showToast(error.message, "error")));
+  $("map-publish-draft").addEventListener("click", () => publishMapDraft().catch((error) => showToast(error.message, "error")));
+  $("map-rollback-revision").addEventListener("change", renderMapPublicationState);
+  $("map-rollback").addEventListener("click", () => restoreMapRevision().catch((error) => showToast(error.message, "error")));
   for (const button of document.querySelectorAll("[data-map-tool]")) {
     button.addEventListener("click", () => updateMapTool(button.dataset.mapTool, button));
   }
@@ -8886,7 +9051,25 @@ function setup() {
   });
   $("map-node-type").addEventListener("change", () => { if (state.selectedMapObject) { state.mapDirty = true; state.selectedMapObject.node_type = $("map-node-type").value; } });
   $("map-object-visible").addEventListener("change", () => { if (state.selectedMapObject) { state.mapDirty = true; state.selectedMapObject.guest_visible = $("map-object-visible").checked; } });
-  for (const id of ["map-linked-zone", "map-ap-identifier", "map-facility-type", "map-facility-description", "map-edge-distance", "map-edge-bidirectional"]) $(id).addEventListener("change", () => { if (state.selectedMapObject) state.mapDirty = true; });
+  for (const id of ["map-linked-zone", "map-ap-identifier", "map-facility-type", "map-facility-description"]) $(id).addEventListener("change", () => { if (state.selectedMapObject) state.mapDirty = true; });
+  $("map-edge-from-select").addEventListener("change", () => {
+    const item = state.selectedMapObject;
+    if (!item || item.objectType !== "navigation_edge") return;
+    item.from_node_id = $("map-edge-from-select").value;
+    $("map-edge-from").textContent = mapNodeLabel((state.zones?.navigation_nodes || []).find((node) => node.node_id === item.from_node_id));
+    state.mapDirty = true; renderZoneTree(); renderMapCanvas();
+  });
+  $("map-edge-to-select").addEventListener("change", () => {
+    const item = state.selectedMapObject;
+    if (!item || item.objectType !== "navigation_edge") return;
+    item.to_node_id = $("map-edge-to-select").value;
+    $("map-edge-to").textContent = mapNodeLabel((state.zones?.navigation_nodes || []).find((node) => node.node_id === item.to_node_id));
+    state.mapDirty = true; renderZoneTree(); renderMapCanvas();
+  });
+  $("map-edge-distance").addEventListener("change", () => { if (state.selectedMapObject?.objectType === "navigation_edge") { state.selectedMapObject.distance = Number($("map-edge-distance").value) || 0; state.mapDirty = true; } });
+  $("map-edge-transition").addEventListener("change", () => { if (state.selectedMapObject?.objectType === "navigation_edge") { state.selectedMapObject.transition_type = $("map-edge-transition").value; state.mapDirty = true; renderZoneTree(); } });
+  $("map-edge-accessible").addEventListener("change", () => { if (state.selectedMapObject?.objectType === "navigation_edge") { state.selectedMapObject.accessible = $("map-edge-accessible").checked; state.mapDirty = true; } });
+  $("map-edge-bidirectional").addEventListener("change", () => { if (state.selectedMapObject?.objectType === "navigation_edge") { state.selectedMapObject.bidirectional = $("map-edge-bidirectional").checked; state.mapDirty = true; renderZoneTree(); } });
   $("map-object-type").addEventListener("change", () => { if (state.selectedMapObject) state.mapDirty = true; });
   $("delete-map-object").addEventListener("click", () => deleteMapObject().catch((error) => showToast(error.message, "error")));
   $("duplicate-map-object").addEventListener("click", duplicateMapObject);
@@ -9032,7 +9215,7 @@ function setup() {
     });
   }
   $("clear-hotel-information").addEventListener("click", () => {
-    for (const id of ["hotel-info-description", "hotel-info-address", "hotel-info-phone", "hotel-info-email", "hotel-info-website", "hotel-info-checkin", "hotel-info-checkout", "hotel-info-breakfast", "hotel-info-wifi", "hotel-info-policies"]) $(id).value = "";
+    for (const id of ["hotel-info-description", "hotel-info-country", "hotel-info-address", "hotel-info-latitude", "hotel-info-longitude", "hotel-info-phone", "hotel-info-email", "hotel-info-website", "hotel-info-checkin", "hotel-info-checkout", "hotel-info-breakfast", "hotel-info-wifi", "hotel-info-policies"]) $(id).value = "";
     for (const id of ["hotel-info-checkin", "hotel-info-checkout"]) delete $(id).dataset.legacyValue;
     for (const id of ["hotel-info-checkin-note", "hotel-info-checkout-note"]) $(id).hidden = true;
   });

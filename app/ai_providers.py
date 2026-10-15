@@ -1399,7 +1399,9 @@ class AIModelService:
         connections = self.resolve_connections(property_id)
         return connections[0] if connections else None
 
-    def resolve_connections(self, property_id: str) -> list[dict[str, Any]]:
+    def resolve_connections(
+        self, property_id: str, *, allow_cloud: bool = True
+    ) -> list[dict[str, Any]]:
         ai_settings = self.store.get_settings(property_id)
         connections = {
             item["provider_id"]: item
@@ -1409,6 +1411,7 @@ class AIModelService:
             provider_id
             for provider_id, connection in connections.items()
             if connection["enabled"]
+            and (allow_cloud or not PROVIDER_DEFINITIONS[provider_id]["cloud"])
             and (
                 not ai_settings["local_only"]
                 or not PROVIDER_DEFINITIONS[provider_id]["cloud"]
@@ -1450,6 +1453,7 @@ class AIModelService:
         conversation_history: list[dict[str, Any]] | None = None,
         guest_context: dict[str, Any] | None = None,
         system_prompt_override: str | None = None,
+        allow_cloud: bool = True,
     ) -> AIChatResponse:
         ai_settings = self.store.get_settings(property_id)
         self.store.reserve_request(property_id)
@@ -1460,7 +1464,7 @@ class AIModelService:
         if system_prompt_override:
             system = system_prompt_override[:8000]
         failures: list[Exception] = []
-        connections = self.resolve_connections(property_id)
+        connections = self.resolve_connections(property_id, allow_cloud=allow_cloud)
         for index, connection in enumerate(connections):
             provider_id = connection["provider_id"]
             model = connection["selected_model"] or PROVIDER_DEFINITIONS[provider_id]["default_model"]

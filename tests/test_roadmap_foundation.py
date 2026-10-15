@@ -60,6 +60,8 @@ def test_zones_floor_map_navigation_and_property_isolation(tmp_path: Path):
     start = zones.create_node("hotel-a", {"floor_id": floor["floor_id"], "zone_id": zone["zone_id"], "label": "Lobby"})
     end = zones.create_node("hotel-a", {"floor_id": floor["floor_id"], "zone_id": zone["zone_id"], "label": "Elevator Lobby"})
     zones.create_edge("hotel-a", {"from_node_id": start["node_id"], "to_node_id": end["node_id"], "distance": 12})
+    revision = zones.create_map_revision("hotel-a")
+    zones.publish_map_revision("hotel-a", revision["revision_id"])
     assert zones.route("hotel-a", start["node_id"], end["node_id"])["labels"] == ["Lobby", "Elevator Lobby"]
 
     guest_overview = zones.overview("hotel-a", guest=True)

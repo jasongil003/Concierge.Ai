@@ -76,12 +76,13 @@ test("admin onboarding: create the first property from an empty workspace", asyn
   const propertyId = `e2e-onboarding-${Date.now().toString(36)}`;
   await page.locator("#property-create-id").fill(propertyId);
   await page.locator("#property-create-timezone").selectOption("Asia/Manila");
+  await page.locator("#property-create-country").fill("Philippines");
   await page.locator("#property-create-submit").click();
 
   await expect(page.locator("#property-switcher")).toHaveValue(propertyId);
   const created = await request.get(`/api/admin/properties/${propertyId}`);
   expect(created.ok()).toBeTruthy();
-  expect((await created.json()).hotel_name).toBe("E2E Onboarding Property");
+  expect((await created.json())).toMatchObject({ hotel_name: "E2E Onboarding Property", country: "Philippines" });
 
   const propertyPath = `/api/admin/properties/${propertyId}`;
   const overview = await request.get(`${propertyPath}/hospitality`);
@@ -2252,7 +2253,8 @@ test.describe("config workflow (serial)", () => {
 
     const propertyId = await getFirstPropertyId(request);
     const originalPublished = await getOriginalDesign(request, propertyId);
-    const originalName = (await request.get(`/api/admin/properties/${propertyId}`).then(r => r.json())).hotel_name;
+    const originalProperty = await request.get(`/api/admin/properties/${propertyId}`).then(r => r.json());
+    const originalName = originalProperty.hotel_name;
     const newName = `Persist Test ${Date.now()}`;
 
     try {
@@ -2260,11 +2262,19 @@ test.describe("config workflow (serial)", () => {
       await page.locator('body[data-admin-ready="true"]').waitFor();
       await openPanel(page, "Hotel Information");
       await page.locator("#hotel-info-name").fill(newName);
+      await page.locator("#hotel-info-country").fill("Philippines");
+      await page.locator("#hotel-info-latitude").fill("14.5995");
+      await page.locator("#hotel-info-longitude").fill("120.9842");
       await page.getByRole("button", { name: "Save & Publish" }).click();
       await expect(page.getByText("Hotel information saved and published to the guest profile.")).toBeVisible();
 
       const res = await request.get(`/api/admin/properties/${propertyId}`);
-      expect((await res.json()).hotel_name).toBe(newName);
+      expect(await res.json()).toMatchObject({
+        hotel_name: newName,
+        country: "Philippines",
+        latitude: 14.5995,
+        longitude: 120.9842,
+      });
     } finally {
       await request.put(`/api/admin/properties/${propertyId}/design/draft`, {
         headers: csrfHeaders(request),
@@ -2274,6 +2284,9 @@ test.describe("config workflow (serial)", () => {
       const propRes = await request.get(`/api/admin/properties/${propertyId}`);
       const prop = await propRes.json();
       prop.hotel_name = originalName;
+      prop.country = originalProperty.country || "";
+      prop.latitude = originalProperty.latitude;
+      prop.longitude = originalProperty.longitude;
       await request.put(`/api/admin/properties/${propertyId}`, { headers: csrfHeaders(request), data: prop });
     }
   });

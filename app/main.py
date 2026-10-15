@@ -29,7 +29,7 @@ import httpx
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from prometheus_client import CONTENT_TYPE_LATEST
 
 from .admin_auth import (
@@ -40,7 +40,13 @@ from .admin_auth import (
     AdminPrincipal,
     AuthenticationError,
 )
-from .ai_providers import AIModelService, AIProviderStore, ProviderStreamInterrupted
+from .ai_providers import (
+    AIModelService,
+    AIProviderStore,
+    ProviderStreamInterrupted,
+    friendly_error,
+    friendly_http_error,
+)
 from .antlabs import AntlabsAdapter
 from .config import settings
 from .database import (
@@ -55,7 +61,7 @@ from .database import (
 from .build_info import BUILD_IDENTITY
 from . import system_diagnostics
 from .improvement_loop import ImprovementLoopManager, ImprovementLoopStore
-from .guest_identity import GuestIdentityStore
+from .guest_identity import GuestIdentityStore, pseudonymous_device_id
 from .guest_context import build_guest_context
 from .stay_context import StayContextEngine
 from .assistant_decisions import AssistantDecisionEngine
@@ -108,9 +114,14 @@ from .guardrails import (
     public_guardrails,
 )
 from .guest_grounding import normalize_guest_text, requires_verified_guest_answer, source_id as guest_source_id
-from .hospitality import HospitalityStore
+from .hospitality import (
+    GUEST_NOTIFICATION_DEFAULT_PREFERENCES,
+    NOTIFICATION_CATEGORIES,
+    HospitalityStore,
+)
 from .intro import IntroExperienceStore
 from .location_analytics import LocationAnalyticsStore
+from .privacy_consent import PrivacyConsentStore
 from .operations import OperationsStore, RWG_REFERENCE_SOURCE_PREFIX
 from .knowledge_management import KnowledgeStore, CATEGORIES, parse_document, validate_file
 from .rwg_knowledge import decode_imported_reference_records
@@ -176,6 +187,7 @@ store = SessionStore(settings.db_path, settings.session_ttl_minutes)
 properties = PropertyStore(settings.db_path)
 zones = ZoneStore(settings.db_path)
 guest_identities = GuestIdentityStore(settings.db_path)
+privacy_consents = PrivacyConsentStore(settings.db_path)
 personalization = PersonalizationStore(settings.db_path)
 location_analytics = LocationAnalyticsStore(settings.db_path)
 intro_experiences = IntroExperienceStore(settings.db_path)
@@ -223,6 +235,8 @@ if not settings.database_url:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     personalization.cleanup_expired()
+    privacy_consents.cleanup_retention()
+    location_analytics.cleanup_retention()
     async def process_pending_knowledge():
         while True:
             try:
@@ -238,6 +252,11 @@ async def lifespan(app: FastAPI):
             except Exception as exc:
                 metrics.WORKER_FAILURES.labels("knowledge_poll").inc()
                 logger.error("Knowledge queue poll failed (%s)", exc.__class__.__name__)
+            try:
+                await asyncio.to_thread(_dispatch_guest_inbox_notifications)
+            except Exception as exc:
+                metrics.WORKER_FAILURES.labels("guest_notification_dispatch").inc()
+                logger.error("Guest notification dispatch failed (%s)", exc.__class__.__name__)
             await asyncio.sleep(10)
     knowledge_worker = None
     if settings.background_workers_enabled:
@@ -788,6 +807,7 @@ class PropertyPayload(BaseModel):
     domain: str = ""
     deployment_mode: str = Field(default="on-prem", pattern=r"^(on-prem|cloud|hybrid|edge)$")
     timezone: str = "UTC"
+    country: str = Field(default="", max_length=100)
     latitude: float | None = None
     longitude: float | None = None
     address: str = ""
@@ -997,6 +1017,12 @@ class GenericPayload(BaseModel):
     data: dict[str, Any] = Field(default_factory=dict)
 
 
+class MapRevisionActionPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_current_revision_id: str | None = Field(default=None, min_length=1, max_length=100)
+
+
 class GuardrailConfigPayload(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
 
@@ -1052,11 +1078,31 @@ class MemoryPayload(BaseModel):
 
 
 class ObservationPayload(BaseModel):
-    raw_mac: str | None = None
-    device_id: str | None = None
-    stay_id: str | None = None
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str = Field(min_length=1, max_length=200)
+    raw_mac: str = Field(min_length=12, max_length=32)
     access_point_identifier: str = Field(min_length=1, max_length=160)
-    observed_at: int | None = None
+
+
+class GuestPrivacyPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str = Field(min_length=1, max_length=200)
+    consents: dict[str, StrictBool] = Field(default_factory=dict)
+
+
+class GuestNotificationPreferencePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    category: str = Field(min_length=1, max_length=40)
+    enabled: StrictBool
+
+
+class GuestNotificationAckPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: str = Field(pattern=r"^(delivered|read)$")
 
 
 class AnalyticsQuery(BaseModel):
@@ -1123,9 +1169,10 @@ class StaffReplyPayload(BaseModel):
 
 
 class NotificationEvaluatePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     stay_id: str | None = None
     verified_payload: dict[str, Any] = Field(default_factory=dict)
-    guest_preferences: dict[str, Any] = Field(default_factory=dict)
     current_zone_id: str | None = None
 
 
@@ -1529,7 +1576,7 @@ async def guest_floor_map_asset(request: Request, map_id: str, property_id: str 
     record = _guest_property(request, property_id)
     _enforce_guest_network(request, record)
     try:
-        return _floor_map_file_response(zones.floor_map_path(record.property_id, map_id))
+        return _floor_map_file_response(zones.floor_map_path(record.property_id, map_id, guest=True))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -1558,13 +1605,19 @@ async def guest_intro_asset(request: Request, filename: str, property_id: str | 
 
 
 @app.get("/api/guest/navigation/route")
-async def guest_route(request: Request, from_node_id: str, to_node_id: str, property_id: str | None = None) -> dict[str, Any]:
+async def guest_route(
+    request: Request,
+    from_node_id: str,
+    to_node_id: str,
+    property_id: str | None = None,
+    accessible: bool = False,
+) -> dict[str, Any]:
     record = _guest_property(request, property_id)
     _enforce_guest_network(request, record)
     if not normalize_guardrails(record.guardrails)["directions_enabled"]:
         raise GuardrailDenied(GuardrailDecision(False, "Directions are not enabled for this property.", "internet_access", record.property_id, 1, False, False, _request_id(request)))
     try:
-        return zones.route(record.property_id, from_node_id, to_node_id, guest=True)
+        return zones.route(record.property_id, from_node_id, to_node_id, guest=True, accessible=accessible)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -1651,6 +1704,133 @@ async def guest_requests(request: Request, session_id: str | None = None) -> dic
         property_record, session, hospitality, guest_identities, personalization, store,
     )
     return {"requests": context["recent_requests"]}
+
+
+@app.get("/api/guest/privacy")
+async def get_guest_privacy(request: Request, session_id: str | None = None) -> dict[str, Any]:
+    session, _ = _guest_session(request, session_id)
+    linked_stay = (
+        guest_identities.active_stay_for_session(session.property_id, session.session_id)
+        if session.authenticated else None
+    )
+    return {
+        "consents": privacy_consents.get(
+            session.property_id,
+            session.session_id,
+            location_stay_id=(linked_stay or {}).get("stay_id"),
+        )
+    }
+
+
+@app.get("/api/guest/notifications")
+async def get_guest_notifications(request: Request, session_id: str | None = None) -> dict[str, Any]:
+    session, _ = _guest_session(request, session_id)
+    linked_stay = (
+        guest_identities.active_stay_for_session(session.property_id, session.session_id)
+        if session.authenticated else None
+    )
+    if linked_stay is None:
+        return {
+            "notifications": [],
+            "preferences": dict(GUEST_NOTIFICATION_DEFAULT_PREFERENCES),
+            "can_manage": False,
+        }
+    stay_id = str(linked_stay["stay_id"])
+    notifications = hospitality.list_guest_inbox_notifications(session.property_id, stay_id)
+    public_notifications = [{
+        key: item.get(key)
+        for key in (
+            "notification_id", "category", "title", "body", "status",
+            "created_at", "sent_at", "delivered_at", "read_at", "expires_at",
+        )
+    } for item in notifications if item.get("status") in {"sent", "delivered", "read"}]
+    return {
+        "notifications": public_notifications,
+        "preferences": hospitality.get_guest_notification_preferences(session.property_id, stay_id),
+        "can_manage": True,
+    }
+
+
+@app.put("/api/guest/notifications/preferences")
+async def set_guest_notification_preference(
+    payload: GuestNotificationPreferencePayload,
+    request: Request,
+    session_id: str | None = None,
+) -> dict[str, Any]:
+    session, _ = _guest_session(request, session_id)
+    linked_stay = (
+        guest_identities.active_stay_for_session(session.property_id, session.session_id)
+        if session.authenticated else None
+    )
+    if linked_stay is None:
+        raise HTTPException(status_code=409, detail="Notification preferences require an active linked stay.")
+    if payload.category not in NOTIFICATION_CATEGORIES:
+        raise HTTPException(status_code=422, detail="Invalid notification category.")
+    consents = privacy_consents.get(session.property_id, session.session_id)
+    if payload.enabled and payload.category == "experience" and not consents["proactive_notifications"]:
+        raise HTTPException(status_code=409, detail="Enable proactive notifications in Privacy choices first.")
+    if payload.enabled and payload.category == "promotional" and not consents["promotional_messages"]:
+        raise HTTPException(status_code=409, detail="Enable promotional messages in Privacy choices first.")
+    try:
+        preferences = hospitality.set_guest_notification_preference(
+            session.property_id, str(linked_stay["stay_id"]), payload.category, payload.enabled,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"preferences": preferences}
+
+
+@app.post("/api/guest/notifications/{notification_id}/ack")
+async def acknowledge_guest_notification(
+    notification_id: str,
+    payload: GuestNotificationAckPayload,
+    request: Request,
+    session_id: str | None = None,
+) -> dict[str, Any]:
+    session, _ = _guest_session(request, session_id)
+    linked_stay = (
+        guest_identities.active_stay_for_session(session.property_id, session.session_id)
+        if session.authenticated else None
+    )
+    if linked_stay is None:
+        raise HTTPException(status_code=404, detail="Notification not found.")
+    try:
+        item = hospitality.acknowledge_guest_inbox_notification(
+            session.property_id,
+            str(linked_stay["stay_id"]),
+            notification_id,
+            payload.action,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Notification not found.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"notification_id": item["notification_id"], "status": item["status"]}
+
+
+@app.put("/api/guest/privacy")
+async def set_guest_privacy(payload: GuestPrivacyPayload, request: Request, session_id: str | None = None) -> dict[str, Any]:
+    session, _ = _guest_session(request, payload.session_id or session_id)
+    linked_stay = (
+        guest_identities.active_stay_for_session(session.property_id, session.session_id)
+        if session.authenticated else None
+    )
+    if payload.consents.get("location_services") is True and linked_stay is None:
+        raise HTTPException(status_code=409, detail="Location consent requires an active linked stay.")
+    expiry = (linked_stay or {}).get("retention_until")
+    try:
+        updated = privacy_consents.set(
+            session.property_id,
+            session.session_id,
+            payload.consents,
+            expires_at=expiry,
+            location_stay_id=(linked_stay or {}).get("stay_id"),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if payload.consents.get("location_services") is False and linked_stay:
+        location_analytics.delete_stay_data(session.property_id, linked_stay["stay_id"])
+    return {"consents": updated}
 
 
 @app.get("/api/guest/personalization")
@@ -4093,6 +4273,21 @@ async def upsert_property(property_id: str, payload: PropertyPayload, request: R
     record.hotel_name = payload.hotel_name.strip()
     if "timezone" in updates:
         record.timezone = payload.timezone.strip()
+    if "country" in updates:
+        record.country = payload.country.strip()
+    coordinates_changed = existing is None or (
+        record.latitude != existing.latitude or record.longitude != existing.longitude
+    )
+    if coordinates_changed and ({"latitude", "longitude"} & set(updates)):
+        if (record.latitude is None) != (record.longitude is None):
+            raise HTTPException(status_code=422, detail="Set both property coordinates or clear both.")
+        if record.latitude is not None and record.longitude is not None and (
+            not math.isfinite(float(record.latitude))
+            or not math.isfinite(float(record.longitude))
+            or not -90 <= float(record.latitude) <= 90
+            or not -180 <= float(record.longitude) <= 180
+        ):
+            raise HTTPException(status_code=422, detail="Property coordinates are outside the valid latitude/longitude range.")
     try:
         record.domain = _validated_guest_domain(record.domain)
     except ValueError as exc:
@@ -4865,8 +5060,16 @@ async def refresh_property_ai_models(property_id: str, provider_id: str) -> dict
     try:
         models = await ai_models.list_models(property_id, provider_id)
         ai_provider_store.save_discovered_models(property_id, provider_id, models)
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=friendly_http_error(exc.response.status_code),
+        ) from exc
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=503,
+            detail=friendly_error(provider_id, exc),
+        ) from exc
     return {"models": models}
 
 
@@ -4949,7 +5152,72 @@ async def delete_property(property_id: str) -> dict[str, Any]:
 @app.get("/api/admin/properties/{property_id}/zones")
 async def admin_zones(property_id: str) -> dict[str, Any]:
     _require_property(property_id)
-    return zones.overview(property_id)
+    return {**zones.overview(property_id), "map_revision_state": zones.map_revision_state(property_id)}
+
+
+@app.post("/api/admin/properties/{property_id}/map-revisions")
+async def create_map_revision(property_id: str, request: Request) -> dict[str, Any]:
+    _require_property(property_id)
+    principal = _admin_principal(request)
+    try:
+        return zones.create_map_revision(property_id, created_by=principal.user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/admin/properties/{property_id}/map-revisions/{revision_id}/preview")
+async def preview_map_revision(property_id: str, revision_id: str) -> dict[str, Any]:
+    _require_property(property_id)
+    try:
+        return zones.preview_map_revision(property_id, revision_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/map-revisions/{revision_id}/publish")
+async def publish_map_revision(
+    property_id: str,
+    revision_id: str,
+    payload: MapRevisionActionPayload,
+    request: Request,
+) -> dict[str, Any]:
+    _require_property(property_id)
+    principal = _admin_principal(request)
+    try:
+        return zones.publish_map_revision(
+            property_id,
+            revision_id,
+            published_by=principal.user_id,
+            expected_current_revision_id=payload.expected_current_revision_id,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/map-revisions/{revision_id}/restore")
+async def restore_map_revision(
+    property_id: str,
+    revision_id: str,
+    payload: MapRevisionActionPayload,
+    request: Request,
+) -> dict[str, Any]:
+    _require_property(property_id)
+    principal = _admin_principal(request)
+    try:
+        return zones.restore_map_revision(
+            property_id,
+            revision_id,
+            restored_by=principal.user_id,
+            expected_current_revision_id=payload.expected_current_revision_id,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.post("/api/admin/properties/{property_id}/buildings")
@@ -5364,6 +5632,9 @@ async def checkout_stay(property_id: str, stay_id: str) -> dict[str, Any]:
     try:
         linked_sessions = guest_identities.sessions_for_stay(property_id, stay_id)
         result = guest_identities.checkout(property_id, stay_id, anonymize=True)
+        hospitality.expire_guest_inbox_for_stay(property_id, stay_id)
+        privacy_consents.delete_sessions(property_id, linked_sessions)
+        location_analytics.delete_stay_data(property_id, stay_id)
         policy = personalization.policy(property_id)
         personalization.checkout(property_id, linked_sessions, delete_profile=bool(policy["delete_profile_at_checkout"]))
         return result
@@ -5374,25 +5645,46 @@ async def checkout_stay(property_id: str, stay_id: str) -> dict[str, Any]:
 @app.post("/api/admin/properties/{property_id}/location/observations")
 async def record_location_observation(property_id: str, payload: ObservationPayload) -> dict[str, Any]:
     _require_property(property_id)
+    property_record = properties.get(property_id)
+    if property_record is None:
+        raise HTTPException(status_code=404, detail="Property not found.")
+    if not isinstance(property_record.guardrails, dict) or property_record.guardrails.get("location_access_enabled") is not True:
+        raise HTTPException(status_code=403, detail="Location collection is not enabled for this property.")
+
+    # The WLAN MAC is only considered after the server has established an
+    # authenticated, property-scoped session, active linked stay, and consent.
+    session = store.peek(payload.session_id)
+    if session is None or session.property_id != property_id:
+        raise HTTPException(status_code=401, detail="Concierge session expired.")
+    if not session.authenticated:
+        raise HTTPException(status_code=403, detail="An authenticated guest session is required.")
+    stay = guest_identities.active_stay_for_session(property_id, session.session_id)
+    if stay is None:
+        raise HTTPException(status_code=403, detail="No active stay is linked to this guest session.")
+    consents = privacy_consents.get(
+        property_id,
+        session.session_id,
+        location_stay_id=stay["stay_id"],
+    )
+    if not consents["location_services"]:
+        raise HTTPException(status_code=403, detail="Guest location consent is required.")
+
+    try:
+        device_id = pseudonymous_device_id(guest_identities.property_secret(property_id), payload.raw_mac)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not hmac.compare_digest(device_id, str(stay["device_id"])):
+        raise HTTPException(status_code=403, detail="Observed device is not linked to the consenting stay.")
+
     zone = zones.zone_for_ap(property_id, payload.access_point_identifier)
     if zone is None:
         raise HTTPException(status_code=404, detail="Access point is not mapped to a zone.")
-    if payload.device_id:
-        device_id = payload.device_id
-    elif payload.raw_mac:
-        try:
-            device_id = guest_identities.observe_device(property_id, payload.raw_mac)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-    else:
-        raise HTTPException(status_code=422, detail="raw_mac or device_id is required.")
     return location_analytics.record_observation(
         property_id,
         device_id,
         zone["zone_id"],
         payload.access_point_identifier,
-        stay_id=payload.stay_id,
-        observed_at=payload.observed_at,
+        stay_id=stay["stay_id"],
     )
 
 
@@ -5840,6 +6132,91 @@ async def create_service_request(property_id: str, payload: GenericPayload, requ
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+def _dispatch_service_status_to_guest_inbox(
+    property_id: str,
+    previous: dict[str, Any] | None,
+    updated: dict[str, Any],
+) -> None:
+    """Put a status-only, in-app update in the linked active guest stay's inbox."""
+    old_status = str((previous or {}).get("status") or "")
+    new_status = str(updated.get("status") or "")
+    session_id = str(updated.get("stay_id") or "")
+    if not session_id or old_status == new_status:
+        return
+    linked_stay = guest_identities.active_stay_for_session(property_id, session_id)
+    if linked_stay is None:
+        return
+    request_id = str(updated.get("request_id") or "")
+    if not request_id:
+        return
+    event_id = f"service-status:{request_id}:{old_status or 'unknown'}:{new_status}:{int(updated.get('updated_at') or 0)}"
+    status_label = new_status.replace("_", " ")
+    try:
+        property_record = properties.get(property_id)
+        delivery_policy = (
+            (property_record.app_settings or {}).get("guest_notification_delivery", {})
+            if property_record else {}
+        )
+        queued = hospitality.create_guest_inbox_notification(
+            property_id,
+            str(linked_stay["stay_id"]),
+            event_id,
+            "operational",
+            "Service request update",
+            f"Your service request status changed to {status_label}.",
+            expires_at=int(time.time()) + 30 * 24 * 60 * 60,
+            timezone_name=property_record.timezone if property_record else "UTC",
+            quiet_hours=delivery_policy.get("quiet_hours", {"start": "22:00", "end": "08:00"}),
+            send_window=delivery_policy.get("send_window", {}),
+            max_per_window=delivery_policy.get("max_per_window", 10),
+            frequency_window_seconds=delivery_policy.get("frequency_window_seconds", 24 * 60 * 60),
+        )
+        if queued["status"] == "queued":
+            _dispatch_guest_inbox_notifications(property_id=property_id)
+    except PermissionError:
+        # A guest can turn off operational inbox updates; the hotel request
+        # remains updated and no alternate channel is used.
+        return
+    except Exception:
+        logger.exception("Could not dispatch service status update to guest inbox")
+
+
+def _dispatch_guest_inbox_notifications(*, property_id: str | None = None) -> int:
+    """Deliver due in-app messages and preserve sent vs. client-acknowledged states."""
+    try:
+        claimed = hospitality.claim_guest_inbox_notifications(limit=20, property_id=property_id)
+    except Exception as exc:
+        logger.error("Could not claim guest inbox notifications (%s)", exc.__class__.__name__)
+        return 0
+    sent = 0
+    for notification in claimed:
+        scope_property = str(notification["property_id"])
+        scope_stay = str(notification["stay_id"])
+        notification_id = str(notification["notification_id"])
+        claim_token = str(notification["claim_token"])
+        try:
+            active = any(
+                str(stay.get("stay_id")) == scope_stay and stay.get("status") == "active"
+                for stay in guest_identities.list_stays(scope_property)
+            )
+            if not active:
+                hospitality.expire_guest_inbox_for_stay(scope_property, scope_stay)
+                continue
+            hospitality.mark_guest_inbox_notification_sent(
+                scope_property, scope_stay, notification_id, claim_token=claim_token,
+            )
+            sent += 1
+        except Exception as exc:
+            try:
+                hospitality.retry_guest_inbox_notification(
+                    scope_property, scope_stay, notification_id, claim_token,
+                    f"In-app dispatch failed ({exc.__class__.__name__}).",
+                )
+            except Exception as retry_exc:
+                logger.error("Could not record guest notification retry (%s)", retry_exc.__class__.__name__)
+    return sent
+
+
 @app.put("/api/admin/properties/{property_id}/service-requests/{request_id}/status")
 async def update_service_request_status(
     property_id: str, request_id: str, payload: ServiceStatusPayload, request: Request
@@ -5847,7 +6224,9 @@ async def update_service_request_status(
     _require_property(property_id)
     _require_department_request_scope(_admin_principal(request), property_id, request_id)
     try:
+        previous = hospitality.get_service_request(property_id, request_id)
         request_record = hospitality.update_service_status(property_id, request_id, payload.status)
+        _dispatch_service_status_to_guest_inbox(property_id, previous, request_record)
         await _dispatch_webhooks(property_id, "guest.request.updated", {"request": request_record})
         return request_record
     except KeyError as exc:
@@ -5933,17 +6312,49 @@ async def create_notification_rule(property_id: str, payload: GenericPayload) ->
 @app.post("/api/admin/properties/{property_id}/notifications/rules/{rule_id}/evaluate")
 async def evaluate_notification(property_id: str, rule_id: str, payload: NotificationEvaluatePayload) -> dict[str, Any]:
     _require_property(property_id)
+    if not payload.stay_id:
+        raise HTTPException(status_code=422, detail="An active stay is required for notification evaluation.")
+    active_stay = next((
+        stay for stay in guest_identities.list_stays(property_id)
+        if str(stay.get("stay_id")) == payload.stay_id and stay.get("status") == "active"
+    ), None)
+    if active_stay is None:
+        raise HTTPException(status_code=409, detail="Notification evaluation requires an active property stay.")
+    stored_preferences = hospitality.get_guest_notification_preferences(property_id, payload.stay_id)
+    preferences = {"promotional_consent": False, "proactive_notifications": False}
+    for concierge_session_id in guest_identities.sessions_for_stay(property_id, payload.stay_id):
+        linked = guest_identities.active_stay_for_session(property_id, concierge_session_id)
+        if not linked or str(linked.get("stay_id")) != payload.stay_id:
+            continue
+        consent = privacy_consents.get(property_id, concierge_session_id, location_stay_id=payload.stay_id)
+        preferences["promotional_consent"] = preferences["promotional_consent"] or consent["promotional_messages"]
+        preferences["proactive_notifications"] = preferences["proactive_notifications"] or consent["proactive_notifications"]
+    preferences["promotional_consent"] = bool(preferences["promotional_consent"] and stored_preferences["promotional"])
+    preferences["proactive_notifications"] = bool(preferences["proactive_notifications"] and stored_preferences["experience"])
     try:
         return hospitality.evaluate_notification(
             property_id,
             rule_id,
             payload.stay_id,
             payload.verified_payload,
-            payload.guest_preferences,
+            preferences,
             payload.current_zone_id,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/admin/properties/{property_id}/notifications/deliveries")
+async def guest_notification_delivery_history(property_id: str, request: Request, limit: int = 100) -> dict[str, Any]:
+    _require_property(property_id)
+    _admin_principal(request)
+    try:
+        return {
+            "deliveries": hospitality.list_guest_notification_history(property_id, limit=limit),
+            "dead_letters": hospitality.list_guest_notification_dead_letters(property_id, limit=min(limit, 500)),
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.post("/api/admin/properties/{property_id}/journey-events")
@@ -6400,10 +6811,9 @@ async def _chat_response(
     }
     context = AIInputSanitizer.sanitize_context(context)
     policy = normalize_guardrails(property_record.guardrails)
-    location = {
-        "latitude": property_record.latitude if personalization_policy["allow_location_aware_recommendations"] else None,
-        "longitude": property_record.longitude if personalization_policy["allow_location_aware_recommendations"] else None,
-    }
+    # Nearby discovery uses the property's published coordinates, never a
+    # guest's device location. The Places adapter sends a fixed category query.
+    location = {"latitude": property_record.latitude, "longitude": property_record.longitude}
     place_results = []
     allow_personalized_places = personalization_policy["enabled"] and personalization_policy["allow_internet_recommendations"]
     place_query = sanitized_message
@@ -6419,9 +6829,43 @@ async def _chat_response(
         for token in ("tonight", "tomorrow", "later", "this weekend", "next week", "saturday", "sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "free before", "hours free")
     )
     prefer_open_now = not future_schedule_request
-    if policy["internet_search_enabled"] and personalization_policy["allow_internet_recommendations"] and any(policy[key] for key in ("restaurant_search_enabled", "attractions_enabled")):
-        place_results = await places.search(place_query, location.get("latitude"), location.get("longitude"), open_now=prefer_open_now)
-        place_results = rank_places(place_results, personalization_context.get("preferences"), conversation_history, prefer_open_now=prefer_open_now)
+    nearby_status = "not_requested"
+    nearby_request = places.should_search(place_query)
+    nearby_categories_enabled = any(policy[key] for key in ("restaurant_search_enabled", "attractions_enabled"))
+    if nearby_request and not policy["nearby_places_enabled"]:
+        nearby_status = "disabled"
+    elif nearby_request and not policy["internet_search_enabled"]:
+        nearby_status = "disabled"
+    elif nearby_request and not nearby_categories_enabled:
+        nearby_status = "disabled"
+    elif nearby_request and not privacy_consents.get(session.property_id, session.session_id)["external_data_processing"]:
+        nearby_status = "consent_required"
+    elif nearby_request and not personalization_policy["allow_internet_recommendations"]:
+        nearby_status = "disabled"
+    elif nearby_request:
+        property_rate_allowed = await _rate_limit_allowed(
+            f"nearby-search:property:{session.property_id}", 120, 60
+        )
+        session_rate_allowed = await _rate_limit_allowed(
+            f"nearby-search:session:{session.property_id}:{session.session_id}", 10, 300
+        )
+        if not property_rate_allowed or not session_rate_allowed:
+            nearby_status = "rate_limited"
+        else:
+            place_results, nearby_status = await places.search_with_status(
+                place_query,
+                location.get("latitude"),
+                location.get("longitude"),
+                open_now=prefer_open_now,
+                radius_meters=policy["nearby_search_radius_meters"],
+                max_results=policy["nearby_max_results"],
+            )
+            place_results = rank_places(
+                place_results,
+                personalization_context.get("preferences"),
+                conversation_history,
+                prefer_open_now=prefer_open_now,
+            )
     for item in place_results:
         provider_place_id = str(item.get("place_id") or item.get("maps_url") or item.get("name") or "unidentified")
         item["source_ids"] = [guest_source_id(session.property_id, "external_place", provider_place_id)]
@@ -6438,7 +6882,19 @@ async def _chat_response(
             ]
             answer_source = "places_search"
         else:
-            answer = "I don't have verified nearby listings available right now. Please ask the hotel concierge for current local recommendations."
+            nearby_messages = {
+                "consent_required": "Nearby listings use an external places provider. Enable external data processing in Privacy choices to search, or ask the hotel concierge for recommendations.",
+                "configuration_required": "Nearby listings are not configured for this hotel yet. Please ask the hotel concierge for local recommendations.",
+                "disabled": "Nearby search is currently disabled for this hotel. Please ask the hotel concierge for local recommendations.",
+                "rate_limited": "Nearby listings are temporarily busy. Please ask the hotel concierge for current local recommendations.",
+                "quota_exhausted": "Nearby listings are temporarily unavailable. Please ask the hotel concierge for current local recommendations.",
+                "unavailable": "Nearby listings could not be reached just now. Please ask the hotel concierge for current local recommendations.",
+                "empty": "No verified places were found within this hotel's configured search radius. Please ask the hotel concierge for recommendations.",
+            }
+            answer = nearby_messages.get(
+                nearby_status,
+                "I don't have verified nearby listings available right now. Please ask the hotel concierge for current local recommendations.",
+            )
             grounded_claims = []
             answer_source = "concierge_contact"
         store.record_ai_activity(
@@ -6457,14 +6913,28 @@ async def _chat_response(
             "contact_concierge": not bool(place_results),
             "concierge_phone": _concierge_phone(property_record),
             "live_places_used": bool(place_results),
+            "nearby_status": nearby_status,
+            "nearby_results_stale": False,
             "personalized_recommendations": uses_guest_recommendations,
             "places": place_results,
             "context_titles": [item.get("title") for item in context],
             "grounded_claims": grounded_claims,
         }
 
-    if dining_search and place_results and grounded_answer is None:
-        answer = "I found nearby dining options in current listings. Please confirm the venue's hours and menu before you go."
+    if dining_search and grounded_answer is None:
+        answer = (
+            "I found nearby dining options in current listings. Please confirm the venue's hours and menu before you go."
+            if place_results else
+            {
+                "consent_required": "Nearby dining search uses an external places provider. Enable external data processing in Privacy choices to search, or ask the hotel concierge for dining options.",
+                "configuration_required": "Nearby listings are not configured for this hotel yet. Please ask the hotel concierge for current dining options.",
+                "disabled": "Nearby search is currently disabled for this hotel. Please ask the hotel concierge for current dining options.",
+                "rate_limited": "Nearby listings are temporarily busy. Please ask the hotel concierge for current dining options.",
+                "quota_exhausted": "Nearby listings are temporarily unavailable. Please ask the hotel concierge for current dining options.",
+                "unavailable": "Nearby listings could not be reached just now. Please ask the hotel concierge for current dining options.",
+                "empty": "No verified dining places were found within this hotel's configured search radius. Please ask the hotel concierge for current dining options.",
+            }.get(nearby_status, "I don't have verified nearby dining options available right now. Please ask the hotel concierge for current recommendations.")
+        )
         grounded_claims = [
             {"content": str(item.get("name") or "Nearby dining venue"), "source_ids": item["source_ids"]}
             for item in place_results[:8]
@@ -6478,15 +6948,17 @@ async def _chat_response(
             await stream_callback(answer)
         return {
             "answer": answer,
-            "source": "places_search",
-            "provider": "places_search",
+            "source": "places_search" if place_results else "concierge_contact",
+            "provider": "places_search" if place_results else "none",
             "model": "grounded-listings",
             "mode": "fast",
             "escalated": False,
             "contact_concierge": False,
-            "live_places_used": True,
+            "live_places_used": bool(place_results),
             "personalized_recommendations": uses_guest_recommendations,
             "places": place_results,
+            "nearby_status": nearby_status,
+            "nearby_results_stale": False,
             "context_titles": [item.get("title") for item in context],
             "grounded_claims": grounded_claims,
         }
@@ -6519,6 +6991,9 @@ async def _chat_response(
         and str(item.get("content") or "").strip()
         and not requires_verified_guest_answer(str(item.get("content") or ""))
     ][-6:]
+    allow_cloud_provider = privacy_consents.get(
+        session.property_id, session.session_id,
+    )["external_data_processing"]
 
     try:
         # Buffer provider output until the grounded-claim validator has approved
@@ -6539,6 +7014,7 @@ async def _chat_response(
             # ordinary conversational continuity.
             conversation_history=safe_guest_history,
             guest_context=safe_guest_context,
+            allow_cloud=allow_cloud_provider,
         )
         provider = model_result.provider
         model = model_result.model
@@ -7078,17 +7554,30 @@ async def _compose_intelligent_guest_response(
                 name = str(place.get("name") or "").strip()
                 if not name:
                     continue
+                price_labels = {
+                    "PRICE_LEVEL_FREE": "Free",
+                    "PRICE_LEVEL_INEXPENSIVE": "$",
+                    "PRICE_LEVEL_MODERATE": "$$",
+                    "PRICE_LEVEL_EXPENSIVE": "$$$",
+                    "PRICE_LEVEL_VERY_EXPENSIVE": "$$$$",
+                }
+                distance_meters = place.get("distance_meters")
+                detail_parts = [
+                    f"Straight-line distance: {distance_meters} m"
+                    if isinstance(distance_meters, int) and place.get("distance_type") == "straight_line" else "",
+                    f"Rating: {place['rating']:.1f}/5" if isinstance(place.get("rating"), (int, float)) else "",
+                    f"{place['reviews']:,} reviews" if isinstance(place.get("reviews"), int) and place["reviews"] >= 0 else "",
+                    price_labels.get(str(place.get("price_level") or ""), ""),
+                    " · ".join(str(value) for value in (place.get("opening_hours") or [])[:3] if value)
+                    if isinstance(place.get("opening_hours"), list) else str(place.get("opening_hours") or ""),
+                ]
                 nearby_dining_cards.append({
                     "id": new_ui_id("nearby-dining"),
                     "type": "restaurant",
                     "title": name[:120],
                     "subtitle": str(place.get("category") or "Nearby dining")[:120],
                     "description": str(place.get("description") or "")[:500],
-                    "detail": " · ".join(str(value) for value in (
-                        f"Distance: {place.get('distance_meters')} m" if place.get("distance_meters") is not None else "",
-                        " · ".join(str(value) for value in (place.get("opening_hours") or [])[:3] if value)
-                        if isinstance(place.get("opening_hours"), list) else str(place.get("opening_hours") or ""),
-                    ) if value)[:300],
+                    "detail": " · ".join(value for value in detail_parts if value)[:300],
                     "location": str(place.get("address") or "")[:240],
                     "opening_hours": " · ".join(str(value) for value in (place.get("opening_hours") or [])[:3] if value)[:160]
                     if isinstance(place.get("opening_hours"), list) else str(place.get("opening_hours") or "")[:160],
@@ -7177,18 +7666,30 @@ async def _compose_intelligent_guest_response(
                     str(place.get("place_id") or place.get("maps_url") or name),
                 )
             opening_hours = place.get("opening_hours") or []
+            price_labels = {
+                "PRICE_LEVEL_FREE": "Free",
+                "PRICE_LEVEL_INEXPENSIVE": "$",
+                "PRICE_LEVEL_MODERATE": "$$",
+                "PRICE_LEVEL_EXPENSIVE": "$$$",
+                "PRICE_LEVEL_VERY_EXPENSIVE": "$$$$",
+            }
+            distance_meters = place.get("distance_meters")
+            detail_parts = [
+                f"Straight-line distance: {distance_meters} m"
+                if isinstance(distance_meters, int) and place.get("distance_type") == "straight_line" else "",
+                f"Rating: {place['rating']:.1f}/5" if isinstance(place.get("rating"), (int, float)) else "",
+                f"{place['reviews']:,} reviews" if isinstance(place.get("reviews"), int) and place["reviews"] >= 0 else "",
+                price_labels.get(str(place.get("price_level") or ""), ""),
+                " · ".join(str(item) for item in opening_hours[:3] if item)
+                if isinstance(opening_hours, list) else str(opening_hours or ""),
+            ]
             place_cards.append({
                 "id": new_ui_id("place"),
                 "type": "place",
                 "title": name[:120],
                 "subtitle": str(place.get("category") or "Nearby place")[:120],
                 "description": str(place.get("description") or "")[:500],
-                "detail": " · ".join(
-                    part for part in (
-                        f"Distance: {place.get('distance_meters')} m" if place.get("distance_meters") is not None else "",
-                        " · ".join(str(item) for item in opening_hours[:3] if item) if isinstance(opening_hours, list) else str(opening_hours or ""),
-                    ) if part
-                )[:300],
+                "detail": " · ".join(part for part in detail_parts if part)[:300],
                 "location": str(place.get("address") or "")[:240],
                 "opening_hours": " · ".join(str(item) for item in opening_hours[:3] if item)[:160] if isinstance(opening_hours, list) else str(opening_hours or "")[:160],
                 "maps_url": str(place.get("maps_url") or "")[:1000],
@@ -7217,9 +7718,10 @@ async def _compose_intelligent_guest_response(
                 })
             if place_cards:
                 blocks[0]["content"] = (
-                    "Here are a few places saved as hotel recommendations. This demo has no live hours or travel details; "
+                    str(blocks[0].get("content") or "")
+                    + " Hotel recommendations below are property-supplied and may not include live hours or travel details; "
                     "please check current information before you go."
-                )
+                )[:6000]
         if place_cards:
             blocks.append({
                 "id": new_ui_id("nearby-places"),
@@ -7973,7 +8475,7 @@ def _is_intelligent_attraction_request(message: str) -> bool:
 def _is_intelligent_map_request(message: str) -> bool:
     normalized = " ".join(str(message or "").casefold().split())
     return any(term in normalized for term in (
-        "directions", "route to", "navigate to", "floor map", "facility map", "show me the map", "map of",
+        "directions", "route to", "route from", "accessible route", "navigate to", "floor map", "facility map", "show me the map", "map of",
     )) or bool(re.search(
         r"\b(?:where is|where can i find|where is the way to|how do i get to|how can i reach|directions? to|show me (?:the )?map|is there a map)\b",
         normalized,
@@ -8423,14 +8925,16 @@ def _intelligent_guest_directions_block(
     *,
     enabled: bool = True,
 ) -> dict[str, Any] | None:
-    """Return same-floor routes only from explicit, guest-visible graph endpoints."""
+    """Return routes only from explicit guest-visible endpoints and validated floor maps."""
     if not enabled:
         return None
     match = re.search(r"\bfrom\s+(.+?)\s+to\s+(.+?)\s*[?.!,]*$", str(query or ""), re.IGNORECASE)
     if not match:
         return None
     start_text = normalize_guest_text(match.group(1)).strip(" .,!?")
-    end_text = normalize_guest_text(match.group(2)).strip(" .,!?")
+    end_text = normalize_guest_text(match.group(2)).strip(" .,!? ")
+    end_text = re.sub(r"\b(?:using|with|via)\s+(?:a\s+)?(?:wheelchair\s+)?accessible(?:\s+route)?$", "", end_text).strip()
+    end_text = re.sub(r"\b(?:wheelchair|step[ -]?free|mobility)\s+(?:accessible\s+)?(?:route|directions?)?$", "", end_text).strip()
     if not start_text or not end_text:
         return None
     overview = zones.overview(property_id, guest=True)
@@ -8438,6 +8942,11 @@ def _intelligent_guest_directions_block(
         item for item in overview.get("navigation_nodes", [])
         if item.get("guest_visible") and str(item.get("label") or "").strip()
     ]
+    floor_labels = {
+        str(item.get("floor_id") or ""): normalize_guest_text(str(item.get("name") or ""))
+        for item in overview.get("floors", [])
+        if item.get("floor_id") and item.get("name")
+    }
 
     def resolve(text: str, preferred_floor_id: str = "") -> dict[str, Any] | None:
         matches = [
@@ -8449,6 +8958,14 @@ def _intelligent_guest_directions_block(
             same_floor = [item for item in matches if str(item.get("floor_id") or "") == preferred_floor_id]
             if same_floor:
                 matches = same_floor
+        explicit_floor_id = next((
+            floor_id for floor_id, label in floor_labels.items()
+            if label and label in text
+        ), "")
+        if explicit_floor_id:
+            matching_floor = [item for item in matches if str(item.get("floor_id") or "") == explicit_floor_id]
+            if matching_floor:
+                matches = matching_floor
         if not matches:
             return None
         matches.sort(key=lambda item: len(normalize_guest_text(str(item.get("label") or ""))), reverse=True)
@@ -8463,8 +8980,15 @@ def _intelligent_guest_directions_block(
     start = resolve(start_text, str(end.get("floor_id") or "") if end else "")
     if not start or not end or start.get("node_id") == end.get("node_id"):
         return None
+    accessible = bool(re.search(r"\b(?:accessible|wheelchair|step[ -]?free|mobility)\b", str(query or ""), re.IGNORECASE))
     try:
-        route = zones.route(property_id, str(start["node_id"]), str(end["node_id"]), guest=True)
+        route = zones.route(
+            property_id,
+            str(start["node_id"]),
+            str(end["node_id"]),
+            guest=True,
+            accessible=accessible,
+        )
     except (KeyError, ValueError):
         return None
     labels = route.get("labels") or []
@@ -8472,20 +8996,15 @@ def _intelligent_guest_directions_block(
     if len(labels) < 2 or len(labels) != len(node_ids) or len(labels) > 40:
         return None
     visible_nodes = {str(item.get("node_id")): item for item in nodes}
-    # Navigation edges currently have guest visibility but no configured
-    # vertical-transfer/access-rule model. Do not imply a verified route across
-    # floors until the required lift/stair and access rules are represented.
     route_nodes = [visible_nodes.get(str(node_id)) for node_id in node_ids]
-    if (
-        any(node is None or not node.get("floor_id") for node in route_nodes)
-        or len({str(node.get("floor_id") or "") for node in route_nodes if node}) != 1
-    ):
+    if any(node is None or not node.get("floor_id") for node in route_nodes):
         return None
-    route_floor_id = str(route_nodes[0].get("floor_id") or "") if route_nodes else ""
-    floorplan_exists = False
+    route_floor_ids = {str(node.get("floor_id") or "") for node in route_nodes if node}
+    valid_map_floors: set[str] = set()
     for map_record in overview.get("maps", []):
+        floor_id = str(map_record.get("floor_id") or "")
         if (
-            str(map_record.get("floor_id") or "") != route_floor_id
+            floor_id not in route_floor_ids
             or map_record.get("content_type") not in {"image/png", "image/jpeg", "image/svg+xml"}
         ):
             continue
@@ -8495,19 +9014,42 @@ def _intelligent_guest_directions_block(
         except (KeyError, TypeError, ValueError, OSError, OverflowError):
             continue
         if 1 <= width <= 25_000 and 1 <= height <= 25_000 and map_path.is_file():
-            floorplan_exists = True
-            break
-    if not floorplan_exists:
+            valid_map_floors.add(floor_id)
+    if not route_floor_ids or not route_floor_ids <= valid_map_floors:
         return None
+    transitions = {
+        str(item.get("to_node_id") or ""): item
+        for item in route.get("transitions", [])
+        if isinstance(item, dict)
+    }
+    route_steps = []
+    for index, (label, node_id) in enumerate(zip(labels, node_ids)):
+        node = route_nodes[index]
+        floor_id = str(node.get("floor_id") or "")
+        transition = transitions.get(str(node_id))
+        instruction = f"Start at {label}." if index == 0 else f"Continue to {label}."
+        if transition and transition.get("from_floor_id") != transition.get("to_floor_id"):
+            transition_type = str(transition.get("type") or "")
+            target_floor = next((
+                str(item.get("name") or "") for item in overview.get("floors", [])
+                if str(item.get("floor_id") or "") == str(transition.get("to_floor_id") or "")
+            ), "the destination floor")
+            if transition_type not in {"elevator", "stairs", "ramp"}:
+                return None
+            instruction = f"Take the {transition_type} to {target_floor}, then continue to {label}."
+        route_steps.append({
+            "label": str(label)[:120],
+            "instruction": instruction[:240],
+            "floor_id": floor_id[:80],
+            "floor_label": str(node.get("floor_label") or "")[:120],
+            "source_ids": [guest_source_id(property_id, "map_node", str(node_id))],
+        })
     return {
         "id": new_ui_id("directions"),
         "type": "directions",
-        "title": f"Directions · {str(start.get('label') or 'Starting point')[:50]} to {str(end.get('label') or 'destination')[:50]}",
+        "title": f"{'Accessible directions' if accessible else 'Directions'} · {str(start.get('label') or 'Starting point')[:40]} to {str(end.get('label') or 'destination')[:40]}",
         "node_ids": [str(node_id)[:80] for node_id in node_ids],
-        "steps": [{
-            "label": str(label)[:120],
-            "source_ids": [guest_source_id(property_id, "map_node", str(node_id))],
-        } for label, node_id in zip(labels, node_ids)],
+        "steps": route_steps,
     }
 
 
