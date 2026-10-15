@@ -2522,13 +2522,17 @@ test("Intelligent UI regression: long chat keeps its scroll anchor while a respo
   await setIntelligentUi(request, true);
   let slowResponseStarted;
   const slowResponse = new Promise((resolve) => { slowResponseStarted = resolve; });
+  let releaseResponse;
+  const responseGate = new Promise((resolve) => { releaseResponse = resolve; });
   try {
     await page.route("**/api/guest/intelligent-chat/stream", async (route) => {
       const payload = route.request().postDataJSON();
-      const answer = `Answer for ${payload.message}. ${"More hotel information. ".repeat(45)}`;
+      const answer = payload.message === "new latest"
+        ? "Short verified reply."
+        : `Answer for ${payload.message}. ${"More hotel information. ".repeat(45)}`;
       if (payload.message === "follow up") {
         slowResponseStarted();
-        await new Promise((resolve) => setTimeout(resolve, 450));
+        await responseGate;
       }
       await route.fulfill({ status: 200, headers: { "content-type": "text/event-stream" }, body: streamEvents(payload, [{ id: `answer-${payload.turn_id}`, type: "text", content: answer }]) });
     });
@@ -2552,9 +2556,23 @@ test("Intelligent UI regression: long chat keeps its scroll anchor while a respo
     await composer.fill("follow up");
     await page.getByRole("button", { name: "Send message" }).click();
     await slowResponse;
-    await expect(workspace).toHaveJSProperty("scrollTop", previousTop);
     await expect(page.locator(".loading-line")).toBeVisible();
+    await expect(workspace).toHaveJSProperty("scrollTop", previousTop);
+    releaseResponse();
+    await expect(page.locator(".message-row.assistant .message-text").last()).toContainText("Answer for follow up");
+    await expect(workspace).toHaveJSProperty("scrollTop", previousTop);
+    const composerTop = await page.locator(".composer-dock").evaluate((node) => node.getBoundingClientRect().top);
+    const workspaceBottom = await workspace.evaluate((node) => node.getBoundingClientRect().bottom);
+    expect(workspaceBottom).toBeLessThanOrEqual(composerTop);
+
+    await workspace.evaluate((node) => { node.scrollTop = node.scrollHeight; });
+    await expect.poll(() => workspace.evaluate((node) => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThan(96);
+    await composer.fill("new latest");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await expect(page.locator(".message-row.assistant .message-text").last()).toContainText("Short verified reply.");
+    await expect.poll(() => workspace.evaluate((node) => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThan(96);
   } finally {
+    releaseResponse();
     await setIntelligentUi(request, false);
   }
 });
