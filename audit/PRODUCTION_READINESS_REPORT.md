@@ -1,5 +1,31 @@
 # Concierge.AI v1.0-RC1 — Production Readiness Report
 
+## Current decision — 2026-10-15 (supersedes the 2026-09-30 snapshot below)
+
+**Latest fetched `main` HEAD reviewed:** `8ee80d2d688584795b6140582d609f81479b2137`. Work was prepared on `codex/ecc-ci-guest-audit-20261015`; the final branch/PR CI state must be checked separately. The detailed [feature achievement matrix](../docs/audit/ECC_FEATURE_MATRIX_2026-10-15.md) uses YES, PARTIAL, NO, and UNVERIFIED for implementation, working state, test state, and production verification. The older 384-row inventory remains a historical acceptance ledger.
+
+**Executive assessment:** The high-priority Intelligent UI scroll regression was reproduced on both desktop and mobile Chromium and corrected. The full local backend and functional browser suites pass. The secret-scan failure is a genuine historical credential exposure, remains reachable on shared history, and correctly blocks release. An offline mirror preparation script was improved and exercised, but neither issuer-side revocation nor an approved hosted-history cleanup is verified. The assistant's hotel answers are supported by property-scoped data and guarded final response checks in local tests; live provider accuracy, real property content, and hotel integrations are still unverified.
+
+| Verified issue | Severity | Current result | ECC evidence |
+| --- | --- | --- | --- |
+| Guest chat jumps away from previously read messages on new submission | P1 | **Fixed locally** | Before-fix 2/24 repeated failures; after-fix 24/24 repeated passes plus deterministic pending/completion test. See [ECC log](../docs/audit/ECC_REMEDIATION_LOG.md). |
+| Historical browser identity credential in Git history | P0 release blocker | **BLOCKED — OWNER ACTION REQUIRED** | Forced-text Gitleaks reports 3 known findings at `0b0ff26`; current tracked files report 0. See [security remediation](../docs/audit/SECURITY_REMEDIATION.md). |
+| Draft PR #54 mirror script misses local non-commit snapshot refs | P2 | **Preparation corrected locally** | First mirror retained 2 known-path objects; revised script removed 21 mirror-only tree refs and the second mirror has 0 reachable objects at that path. It still has 9 historical synthetic scan detections after hash rewrite. |
+| Property-local analytics period and restaurant open-state semantics | P2 | **Open** | Prior source-confirmed audit findings in `docs/audit/ECC_FULL_AUDIT.md`; not resolved by this focused correction. |
+| Location observation privacy lifecycle | P1 pilot blocker | **Open** | Prior `SEC-H02` in `docs/audit/SECURITY_REMEDIATION.md`; consent, checkout, retention, export, and deletion acceptance remain incomplete. |
+
+**Changed files:** `app/guest_v2/app.js`, `tests/e2e/guest.spec.js`, `scripts/prepare_secret_history_cleanup.sh`, `docs/audit/ECC_REMEDIATION_LOG.md`, `docs/audit/ECC_TEST_RESULTS.md`, `docs/audit/SECURITY_REMEDIATION.md`, `docs/audit/ECC_FEATURE_MATRIX_2026-10-15.md`, and this report. Production configuration, customer data, existing shared refs, and CI secret-scan gates were not changed.
+
+**Verification:** Local pytest **1,188 passed / 18 skipped**; full functional Playwright **336 passed / 38 skipped**; fresh npm and pip audits found no known vulnerabilities; Bandit, code syntax, shellcheck, plist checks, Compose config, and diff checks passed. Gitleaks current tracked snapshot **0 findings**; full local worktree **1 ignored `.env` match**; forced-text reachable history **3 real findings**. Docker runtime was **NOT RUN** because the daemon is unavailable. See [test ledger](../docs/audit/ECC_TEST_RESULTS.md) for scope and limits. The referenced GitHub run has passing backend, PostgreSQL/Redis, dependency, static security, and platform deployment jobs but failing browser and secret-scan jobs. The browser fix needs new PR CI confirmation; the secret gate is expected to remain red until authorized history remediation.
+
+**Guest UX:** The held-response test confirms old messages remain readable during loading and after completion, near-bottom guests follow the next response, and the composer stays separate. A rich restaurant card with a published-menu mock and late image load passed browser geometry checks, and its phone/tablet/desktop screenshots were inspected. These tests use synthetic property data and browser emulation; real hotel content and physical device behavior are unverified.
+
+**Live integration requirements:** The hotel must validate the exact ANTlabs SG5 pre-auth, admission, redirect, logout, and checkout contract; authoritative PMS stay sync and failures; real AI provider credentials and grounded outputs; published restaurant/facility/map data; real staff notification and service-request delivery; HTTPS/proxy/CIDR/VLAN boundaries; off-host encrypted restore and key recovery; physical iOS/Android captive-browser and keyboard behavior; and measured connection-versus-AI-generation capacity. No 30,000-guest capability is claimed.
+
+**Production-readiness decision: NOT READY FOR PILOT OR PRODUCTION.** The historical credential and privacy lifecycle are release blockers; live hotel integration, recovery, physical-device, and capacity evidence remains outstanding. Local passing tests do not clear these gates.
+
+---
+
 **Review date:** 2026-09-30  
 **Reviewed revision:** `5e1f654` plus the uncommitted changes listed below  
 **Review type:** repository audit and local automated verification; not a hotel deployment certification
