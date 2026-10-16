@@ -1783,28 +1783,82 @@ class HospitalityStore:
             raise KeyError("Campaign not found.")
         return self._notification_campaign_dict(row)
 
-    def list_notification_campaigns(self, property_id: str) -> list[dict[str, Any]]:
+    def notification_campaign_page(
+        self,
+        property_id: str,
+        *,
+        limit: int = 25,
+        offset: int = 0,
+        search: str = "",
+    ) -> dict[str, Any]:
+        """Return a bounded, searchable page of campaigns and page-only engagement totals."""
         property_id = self._guest_scope_value(property_id, "Property id")
+        if not 1 <= limit <= 100 or not 0 <= offset <= 1_000_000:
+            raise ValueError("Invalid notification campaign page bounds.")
+        clean_search = _clean(search, 120).casefold()
+        escaped_search = clean_search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        search_pattern = f"%{escaped_search}%" if clean_search else ""
         with self._connect() as db:
+            total = int(db.execute(
+                """SELECT COUNT(*) FROM notification_rules
+                   WHERE property_id=? AND category='promotional' AND trigger_type='campaign'
+                     AND (?='' OR LOWER(COALESCE(name,'')) LIKE ? ESCAPE '\\'
+                          OR LOWER(COALESCE(policy,'')) LIKE ? ESCAPE '\\')""",
+                (property_id, search_pattern, search_pattern, search_pattern),
+            ).fetchone()[0] or 0)
             rows = db.execute(
-                """SELECT * FROM notification_rules WHERE property_id=?
-                   AND category='promotional' AND trigger_type='campaign'
-                   ORDER BY updated_at DESC,rule_id""",
-                (property_id,),
+                """SELECT * FROM notification_rules
+                   WHERE property_id=? AND category='promotional' AND trigger_type='campaign'
+                     AND (?='' OR LOWER(COALESCE(name,'')) LIKE ? ESCAPE '\\'
+                          OR LOWER(COALESCE(policy,'')) LIKE ? ESCAPE '\\')
+                   ORDER BY updated_at DESC,rule_id ASC LIMIT ? OFFSET ?""",
+                (property_id, search_pattern, search_pattern, search_pattern, limit, offset),
             ).fetchall()
-            campaigns = []
+            campaign_rows = []
             for row in rows:
                 campaign = self._notification_campaign_dict(row)
-                counts = db.execute(
-                    """SELECT status,COUNT(*) AS count FROM guest_inbox_notifications
-                       WHERE property_id=? AND event_id=? GROUP BY status""",
-                    (property_id, f"campaign:{row['rule_id']}"),
-                ).fetchall()
                 campaign["engagement"] = {status: 0 for status in ("queued", "sent", "delivered", "read", "failed", "expired")}
-                for count in counts:
-                    campaign["engagement"][str(count["status"])] = int(count["count"] or 0)
-                campaigns.append(campaign)
-        return campaigns
+                campaign_rows.append((row["rule_id"], campaign))
+            if campaign_rows:
+                engagement_rows = db.execute(
+                    """SELECT event_id,status,COUNT(*) AS count FROM guest_inbox_notifications
+                       WHERE property_id=? AND event_id IN (
+                           SELECT 'campaign:' || rule_id FROM notification_rules
+                           WHERE property_id=? AND category='promotional' AND trigger_type='campaign'
+                             AND (?='' OR LOWER(COALESCE(name,'')) LIKE ? ESCAPE '\\'
+                                  OR LOWER(COALESCE(policy,'')) LIKE ? ESCAPE '\\')
+                           ORDER BY updated_at DESC,rule_id ASC LIMIT ? OFFSET ?
+                       ) GROUP BY event_id,status""",
+                    (
+                        property_id, property_id, search_pattern, search_pattern,
+                        search_pattern, limit, offset,
+                    ),
+                ).fetchall()
+                campaigns_by_event = {f"campaign:{rule_id}": campaign for rule_id, campaign in campaign_rows}
+                for count in engagement_rows:
+                    campaign = campaigns_by_event.get(str(count["event_id"]))
+                    if campaign is not None and str(count["status"]) in campaign["engagement"]:
+                        campaign["engagement"][str(count["status"])] = int(count["count"] or 0)
+        return {"campaigns": [campaign for _rule_id, campaign in campaign_rows], "total": total, "limit": limit, "offset": offset}
+
+    def restaurants_for_property(
+        self,
+        property_id: str,
+        restaurant_ids: set[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Fetch only restaurants visible in this property; avoid overview's unrelated collections."""
+        property_id = self._guest_scope_value(property_id, "Property id")
+        if restaurant_ids is not None and not restaurant_ids:
+            return []
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT * FROM restaurants WHERE property_id=? ORDER BY name,restaurant_id",
+                (property_id,),
+            ).fetchall()
+        restaurants = [self._restaurant_dict(row) for row in rows]
+        if restaurant_ids is None:
+            return restaurants
+        return [restaurant for restaurant in restaurants if restaurant["restaurant_id"] in restaurant_ids]
 
     def update_notification_campaign(self, property_id: str, campaign_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         property_id = self._guest_scope_value(property_id, "Property id")

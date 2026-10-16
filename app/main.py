@@ -6361,11 +6361,11 @@ async def list_restaurants(property_id: str, request: Request) -> dict[str, Any]
     _require_property(property_id)
     principal = _admin_principal(request)
     restaurant_ids = None if principal.can("properties.all") or principal.can("properties.edit") else _assigned_restaurant_ids(principal, property_id)
-    overview = hospitality.overview(property_id, restaurant_ids)
+    restaurants = hospitality.restaurants_for_property(property_id, restaurant_ids)
     if restaurant_ids is not None:
-        for item in overview["restaurants"]:
+        for item in restaurants:
             item.pop("internal_notes", None)
-    return {"restaurants": overview["restaurants"]}
+    return {"restaurants": restaurants}
 
 
 @app.get("/api/admin/properties/{property_id}/restaurants/{restaurant_id}")
@@ -7088,10 +7088,17 @@ def _public_notification_campaign(campaign: dict[str, Any]) -> dict[str, Any]:
 
 
 @app.get("/api/admin/properties/{property_id}/notification-campaigns")
-async def list_notification_campaigns(property_id: str, request: Request) -> dict[str, Any]:
+async def list_notification_campaigns(
+    property_id: str,
+    request: Request,
+    limit: int = Query(default=25, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=1_000_000),
+    q: str = Query(default="", max_length=120),
+) -> dict[str, Any]:
     _require_property(property_id)
     _admin_principal(request)
-    return {"campaigns": [_public_notification_campaign(item) for item in hospitality.list_notification_campaigns(property_id)]}
+    page = hospitality.notification_campaign_page(property_id, limit=limit, offset=offset, search=q)
+    return {**page, "campaigns": [_public_notification_campaign(item) for item in page["campaigns"]]}
 
 
 @app.post("/api/admin/properties/{property_id}/notification-campaigns")
