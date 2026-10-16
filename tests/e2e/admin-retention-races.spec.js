@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { ensureTestProperty } from "./support.js";
 
-const conversationsRoute = "**/api/admin/properties/*/conversations";
+const conversationsRoute = "**/api/admin/properties/*/conversations?*";
 const retentionRoute = "**/api/admin/properties/*/conversations/retention";
 const csrfByRequest = new WeakMap();
 
