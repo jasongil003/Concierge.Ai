@@ -105,3 +105,145 @@ Base: fetched `main` `7185e18df2ae3b8f100804b7c3618a3909a831b6`. Local tested co
 | Hosted CI #246 | **COMPLETED; all jobs passed except secret scan** | Backend passed (1,321 passed, 19 skipped), browser passed (339 passed, 39 skipped), PostgreSQL/Redis integration, Docker runtime, dependency audits, static security, and Linux/macOS deployment passed. Secret scan failed at its redacted current-worktree step; the later forced-text history step did not run. This is PR #61 head `03f07aa9cfbe2029943cdec013524a3e85b48889`. |
 
 The current branch does not contain dependency changes. No production data, gateway, provider account, or deployment configuration was accessed. Continue to treat the historical credential, failed current-worktree secret scan, and missing required CI checks as open release blockers.
+
+## 2026-10-16 signed guest wayfinding QR on `codex/final-remediation-20261016`
+
+The candidate adds signed, property-bound HTTPS QR links for published guest-visible waypoint nodes. The guest endpoint resolves only the currently published map/node, rejects tampered or cross-property signatures, and seeds the route origin while keeping QR signature fields out of gateway context. The acceptance ledger marks K-18 locally verified; real-device scanning, printing, and hotel map/waypoint accuracy remain untested.
+
+| Check | Result | Scope / limit |
+| --- | --- | --- |
+| `tests/test_guest_entry.py` | **PASS: 6 passed** | Signature property/node binding, published-map QR generation and guest resolution, tampering, cross-property, and hidden-node denial. Ran with the isolated `/private/tmp/phase5-venv` environment and disposable dependency path. |
+| Admin wayfinding QR Playwright | **PASS: 1 passed** | Chromium; real local admin API, synthetic published map/node, SVG QR and HTTPS signed URL. |
+| Guest wayfinding QR Playwright | **PASS: 2 passed** | Desktop Chromium and mobile Chrome; published map, start origin, destination selection, gateway-context filtering, and new-chat continuity. |
+| JavaScript syntax, JSON policy parse, `git diff --check` | **PASS** | `app/static/admin.js`, `app/guest_v2/app.js`, both changed e2e files, and `app/admin_route_policies.json`. |
+| Gitleaks 8.24.3 current worktree | **PASS: 0 findings** | No-git redacted scan. Full-history hosted secret scan remains a release gate. |
+
+Prior full local runs remain separate: backend **1,329 passed, 21 skipped, 5 failed** (the five installer tests could not bind because a pre-existing process held port 8080); nonvisual browser **351 passed, 39 skipped**; visual browser **4 passed**. No new full-suite run is claimed for this QR change.
+
+Draft [PR #63](https://github.com/jasongil003/Concierge.Ai/pull/63) is mergeable and remains open. Hosted run [#258](https://github.com/jasongil003/Concierge.Ai/actions/runs/38861282815) completed at corrected code head `79a33c5c4fdd9de55b8182d5ae6d1ce68f4d1693`: **9/10 jobs passed**. Backend passed **1,348 tests, 19 skipped**; browser passed **356 tests, 40 skipped**; PostgreSQL/Redis, Docker, Python/Node dependency, static-security, and Linux/macOS deployment checks passed. Full-history Gitleaks failed on three known historical findings; its PR-diff and current-worktree scans each reported no leaks. No merge or deployment was performed.
+
+## 2026-10-16 PR #63 hosted candidate run #259
+
+| Check | Result | Scope / limit |
+| --- | --- | --- |
+| Backend workflow suite | **PASS:** 1,348 passed, 19 skipped | Hosted CI run [#259](https://github.com/jasongil003/Concierge.Ai/actions/runs/38862722596), head `4563d0064da1e306a67f173a8b729d99811aec7b`. |
+| Browser workflow suite | **PASS:** 356 passed, 40 skipped | Hosted CI run #259. Physical iOS/Android and hotel Wi-Fi acceptance remain open. |
+| PostgreSQL/Redis, Docker runtime, Python/Node dependency audits, static security, Linux/macOS deployment validation | **PASS** | Hosted CI run #259. These checks do not certify target-hotel installation or live integrations. |
+| PR-diff and current-worktree Gitleaks scans | **PASS:** no findings | Run #259. |
+| Forced-text full-history Gitleaks scan | **FAIL / RELEASE BLOCKER:** three known historical findings | Run #259. Values omitted; the credential issuer must confirm revocation before owner-authorized shared-history cleanup. |
+
+The run completed with 9/10 jobs passing. Draft PR #63 remains open and mergeable, but release acceptance is **RED**. Consent/location software is covered by `tests/test_guest_privacy_consent.py`; property/privacy-owner approval of retention and deletion policy, allowed notification audiences, and live hotel/provider acceptance remain outstanding.
+
+## 2026-10-16 local pagination change — commit `97369c6`
+
+| Check | Result | Scope / limit |
+| --- | --- | --- |
+| Backend/property-scope/privacy/notification regression set | **PASS:** 57 passed, 2 deprecation warnings | `tests/test_conversation_pagination.py`, `tests/test_restaurant_workflows.py`, `tests/test_guest_privacy_consent.py`, `tests/test_notification_delivery.py`, and `tests/test_high_rbac_boundaries.py`. Persistent workspace SQLite remained unchanged. |
+| Focused Playwright conversations | **PASS:** 3 passed | Chromium: server page navigation/counts, property-admin takeover/reply/resolve, and restaurant assignment. Temporary dependency links were removed after the run. |
+| JavaScript syntax and `git diff --check` | **PASS** | `app/static/admin.js`; candidate diff. |
+
+Commits `97369c6` and `adec402` provide pagination for the Conversations inbox only; C-30 remains **PARTIAL** until the other high-volume admin lists gain bounded pages and controls. Hosted run #259 predates these commits, so hosted validation of the pagination change is pending.
+
+## 2026-10-16 PR #63 hosted run #260 and pagination mock correction
+
+| Check | Result | Scope / limit |
+| --- | --- | --- |
+| Backend workflow suite | **PASS:** 1,349 passed, 19 skipped | Hosted CI [run #260](https://github.com/jasongil003/Concierge.Ai/actions/runs/38866073706), candidate head `46d6c1d2e3dbd6208c7aac3f80b80d2e4eb17013`. |
+| Browser workflow suite | **FAIL:** 342 passed, 41 skipped, 15 failed | Twelve failures were six retention-race tests in desktop/mobile whose route mocks still matched the old URL without pagination query parameters. Three additional onboarding/network-access assertions failed only in the full hosted suite and passed in focused local reruns; full-suite interaction remains to be rechecked. |
+| PostgreSQL/Redis, Docker runtime, Python/Node dependency audits, static security, Linux/macOS deployment validation | **PASS** | Hosted CI run #260. |
+| PR-diff and current-worktree Gitleaks scans | **PASS:** no findings | Hosted CI run #260. |
+| Forced-text full-history Gitleaks scan | **FAIL / RELEASE BLOCKER:** three known historical findings | Hosted CI run #260. Values omitted; issuer revocation and repository-owner-authorized history cleanup remain required. |
+| Corrected retention-race route mock | **PASS:** 6 passed | Local Chromium against the candidate implementation after updating the mock to match the paginated inbox URL. |
+| Focused onboarding and network-access browser checks | **PASS:** 3 passed, 1 skipped | Local Chromium and mobile Chrome emulation. These checks were run separately, so they do not resolve the three full-suite-only failures. |
+
+The browser mock correction is in the next candidate update. Keep release acceptance **RED** until the refreshed hosted full suite and external release gates are resolved.
+
+## 2026-10-16 PR #63 hosted run #261 — corrected full-suite acceptance
+
+| Check | Result | Scope / limit |
+| --- | --- | --- |
+| Backend workflow suite | **PASS:** 1,349 passed, 19 skipped | Hosted CI [run #261](https://github.com/jasongil003/Concierge.Ai/actions/runs/38868604334), head `7b31f7201ceaaa235bba74d054ba706f60291554`. |
+| Browser workflow suite | **PASS:** 357 passed, 41 skipped, 0 failed | Hosted CI run #261. The six retention-race scenarios now intercept the query-bearing paginated inbox URL. Physical iOS/Android and hotel Wi-Fi acceptance remain open. |
+| PostgreSQL/Redis, Docker runtime, Python/Node dependency audits, static security, Linux/macOS deployment validation | **PASS** | Hosted CI run #261. These checks do not certify target-hotel installation or live integrations. |
+| PR-diff and current-worktree Gitleaks scans | **PASS:** no findings | Hosted CI run #261. |
+| Forced-text full-history Gitleaks scan | **FAIL / RELEASE BLOCKER:** three known historical findings | Hosted CI run #261. Values omitted; issuer revocation and repository-owner-authorized history cleanup remain required. |
+
+Run #261 completed with **9/10 jobs passing**. The candidate was tested without merge or deployment. Release acceptance remains **RED** until the historical-secret, branch-protection, policy, live-integration and hotel-device gates are closed.
+
+## 2026-10-16 Guest Requests pagination follow-up
+
+| Check | Result | Scope / limit |
+| --- | --- | --- |
+| Service-request API, property isolation, department scope, and read-permission regressions | **PASS:** 19 passed | Three focused test modules; 55-record paging, stable ordering, server-side search/status filtering, property-local completed-today, and role boundaries. |
+| Guest Requests browser flow | **PASS:** 3 passed | Chromium; queue refresh, summary/status filtering, and bounded next/previous navigation. |
+| Direct SQLite page/summary smoke | **PASS** | Temporary database; stable limit/offset, open/completed-today counts and search. |
+| Bandit medium severity/confidence; Python/JavaScript syntax; `git diff --check` | **PASS** | No new threshold findings. Existing repository `nosec`/Bandit comment warnings remain. |
+| Local API/browser dependency setup | **LIMITED** | The developer virtualenv lacks declared `qrcode`; a temporary fail-closed import stub was used only to boot the app for request-only cases, and was not invoked. QR functionality is outside this test scope. |
+| Hosted CI | **PASS with release blocker** | Run #269 validates the published pagination candidate; see the run summary below. Historical-secret scanning remains a separate release blocker. |
+
+C-30 remains **PARTIAL** because only the Conversations inbox and Guest Requests queue are paginated; other high-volume admin lists remain open. Release remains **RED** pending hosted checks and external security, governance, property-policy, live-integration, and device gates.
+
+## 2026-10-16 encrypted backup checks
+
+| Check | Result | Scope / limit |
+| --- | --- | --- |
+| Focused backup, source installer, Compose, production settings, deployment hardening, and security tests | **PASS:** 155 passed, 2 skipped | Includes encrypted SQLite create/verify/restore, tamper/wrong-key rejection before target creation, plaintext legacy opt-in, key generation/preservation, production configuration, and backup diagnostics. |
+| PostgreSQL backup integration | **SKIPPED** | `DATABASE_URL` and `PG_DUMP_AVAILABLE` were not configured on this host. Hosted CI must exercise PostgreSQL/Redis. |
+| Shell checks, Python compile, Bandit, full backend/browser CI | **PASS** | Run #269: backend 1,358 passed/19 skipped; browser 359 passed/41 skipped/0 failed; static security and Linux/macOS deployment passed. The test venv lacks `qrcode`; the focused request-only test run used a temporary import-only stub that raises if QR generation is called. |
+| Off-host restore and separate key recovery | **NOT RUN / BLOCKED** | Requires infrastructure/recovery owner, a separately controlled destination/key escrow, and a clean disposable target. |
+
+The 30,000-concurrent-user requirement remains intentionally deferred. Q-23 stays **PARTIAL** until the off-host rehearsal and key retrieval are completed; local encrypted backup behavior is not represented as live operational acceptance.
+
+## 2026-10-16 PR #63 hosted run #269 — final candidate head `9cbfc34`
+
+| Check | Result | Scope / limit |
+| --- | --- | --- |
+| Backend workflow suite | **PASS:** 1,358 passed, 19 skipped | Hosted CI [run #269](https://github.com/jasongil003/Concierge.Ai/actions/runs/38879632291), commit `9cbfc34fdc50c7c0c8e9102ddce159ab89ddadb7`. |
+| Browser workflow suite | **PASS:** 359 passed, 41 skipped, 0 failed | Hosted CI run #269. |
+| PostgreSQL/Redis, Docker runtime, Python/Node dependency audits, static security, Linux/macOS deployment validation | **PASS** | Hosted CI run #269. |
+| PR-diff and current-tree Gitleaks scans | **PASS:** no findings | The current tree scan is clean. One exact fingerprint covers a synthetic test fixture removed from the current tree. |
+| Forced-text full-history Gitleaks scan | **FAIL / RELEASE BLOCKER:** three historical findings | Values omitted. Credential issuer revocation and repository-owner-authorized shared-history cleanup remain outstanding. |
+
+Run #269 completed with **9/10 jobs passing**. The backup feature's external escrow, off-host restore, and clean-target recovery are still not operationally accepted. Q-23 remains **PARTIAL** and release acceptance remains **RED**; no merge or deployment occurred.
+
+## 2026-10-16 PR #63 hosted run #271 — admin audit pagination
+
+| Check | Result | Evidence / scope |
+| --- | --- | --- |
+| Focused audit API regression set | **PASS:** 3 passed | `tests/test_admin_auth.py -k audit`; covers stable bounded pages, stale-offset clamping, invalid bounds, and property-role scope. The local import harness supplied a qrcode stub that raises if QR generation is invoked. |
+| Admin audit page controls | **PASS** | `tests/e2e/admin.spec.js::audit log uses bounded server pages with working next and previous controls` passed in Chromium and mobile Chrome. |
+| Backend workflow suite | **PASS:** 1,360 passed, 19 skipped | Hosted CI [run #271](https://github.com/jasongil003/Concierge.Ai/actions/runs/38901494795), code head `930e86def98ea8e0eb8f2ae2ed8c8bdb1ea1c734`. |
+| Browser workflow suite | **PASS:** 361 passed, 41 skipped, 0 failed | Hosted CI run #271. |
+| PostgreSQL/Redis, Docker, dependency audits, static security, Linux/macOS deployment | **PASS** | Hosted CI run #271. |
+| PR-diff and current-tree Gitleaks scans | **PASS:** no findings | Hosted CI run #271. |
+| Forced-text full-history Gitleaks scan | **FAIL / RELEASE BLOCKER:** three retained historical findings | Values omitted. No new current-tree finding was reported. |
+
+Run #271 completed **9/10 jobs successfully**. C-30 remains **PARTIAL** because remaining high-volume admin lists and collection-wide conversation search are open. The PR remains draft and release acceptance remains **RED** pending historical-secret remediation and the documented branch-protection, policy, integration, recovery, and hotel-device gates; no merge or deployment occurred.
+
+
+## 2026-10-16 remediation candidate — local validation
+
+| Check | Result | Scope and limits |
+| --- | --- | --- |
+| Full backend `python -m pytest -q -rs` | **PASS:** 1,380 passed, 21 skipped, 0 failed | Isolated temporary state; two dependency warnings. Skips require local PostgreSQL/Redis, Linux `RLIMIT_AS`, or `systemd-analyze`; those integration/platform checks are covered separately in hosted CI. |
+| Full nonvisual `npm run test:e2e -- --grep-invert @visual` | **PASS:** 368 passed, 42 skipped, 0 failed, 6.8 min | Desktop Chromium and mobile Chrome emulation. Includes the corrected Notification Campaigns page-guidance tests and campaign preview/publish flow. |
+| Targeted admin guidance and campaign browser checks | **PASS:** 4 passed, 2 skipped | Desktop 1440px, mobile 375px, and campaign flow in Chromium/mobile Chrome; viewport/project-specific combinations skip by test design. |
+| Campaign backend regressions | **PASS:** 3 passed | Aggregate consent eligibility, property scope and revision conflicts, publish-time consent recheck, shared-stay active-session guard. |
+| Template-clone backend and browser regressions | **PASS:** 2 backend tests and 1 Chromium browser test | Published design copied to target draft only; revision conflicts and protected property settings/credentials preserved. Mobile mutation sweep is intentionally skipped. |
+| Bandit exact CI command at Medium severity/confidence | **PASS** | Existing parser and `nosec` warnings only; no threshold finding. |
+| Gitleaks 8.24.3 redacted current-tree scan | **PASS:** 0 findings | Current source tree only; the separate hosted full-history scan remains necessary. Secret values are not reproduced. |
+| `node --check app/static/admin.js`; `python3 -m json.tool` on route policies and acceptance ledger; `git diff --check` | **PASS** | Syntax, JSON and whitespace validation. |
+
+The final accessibility-label correction was followed by another campaign browser run: **2 passed** across Chromium and mobile Chrome. The cloned checkout had no virtualenv and its installed dependency set lacked qrcode. Browser/backend runs used the existing workspace Python runtime and an import-only qrcode 8.2 path under `/private/tmp`; no application dependency manifest changed for this validation. Physical-device, live-provider, clean-host recovery, and production-scale acceptance remain unverified.
+
+
+## 2026-10-16 hosted candidate run #277
+
+| Check | Result | Scope and limits |
+| --- | --- | --- |
+| Hosted backend | **PASS:** 1,382 passed, 19 skipped, 2 warnings | GitHub Actions on PR #63 code head `b9825a678b21d2d82b2fcbf3529e706811fe137c`. |
+| Hosted browser | **PASS:** 368 passed, 42 skipped, 0 failed, 8.7 min | Chromium and mobile Chrome functional suite. |
+| Hosted integrations and delivery checks | **PASS:** PostgreSQL/Redis, Docker, npm and pip audits, static security, Linux and macOS deployment | Candidate run #277. |
+| Hosted secret scan | **FAIL / RELEASE BLOCKER** | The Gitleaks job retains historical findings; local redacted current-tree scan is clean. Credential values are not reproduced. |
+
+Run [#277](https://github.com/jasongil003/Concierge.Ai/actions/runs/38914471464) is 9/10 jobs passed. The branch remains a draft PR and no merge or deployment occurred. Hosted job results do not establish live hotel/provider or physical-device acceptance.

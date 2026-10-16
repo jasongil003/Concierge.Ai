@@ -396,6 +396,7 @@ class MapViewBlock(StrictSchema):
     floor_label: str = Field(default="", max_length=120)
     floors: list[MapFloorOption] = Field(default_factory=list, max_length=24)
     focused_marker_id: str = Field(default="", max_length=80)
+    starting_node_id: str = Field(default="", max_length=80)
     synthetic_demo: StrictBool = False
     directions_enabled: StrictBool = False
     route_node_ids: list[str] = Field(default_factory=list, max_length=40)
@@ -428,6 +429,12 @@ class MapViewBlock(StrictSchema):
             raise ValueError("A map needs verified coordinates or a configured floor plan.")
         if self.map_image_url and not has_floor_map:
             raise ValueError("A floor plan requires its configured dimensions.")
+        if self.starting_node_id and not any(
+            marker.id == self.starting_node_id
+            for floor in self.floors
+            for marker in floor.markers
+        ):
+            raise ValueError("A wayfinding start node must be present on the published floor map.")
         return self
 
 

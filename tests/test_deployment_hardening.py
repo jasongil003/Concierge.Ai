@@ -641,13 +641,19 @@ def test_backup_includes_verifiable_secret_free_build_manifest(tmp_path: Path, m
     upload_root.mkdir()
     archive_path = tmp_path / "backup.zip"
 
-    created = create_backup(database_path, upload_root, archive_path)
-    verification = verify_backup(archive_path)
+    test_backup_key = "b2" * 32
+    created = create_backup(database_path, upload_root, archive_path, backup_key=test_backup_key)
+    verification = verify_backup(archive_path, backup_key=test_backup_key)
 
     assert created["files"] == 1
     assert verification["valid"] is True
-    with zipfile.ZipFile(archive_path) as archive:
-        manifest = json.loads(archive.read("manifest.json"))
+    from app.backup import _plaintext_backup_archive
+
+    with _plaintext_backup_archive(
+        archive_path, backup_key=test_backup_key, allow_legacy_unencrypted=False
+    ) as (plain_archive, _encrypted):
+        with zipfile.ZipFile(plain_archive) as archive:
+            manifest = json.loads(archive.read("manifest.json"))
     assert manifest["concierge"] == {
         "version": "0.9.2",
         "commit": "a1b2c3d4",

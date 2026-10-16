@@ -1946,6 +1946,72 @@ test("Intelligent UI: verified floor maps render interactive markers and a text 
   }
 });
 
+test("Intelligent UI: signed wayfinding entry opens its published map with the QR waypoint as route origin", async ({ page, request }) => {
+  await setIntelligentUi(request, true);
+  let wayfindingQuery = null;
+  let sessionStartPayload = null;
+  page.on("request", (browserRequest) => {
+    if (new URL(browserRequest.url()).pathname === "/api/session/start") {
+      sessionStartPayload = browserRequest.postDataJSON();
+    }
+  });
+  await page.route("**/api/guest/wayfinding/start**", async (route) => {
+    wayfindingQuery = new URL(route.request().url()).searchParams;
+    const map = {
+      id: "qr-wayfinding-map", type: "map_view", title: "Hotel map · Lobby",
+      map_image_url: "/api/guest/floor-maps/test-map/asset?property_id=e2e-property",
+      map_alt: "Lobby floor plan. Marked locations: Lobby Entrance, Pool.",
+      image_width: 200, image_height: 100,
+      markers: [
+        { id: "entrance-node", label: "Lobby Entrance", x_percent: 10, y_percent: 50, source_ids: [] },
+        { id: "pool-node", label: "Pool", x_percent: 80, y_percent: 50, source_ids: [] },
+      ],
+      floor_id: "lobby-floor", floor_label: "Lobby", focused_marker_id: "entrance-node",
+      starting_node_id: "entrance-node", directions_enabled: true,
+      synthetic_demo: false, route_node_ids: [], locations: [], source_ids: [],
+      floors: [{
+        floor_id: "lobby-floor", label: "Lobby",
+        map_image_url: "/api/guest/floor-maps/test-map/asset?property_id=e2e-property",
+        image_width: 200, image_height: 100, synthetic_demo: false, source_ids: [],
+        markers: [
+          { id: "entrance-node", label: "Lobby Entrance", x_percent: 10, y_percent: 50, source_ids: [] },
+          { id: "pool-node", label: "Pool", x_percent: 80, y_percent: 50, source_ids: [] },
+        ],
+      }],
+    };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ starting_node: { node_id: "entrance-node", label: "Lobby Entrance", floor_id: "lobby-floor" }, map }),
+    });
+  });
+  await page.route("**/api/guest/floor-maps/test-map/asset**", (route) => route.fulfill({
+    status: 200,
+    contentType: "image/svg+xml",
+    body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100"><rect width="200" height="100" fill="#eee"/></svg>',
+  }));
+
+  const signature = "a".repeat(64);
+  await page.goto(`/?property_id=e2e-property&start_node_id=entrance-node&start_sig=${signature}`);
+  await expect(page.getByText("Your starting point is Lobby Entrance on Lobby.")).toBeVisible();
+  expect(wayfindingQuery?.get("property_id")).toBe("e2e-property");
+  expect(wayfindingQuery?.get("start_node_id")).toBe("entrance-node");
+  expect(wayfindingQuery?.get("start_sig")).toBe(signature);
+  await expect.poll(() => sessionStartPayload).not.toBeNull();
+  expect(sessionStartPayload.gateway_context).not.toHaveProperty("start_node_id");
+  expect(sessionStartPayload.gateway_context).not.toHaveProperty("start_sig");
+
+  const map = page.locator(".map-panel");
+  await expect(map.getByRole("heading", { name: "Hotel map · Lobby" })).toBeVisible();
+  const startingLocation = map.getByLabel("Starting location");
+  await expect(startingLocation).toHaveValue("entrance-node");
+  await map.getByRole("button", { name: "Show location: Pool, Lobby" }).click();
+  await expect(startingLocation).toHaveValue("entrance-node");
+  await page.getByRole("button", { name: "Start a new private conversation" }).click();
+  await expect(page.locator(".map-panel")).toBeVisible();
+  await expect(page.getByText("Your starting point is Lobby Entrance on Lobby.")).toBeVisible();
+});
+
 test("Intelligent UI: facility directory searches by building and floor and opens official maps", async ({ page, request }) => {
   await setIntelligentUi(request, true, { prompts: ["Find a location"] });
   try {

@@ -6,10 +6,11 @@ PostgreSQL 16 service. They are installed from the PostgreSQL project's signed
 For a different server major, rebuild with `--build-arg POSTGRES_CLIENT_MAJOR=<major>`
 and repeat the actual dump/restore drill. A newer client is not proof that a
 dump restores to an older server: the audit reproduced a client-17/server-16
-failure on `SET transaction_timeout`. Current backup ZIP archives provide
-checksums and encrypted transcript/credential fields, but the archive itself
-is not encrypted; independently controlled encrypted off-host storage and key
-recovery remain deployment acceptance requirements.
+failure on `SET transaction_timeout`. Appliance archives use authenticated
+AES-256-GCM encryption with the independent 32-byte
+`CONCIERGE_BACKUP_ENCRYPTION_KEY`; installers generate it and operators must
+escrow it separately from the archive. Off-host replication, independent key
+retrieval, and clean-target recovery remain deployment acceptance requirements.
 
 For appliance installation on Ubuntu Server or an Apple Silicon Mac mini, follow
 the [Appliance Installation](APPLIANCE_INSTALLATION.md) guide. That guide covers

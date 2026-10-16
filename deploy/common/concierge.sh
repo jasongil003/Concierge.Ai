@@ -47,7 +47,7 @@ fi
 make_backup() {
     require_root
     stamp=$(date -u +%Y%m%dT%H%M%SZ)
-    archive_name="concierge-${stamp}.zip"
+    archive_name="concierge-${stamp}.zip.enc"
     [ ! -e "$BACKUP_ROOT/$archive_name" ] || return 31
     platform_backup_create "$archive_name" || return 31
     platform_backup_verify "$BACKUP_ROOT/$archive_name" || return 32

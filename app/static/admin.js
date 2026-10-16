@@ -65,18 +65,35 @@ const state = {
   guestSessionLinks: [],
   guestStays: [],
   guestDevices: [],
+  guestSelectedStay: null,
+  guestSessionPages: {},
+  guestSessionOffsets: { sessions: 0, guest_sessions: 0, stays: 0, devices: 0 },
+  guestRecordCounts: null,
+  guestSessionResultCount: 0,
+  sessionRequestSequence: 0,
   recommendations: [],
   hospitality: null,
   restaurantMenus: [],
   restaurantPromotions: [],
   restaurantAnalytics: null,
   mapBackgrounds: new Map(),
-  knowledge: { items: [], documents: [], faqs: [] },
-  managedKnowledge: { items: [], sources: [], categories: [] },
+  knowledge: { items: [], documents: [], faqs: [], pages: {} },
+  knowledgeOffsets: { items: 0, documents: 0, faqs: 0 },
+  managedKnowledge: { items: [], sources: [], source_pages: {}, categories: [] },
   knowledgeHealth: null,
   hotelAIFiles: [],
   hotelAISubmitting: false,
   webhooks: { webhooks: [], deliveries: [] },
+  notificationCampaigns: [],
+  notificationCampaignPageOffset: 0,
+  notificationCampaignPageLimit: 25,
+  notificationCampaignTotal: 0,
+  notificationCampaignLoadVersion: 0,
+  notificationCampaignPropertyId: "",
+  notificationCampaignFilterSignature: null,
+  notificationCampaignSearchTimer: null,
+  selectedNotificationCampaignId: null,
+  notificationCampaignPreview: null,
   deployment: null,
   operations: null,
   operationsPeriod: "24h",
@@ -95,6 +112,7 @@ const INTRO_TEMPLATES = {
 };
 let restaurantAssignmentRequestId = 0;
 let dashboardRequestId = 0;
+let sessionSearchTimer = null;
 
 const $ = (id) => document.getElementById(id);
 
@@ -133,6 +151,7 @@ const NAV_SECTIONS = [
     items: [
       { id: "conversations", label: "Conversations", panel: "conversations", permission: "conversations.view", icon: "◫" },
       { id: "personalization", label: "Personalization", panel: "personalization-settings", permission: "properties.view", icon: "✧" },
+      { id: "notification-campaigns", label: "Notification Campaigns", panel: "notification-campaigns", permission: "properties.edit", icon: "◉" },
       { id: "guest-preview", label: "Conversation Modules", panel: "guest", permission: "concierge.view", icon: "◫" },
       { id: "recommendations", label: "Recommendations", panel: "recommendations", permission: "properties.view", icon: "✦" },
       { id: "location", label: "Location", panel: "location", permission: "analytics.view", icon: "⌖" },
@@ -281,7 +300,7 @@ function can(permission) {
 
 const PROPERTY_SCOPED_PANELS = new Set([
   "overview", "requests", "sessions", "system-health", "alerts", "conversations",
-  "personalization-settings", "guest", "recommendations", "location", "hotel-information",
+  "personalization-settings", "notification-campaigns", "guest", "recommendations", "location", "hotel-information",
   "rooms", "facilities", "restaurants", "service-catalog", "zones", "appearance", "intro",
   "analytics", "reports", "ai-assistant", "knowledge", "documents", "faqs", "ai-personality",
   "guardrails", "ai-usage", "questions", "request-analytics", "ai", "third-party", "wifi",
@@ -620,6 +639,11 @@ const PAGE_COMMENTS = {
     ["Choose a reporting period.", "Compare the usage metrics and provider/model activity list.", "Open Models & Providers or System Health to investigate elevated errors or latency."],
     "Costs are not shown unless verified billing data is connected; request counts alone do not establish spend."
   ],
+  "notification-campaigns": [
+    "Prepare property announcements for active stays and inspect consent eligibility before queuing a promotional message in the in-app guest inbox.",
+    ["Save a draft with a source or approval reference and guest-facing copy.", "Preview the aggregate audience; stays without promotional-message consent or an enabled promotional preference are excluded.", "Review the audience and confirm the in-app queue action, then monitor queued and read counts."],
+    "All active sessions linked to the stay must have promotional-message consent. Publishing queues in-app content only; it does not send email or push notifications."
+  ],
   "system-settings": [
     "Set application defaults and protected outbound email used for password-reset messages.",
     ["Set the default language, time zone, and any maintenance banner, then save.", "Configure SMTP host, port, security, sender, and credentials if email is required.", "Test the SMTP connection before saving the email configuration."],
@@ -701,6 +725,7 @@ const PAGE_LINKS = {
   reports: ["analytics", "ai-usage"],
   appearance: ["intro", "guest"],
   guest: ["appearance", "intro", "hotel-information"],
+  "notification-campaigns": ["personalization-settings", "sessions", "audit"],
   "personalization-settings": ["sessions", "guardrails", "knowledge"],
   zones: ["facilities", "location", "appearance"],
   sessions: ["location", "personalization-settings"],
@@ -881,6 +906,7 @@ function activatePanel(panelId, navId = null) {
   if (["ai-personality", "guardrails"].includes(panelId) && currentPropertyId()) loadAIPolicy();
   if (panelId === "guardrails" && currentPropertyId()) loadGuardrailDiagnostics().catch((error) => showToast(error.message, "error"));
   if (panelId === "webhooks" && currentPropertyId()) loadWebhooks().catch((error) => showToast(error.message, "error"));
+  if (panelId === "notification-campaigns" && currentPropertyId()) loadNotificationCampaigns().catch((error) => showToast(error.message, "error"));
   if (panelId === "network-access" && currentPropertyId()) {
     loadNetworkAccess().catch((error) => showToast(error.message, "error"));
     if (can("security.view")) loadGuardrailDiagnostics().catch((error) => showToast(error.message, "error"));
@@ -1786,11 +1812,62 @@ async function approveRestaurantWorkflow(resource, id, action) {
   await loadRestaurantWorkflows(); showToast(`${resource === "menus" ? "Menu" : "Promotion"} ${action}d.`);
 }
 
-async function loadKnowledge() {
-  const base = `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge`;
-  const [legacy, managed, health] = await Promise.all([jsonFetch(base), jsonFetch(`${base}/managed`), jsonFetch(`${base}/health`)]);
+let managedKnowledgePageOffset = 0;
+const managedKnowledgePageLimit = 50;
+let managedKnowledgeTotal = 0;
+let managedKnowledgeLoadVersion = 0;
+let managedKnowledgeFilterSignature = null;
+let managedKnowledgePropertyId = "";
+let managedKnowledgeSearchTimer = null;
+const sourceFilePageLimit = 25;
+let knowledgeSourcePageOffset = 0;
+let legacyKnowledgePropertyId = "";
+
+async function loadKnowledge({ resetManagedPage = false, resetLegacyPages = false } = {}) {
+  const propertyId = currentPropertyId();
+  const base = `/api/admin/properties/${encodeURIComponent(propertyId)}/knowledge`;
+  const legacyParams = new URLSearchParams({
+    limit: "25",
+    entry_offset: String(state.knowledgeOffsets.items || 0),
+    document_offset: String(state.knowledgeOffsets.documents || 0),
+    faq_offset: String(state.knowledgeOffsets.faqs || 0),
+  });
+  if (resetLegacyPages || propertyId !== legacyKnowledgePropertyId) {
+    state.knowledgeOffsets = { items: 0, documents: 0, faqs: 0 };
+  }
+  legacyKnowledgePropertyId = propertyId;
+  legacyParams.set("entry_offset", String(state.knowledgeOffsets.items || 0));
+  legacyParams.set("document_offset", String(state.knowledgeOffsets.documents || 0));
+  legacyParams.set("faq_offset", String(state.knowledgeOffsets.faqs || 0));
+  const params = new URLSearchParams();
+  const query = $("managed-knowledge-search")?.value.trim() || "";
+  if (query) params.set("q", query);
+  const filterSignature = params.toString();
+  if (resetManagedPage || propertyId !== managedKnowledgePropertyId || filterSignature !== managedKnowledgeFilterSignature) {
+    managedKnowledgePageOffset = 0;
+    knowledgeSourcePageOffset = 0;
+  }
+  managedKnowledgePropertyId = propertyId;
+  managedKnowledgeFilterSignature = filterSignature;
+  params.set("limit", String(managedKnowledgePageLimit));
+  params.set("offset", String(managedKnowledgePageOffset));
+  params.set("source_limit", String(sourceFilePageLimit));
+  params.set("source_offset", String(knowledgeSourcePageOffset));
+  const version = ++managedKnowledgeLoadVersion;
+  const [legacy, managed, health] = await Promise.all([
+    jsonFetch(`${base}?${legacyParams.toString()}`),
+    jsonFetch(`${base}/managed?${params.toString()}`),
+    jsonFetch(`${base}/health`),
+  ]);
+  if (version !== managedKnowledgeLoadVersion || propertyId !== currentPropertyId()) return;
   state.knowledge = legacy;
   state.managedKnowledge = managed;
+  state.knowledgeOffsets.items = Number.isInteger(legacy.pages?.items?.offset) ? legacy.pages.items.offset : state.knowledgeOffsets.items;
+  state.knowledgeOffsets.documents = Number.isInteger(legacy.pages?.documents?.offset) ? legacy.pages.documents.offset : state.knowledgeOffsets.documents;
+  state.knowledgeOffsets.faqs = Number.isInteger(legacy.pages?.faqs?.offset) ? legacy.pages.faqs.offset : state.knowledgeOffsets.faqs;
+  managedKnowledgeTotal = Number.isInteger(managed.total) ? managed.total : (managed.items || []).length;
+  managedKnowledgePageOffset = Number.isInteger(managed.offset) ? managed.offset : managedKnowledgePageOffset;
+  knowledgeSourcePageOffset = Number.isInteger(managed.source_pages?.offset) ? managed.source_pages.offset : knowledgeSourcePageOffset;
   state.knowledgeHealth = health;
   renderKnowledge();
 }
@@ -1803,6 +1880,32 @@ function makeActionButton(label, handler, secondary = false) {
   button.className = `btn ${destructive ? "btn-danger" : secondary ? "btn-ghost" : "btn-secondary"} btn-sm`;
   button.addEventListener("click", () => Promise.resolve(handler()).catch((error) => showToast(error.message, "error")));
   return button;
+}
+
+function renderKnowledgePageNavigation(mountId, page, onOffsetChange, label) {
+  const nav = $(mountId);
+  if (!nav) return;
+  nav.replaceChildren();
+  const total = Number(page?.total || 0);
+  const limit = Number(page?.limit || 25);
+  const offset = Number(page?.offset || 0);
+  const previous = document.createElement("button");
+  previous.className = "secondary";
+  previous.type = "button";
+  previous.textContent = "Previous page";
+  previous.disabled = offset <= 0;
+  previous.addEventListener("click", () => onOffsetChange(Math.max(0, offset - limit)));
+  const info = document.createElement("span");
+  info.setAttribute("aria-live", "polite");
+  info.textContent = total ? `Showing ${offset + 1}–${Math.min(offset + limit, total)} of ${total}` : "No pages";
+  const next = document.createElement("button");
+  next.className = "secondary";
+  next.type = "button";
+  next.textContent = "Next page";
+  next.disabled = offset + limit >= total;
+  next.addEventListener("click", () => onOffsetChange(Math.min(offset + limit, Math.max(0, total - 1))));
+  nav.setAttribute("aria-label", label);
+  nav.append(previous, info, next);
 }
 
 function renderKnowledge() {
@@ -1820,6 +1923,10 @@ function renderKnowledge() {
     entryList.appendChild(row);
   }
   if (!entryList.children.length) entryList.textContent = "No hotel knowledge has been added.";
+  renderKnowledgePageNavigation("knowledge-entry-pagination", state.knowledge.pages?.items, (offset) => {
+    state.knowledgeOffsets.items = offset;
+    loadKnowledge().catch((error) => showToast(error.message, "error"));
+  }, "Hotel knowledge entry pages");
 
   const documentList = $("document-list"); documentList.innerHTML = "";
   for (const item of state.knowledge.documents || []) {
@@ -1827,6 +1934,12 @@ function renderKnowledge() {
     row.innerHTML = `<strong>${escapeHTML(item.source_name || item.title)}</strong><span>${escapeHTML(item.status)} · ${escapeHTML(item.content_type || "unknown type")}</span><span>${escapeHTML(item.error || "Ready for verified retrieval")}</span>`;
     row.append(makeActionButton("Delete", () => deleteKnowledgeItem(item.item_id), true)); documentList.appendChild(row);
   }
+  renderKnowledgePageNavigation("knowledge-document-pagination", state.knowledge.pages?.documents, (offset) => {
+    state.knowledgeOffsets.documents = offset;
+    loadKnowledge().catch((error) => showToast(error.message, "error"));
+  }, "Legacy document pages");
+
+  const sourceList = $("knowledge-source-list"); sourceList.replaceChildren();
   for (const source of state.managedKnowledge.sources || []) {
     const row = document.createElement("div"); row.className = "compact-row";
     row.innerHTML = `<strong>${escapeHTML(source.filename)}</strong><span>${escapeHTML(source.status.replaceAll("_", " "))} · version ${source.version}${source.previous_source_id ? ` · replaces ${escapeHTML(source.previous_source_id.slice(0, 8))}` : ""} · ${escapeHTML(source.extension)} · ${escapeHTML(formatDate(source.created_at))}</span><span>${escapeHTML(source.error || "Review extracted knowledge before publishing.")}</span>`;
@@ -1854,9 +1967,14 @@ function renderKnowledge() {
       await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge/sources/${source.source_id}/supersede`, { method: "POST" }); await loadKnowledge();
     }, true));
     if (can("knowledge.delete")) row.append(makeActionButton("Delete source", async () => { if (!window.confirm(`Permanently delete ${source.filename} and all derived knowledge?`)) return; await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge/sources/${source.source_id}`, { method: "DELETE" }); await loadKnowledge(); }, true));
-    documentList.appendChild(row);
+    sourceList.appendChild(row);
   }
-  if (!documentList.children.length) documentList.textContent = "No knowledge documents uploaded yet.";
+  if (!documentList.children.length) documentList.textContent = "No legacy document records.";
+  if (!sourceList.children.length) sourceList.textContent = "No uploaded source files.";
+  renderKnowledgePageNavigation("knowledge-source-pagination", state.managedKnowledge.source_pages, (offset) => {
+    knowledgeSourcePageOffset = offset;
+    loadKnowledge().catch((error) => showToast(error.message, "error"));
+  }, "Uploaded document source pages");
 
   const faqList = $("faq-list"); faqList.innerHTML = "";
   for (const item of state.knowledge.faqs || []) {
@@ -1869,18 +1987,22 @@ function renderKnowledge() {
     faqList.appendChild(row);
   }
   if (!faqList.children.length) faqList.textContent = "No FAQs configured yet.";
+  renderKnowledgePageNavigation("knowledge-faq-pagination", state.knowledge.pages?.faqs, (offset) => {
+    state.knowledgeOffsets.faqs = offset;
+    loadKnowledge().catch((error) => showToast(error.message, "error"));
+  }, "FAQ pages");
 }
 
 function renderManagedKnowledge() {
   const target = $("managed-knowledge-list");
   if (!target) return;
   target.replaceChildren();
-  const query = $("managed-knowledge-search")?.value.trim().toLowerCase() || "";
-  const items = (state.managedKnowledge.items || []).filter((item) => !query || `${item.title} ${item.content}`.toLowerCase().includes(query));
+  const items = state.managedKnowledge.items || [];
   for (const item of items) {
     const row = document.createElement("article"); row.className = "compact-row knowledge-review"; row.dataset.sourceId = item.source_id || "";
     const source = state.managedKnowledge.sources.find((candidate) => candidate.source_id === item.source_id);
-    row.innerHTML = `<strong>${escapeHTML(item.title)}</strong><span>${escapeHTML(item.category)} · ${escapeHTML(item.status.replaceAll("_", " "))} · ${escapeHTML(item.visibility)}${item.conflict ? " · Conflict" : ""}${item.risk_flags?.length ? ` · Review: ${escapeHTML(item.risk_flags.join(", "))}` : ""}</span><span>${escapeHTML(source?.filename || "Admin Knowledge Entry")} · ${escapeHTML(JSON.stringify(item.location))}</span><p>${escapeHTML(item.content)}</p>`;
+    const sourceLabel = source?.filename || (item.source_id ? `Source ${item.source_id.slice(0, 8)}` : "Admin Knowledge Entry");
+    row.innerHTML = `<strong>${escapeHTML(item.title)}</strong><span>${escapeHTML(item.category)} · ${escapeHTML(item.status.replaceAll("_", " "))} · ${escapeHTML(item.visibility)}${item.conflict ? " · Conflict" : ""}${item.risk_flags?.length ? ` · Review: ${escapeHTML(item.risk_flags.join(", "))}` : ""}</span><span>${escapeHTML(sourceLabel)} · ${escapeHTML(JSON.stringify(item.location))}</span><p>${escapeHTML(item.content)}</p>`;
     const details = document.createElement("div"); details.className = "knowledge-review-details"; details.hidden = true;
     const title = document.createElement("input"); title.value = item.title; title.setAttribute("aria-label", "Knowledge title");
     const content = document.createElement("textarea"); content.value = item.content; content.rows = 4; content.setAttribute("aria-label", "Knowledge content");
@@ -1905,6 +2027,30 @@ function renderManagedKnowledge() {
     row.append(details); target.append(row);
   }
   if (!items.length) target.textContent = "No matching extracted knowledge.";
+  const pageCount = Math.ceil(managedKnowledgeTotal / managedKnowledgePageLimit);
+  const first = managedKnowledgeTotal ? managedKnowledgePageOffset + 1 : 0;
+  const last = Math.min(managedKnowledgePageOffset + items.length, managedKnowledgeTotal);
+  $("managed-knowledge-page-info").textContent = pageCount
+    ? "Page " + (Math.floor(managedKnowledgePageOffset / managedKnowledgePageLimit) + 1) + " of " + pageCount + " · " + first + "–" + last + " of " + managedKnowledgeTotal
+    : "No pages";
+  $("managed-knowledge-page-previous").disabled = managedKnowledgePageOffset === 0 || !managedKnowledgeTotal;
+  $("managed-knowledge-page-next").disabled = managedKnowledgePageOffset + managedKnowledgePageLimit >= managedKnowledgeTotal;
+}
+
+
+function changeManagedKnowledgePage(direction) {
+  const lastPageOffset = Math.max(0, Math.ceil(managedKnowledgeTotal / managedKnowledgePageLimit) - 1) * managedKnowledgePageLimit;
+  const nextOffset = Math.max(0, Math.min(managedKnowledgePageOffset + direction * managedKnowledgePageLimit, lastPageOffset));
+  if (nextOffset === managedKnowledgePageOffset) return;
+  managedKnowledgePageOffset = nextOffset;
+  loadKnowledge().catch((error) => showToast(error.message, "error"));
+}
+
+function scheduleManagedKnowledgeSearch() {
+  clearTimeout(managedKnowledgeSearchTimer);
+  managedKnowledgeSearchTimer = setTimeout(() => {
+    loadKnowledge({ resetManagedPage: true }).catch((error) => showToast(error.message, "error"));
+  }, 180);
 }
 
 async function transitionKnowledge(itemId, action) {
@@ -2076,6 +2222,152 @@ function addDetectedAddressRule() {
   showToast(`Added ${rule}. Click Save Guardrails to apply it.`);
 }
 
+function selectedNotificationCampaign() {
+  return state.notificationCampaigns.find((campaign) => campaign.campaign_id === state.selectedNotificationCampaignId) || null;
+}
+
+function setNotificationCampaignForm(campaign = null) {
+  state.selectedNotificationCampaignId = campaign?.campaign_id || null;
+  state.notificationCampaignPreview = null;
+  $("notification-campaign-name").value = campaign?.name || "";
+  $("notification-campaign-title").value = campaign?.title || "";
+  $("notification-campaign-body").value = campaign?.body || "";
+  $("notification-campaign-source").value = campaign?.source_reference || "";
+  const editable = !campaign || campaign.status === "draft";
+  for (const id of ["notification-campaign-name", "notification-campaign-title", "notification-campaign-body", "notification-campaign-source"]) $(id).disabled = !editable;
+  $("notification-campaign-save").disabled = !editable;
+  $("notification-campaign-save").textContent = campaign ? "Save draft changes" : "Save draft";
+  $("notification-campaign-form-title").textContent = campaign ? (editable ? "Edit campaign draft" : "Campaign details") : "New campaign";
+  $("notification-campaign-preview-button").disabled = !campaign || !["draft", "failed"].includes(campaign.status);
+  $("notification-campaign-publish").disabled = !campaign || !["draft", "failed"].includes(campaign.status);
+  $("notification-campaign-preview").textContent = campaign ? `Revision ${campaign.revision} · ${campaign.status}. Preview the aggregate audience before publishing.` : "Save a draft to preview its aggregate audience.";
+  renderNotificationCampaigns();
+}
+
+function renderNotificationCampaigns() {
+  const root = $("notification-campaign-list");
+  if (!root) return;
+  root.replaceChildren();
+  const search = $("notification-campaign-search")?.value.trim() || "";
+  const total = state.notificationCampaignTotal || 0;
+  const offset = state.notificationCampaignPageOffset || 0;
+  const limit = state.notificationCampaignPageLimit || 25;
+  const count = $("notification-campaign-count");
+  if (count) count.textContent = total ? `Showing ${Math.min(offset + 1, total)}–${Math.min(offset + state.notificationCampaigns.length, total)} of ${total} campaigns` : (search ? "No matching campaigns" : "No campaigns yet");
+  const pageInfo = $("notification-campaign-page-info");
+  if (pageInfo) pageInfo.textContent = total ? `Page ${Math.floor(offset / limit) + 1} of ${Math.ceil(total / limit)}` : "No pages";
+  const previous = $("notification-campaign-page-previous");
+  const next = $("notification-campaign-page-next");
+  if (previous) previous.disabled = offset === 0 || !total;
+  if (next) next.disabled = offset + limit >= total;
+  if (!state.notificationCampaigns.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    const title = document.createElement("strong");
+    title.textContent = search ? "No campaigns match this search" : "No notification campaigns yet";
+    const detail = document.createElement("p");
+    detail.textContent = search ? "Try a different campaign name or message term." : "Saved drafts and published campaign counts for this property will appear here.";
+    empty.append(title, detail);
+    root.appendChild(empty);
+    return;
+  }
+  for (const campaign of state.notificationCampaigns) {
+    const row = document.createElement("article");
+    row.className = "notification-campaign-row";
+    const info = document.createElement("div");
+    const title = document.createElement("h3");
+    title.textContent = campaign.name || "Untitled campaign";
+    const status = document.createElement("p");
+    status.className = "campaign-state";
+    status.textContent = `${campaign.status} · revision ${campaign.revision}`;
+    const metrics = document.createElement("small");
+    metrics.textContent = `${campaign.queued_count || 0} queued · ${campaign.suppressed_count || 0} suppressed · ${campaign.engagement?.read || 0} read`;
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "secondary";
+    edit.textContent = campaign.status === "draft" ? "Edit draft" : "View";
+    edit.dataset.campaignId = campaign.campaign_id;
+    info.append(title, status, metrics);
+    row.append(info, edit);
+    root.appendChild(row);
+  }
+}
+
+async function loadNotificationCampaigns({ resetPage = false } = {}) {
+  const propertyId = currentPropertyId();
+  const query = $("notification-campaign-search")?.value.trim() || "";
+  if (resetPage || propertyId !== state.notificationCampaignPropertyId || query !== state.notificationCampaignFilterSignature) {
+    state.notificationCampaignPageOffset = 0;
+  }
+  state.notificationCampaignPropertyId = propertyId;
+  state.notificationCampaignFilterSignature = query;
+  const params = new URLSearchParams({
+    limit: String(state.notificationCampaignPageLimit),
+    offset: String(state.notificationCampaignPageOffset),
+  });
+  if (query) params.set("q", query);
+  const version = ++state.notificationCampaignLoadVersion;
+  const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}/notification-campaigns?${params.toString()}`);
+  if (version !== state.notificationCampaignLoadVersion || propertyId !== currentPropertyId()) return;
+  state.notificationCampaigns = result.campaigns || [];
+  state.notificationCampaignTotal = Number(result.total || 0);
+  if (state.notificationCampaignPageOffset > 0 && state.notificationCampaignPageOffset >= state.notificationCampaignTotal) {
+    state.notificationCampaignPageOffset = Math.max(0, Math.floor((state.notificationCampaignTotal - 1) / state.notificationCampaignPageLimit) * state.notificationCampaignPageLimit);
+    return loadNotificationCampaigns();
+  }
+  const selected = selectedNotificationCampaign();
+  if (selected) setNotificationCampaignForm(selected);
+  else renderNotificationCampaigns();
+}
+
+async function saveNotificationCampaign(event) {
+  event?.preventDefault();
+  const selected = selectedNotificationCampaign();
+  const payload = {
+    name: $("notification-campaign-name").value.trim(),
+    title: $("notification-campaign-title").value.trim(),
+    body: $("notification-campaign-body").value.trim(),
+    source_reference: $("notification-campaign-source").value.trim(),
+  };
+  if (selected) payload.expected_revision = selected.revision;
+  const root = `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/notification-campaigns`;
+  const result = await jsonFetch(selected ? `${root}/${encodeURIComponent(selected.campaign_id)}` : root, {
+    method: selected ? "PUT" : "POST", body: JSON.stringify(payload),
+  });
+  const campaign = result.campaign;
+  state.selectedNotificationCampaignId = campaign.campaign_id;
+  $("notification-campaign-search").value = "";
+  await loadNotificationCampaigns({ resetPage: true });
+  showToast("Campaign draft saved.");
+}
+
+async function previewNotificationCampaign() {
+  const campaign = selectedNotificationCampaign();
+  if (!campaign) throw new Error("Save a campaign draft before previewing its audience.");
+  const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/notification-campaigns/${encodeURIComponent(campaign.campaign_id)}/preview`, {
+    method: "POST", body: JSON.stringify({ expected_revision: campaign.revision }),
+  });
+  state.notificationCampaignPreview = result;
+  $("notification-campaign-preview").textContent = `${result.eligible} eligible of ${result.active_stays} active stays · ${result.promotional_consent_required} missing promotional consent · ${result.promotional_preference_disabled} preference disabled. No guest identities are displayed.`;
+  return result;
+}
+
+async function publishNotificationCampaign() {
+  const campaign = selectedNotificationCampaign();
+  if (!campaign) throw new Error("Save a campaign draft before publishing.");
+  let preview = state.notificationCampaignPreview;
+  if (!preview || preview.revision !== campaign.revision) preview = await previewNotificationCampaign();
+  if (preview.eligible < 1) throw new Error("No active stays currently meet the promotional consent and preference requirements.");
+  if (!window.confirm(`Queue this promotional message in the in-app inbox for ${preview.eligible} eligible active stay${preview.eligible === 1 ? "" : "s"}? No email or push notification will be sent.`)) return;
+  const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/notification-campaigns/${encodeURIComponent(campaign.campaign_id)}/publish`, {
+    method: "POST", body: JSON.stringify({ expected_revision: campaign.revision }),
+  });
+  state.selectedNotificationCampaignId = result.campaign.campaign_id;
+  await loadNotificationCampaigns({ resetPage: true });
+  $("notification-campaign-preview").textContent = `${result.queued} queued in-app · ${result.already_queued} already queued · ${result.suppressed_at_publish} suppressed after the final consent check.`;
+  showToast(`Campaign queued for ${result.queued} eligible stay${result.queued === 1 ? "" : "s"}.`);
+}
+
 async function loadWebhooks() { state.webhooks = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/webhooks`); renderWebhooks(); }
 
 function renderWebhooks() {
@@ -2182,6 +2474,34 @@ async function loadNetworkAccess() {
   const guestDomain = guest.domain || "Not configured";
   const guestUrl = guest.url || "Not configured";
   const sslStatus = prettifyAccessStatus(guest.ssl_status);
+  const guestEntryPreview = $("guest-entry-preview");
+  const guestEntryQr = $("guest-entry-qr");
+  const guestEntryUrl = $("guest-entry-url");
+  const guestEntryStatus = $("guest-entry-status");
+  const configuredGuestUrl = typeof guest.url === "string" ? guest.url : "";
+  const hasHttpsGuestUrl = /^https:\/\/[^\s/?#]+\/?$/i.test(configuredGuestUrl);
+  const guestEntryReady = guest.enabled !== false && guest.https_required !== false && hasHttpsGuestUrl;
+  guestEntryPreview.hidden = !guestEntryReady;
+  guestEntryQr.hidden = !guestEntryReady;
+  guestEntryQr.onerror = () => {
+    guestEntryQr.hidden = true;
+    guestEntryStatus.textContent = "The QR code is unavailable. Check the saved HTTPS domain and your network access, then refresh.";
+  };
+  if (guestEntryReady) {
+    guestEntryUrl.href = configuredGuestUrl;
+    guestEntryUrl.textContent = configuredGuestUrl;
+    guestEntryQr.src = `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/guest-entry/qr.svg`;
+    guestEntryStatus.textContent = "Scan the code or copy this URL to print it or write it to an NFC tag.";
+  } else {
+    guestEntryUrl.removeAttribute("href");
+    guestEntryUrl.textContent = "";
+    guestEntryQr.removeAttribute("src");
+    guestEntryStatus.textContent = guest.enabled === false
+      ? "Enable Guest Access and save the settings to generate a QR code."
+      : guest.https_required === false
+        ? "Require HTTPS and save the settings before generating a QR code."
+        : "Set up and save an HTTPS Guest URL before generating a QR code.";
+  }
 
   $("management-status").textContent = managementStatus;
   $("management-enabled-status").textContent = management.enabled ? "Enabled" : "Disabled";
@@ -4191,7 +4511,15 @@ function bindBuilderEvents() {
   $("builder-undo-button")?.addEventListener("click", () => restoreBuilderSnapshot(state.builderHistory.pop(), "undo"));
   $("builder-redo-button")?.addEventListener("click", () => restoreBuilderSnapshot(state.builderRedo.pop(), "redo"));
   $("builder-focus-button")?.addEventListener("click", () => { const builder = document.querySelector(".experience-builder"); const active = builder.classList.toggle("is-focus-mode"); $("builder-focus-button").setAttribute("aria-pressed", String(active)); $("builder-focus-button").textContent = active ? "Exit focus" : "Focus mode"; });
-  $("builder-templates-button")?.addEventListener("click", () => { const menu = $("builder-template-menu"); const open = menu.hidden; menu.hidden = !open; $("builder-templates-button").setAttribute("aria-expanded", String(open)); });
+  $("builder-templates-button")?.addEventListener("click", () => {
+    const menu = $("builder-template-menu");
+    const open = menu.hidden;
+    menu.hidden = !open;
+    $("builder-templates-button").setAttribute("aria-expanded", String(open));
+    if (open) renderBuilderCloneSources();
+  });
+  $("builder-clone-source-property")?.addEventListener("change", renderBuilderCloneSources);
+  $("builder-clone-property-button")?.addEventListener("click", () => cloneBuilderDesign().catch((error) => showToast(error.message, "error")));
   $("builder-template-menu")?.addEventListener("click", (event) => { const button = event.target.closest("[data-builder-template]"); if (button) applyBuilderTemplate(button.dataset.builderTemplate); });
   $("builder-inspector")?.addEventListener("click", handleBuilderInspectorClick);
   document.querySelectorAll("[data-builder-tab]").forEach((button) => button.addEventListener("click", () => setBuilderInspectorTab(button.dataset.builderTab)));
@@ -5297,6 +5625,47 @@ async function loadDesign() {
   }
 }
 
+function renderBuilderCloneSources() {
+  const select = $("builder-clone-source-property");
+  const button = $("builder-clone-property-button");
+  if (!select || !button) return;
+  const previous = select.value;
+  const sources = (state.properties || []).filter((item) => item.property_id !== currentPropertyId());
+  select.replaceChildren(new Option("Choose a property", ""));
+  for (const property of sources) {
+    select.append(new Option(property.hotel_name || property.property_id, property.property_id));
+  }
+  select.value = sources.some((item) => item.property_id === previous) ? previous : "";
+  button.disabled = !can("concierge.edit") || sources.length === 0 || !select.value;
+}
+
+async function cloneBuilderDesign() {
+  const select = $("builder-clone-source-property");
+  const sourcePropertyId = select?.value || "";
+  if (!sourcePropertyId) throw new Error("Choose a source property.");
+  if (!window.confirm("Replace this property’s current draft with the source property’s published design? This will not publish it or copy integrations, settings, or credentials.")) return;
+  const response = await jsonFetch(
+    `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/design/clone`,
+    {
+      method: "POST",
+      body: JSON.stringify({ source_property_id: sourcePropertyId, expected_revision: state.designRevision }),
+    },
+  );
+  state.designDraft = structuredClone(response.draft);
+  state.designRevision = Number(response.revision || state.designRevision + 1);
+  state.guestPages = structuredClone(state.designDraft.pages || []);
+  state.builderDirty = false;
+  state.builderHistory = [];
+  state.builderRedo = [];
+  fillDesignForm(state.designDraft);
+  renderBuilderPageOptions();
+  renderBuilder();
+  updatePreview();
+  if ($("builder-save-status")) $("builder-save-status").textContent = "Saved · cloned draft";
+  setPublishState("Cloned to draft");
+  showToast("Published design copied to this property’s draft. Review it before publishing.");
+}
+
 async function loadProperty() {
   const data = await jsonFetch("/api/admin/properties");
   state.properties = data.properties || [];
@@ -5435,6 +5804,10 @@ async function switchProperty(propertyId) {
   state.restaurantMenus = [];
   state.restaurantPromotions = [];
   state.webhooks = { webhooks: [], deliveries: [] };
+  state.notificationCampaigns = [];
+  state.selectedNotificationCampaignId = null;
+  state.notificationCampaignPreview = null;
+  setNotificationCampaignForm();
   state.deployment = null;
   const tasks = [];
   if (can("concierge.view")) tasks.push(loadDesign());
@@ -5463,6 +5836,7 @@ async function switchProperty(propertyId) {
       "ai-personality": () => loadAIPolicy(),
       guardrails: () => loadAIPolicy(),
       webhooks: () => loadWebhooks(),
+      "notification-campaigns": () => loadNotificationCampaigns(),
       "network-access": () => loadNetworkAccess(),
     }[activePanel];
     if (activeRefresh) tasks.push(Promise.resolve().then(activeRefresh));
@@ -5868,6 +6242,8 @@ function geometryContains(g, x, y) {
 function renderMapInspector() {
   const item = state.selectedMapObject;
   const form = $("map-object-form"), empty = $("map-inspector-empty");
+  const wayfindingPanel = $("map-wayfinding-qr-panel");
+  if (wayfindingPanel) wayfindingPanel.hidden = true;
   if (!item) {
     form.hidden = true; empty.hidden = false; $("map-inspector-title").textContent = "Object details"; $("map-selection-badge").textContent = "Nothing selected"; $("map-inspector-meta").hidden = true;
     renderZoneTree(); return;
@@ -5906,6 +6282,28 @@ function renderMapInspector() {
   $("map-ap-identifier").disabled = readonly;
   $("map-node-type").value = item.node_type || "waypoint";
   $("map-node-type").disabled = readonly;
+  if (wayfindingPanel) {
+    const canGenerate = isNode && !item.isDraft && Boolean(item.node_id);
+    const nodeKey = canGenerate ? `${currentPropertyId()}:${item.node_id}` : "";
+    if (wayfindingPanel.dataset.nodeKey !== nodeKey) {
+      wayfindingPanel.dataset.nodeKey = nodeKey;
+      $("map-wayfinding-qr").hidden = true;
+      $("map-wayfinding-qr").removeAttribute("src");
+      $("map-wayfinding-url").hidden = true;
+      $("map-wayfinding-url").removeAttribute("href");
+      $("map-wayfinding-status").textContent = "Generate a QR code for this guest waypoint.";
+    }
+    wayfindingPanel.hidden = !canGenerate;
+    const isGuestVisible = item.guest_visible !== false && item.guest_visible !== 0;
+    const currentRevision = state.zones?.map_revision_state?.current;
+    const hasUnpublishedChanges = state.zones?.map_revision_state?.has_unpublished_changes;
+    const button = $("generate-wayfinding-qr");
+    button.disabled = !canGenerate || state.mapDirty || !isGuestVisible || !currentRevision || hasUnpublishedChanges;
+    if (state.mapDirty) $("map-wayfinding-status").textContent = "Save and publish map changes before generating a QR code.";
+    else if (!isGuestVisible) $("map-wayfinding-status").textContent = "Make this waypoint guest-visible and publish the map first.";
+    else if (!currentRevision || hasUnpublishedChanges) $("map-wayfinding-status").textContent = "Publish the current map revision before generating a QR code.";
+    else if (button.disabled) $("map-wayfinding-status").textContent = "Generate a QR code for this guest waypoint.";
+  }
   const zoneSelect = $("map-linked-zone");
   const selectedFloorZones = mapFloorZones();
   zoneSelect.replaceChildren(new Option("Select a zone", ""));
@@ -5942,6 +6340,53 @@ function renderMapInspector() {
   const [x, y] = item.geometry ? pointForGeometry(item.geometry) : [item.x, item.y];
   $("map-object-position").textContent = Number.isFinite(x) && Number.isFinite(y) ? `${Math.round(x)}, ${Math.round(y)}` : "—";
   renderZoneTree();
+}
+
+async function generateMapWayfindingQr() {
+  const item = state.selectedMapObject;
+  const button = $("generate-wayfinding-qr");
+  const image = $("map-wayfinding-qr");
+  const link = $("map-wayfinding-url");
+  const status = $("map-wayfinding-status");
+  if (!item || item.objectType !== "navigation_node" || item.isDraft || state.mapDirty || !item.node_id) {
+    status.textContent = "Save and publish a guest-visible waypoint before generating its QR code.";
+    return;
+  }
+  image.hidden = true;
+  image.removeAttribute("src");
+  link.hidden = true;
+  link.removeAttribute("href");
+  status.textContent = "Generating QR code…";
+  button.disabled = true;
+  try {
+    const base = `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/navigation/nodes/${encodeURIComponent(item.node_id)}`;
+    const result = await jsonFetch(`${base}/wayfinding-url`);
+    const guestUrl = new URL(result.url);
+    if (guestUrl.protocol !== "https:" || guestUrl.searchParams.get("start_node_id") !== item.node_id
+      || !/^[0-9a-f]{64}$/.test(guestUrl.searchParams.get("start_sig") || "")) {
+      throw new Error("The server returned an invalid guest wayfinding URL.");
+    }
+    const response = await fetch(`${base}/wayfinding-qr.svg`, { credentials: "same-origin" });
+    const svg = await response.text();
+    if (!response.ok) {
+      let detail = "QR code could not be generated.";
+      try { detail = JSON.parse(svg).detail || detail; } catch { /* keep a safe fallback */ }
+      throw new Error(detail);
+    }
+    if (svg.length > 64_000 || !/^\s*<svg\b[\s\S]*<\/svg>\s*$/.test(svg)) {
+      throw new Error("The server returned an invalid QR image.");
+    }
+    image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+    image.hidden = false;
+    link.href = guestUrl.href;
+    link.textContent = `Open guest wayfinding for ${String(result.label || item.label || "this waypoint").slice(0, 120)}`;
+    link.hidden = false;
+    status.textContent = "QR code ready. Scan it to open this published waypoint in the guest concierge.";
+  } catch (error) {
+    status.textContent = error.message || "QR code could not be generated.";
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function syncMapObjectType() {
@@ -6264,21 +6709,14 @@ function stayMemoryLabel(memory = {}) {
   return parts.length ? parts.join(", ") : "No notes saved";
 }
 
-function sessionSearchText(record) {
-  return JSON.stringify(record || {}).toLowerCase();
-}
-
 function renderSessionSummary() {
-  const sessions = state.guestSessions || [];
-  const links = state.guestSessionLinks || [];
-  const stays = state.guestStays || [];
-  const devices = state.guestDevices || [];
+  const summary = state.guestRecordCounts || {};
   const counts = {
-    total: sessions.length + links.length + stays.length + devices.length,
-    active: sessions.filter((session) => session.session_status === "active").length,
-    stays: stays.filter((stay) => stay.status === "active").length,
-    expired: sessions.filter((session) => session.session_status !== "active").length,
-    devices: devices.length,
+    total: summary.total_records || 0,
+    active: summary.active_sessions || 0,
+    stays: summary.active_stays || 0,
+    expired: summary.expired_sessions || 0,
+    devices: summary.devices || 0,
   };
   for (const [key, value] of Object.entries(counts)) $(`session-count-${key}`).textContent = value;
   const activeFilter = $("session-record-filter").value;
@@ -6289,28 +6727,50 @@ function renderSessionSummary() {
 
 function renderSessionRecords() {
   const list = $("session-list");
-  const filter = $("session-record-filter").value;
-  const query = $("session-record-search").value.trim().toLowerCase();
-  const sessions = (state.guestSessions || []).filter((item) => (filter === "all" || filter === "active-sessions" && item.session_status === "active" || filter === "expired-sessions" && item.session_status !== "active") && (!query || sessionSearchText(item).includes(query)));
-  const links = (state.guestSessionLinks || []).filter((item) => (filter === "all" || filter === "guest-links") && (!query || sessionSearchText(item).includes(query)));
-  const stays = (state.guestStays || []).filter((item) => (filter === "all" || filter === "active-stays" && item.status === "active" || filter === "checked-out-stays" && item.status !== "active") && (!query || sessionSearchText(item).includes(query)));
-  const devices = (state.guestDevices || []).filter((item) => (filter === "all" || filter === "devices") && (!query || sessionSearchText(item).includes(query)));
-  const total = sessions.length + links.length + stays.length + devices.length;
+  const pages = state.guestSessionPages || {};
+  const sessions = state.guestSessions || [];
+  const links = state.guestSessionLinks || [];
+  const stays = state.guestStays || [];
+  const devices = state.guestDevices || [];
+  const total = Number(state.guestSessionResultCount || 0);
   $("session-result-count").textContent = `${total} ${total === 1 ? "record" : "records"}`;
   list.replaceChildren();
   renderSessionSummary();
 
-  const appendGroup = (label, items, renderItem) => {
-    if (!items.length) return;
+  const appendGroup = (label, key, items, renderItem) => {
+    const page = pages[key] || { total: 0, limit: 25, offset: 0 };
+    if (!page.total) return;
     const group = sessionRecordElement("section", "session-record-group");
-    group.appendChild(sessionRecordElement("h3", "", `${label} · ${items.length}`));
+    group.appendChild(sessionRecordElement("h3", "", `${label} · ${page.total} matching`));
     const records = sessionRecordElement("div", "session-record-group-list");
     for (const item of items) records.appendChild(renderItem(item));
     group.appendChild(records);
+    const start = page.total ? page.offset + 1 : 0;
+    const end = Math.min(page.offset + items.length, page.total);
+    const pagination = sessionRecordElement("nav", "session-record-pagination");
+    pagination.setAttribute("aria-label", `${label} pages`);
+    const previous = sessionRecordElement("button", "secondary", "Previous page");
+    previous.type = "button";
+    previous.disabled = page.offset <= 0;
+    previous.addEventListener("click", () => {
+      state.guestSessionOffsets[key] = Math.max(0, page.offset - page.limit);
+      loadSessions().catch((error) => showToast(error.message, "error"));
+    });
+    const pageInfo = sessionRecordElement("span", "", `Showing ${start}–${end} of ${page.total}`);
+    pageInfo.setAttribute("aria-live", "polite");
+    const next = sessionRecordElement("button", "secondary", "Next page");
+    next.type = "button";
+    next.disabled = page.offset + items.length >= page.total;
+    next.addEventListener("click", () => {
+      state.guestSessionOffsets[key] = page.offset + page.limit;
+      loadSessions().catch((error) => showToast(error.message, "error"));
+    });
+    pagination.append(previous, pageInfo, next);
+    group.appendChild(pagination);
     list.appendChild(group);
   };
 
-  appendGroup("Guest sessions", sessions, (session) => {
+  appendGroup("Guest sessions", "sessions", sessions, (session) => {
     const card = sessionRecordElement("article", "session-record-card");
     const header = sessionRecordElement("header", "session-record-header");
     const title = sessionRecordElement("div", "session-record-title");
@@ -6334,7 +6794,7 @@ function renderSessionRecords() {
     return card;
   });
 
-  appendGroup("WLAN and integration links", links, (link) => {
+  appendGroup("WLAN and integration links", "guest_sessions", links, (link) => {
     const card = sessionRecordElement("article", "session-record-card");
     const header = sessionRecordElement("header", "session-record-header");
     const title = sessionRecordElement("div", "session-record-title");
@@ -6359,7 +6819,7 @@ function renderSessionRecords() {
     return card;
   });
 
-  appendGroup("Guest stays", stays, (stay) => {
+  appendGroup("Guest stays", "stays", stays, (stay) => {
     const card = sessionRecordElement("article", "session-record-card");
     const header = sessionRecordElement("header", "session-record-header");
     const title = sessionRecordElement("div", "session-record-title");
@@ -6384,6 +6844,7 @@ function renderSessionRecords() {
     action.type = "button";
     action.title = stay.status === "active" ? "Load this stay in the notes editor" : "Checked-out stay notes are read-only";
     action.addEventListener("click", () => {
+      state.guestSelectedStay = stay;
       $("memory-stay-id").value = stay.stay_id;
       updateStayMemoryEditor(stay);
       $("memory-stay-id").scrollIntoView({ behavior: "smooth", block: "center" });
@@ -6392,7 +6853,7 @@ function renderSessionRecords() {
     return card;
   });
 
-  appendGroup("Pseudonymous device identities", devices, (device) => {
+  appendGroup("Pseudonymous device identities", "devices", devices, (device) => {
     const card = sessionRecordElement("article", "session-record-card device-record-card");
     const header = sessionRecordElement("header", "session-record-header");
     const title = sessionRecordElement("div", "session-record-title");
@@ -6412,6 +6873,7 @@ function renderSessionRecords() {
 
   if (!total) {
     const empty = sessionRecordElement("div", "session-record-empty");
+    const query = $("session-record-search").value.trim();
     empty.append(sessionRecordElement("strong", "", query ? "No records match this search" : "No guest records yet"));
     empty.append(sessionRecordElement("span", "", query ? "Try a different session, stay, room, or device search." : "Guest sessions, stays, and pseudonymous WLAN identities will appear here.") );
     list.appendChild(empty);
@@ -6421,26 +6883,47 @@ function renderSessionRecords() {
 async function loadSessions() {
   const button = $("refresh-sessions");
   const originalLabel = button?.textContent || "Refresh records";
+  const requestId = ++state.sessionRequestSequence;
+  const propertyId = currentPropertyId();
+  const params = new URLSearchParams({
+    limit: "25",
+    q: $("session-record-search").value.trim(),
+    filter: $("session-record-filter").value,
+    session_offset: String(state.guestSessionOffsets.sessions || 0),
+    link_offset: String(state.guestSessionOffsets.guest_sessions || 0),
+    stay_offset: String(state.guestSessionOffsets.stays || 0),
+    device_offset: String(state.guestSessionOffsets.devices || 0),
+  });
   if (button) { button.disabled = true; button.textContent = "Refreshing…"; }
   try {
-    const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/sessions`);
+    const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}/sessions?${params}`);
+    if (requestId !== state.sessionRequestSequence || propertyId !== currentPropertyId()) return;
     state.guestSessions = data.sessions || [];
     state.guestSessionLinks = data.guest_sessions || [];
     state.guestStays = data.stays || [];
     state.guestDevices = data.devices || [];
+    state.guestSessionPages = data.pages || {};
+    state.guestRecordCounts = data.counts || {};
+    state.guestSessionResultCount = Number(data.result_count || 0);
     const selector = $("memory-stay-id");
-    const previousSelection = selector.value;
     selector.replaceChildren(new Option("Select a stay", ""));
     for (const stay of state.guestStays) {
       const description = [stay.room ? `Room ${stay.room}` : "No room", stay.status === "active" ? "Active" : "Checked out", stay.stay_id].join(" · ");
       selector.appendChild(new Option(description, stay.stay_id));
     }
-    selector.value = state.guestStays.some((stay) => stay.stay_id === previousSelection) ? previousSelection : "";
-    updateStayMemoryEditor(state.guestStays.find((stay) => stay.stay_id === selector.value) || null);
+    if (state.guestSelectedStay && state.guestSelectedStay.property_id !== propertyId) state.guestSelectedStay = null;
+    let selectedStay = state.guestStays.find((stay) => stay.stay_id === state.guestSelectedStay?.stay_id) || state.guestSelectedStay;
+    if (selectedStay && !state.guestStays.some((stay) => stay.stay_id === selectedStay.stay_id)) {
+      const description = [selectedStay.room ? `Room ${selectedStay.room}` : "No room", selectedStay.status === "active" ? "Active" : "Checked out", selectedStay.stay_id].join(" · ");
+      selector.appendChild(new Option(description, selectedStay.stay_id));
+    }
+    selector.value = selectedStay?.stay_id || "";
+    state.guestSelectedStay = selectedStay || null;
+    updateStayMemoryEditor(selectedStay || null);
     renderSessionRecords();
     $("session-last-refreshed").textContent = `Updated ${new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(new Date())}`;
   } finally {
-    if (button) { button.disabled = false; button.textContent = originalLabel; }
+    if (button && requestId === state.sessionRequestSequence) { button.disabled = false; button.textContent = originalLabel; }
   }
 }
 
@@ -6466,8 +6949,10 @@ async function createStaySession() {
       }),
     });
     $("session-raw-mac").value = "";
+    state.guestSelectedStay = result.stay;
     await loadSessions();
     $("memory-stay-id").value = result.stay.stay_id;
+    state.guestSelectedStay = result.stay;
     updateStayMemoryEditor(result.stay);
     showToast("Guest stay created or restored; WLAN identity is pseudonymous.");
   } finally {
@@ -6478,11 +6963,12 @@ async function createStaySession() {
 
 async function saveStayMemory() {
   const stayId = $("memory-stay-id").value;
-  const stay = state.guestStays.find((item) => item.stay_id === stayId);
+  const stay = state.guestStays.find((item) => item.stay_id === stayId)
+    || (state.guestSelectedStay?.stay_id === stayId ? state.guestSelectedStay : null);
   if (!stayId || !stay) throw new Error("Select a guest stay first.");
   if (stay.status !== "active") throw new Error("Stay notes can only be changed for an active stay.");
   const lines = (id) => $(id).value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean).slice(0, 20);
-  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/stays/${encodeURIComponent(stayId)}/memory`, {
+  const updatedStay = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/stays/${encodeURIComponent(stayId)}/memory`, {
     method: "PUT",
     body: JSON.stringify({ memory: {
       conversation_summary: $("memory-summary").value.trim(),
@@ -6492,6 +6978,7 @@ async function saveStayMemory() {
       important_context: $("memory-important-context").value.trim(),
     } }),
   });
+  state.guestSelectedStay = updatedStay;
   await loadSessions();
   showToast("Stay notes saved.");
 }
@@ -6529,10 +7016,17 @@ async function loadLocationReport() {
     body: JSON.stringify({ start_at: start, end_at: end, filters: {} }),
   });
   $("location-report").innerHTML = `
-    <div class="compact-row"><strong>${report.total_visits} visits · ${report.unique_visits} unique devices</strong><span>Zone occupancy heatmap uses aggregate AP-associated zones.</span></div>
+    <div class="compact-row"><strong>${report.total_visits} visits · ${report.unique_visits} unique devices</strong><span>Zone metrics use consented access-point observations.</span></div>
     ${Object.entries(report.area_metrics).map(([zone, metric]) => `<div class="compact-row"><strong>${escapeHTML(zone)}</strong><span>${metric.total_visits} visits · ${metric.average_dwell_seconds}s avg dwell · ${metric.repeat_visits} repeat visits</span></div>`).join("")}
     ${report.movement_patterns.map((item) => `<div class="compact-row"><strong>${escapeHTML(item.source_zone_id)} -> ${escapeHTML(item.destination_zone_id)}</strong><span>${item.count} transitions · ${item.percentage}%</span></div>`).join("")}
   `;
+  const peakHours = report.peak_hours || [];
+  $("location-peak-hours").innerHTML = peakHours.length
+    ? peakHours.map((item) => {
+      const hour = String(Number(item.hour)).padStart(2, "0");
+      return `<div class="compact-row"><strong>${hour}:00 · ${Number(item.average_observed_devices).toFixed(1)} devices on average</strong><span>${item.sample_days} observed days · ${escapeHTML(report.timezone || "UTC")}</span></div>`;
+    }).join("")
+    : '<div class="compact-row"><span>No access-point observations were recorded for this period.</span></div>';
 }
 
 async function loadIntro() {
@@ -6825,29 +7319,66 @@ async function playIntroPreview() {
 
 // Protect unsaved retention drafts from stale inbox GET responses.
 let conversationLoadVersion = 0;
+let conversationPageOffset = 0;
+const conversationPageLimit = 50;
+let conversationTotal = 0;
+let conversationStatusCounts = {};
+let conversationPagePropertyId = "";
 let retentionDraftPropertyId = "";
 let retentionDraftDirty = false;
+let retentionDraftVersion = 0;
+let retentionContextVersion = 0;
+let retentionCanonicalPropertyId = "";
+let retentionCanonicalValue = null;
+
+function resetRetentionDraftForProperty(propertyId) {
+  if (retentionDraftPropertyId === propertyId) return;
+  retentionDraftPropertyId = propertyId;
+  retentionDraftDirty = false;
+  retentionContextVersion += 1;
+  retentionCanonicalPropertyId = "";
+  retentionCanonicalValue = null;
+}
 
 async function loadConversations() {
   const propertyId = currentPropertyId();
-  const version = ++conversationLoadVersion;
-  if (retentionDraftPropertyId !== propertyId) {
-    retentionDraftPropertyId = propertyId;
-    retentionDraftDirty = false;
+  if (conversationPagePropertyId !== propertyId) {
+    conversationPagePropertyId = propertyId;
+    conversationPageOffset = 0;
+    state.selectedConversation = null;
   }
+  const version = ++conversationLoadVersion;
+  resetRetentionDraftForProperty(propertyId);
   const button = $("refresh-conversations");
   const originalLabel = button.textContent;
   button.disabled = true;
   button.textContent = "Refreshing…";
   try {
-    const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}/conversations`);
+    const params = new URLSearchParams({
+      limit: String(conversationPageLimit),
+      offset: String(conversationPageOffset),
+      status: $("conversation-status-filter").value,
+    });
+    const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}/conversations?${params.toString()}`);
     if (version !== conversationLoadVersion || propertyId !== currentPropertyId()) return;
     state.conversations = Array.isArray(data.conversations) ? data.conversations : [];
+    conversationTotal = Number.isInteger(data.total) ? data.total : state.conversations.length;
+    conversationStatusCounts = data.status_counts && typeof data.status_counts === "object" ? data.status_counts : {};
+    conversationPageOffset = Number.isInteger(data.offset) ? data.offset : conversationPageOffset;
     if (!retentionDraftDirty) {
-      $("conversation-retention-days").value = data.retention?.retention_days ?? 30;
+      const serverRetentionDays = data.retention?.retention_days ?? 30;
+      const hasUnconfirmedSave = retentionCanonicalPropertyId === propertyId;
+      if (!hasUnconfirmedSave || serverRetentionDays === retentionCanonicalValue) {
+        $("conversation-retention-days").value = serverRetentionDays;
+        if (hasUnconfirmedSave) {
+          retentionCanonicalPropertyId = "";
+          retentionCanonicalValue = null;
+        }
+      }
     }
     const selectedId = state.selectedConversation?.session_id;
-    state.selectedConversation = selectedId ? state.conversations.find((item) => item.session_id === selectedId) || null : null;
+    const refreshedSelection = selectedId ? state.conversations.find((item) => item.session_id === selectedId) : null;
+    if (refreshedSelection) state.selectedConversation = refreshedSelection;
     $("conversation-last-refreshed").textContent = `Updated ${new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(new Date())}`;
     renderConversations();
     renderConversationMessages();
@@ -6865,17 +7396,35 @@ async function saveConversationRetention() {
     throw new Error("Choose a retention period from 1 to 365 days.");
   }
   const propertyId = currentPropertyId();
+  resetRetentionDraftForProperty(propertyId);
+  const submittedDraftVersion = retentionDraftVersion;
+  const submittedContextVersion = retentionContextVersion;
   const button = $("save-conversation-retention");
   button.disabled = true;
   // Invalidate any GET started before the mutation, including the initial panel load.
   ++conversationLoadVersion;
   try {
     const saved = await jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}/conversations/retention`, { method: "PUT", body: JSON.stringify({ retention_days: retentionDays }) });
-    if (propertyId !== currentPropertyId()) return;
-    retentionDraftDirty = false;
-    $("conversation-retention-days").value = saved.retention_days;
-    await loadConversations();
-    showToast("Conversation retention updated.");
+    if (propertyId !== currentPropertyId() || retentionContextVersion !== submittedContextVersion) return;
+    retentionCanonicalPropertyId = propertyId;
+    retentionCanonicalValue = saved.retention_days;
+    const hasNewerDraft = retentionDraftVersion !== submittedDraftVersion;
+    if (!hasNewerDraft) {
+      retentionDraftDirty = false;
+      $("conversation-retention-days").value = saved.retention_days;
+    }
+    try {
+      await loadConversations();
+    } catch (error) {
+      showToast(`Retention was saved, but the inbox could not refresh: ${error.message}`, "error");
+      return;
+    }
+    if (propertyId !== currentPropertyId() || retentionContextVersion !== submittedContextVersion) return;
+    if (retentionDraftVersion !== submittedDraftVersion) {
+      showToast("Earlier retention changes were saved. Save your newer edit to apply it.");
+    } else {
+      showToast("Conversation retention updated.");
+    }
   } finally {
     button.disabled = false;
     const refresh = $("refresh-conversations");
@@ -6902,8 +7451,7 @@ function conversationStateLabel(status) {
 }
 
 function renderConversationSummary() {
-  const counts = { all: state.conversations.length, waiting_for_staff: 0, assigned: 0, human_active: 0, ai_active: 0, resolved: 0 };
-  for (const item of state.conversations) counts[conversationStateKey(item)] += 1;
+  const counts = { all: Object.values(conversationStatusCounts).reduce((sum, value) => sum + Number(value || 0), 0), ...conversationStatusCounts };
   $("conversation-count-all").textContent = counts.all;
   $("conversation-count-waiting").textContent = counts.waiting_for_staff;
   $("conversation-count-assigned").textContent = counts.assigned;
@@ -6939,20 +7487,25 @@ function renderConversationEmptyState(list, message, detailText, actionLabel = "
 
 function renderConversations() {
   const query = $("conversation-search").value.trim().toLowerCase();
-  const status = $("conversation-status-filter").value;
   const list = $("conversation-list");
   const scrollTop = list.scrollTop;
   list.replaceChildren();
   renderConversationSummary();
   const matching = state.conversations.filter((item) => {
-    const statusMatches = !status || conversationStateKey(item) === status;
     const text = [item.session_id, item.client_id, item.restaurant_name, item.assigned_user_name, item.escalation_reason, ...(item.messages || []).map((message) => message.content)]
       .filter(Boolean).join(" ").toLowerCase();
-    return statusMatches && (!query || text.includes(query));
+    return !query || text.includes(query);
   });
-  $("conversation-result-count").textContent = query || status
-    ? `${matching.length} of ${state.conversations.length} conversations`
-    : `${matching.length} ${matching.length === 1 ? "conversation" : "conversations"}`;
+  const first = conversationTotal ? conversationPageOffset + 1 : 0;
+  const last = Math.min(conversationPageOffset + state.conversations.length, conversationTotal);
+  $("conversation-result-count").textContent = query
+    ? `${matching.length} matches on this page · ${conversationTotal} total`
+    : `${first}–${last} of ${conversationTotal} conversations`;
+  $("conversation-page-info").textContent = conversationTotal
+    ? `Page ${Math.floor(conversationPageOffset / conversationPageLimit) + 1} of ${Math.ceil(conversationTotal / conversationPageLimit)}`
+    : "No pages";
+  $("conversation-page-previous").disabled = conversationPageOffset === 0;
+  $("conversation-page-next").disabled = conversationPageOffset + conversationPageLimit >= conversationTotal;
   for (const conversation of matching) {
     const row = document.createElement("button");
     row.type = "button";
@@ -6987,13 +7540,13 @@ function renderConversations() {
   }
   list.scrollTop = scrollTop;
   if (!matching.length) {
-    const hasFilter = Boolean(query || status);
+    const hasFilter = Boolean(query || $("conversation-status-filter").value);
     renderConversationEmptyState(
       list,
       hasFilter ? "No conversations match these filters" : "No conversations yet",
-      hasFilter ? "Try a different status or search term." : "Guest staff requests will appear here when someone asks a restaurant team for help.",
+      hasFilter ? "Try another status or search this page. Clear filters to browse the full inbox." : "Guest staff requests will appear here when someone asks a restaurant team for help.",
       hasFilter ? "Clear filters" : can("concierge.view") ? "Open guest preview" : "",
-      hasFilter ? () => { $("conversation-search").value = ""; $("conversation-status-filter").value = ""; renderConversations(); }
+      hasFilter ? () => { $("conversation-search").value = ""; $("conversation-status-filter").value = ""; conversationPageOffset = 0; loadConversations().catch((error) => showToast(error.message, "error")); }
         : can("concierge.view") ? () => activatePanel("guest") : null,
     );
   }
@@ -7104,12 +7657,14 @@ async function setConversationState(status, humanTakeover) {
   if (!state.selectedConversation) return;
   const conversation = state.selectedConversation;
   const base = `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations/${encodeURIComponent(conversation.session_id)}`;
+  let updated;
   if (conversation.restaurant_id) {
     const action = status === "closed" ? "resolve" : humanTakeover ? "accept" : "return-to-ai";
-    await jsonFetch(`${base}/${action}`, { method: "POST" });
+    updated = await jsonFetch(`${base}/${action}`, { method: "POST" });
   } else {
-    await jsonFetch(base, { method: "PUT", body: JSON.stringify({ status, human_takeover: humanTakeover }) });
+    updated = await jsonFetch(base, { method: "PUT", body: JSON.stringify({ status, human_takeover: humanTakeover }) });
   }
+  state.selectedConversation = { ...conversation, ...updated };
   await loadConversations(); showToast("Conversation updated.");
 }
 
@@ -7140,7 +7695,8 @@ async function assignSelectedConversation() {
   const conversation = state.selectedConversation;
   const userId = $("conversation-staff-select").value;
   if (!conversation?.restaurant_id || !userId) throw new Error("Choose an assigned restaurant staff member.");
-  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations/${encodeURIComponent(conversation.session_id)}/assign`, { method: "POST", body: JSON.stringify({ user_id: userId }) });
+  const updated = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations/${encodeURIComponent(conversation.session_id)}/assign`, { method: "POST", body: JSON.stringify({ user_id: userId }) });
+  state.selectedConversation = { ...conversation, ...updated };
   await loadConversations(); showToast("Conversation assigned.");
 }
 
@@ -7151,7 +7707,17 @@ async function sendStaffResponse() {
   button.disabled = true;
   button.textContent = "Sending…";
   try {
-    await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations/${encodeURIComponent(state.selectedConversation.session_id)}/messages`, { method: "POST", body: JSON.stringify({ message }) });
+    const sent = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations/${encodeURIComponent(state.selectedConversation.session_id)}/messages`, { method: "POST", body: JSON.stringify({ message }) });
+    const conversation = state.selectedConversation;
+    const createdAt = Math.floor(Date.now() / 1000);
+    conversation.messages = [...(conversation.messages || []), {
+      message_id: sent.message_id,
+      role: "staff",
+      content: message,
+      created_at: createdAt,
+    }];
+    conversation.message_count = Number(conversation.message_count || 0) + 1;
+    conversation.last_message_at = createdAt;
     $("staff-response").value = "";
     await loadConversations();
     showToast("Staff response sent.");
@@ -7405,16 +7971,17 @@ function serviceRequestCompletedToday(request, today = serviceRequestDateKey(Dat
     && serviceRequestDateKey(request.completed_at) === today;
 }
 
+let serviceRequestPageOffset = 0;
+const serviceRequestPageLimit = 50;
+let serviceRequestFilteredTotal = 0;
+let serviceRequestAllTotal = 0;
+let serviceRequestSummary = {};
+let serviceRequestLoadVersion = 0;
+let serviceRequestPagePropertyId = "";
+let serviceRequestSearchTimer = null;
+
 function renderServiceRequestSummary() {
-  const requests = state.serviceRequests || [];
-  const open = requests.filter(serviceRequestIsOpen);
-  const counts = {
-    open: open.length,
-    in_progress: open.filter((request) => request.status === "in_progress").length,
-    due_soon: open.filter((request) => request.sla_state === "warning").length,
-    overdue: open.filter((request) => request.sla_state === "overdue").length,
-    completed_today: requests.filter((request) => serviceRequestCompletedToday(request)).length,
-  };
+  const counts = serviceRequestSummary;
   for (const [key, count] of Object.entries(counts)) $(`request-count-${key}`).textContent = count;
   const activeFilter = $("service-request-status-filter").value || "all";
   for (const card of document.querySelectorAll("[data-request-filter]")) {
@@ -7427,6 +7994,7 @@ function renderServiceRequestHistory(request, container) {
     const detail = event.detail || {};
     if (event.action === "created") return "Request added to the queue";
     if (event.action === "status_changed") return `Status changed to ${serviceStatusLabel(detail.status)}`;
+    if (event.action === "overdue_escalation_queued") return `Overdue escalation queued for ${detail.target || "the configured department target"}`;
     const labels = { department: "Department", assigned_to: "Assigned to", priority: "Priority", note: "Note" };
     const changes = Object.entries(detail).map(([key, value]) => `${labels[key] || key.replaceAll("_", " ")}: ${value}`).filter(Boolean);
     return changes.length ? changes.join(" · ") : String(event.action || "Request updated").replaceAll("_", " ");
@@ -7453,30 +8021,29 @@ function renderServiceRequestHistory(request, container) {
 function renderServiceRequests() {
   const list = $("service-request-list");
   const requests = state.serviceRequests || [];
-  const filter = $("service-request-status-filter").value;
-  const query = $("service-request-search").value.trim().toLowerCase();
-  const today = serviceRequestDateKey(Date.now() / 1000);
   renderServiceRequestSummary();
-  const matching = requests.filter((request) => {
-    const matchesFilter = !filter
-      || filter === "all"
-      || (filter === "open" && serviceRequestIsOpen(request))
-      || (filter === "due_soon" && serviceRequestIsOpen(request) && request.sla_state === "warning")
-      || (filter === "overdue" && serviceRequestIsOpen(request) && request.sla_state === "overdue")
-      || (filter === "completed_today" && serviceRequestCompletedToday(request, today))
-      || request.status === filter;
-    const searchText = [request.request_id, request.request_type, request.room, request.description, request.department, request.assigned_to, ...(request.notes || []).map((note) => note.text)].join(" ").toLowerCase();
-    return matchesFilter && (!query || searchText.includes(query));
-  });
-  $("service-request-result-count").textContent = `${matching.length} ${matching.length === 1 ? "request" : "requests"}`;
+  const first = serviceRequestFilteredTotal ? serviceRequestPageOffset + 1 : 0;
+  const last = Math.min(serviceRequestPageOffset + requests.length, serviceRequestFilteredTotal);
+  const totalLabel = serviceRequestAllTotal !== serviceRequestFilteredTotal
+    ? ` · ${serviceRequestAllTotal} total`
+    : "";
+  $("service-request-result-count").textContent = serviceRequestFilteredTotal
+    ? `${first}–${last} of ${serviceRequestFilteredTotal} matching${totalLabel}`
+    : `0 matching${totalLabel}`;
+  const pageCount = Math.ceil(serviceRequestFilteredTotal / serviceRequestPageLimit);
+  $("service-request-page-info").textContent = pageCount
+    ? `Page ${Math.floor(serviceRequestPageOffset / serviceRequestPageLimit) + 1} of ${pageCount}`
+    : "No pages";
+  $("service-request-page-previous").disabled = serviceRequestPageOffset === 0 || !serviceRequestFilteredTotal;
+  $("service-request-page-next").disabled = serviceRequestPageOffset + serviceRequestPageLimit >= serviceRequestFilteredTotal;
   list.replaceChildren();
-  if (!matching.length) {
+  if (!requests.length) {
     const empty = document.createElement("div");
     empty.className = "request-queue-empty";
     const title = document.createElement("strong");
-    title.textContent = requests.length ? "No requests match these filters" : "No service requests yet";
+    title.textContent = serviceRequestAllTotal ? "No requests match these filters" : "No service requests yet";
     const message = document.createElement("span");
-    message.textContent = requests.length
+    message.textContent = serviceRequestAllTotal
       ? "Change the status filter or search term to see other requests."
       : "Guest-submitted and staff-created requests will appear here for assignment and follow-up.";
     empty.append(title, message);
@@ -7495,7 +8062,7 @@ function renderServiceRequests() {
     cell.append(make("span", "", label), make("strong", "", value || "Not set"));
     grid.appendChild(cell);
   };
-  for (const request of matching) {
+  for (const request of requests) {
     const card = make("article", "service-request-card");
     const header = make("header", "service-request-card-header");
     const title = make("div", "service-request-card-title");
@@ -7504,6 +8071,11 @@ function renderServiceRequests() {
     const badges = make("div", "service-request-badges");
     badges.append(make("span", `request-status-badge status-${request.status}`, serviceStatusLabel(request.status)));
     badges.append(make("span", `request-sla-badge sla-${request.sla_state}`, serviceSlaLabel(request)));
+    if (request.escalation?.status === "queued") {
+      const escalation = make("span", "request-escalation-badge", "Escalation queued");
+      escalation.title = `Queued for ${request.escalation.target}`;
+      badges.append(escalation);
+    }
     header.append(title, badges);
     card.appendChild(header);
 
@@ -7602,24 +8174,43 @@ function renderServiceRequests() {
   }
 }
 
-async function loadServiceRequests() {
+async function loadServiceRequests({ resetPage = false } = {}) {
+  const propertyId = currentPropertyId();
+  if (serviceRequestPagePropertyId !== propertyId) {
+    serviceRequestPagePropertyId = propertyId;
+    serviceRequestPageOffset = 0;
+  }
+  if (resetPage) serviceRequestPageOffset = 0;
+  const version = ++serviceRequestLoadVersion;
   const button = $("refresh-service-requests");
   const originalLabel = button?.textContent || "Refresh";
   if (button) { button.disabled = true; button.textContent = "Refreshing…"; }
   try {
     await loadServiceCatalog();
-    const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/hospitality`);
+    if (version !== serviceRequestLoadVersion || propertyId !== currentPropertyId()) return;
+    const params = new URLSearchParams({
+      limit: String(serviceRequestPageLimit),
+      offset: String(serviceRequestPageOffset),
+      status: $("service-request-status-filter").value || "all",
+      q: $("service-request-search").value.trim(),
+    });
+    const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}/service-requests?${params.toString()}`);
+    if (version !== serviceRequestLoadVersion || propertyId !== currentPropertyId()) return;
     state.serviceRequests = Array.isArray(data.service_requests) ? data.service_requests : [];
+    serviceRequestFilteredTotal = Number.isInteger(data.total) ? data.total : state.serviceRequests.length;
+    serviceRequestAllTotal = Number.isInteger(data.all_total) ? data.all_total : serviceRequestFilteredTotal;
+    serviceRequestPageOffset = Number.isInteger(data.offset) ? data.offset : serviceRequestPageOffset;
+    serviceRequestSummary = data.summary && typeof data.summary === "object" ? data.summary : {};
     renderServiceRequests();
     $("request-last-updated").textContent = `Updated ${new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(new Date())}`;
   } finally {
-    if (button) { button.disabled = false; button.textContent = originalLabel; }
+    if (version === serviceRequestLoadVersion && button) { button.disabled = false; button.textContent = originalLabel; }
   }
 }
 
 async function updateServiceRequest(requestId, payload) {
   await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/service-requests/${encodeURIComponent(requestId)}`, { method: "PUT", body: JSON.stringify(payload) });
-  await loadServiceRequests(); showToast("Service request details saved.");
+  await loadServiceRequests({ resetPage: true }); showToast("Service request details saved.");
 }
 
 function nextServiceStatus(status) {
@@ -7645,7 +8236,7 @@ async function createServiceRequest() {
   });
   $("service-description").value = "";
   updateCreateServiceRequestButton();
-  await loadServiceRequests();
+  await loadServiceRequests({ resetPage: true });
   showToast("Service request created.");
 }
 
@@ -7654,7 +8245,7 @@ async function updateServiceStatus(requestId, status) {
     method: "PUT",
     body: JSON.stringify({ status }),
   });
-  await loadServiceRequests();
+  await loadServiceRequests({ resetPage: true });
   showToast("Service request updated.");
 }
 
@@ -7756,21 +8347,37 @@ async function saveRole(event) {
   }
 }
 
-async function loadUsers() {
+let userPageOffset = 0;
+const userPageLimit = 50;
+let userPageTotal = 0;
+let userLoadVersion = 0;
+let userFilterSignature = null;
+let userSearchTimer = null;
+
+async function loadUsers({ resetPage = false } = {}) {
   if (!state.roles.length && can("roles.view")) await loadRoles();
-  const payload = await jsonFetch("/api/admin/users");
-  state.users = payload.users;
+  const params = new URLSearchParams();
+  const query = $("user-search").value.trim();
+  const status = $("user-status-filter").value;
+  if (query) params.set("q", query);
+  if (status) params.set("status", status);
+  const filterSignature = params.toString();
+  if (resetPage || filterSignature !== userFilterSignature) userPageOffset = 0;
+  userFilterSignature = filterSignature;
+  params.set("limit", String(userPageLimit));
+  params.set("offset", String(userPageOffset));
+  const version = ++userLoadVersion;
+  const payload = await jsonFetch("/api/admin/users?" + params.toString());
+  if (version !== userLoadVersion) return;
+  state.users = Array.isArray(payload.users) ? payload.users : [];
+  userPageTotal = Number.isInteger(payload.total) ? payload.total : state.users.length;
+  userPageOffset = Number.isInteger(payload.offset) ? payload.offset : userPageOffset;
   renderUsers();
 }
 
 function renderUsers() {
-  const query = $("user-search").value.trim().toLowerCase();
-  const status = $("user-status-filter").value;
-  const users = state.users.filter((user) => {
-    const matchesQuery = !query || user.username.toLowerCase().includes(query) || user.display_name.toLowerCase().includes(query);
-    return matchesQuery && (!status || user.status === status);
-  });
-  $("user-count").textContent = `${users.length} user${users.length === 1 ? "" : "s"}`;
+  const users = state.users;
+  $("user-count").textContent = userPageTotal + " user" + (userPageTotal === 1 ? "" : "s");
   $("users-empty").hidden = users.length > 0;
   const body = $("users-table-body");
   body.innerHTML = "";
@@ -7801,8 +8408,30 @@ function renderUsers() {
     }
     body.appendChild(row);
   }
+  const pageCount = Math.ceil(userPageTotal / userPageLimit);
+  const first = userPageTotal ? userPageOffset + 1 : 0;
+  const last = Math.min(userPageOffset + users.length, userPageTotal);
+  $("users-page-info").textContent = pageCount
+    ? "Page " + (Math.floor(userPageOffset / userPageLimit) + 1) + " of " + pageCount + " · " + first + "–" + last + " of " + userPageTotal
+    : "No pages";
+  $("users-page-previous").disabled = userPageOffset === 0 || !userPageTotal;
+  $("users-page-next").disabled = userPageOffset + userPageLimit >= userPageTotal;
 }
 
+function changeUserPage(direction) {
+  const lastPageOffset = Math.max(0, Math.ceil(userPageTotal / userPageLimit) - 1) * userPageLimit;
+  const nextOffset = Math.max(0, Math.min(userPageOffset + direction * userPageLimit, lastPageOffset));
+  if (nextOffset === userPageOffset) return;
+  userPageOffset = nextOffset;
+  loadUsers().catch((error) => showToast(error.message, "error"));
+}
+
+function scheduleUserSearch() {
+  clearTimeout(userSearchTimer);
+  userSearchTimer = setTimeout(() => {
+    loadUsers({ resetPage: true }).catch((error) => showToast(error.message, "error"));
+  }, 180);
+}
 async function openUserDialog(user = null) {
   if (!state.roles.length) await loadRoles();
   hydratePropertyOptions();
@@ -7986,7 +8615,13 @@ async function deleteUser(user) {
   showToast("User deleted.");
 }
 
-async function loadAudit() {
+let auditPageOffset = 0;
+const auditPageLimit = 50;
+let auditPageTotal = 0;
+let auditLoadVersion = 0;
+let auditFilterSignature = null;
+
+async function loadAudit({ resetPage = false } = {}) {
   hydratePropertyOptions();
   const params = new URLSearchParams();
   if ($("audit-username").value.trim()) params.set("username", $("audit-username").value.trim());
@@ -7998,15 +8633,41 @@ async function loadAudit() {
     params.set("start_at", String(Math.floor(start.getTime() / 1000)));
     params.set("end_at", String(Math.floor((start.getTime() + 86400000 - 1) / 1000)));
   }
+  const filterSignature = params.toString();
+  if (resetPage || filterSignature !== auditFilterSignature) auditPageOffset = 0;
+  auditFilterSignature = filterSignature;
+  params.set("limit", String(auditPageLimit));
+  params.set("offset", String(auditPageOffset));
+  const version = ++auditLoadVersion;
   const payload = await jsonFetch(`/api/admin/audit?${params.toString()}`);
+  if (version !== auditLoadVersion) return;
+  const events = Array.isArray(payload.events) ? payload.events : [];
+  auditPageTotal = Number.isInteger(payload.total) ? payload.total : events.length;
+  auditPageOffset = Number.isInteger(payload.offset) ? payload.offset : auditPageOffset;
   const body = $("audit-table-body");
   body.innerHTML = "";
-  $("audit-empty").hidden = payload.events.length > 0;
-  for (const event of payload.events) {
+  $("audit-empty").hidden = events.length > 0;
+  for (const event of events) {
     const row = document.createElement("tr");
     row.innerHTML = `<td>${escapeHTML(formatDate(event.timestamp))}</td><td><div class="user-cell"><strong>${escapeHTML(event.display_name || "System")}</strong><span>${event.username ? `@${escapeHTML(event.username)}` : "Unauthenticated"}</span></div></td><td>${escapeHTML(event.role || "—")}</td><td>${escapeHTML(propertyName(event.property_id))}</td><td>${escapeHTML(event.action)}</td><td>${escapeHTML(event.resource)}${event.resource_id ? `<br><small>${escapeHTML(event.resource_id)}</small>` : ""}</td><td>${escapeHTML(event.ip_address || "—")}</td>`;
     body.appendChild(row);
   }
+  const pageCount = Math.ceil(auditPageTotal / auditPageLimit);
+  const first = auditPageTotal ? auditPageOffset + 1 : 0;
+  const last = Math.min(auditPageOffset + events.length, auditPageTotal);
+  $("audit-page-info").textContent = pageCount
+    ? `Page ${Math.floor(auditPageOffset / auditPageLimit) + 1} of ${pageCount} · ${first}–${last} of ${auditPageTotal}`
+    : "No pages";
+  $("audit-page-previous").disabled = auditPageOffset === 0 || !auditPageTotal;
+  $("audit-page-next").disabled = auditPageOffset + auditPageLimit >= auditPageTotal;
+}
+
+function changeAuditPage(direction) {
+  const lastPageOffset = Math.max(0, Math.ceil(auditPageTotal / auditPageLimit) - 1) * auditPageLimit;
+  const nextOffset = Math.max(0, Math.min(auditPageOffset + direction * auditPageLimit, lastPageOffset));
+  if (nextOffset === auditPageOffset) return;
+  auditPageOffset = nextOffset;
+  loadAudit().catch((error) => showToast(error.message, "error"));
 }
 
 async function changePassword(event) {
@@ -8869,8 +9530,10 @@ function setup() {
   $("restaurant-assignment-clear").addEventListener("click", () => {
     for (const checkbox of document.querySelectorAll("#restaurant-assignment-list input")) checkbox.checked = false;
   });
-  $("user-search").addEventListener("input", renderUsers);
-  $("user-status-filter").addEventListener("change", renderUsers);
+  $("user-search").addEventListener("input", scheduleUserSearch);
+  $("user-status-filter").addEventListener("change", () => loadUsers({ resetPage: true }).catch((error) => showToast(error.message, "error")));
+  $("users-page-previous").addEventListener("click", () => changeUserPage(-1));
+  $("users-page-next").addEventListener("click", () => changeUserPage(1));
   $("create-role-button").addEventListener("click", () => openRoleDialog().catch((error) => showToast(error.message, "error")));
   $("role-form").addEventListener("submit", saveRole);
   $("password-reset-form").addEventListener("submit", resetUserPassword);
@@ -8893,7 +9556,32 @@ function setup() {
   });
   $("default-password-change-form").addEventListener("submit", (event) => changeDefaultPassword(event));
   $("refresh-audit").addEventListener("click", () => loadAudit().catch((error) => showToast(error.message, "error")));
-  $("apply-audit-filters").addEventListener("click", () => loadAudit().catch((error) => showToast(error.message, "error")));
+  $("notification-campaign-form").addEventListener("submit", (event) => saveNotificationCampaign(event).catch((error) => showToast(error.message, "error")));
+  $("notification-campaign-new").addEventListener("click", () => setNotificationCampaignForm());
+  $("notification-campaign-refresh").addEventListener("click", () => loadNotificationCampaigns().catch((error) => showToast(error.message, "error")));
+  $("notification-campaign-search").addEventListener("input", () => {
+    clearTimeout(state.notificationCampaignSearchTimer);
+    state.notificationCampaignSearchTimer = setTimeout(() => loadNotificationCampaigns({ resetPage: true }).catch((error) => showToast(error.message, "error")), 250);
+  });
+  $("notification-campaign-page-previous").addEventListener("click", () => {
+    state.notificationCampaignPageOffset = Math.max(0, state.notificationCampaignPageOffset - state.notificationCampaignPageLimit);
+    loadNotificationCampaigns().catch((error) => showToast(error.message, "error"));
+  });
+  $("notification-campaign-page-next").addEventListener("click", () => {
+    if (state.notificationCampaignPageOffset + state.notificationCampaignPageLimit >= state.notificationCampaignTotal) return;
+    state.notificationCampaignPageOffset += state.notificationCampaignPageLimit;
+    loadNotificationCampaigns().catch((error) => showToast(error.message, "error"));
+  });
+  $("notification-campaign-preview-button").addEventListener("click", () => previewNotificationCampaign().catch((error) => showToast(error.message, "error")));
+  $("notification-campaign-publish").addEventListener("click", () => publishNotificationCampaign().catch((error) => showToast(error.message, "error")));
+  $("notification-campaign-list").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-campaign-id]");
+    if (!button) return;
+    setNotificationCampaignForm(state.notificationCampaigns.find((item) => item.campaign_id === button.dataset.campaignId) || null);
+  });
+  $("apply-audit-filters").addEventListener("click", () => loadAudit({ resetPage: true }).catch((error) => showToast(error.message, "error")));
+  $("audit-page-previous").addEventListener("click", () => changeAuditPage(-1));
+  $("audit-page-next").addEventListener("click", () => changeAuditPage(1));
   for (const button of document.querySelectorAll("[data-close-dialog]")) {
     button.addEventListener("click", () => $(button.dataset.closeDialog).close());
   }
@@ -9055,6 +9743,7 @@ function setup() {
   $("map-save-draft").addEventListener("click", () => saveMapDraft().catch((error) => showToast(error.message, "error")));
   $("map-preview-draft").addEventListener("click", () => previewMapDraft().catch((error) => showToast(error.message, "error")));
   $("map-publish-draft").addEventListener("click", () => publishMapDraft().catch((error) => showToast(error.message, "error")));
+  $("generate-wayfinding-qr").addEventListener("click", () => generateMapWayfindingQr());
   $("map-rollback-revision").addEventListener("change", renderMapPublicationState);
   $("map-rollback").addEventListener("click", () => restoreMapRevision().catch((error) => showToast(error.message, "error")));
   for (const button of document.querySelectorAll("[data-map-tool]")) {
@@ -9135,13 +9824,28 @@ function setup() {
   $("floor-map-upload").addEventListener("change", (event) => uploadFloorMap(event.target.files?.[0]).catch((error) => showToast(error.message, "error")).finally(() => { event.target.value = ""; }));
   $("create-stay-session").addEventListener("click", () => createStaySession().catch((error) => showToast(error.message, "error")));
   $("save-stay-memory").addEventListener("click", () => saveStayMemory().catch((error) => showToast(error.message, "error")));
-  $("memory-stay-id").addEventListener("change", () => updateStayMemoryEditor(state.guestStays.find((stay) => stay.stay_id === $("memory-stay-id").value) || null));
+  $("memory-stay-id").addEventListener("change", () => {
+    const stayId = $("memory-stay-id").value;
+    state.guestSelectedStay = state.guestStays.find((stay) => stay.stay_id === stayId)
+      || (state.guestSelectedStay?.stay_id === stayId ? state.guestSelectedStay : null);
+    updateStayMemoryEditor(state.guestSelectedStay);
+  });
   $("refresh-sessions").addEventListener("click", () => loadSessions().catch((error) => showToast(error.message, "error")));
-  $("session-record-search").addEventListener("input", renderSessionRecords);
-  $("session-record-filter").addEventListener("change", renderSessionRecords);
+  $("session-record-search").addEventListener("input", () => {
+    clearTimeout(sessionSearchTimer);
+    sessionSearchTimer = setTimeout(() => {
+      state.guestSessionOffsets = { sessions: 0, guest_sessions: 0, stays: 0, devices: 0 };
+      loadSessions().catch((error) => showToast(error.message, "error"));
+    }, 250);
+  });
+  $("session-record-filter").addEventListener("change", () => {
+    state.guestSessionOffsets = { sessions: 0, guest_sessions: 0, stays: 0, devices: 0 };
+    loadSessions().catch((error) => showToast(error.message, "error"));
+  });
   for (const card of document.querySelectorAll("[data-session-filter]")) card.addEventListener("click", () => {
     $("session-record-filter").value = card.dataset.sessionFilter;
-    renderSessionRecords();
+    state.guestSessionOffsets = { sessions: 0, guest_sessions: 0, stays: 0, devices: 0 };
+    loadSessions().catch((error) => showToast(error.message, "error"));
   });
   $("record-observation").addEventListener("click", () => recordObservation().catch((error) => showToast(error.message, "error")));
   $("load-location-report").addEventListener("click", () => loadLocationReport().catch((error) => showToast(error.message, "error")));
@@ -9150,11 +9854,23 @@ function setup() {
   $("service-description").addEventListener("input", updateCreateServiceRequestButton);
   $("service-sla").addEventListener("input", updateCreateServiceRequestButton);
   $("refresh-service-requests").addEventListener("click", () => loadServiceRequests().catch((error) => showToast(error.message, "error")));
-  $("service-request-search").addEventListener("input", renderServiceRequests);
-  $("service-request-status-filter").addEventListener("change", renderServiceRequests);
+  $("service-request-search").addEventListener("input", () => {
+    clearTimeout(serviceRequestSearchTimer);
+    serviceRequestSearchTimer = setTimeout(() => loadServiceRequests({ resetPage: true }).catch((error) => showToast(error.message, "error")), 250);
+  });
+  $("service-request-status-filter").addEventListener("change", () => loadServiceRequests({ resetPage: true }).catch((error) => showToast(error.message, "error")));
+  $("service-request-page-previous").addEventListener("click", () => {
+    serviceRequestPageOffset = Math.max(0, serviceRequestPageOffset - serviceRequestPageLimit);
+    loadServiceRequests().catch((error) => showToast(error.message, "error"));
+  });
+  $("service-request-page-next").addEventListener("click", () => {
+    if (serviceRequestPageOffset + serviceRequestPageLimit >= serviceRequestFilteredTotal) return;
+    serviceRequestPageOffset += serviceRequestPageLimit;
+    loadServiceRequests().catch((error) => showToast(error.message, "error"));
+  });
   for (const card of document.querySelectorAll("[data-request-filter]")) card.addEventListener("click", () => {
     $("service-request-status-filter").value = card.dataset.requestFilter === "all" ? "" : card.dataset.requestFilter;
-    renderServiceRequests();
+    loadServiceRequests({ resetPage: true }).catch((error) => showToast(error.message, "error"));
   });
   $("open-service-catalog").addEventListener("click", () => activatePanel("service-catalog"));
   $("save-department").addEventListener("click", () => saveDepartment().catch((error) => showToast(error.message, "error")));
@@ -9163,14 +9879,28 @@ function setup() {
   $("refresh-conversations").addEventListener("click", () => loadConversations().catch((error) => showToast(error.message, "error")));
   $("save-conversation-retention").addEventListener("click", () => saveConversationRetention().catch((error) => showToast(error.message, "error")));
   $("conversation-retention-days").addEventListener("input", () => {
-    retentionDraftPropertyId = currentPropertyId();
+    resetRetentionDraftForProperty(currentPropertyId());
+    retentionDraftVersion += 1;
     retentionDraftDirty = true;
   });
   $("conversation-search").addEventListener("input", renderConversations);
-  $("conversation-status-filter").addEventListener("change", renderConversations);
+  $("conversation-status-filter").addEventListener("change", () => {
+    conversationPageOffset = 0;
+    loadConversations().catch((error) => showToast(error.message, "error"));
+  });
   for (const card of document.querySelectorAll("[data-conversation-filter]")) card.addEventListener("click", () => {
     $("conversation-status-filter").value = card.dataset.conversationFilter;
-    renderConversations();
+    conversationPageOffset = 0;
+    loadConversations().catch((error) => showToast(error.message, "error"));
+  });
+  $("conversation-page-previous").addEventListener("click", () => {
+    conversationPageOffset = Math.max(0, conversationPageOffset - conversationPageLimit);
+    loadConversations().catch((error) => showToast(error.message, "error"));
+  });
+  $("conversation-page-next").addEventListener("click", () => {
+    if (conversationPageOffset + conversationPageLimit >= conversationTotal) return;
+    conversationPageOffset += conversationPageLimit;
+    loadConversations().catch((error) => showToast(error.message, "error"));
   });
   $("conversation-staff-select").addEventListener("change", () => {
     const selected = state.selectedConversation;
@@ -9292,7 +10022,9 @@ function setup() {
     }
     event.target.value = "";
   });
-  $("managed-knowledge-search")?.addEventListener("input", renderManagedKnowledge);
+  $("managed-knowledge-search")?.addEventListener("input", scheduleManagedKnowledgeSearch);
+  $("managed-knowledge-page-previous")?.addEventListener("click", () => changeManagedKnowledgePage(-1));
+  $("managed-knowledge-page-next")?.addEventListener("click", () => changeManagedKnowledgePage(1));
   $("save-personality").addEventListener("click", () => savePersonality().catch((error) => showToast(error.message, "error")));
   $("save-guardrails").addEventListener("click", () => saveGuardrails().catch((error) => showToast(error.message, "error")));
   $("refresh-guardrail-diagnostics").addEventListener("click", () => loadGuardrailDiagnostics().catch((error) => showToast(error.message, "error")));
@@ -9323,6 +10055,16 @@ function setup() {
   $("management-network-input").addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); addManagementNetwork(); } });
   $("finalize-management-access").addEventListener("click", () => finalizeManagementAccess().catch((error) => showToast(error.message, "error")));
   $("save-guest-access").addEventListener("click", () => saveGuestAccess().catch((error) => showToast(error.message, "error")));
+  $("copy-guest-entry-url").addEventListener("click", async () => {
+    const guestUrl = $("guest-entry-url").href;
+    if (!guestUrl) return;
+    try {
+      await navigator.clipboard.writeText(guestUrl);
+      showToast("Guest URL copied.");
+    } catch {
+      showToast("Could not access the clipboard. Select the guest URL and copy it manually.", "error");
+    }
+  });
   $("verify-deployment").addEventListener("click", () => verifyDeployment().catch((error) => showToast(error.message, "error")));
   $("save-app-settings").addEventListener("click", () => saveApplicationSettings().catch((error) => showToast(error.message, "error")));
   $("save-smtp").addEventListener("click", () => saveSMTPSettings().catch((error) => showToast(error.message, "error")));

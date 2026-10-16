@@ -22,6 +22,7 @@ def _render_compose(tmp_path: Path, overlay):
         f"CONCIERGE_BACKUP_DIR={tmp_path / 'backups'}",
         "ADMIN_BOOTSTRAP_PASSWORD=ComposeTestOnly-Bootstrap-1234567890",
         "CREDENTIAL_ENCRYPTION_SECRET=ComposeTestOnly-Encryption-1234567890",
+        "CONCIERGE_BACKUP_ENCRYPTION_KEY=" + "ab" * 32,
         "METRICS_TOKEN=ComposeTestOnly-Metrics-1234567890",
         "CANONICAL_HOSTS=localhost",
         "PUBLIC_BASE_URL=https://localhost",

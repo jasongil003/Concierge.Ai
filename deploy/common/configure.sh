@@ -55,6 +55,15 @@ generate_config() {
     ollama_url=$5
     group_name=${6:-root}
     if [ -f "$config_path" ]; then
+        if grep -q '^[[:space:]]*CONCIERGE_BACKUP_ENCRYPTION_KEY=' "$config_path"; then
+            grep -Eq "^[[:space:]]*CONCIERGE_BACKUP_ENCRYPTION_KEY=['\"]?[0-9a-fA-F]{64}['\"]?[[:space:]]*$" "$config_path" || \
+                die "CONCIERGE_BACKUP_ENCRYPTION_KEY is present but invalid in $config_path; preserve the existing recovery key and correct it deliberately."
+        else
+            backup_encryption_key=$(openssl rand -hex 32) || die "Could not generate the independent backup encryption key."
+            printf "CONCIERGE_BACKUP_ENCRYPTION_KEY='%s'\n" "$backup_encryption_key" >> "$config_path"
+            chmod 0640 "$config_path"
+            chown "root:${group_name}" "$config_path" 2>/dev/null || chown root:wheel "$config_path"
+        fi
         info "configuration already exists; keeping $config_path"
         return
     fi
@@ -90,6 +99,7 @@ generate_config() {
     fi
 
     credential_secret=$(openssl rand -hex 32)
+    backup_encryption_key=$(openssl rand -hex 32)
     metrics_token=$(openssl rand -hex 32)
     umask 027
     mkdir -p "$(dirname "$config_path")"
@@ -108,6 +118,7 @@ generate_config() {
         printf "ALLOW_BODY_PROPERTY_SELECTION='false'\nALLOW_DEMO_SETTINGS='false'\n"
         printf "ENABLE_BACKGROUND_WORKERS='true'\n"
         printf "CREDENTIAL_ENCRYPTION_SECRET='%s'\n" "$credential_secret"
+        printf "CONCIERGE_BACKUP_ENCRYPTION_KEY='%s'\n" "$backup_encryption_key"
         printf "AI_PROVIDER_MODE='auto'\nAI_DEFAULT_MODE='auto'\nLOCAL_AI_ENABLED='false'\nOLLAMA_BASE_URL='%s'\n" "$ollama_url"
         printf "OLLAMA_MODEL='qwen3:8b'\nOLLAMA_THINK='false'\n"
         printf "ANTLABS_MODE='browser_handoff'\nANTLABS_AUTH_URL='%s'\nANTLABS_AUTH_METHOD='POST'\n" "$antlabs_url"

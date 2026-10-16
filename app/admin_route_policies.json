@@ -27,6 +27,10 @@
     "authentication": "required",
     "permission": "guest_sessions.view"
   },
+  "GET /api/admin/properties/{property_id}/service-requests": {
+    "authentication": "required",
+    "permission": "requests.view"
+  },
   "DELETE /api/admin/properties/{property_id}/departments/{department_id}": {
     "authentication": "required",
     "permission": "properties.edit"
@@ -127,9 +131,17 @@
     "authentication": "required",
     "permission": "domains.view"
   },
+  "GET /api/admin/properties/{property_id}/guest-entry/qr.svg": {
+    "authentication": "required",
+    "permission": "network.view"
+  },
   "GET /api/admin/properties/{property_id}/network-access/status": {
     "authentication": "required",
     "permission": "network.view"
+  },
+  "GET /api/admin/properties/{property_id}/notification-campaigns": {
+    "authentication": "required",
+    "permission": "properties.view"
   },
   "GET /api/admin/properties/{property_id}/notifications/deliveries": {
     "authentication": "required",
@@ -212,6 +224,14 @@
     "permission": "properties.view"
   },
   "GET /api/admin/properties/{property_id}/navigation/route": {
+    "authentication": "required",
+    "permission": "properties.view"
+  },
+  "GET /api/admin/properties/{property_id}/navigation/nodes/{node_id}/wayfinding-qr.svg": {
+    "authentication": "required",
+    "permission": "properties.view"
+  },
+  "GET /api/admin/properties/{property_id}/navigation/nodes/{node_id}/wayfinding-url": {
     "authentication": "required",
     "permission": "properties.view"
   },
@@ -387,6 +407,10 @@
     "authentication": "required",
     "permission": "concierge.edit"
   },
+  "POST /api/admin/properties/{property_id}/design/clone": {
+    "authentication": "required",
+    "permission": "concierge.edit"
+  },
   "POST /api/admin/properties/{property_id}/design/publish": {
     "authentication": "required",
     "permission": "concierge.edit"
@@ -551,6 +575,18 @@
     "authentication": "required",
     "permission": "properties.edit"
   },
+  "POST /api/admin/properties/{property_id}/notification-campaigns": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "POST /api/admin/properties/{property_id}/notification-campaigns/{campaign_id}/preview": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "POST /api/admin/properties/{property_id}/notification-campaigns/{campaign_id}/publish": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
   "POST /api/admin/properties/{property_id}/notifications/rules": {
     "authentication": "required",
     "permission": "properties.edit"
@@ -686,6 +722,10 @@
   "PUT /api/admin/properties/{property_id}/menus/{menu_id}": {
     "authentication": "required",
     "permission": "restaurant.menu.edit"
+  },
+  "PUT /api/admin/properties/{property_id}/notification-campaigns/{campaign_id}": {
+    "authentication": "required",
+    "permission": "properties.edit"
   },
   "PUT /api/admin/properties/{property_id}/personalization": {
     "authentication": "required",

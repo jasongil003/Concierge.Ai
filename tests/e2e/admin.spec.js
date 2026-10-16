@@ -63,9 +63,13 @@ test.beforeEach(async ({ page, request }) => {
 });
 
 test("admin onboarding: create the first property from an empty workspace", async ({ page, request }) => {
-  const existingPropertyId = await getFirstPropertyId(request);
-  const removed = await request.delete(`/api/admin/properties/${existingPropertyId}`, { headers: csrfHeaders(request) });
-  expect(removed.ok()).toBeTruthy();
+  const existingResponse = await request.get("/api/admin/properties");
+  expect(existingResponse.ok()).toBeTruthy();
+  const existingProperties = (await existingResponse.json()).properties;
+  for (const property of existingProperties) {
+    const removed = await request.delete("/api/admin/properties/" + encodeURIComponent(property.property_id), { headers: csrfHeaders(request) });
+    expect(removed.ok(), await removed.text()).toBeTruthy();
+  }
 
   await page.goto("/admin");
   await page.locator('body[data-admin-ready="true"]').waitFor();
@@ -124,7 +128,8 @@ test("admin onboarding: create the first property from an empty workspace", asyn
   await openPanel(page, "FAQs");
   await expect(page.locator("#faq-list")).toContainText("No FAQs configured yet.");
   await openPanel(page, "Documents");
-  await expect(page.locator("#document-list")).toContainText("No knowledge documents uploaded yet.");
+  await expect(page.locator("#document-list")).toContainText("No legacy document records.");
+  await expect(page.locator("#knowledge-source-list")).toContainText("No uploaded source files.");
 
   await page.goto("/");
   await expect(page.locator("#home-view")).toBeVisible();
@@ -260,7 +265,7 @@ test("document upload creates reviewable knowledge without publishing", async ({
   await openPanel(page, "Documents");
   const filename = `Pool-Hours-${Date.now()}.txt`;
   await page.locator("#knowledge-document-upload").setInputFiles({ name: filename, mimeType: "text/plain", buffer: Buffer.from(`Pool hours: 06:00-22:00\nSource: ${filename}`) });
-  await expect(page.locator("#document-list")).toContainText(filename);
+  await expect(page.locator("#knowledge-source-list")).toContainText(filename);
   await openPanel(page, "Knowledge");
   await expect(page.locator("#managed-knowledge-list")).toContainText("Pool hours: 06:00-22:00");
   await expect(page.locator("#managed-knowledge-list")).toContainText("ready review");
@@ -747,6 +752,34 @@ test("Network Access saves exact guest hosts", async ({ page }, testInfo) => {
       expect(removed.ok(), await removed.text()).toBeTruthy();
     }
   }
+});
+
+test("Network Access displays the HTTPS guest URL and QR for printing or NFC", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "The network configuration workflow needs one browser profile.");
+  const guestUrl = "https://concierge.example.test";
+  await page.route(/\/api\/admin\/properties\/[^/]+\/network-access\/status$/, async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    data.guest = {
+      ...data.guest,
+      enabled: true,
+      https_required: true,
+      domain: "concierge.example.test",
+      url: guestUrl,
+    };
+    await route.fulfill({ response, json: data });
+  });
+  await page.route(/\/api\/admin\/properties\/[^/]+\/guest-entry\/qr\.svg$/, (route) =>
+    route.fulfill({ status: 200, contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg"/>' }));
+
+  await page.goto("/admin");
+  await openPanel(page, "Network Access");
+  await expect(page.locator("#guest-entry-preview")).toBeVisible();
+  await expect(page.locator("#guest-entry-qr")).toBeVisible();
+  await expect(page.locator("#guest-entry-url")).toHaveAttribute("href", guestUrl);
+  await expect(page.locator("#guest-entry-url")).toHaveText(guestUrl);
+  await expect(page.locator("#network-access")).toContainText("write the approved guest URL as a URL or URI record");
+  await expect(page.locator("#network-access")).toContainText("Do not write a guest session token");
 });
 
 test("overview panel: operational health is visible and configuration moved out", async ({ page }) => {
@@ -1325,6 +1358,62 @@ test("design actions require concierge.edit in the UI and on the server", async 
   }
 });
 
+test("builder copies another property's published design into the selected property's draft", async ({ page }) => {
+  test.skip(test.info().project.name !== "chromium", "Builder copy flow runs once in desktop Chromium.");
+  let initialDraft = null;
+  let cloneRequest = null;
+
+  await page.route("**/api/admin/properties", async (route) => {
+    const response = await route.fetch();
+    const payload = await response.json();
+    payload.properties ||= [];
+    if (!payload.properties.some((item) => item.property_id === "design-source")) {
+      payload.properties.push({ property_id: "design-source", hotel_name: "Source Property" });
+    }
+    await route.fulfill({
+      status: response.status(),
+      contentType: "application/json",
+      body: JSON.stringify(payload),
+    });
+  });
+  await page.route("**/api/admin/properties/*/design", async (route) => {
+    const response = await route.fetch();
+    const payload = await response.json();
+    initialDraft = payload.draft;
+    await route.fulfill({
+      status: response.status(),
+      contentType: "application/json",
+      body: JSON.stringify(payload),
+    });
+  });
+  await page.route("**/api/admin/properties/*/design/clone", async (route) => {
+    cloneRequest = route.request().postDataJSON();
+    const draft = structuredClone(initialDraft);
+    draft.welcome.headline = "Copied source design";
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        status: "draft_saved",
+        source_property_id: cloneRequest.source_property_id,
+        draft,
+        revision: Number(cloneRequest.expected_revision) + 1,
+      }),
+    });
+  });
+
+  await page.goto("/admin");
+  await openPanel(page, "Design");
+  await page.locator("#builder-templates-button").click();
+  await page.locator("#builder-clone-source-property").selectOption("design-source");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.locator("#builder-clone-property-button").click();
+
+  await expect(page.locator("#builder-save-status")).toHaveText("Saved · cloned draft");
+  await expect.poll(() => cloneRequest?.source_property_id).toBe("design-source");
+  expect(cloneRequest.expected_revision).toBeGreaterThan(0);
+});
+
 test("admin: visual builder renders guest sections and supports direct editing, history, templates, devices, and draft save", async ({ page, request }) => {
   test.skip(test.info().project.name !== "chromium", "Builder interaction workflow runs once in desktop Chromium.");
   const builderPageErrors = [];
@@ -1887,6 +1976,57 @@ test("knowledge panel exposes managed source controls", async ({ page }) => {
   await expect(page.locator("#knowledge-list")).toBeVisible();
 });
 
+test("managed knowledge review queue uses bounded pages and server search", async ({ page }) => {
+  const requests = [];
+  await page.route("**/api/admin/properties/*/knowledge/managed**", async (route) => {
+    const url = new URL(route.request().url());
+    const offset = Number(url.searchParams.get("offset") || 0);
+    const query = url.searchParams.get("q");
+    requests.push({ offset, query });
+    const filtered = Boolean(query);
+    const title = filtered ? "Needle Evidence" : (offset ? "Review Item 51" : "Review Item 1");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [{
+          item_id: "knowledge-" + offset,
+          source_id: null,
+          title,
+          content: filtered ? "Needle found in verified knowledge" : "Verified facilities information",
+          category: "Facilities",
+          status: "ready_review",
+          visibility: "admin",
+          conflict: false,
+          risk_flags: [],
+          location: {},
+        }],
+        total: filtered ? 1 : 51,
+        limit: 50,
+        offset,
+        sources: [],
+        categories: ["Facilities"],
+        limits: {},
+      }),
+    });
+  });
+
+  await page.goto("/admin");
+  await openPanel(page, "Knowledge");
+  await expect(page.locator("#managed-knowledge-page-info")).toContainText("Page 1 of 2");
+  await expect(page.locator("#managed-knowledge-list")).toContainText("Review Item 1");
+  await page.locator("#managed-knowledge-page-next").click();
+  await expect(page.locator("#managed-knowledge-page-info")).toContainText("Page 2 of 2");
+  await expect(page.locator("#managed-knowledge-list")).toContainText("Review Item 51");
+  await expect.poll(() => requests[requests.length - 1]?.offset).toBe(50);
+
+  await page.locator("#managed-knowledge-search").fill("needle");
+  await expect(page.locator("#managed-knowledge-page-info")).toContainText("Page 1 of 1");
+  await expect(page.locator("#managed-knowledge-list")).toContainText("Needle Evidence");
+  await expect.poll(() => requests[requests.length - 1]?.query).toBe("needle");
+  await expect.poll(() => requests[requests.length - 1]?.offset).toBe(0);
+});
+
 test("wifi panel: truthful status and manual test are available", async ({ page }) => {
   await page.goto("/admin");
   await openPanel(page, "ANTlabs / Wi-Fi");
@@ -1963,11 +2103,26 @@ test("requests panel: operational summary counts and filters use property-local 
     { request_id: "done-today", status: "completed", sla_state: "completed", request_type: "Ice", room: "105", description: "Ice", completed_at: now, created_at: now, updated_at: now, notes: [] },
     { request_id: "done-before", status: "completed", sla_state: "completed", request_type: "Laundry", room: "106", description: "Laundry", completed_at: now - 172800, created_at: now - 172800, updated_at: now - 172800, notes: [] },
   ];
-  await page.route("**/api/admin/properties/*/hospitality", (route) => route.fulfill({
-    status: 200,
-    contentType: "application/json",
-    body: JSON.stringify({ service_requests: requests }),
-  }));
+  const summary = { open: 4, in_progress: 1, due_soon: 1, overdue: 1, completed_today: 1 };
+  await page.route("**/api/admin/properties/*/service-requests?*", (route) => {
+    const url = new URL(route.request().url());
+    const status = url.searchParams.get("status") || "all";
+    const filtered = requests.filter((item) => {
+      if (!status || status === "all") return true;
+      if (status === "open") return !["completed", "cancelled"].includes(item.status);
+      if (status === "due_soon") return item.sla_state === "warning";
+      if (status === "overdue") return item.sla_state === "overdue";
+      if (status === "completed_today") return item.request_id === "done-today";
+      return item.status === status;
+    });
+    const query = (url.searchParams.get("q") || "").toLowerCase();
+    const matching = query ? filtered.filter((item) => `${item.request_id} ${item.request_type} ${item.room} ${item.description}`.toLowerCase().includes(query)) : filtered;
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ service_requests: matching, total: matching.length, all_total: requests.length, limit: 50, offset: 0, summary }),
+    });
+  });
   await page.goto("/admin");
   await openPanel(page, "Guest Requests");
 
@@ -1979,9 +2134,107 @@ test("requests panel: operational summary counts and filters use property-local 
 
   for (const [filter, requestId] of [["in_progress", "progress-1"], ["due_soon", "soon-1"], ["overdue", "late-1"], ["completed_today", "done-today"]]) {
     await page.locator(`[data-request-filter="${filter}"]`).click();
-    await expect(page.locator("#service-request-result-count")).toHaveText("1 request");
+    await expect(page.locator("#service-request-result-count")).toContainText("1–1 of 1 matching");
     await expect(page.locator("#service-request-list")).toContainText(requestId);
   }
+});
+
+test("requests panel identifies queued overdue escalations and records their in-app history", async ({ page }) => {
+  const now = Math.floor(Date.now() / 1000);
+  const overdueRequest = {
+    request_id: "overdue-escalated",
+    status: "in_progress",
+    sla_state: "overdue",
+    request_type: "Towels",
+    room: "412",
+    department: "Housekeeping",
+    description: "The request is past its service target.",
+    due_at: now - 120,
+    sla_target_seconds: 1800,
+    created_at: now - 1920,
+    updated_at: now,
+    notes: [],
+    escalation: { target: "Duty Manager", due_at: now - 120, scheduled_at: now, status: "queued" },
+  };
+  await page.route("**/api/admin/properties/*/service-requests?*", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      service_requests: [overdueRequest],
+      total: 1,
+      all_total: 1,
+      limit: 50,
+      offset: 0,
+      summary: { open: 1, in_progress: 1, due_soon: 0, overdue: 1, completed_today: 0 },
+    }),
+  }));
+  await page.route("**/api/admin/properties/*/service-requests/overdue-escalated/history", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      history: [{
+        history_id: "history-escalation",
+        request_id: overdueRequest.request_id,
+        action: "overdue_escalation_queued",
+        detail: { target: "Duty Manager", due_at: now - 120, delivery_status: "queued" },
+        created_at: now,
+      }],
+    }),
+  }));
+
+  await page.goto("/admin");
+  await openPanel(page, "Guest Requests");
+  const card = page.locator(".service-request-card").filter({ hasText: overdueRequest.request_id });
+  await expect(card.locator(".request-escalation-badge")).toHaveText("Escalation queued");
+  await card.getByText("View activity history").click();
+  await expect(card.locator(".service-request-history-content")).toContainText(
+    "Overdue escalation queued for Duty Manager",
+  );
+});
+
+test("requests panel: pagination fetches bounded pages from the full queue", async ({ page }) => {
+  const requests = Array.from({ length: 55 }, (_, index) => ({
+    request_id: `request-${String(54 - index).padStart(3, "0")}`,
+    status: "new",
+    sla_state: "within_sla",
+    request_type: "Towels",
+    room: String(100 + index),
+    description: `Request ${index}`,
+    created_at: 1_800_000_000 - index,
+    updated_at: 1_800_000_000 - index,
+    notes: [],
+  }));
+  await page.route("**/api/admin/properties/*/service-requests?*", (route) => {
+    const url = new URL(route.request().url());
+    const limit = Number(url.searchParams.get("limit") || 50);
+    const offset = Number(url.searchParams.get("offset") || 0);
+    const query = (url.searchParams.get("q") || "").toLowerCase();
+    const filtered = requests.filter((item) => `${item.request_id} ${item.room} ${item.description}`.toLowerCase().includes(query));
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        service_requests: filtered.slice(offset, offset + limit),
+        total: filtered.length,
+        all_total: requests.length,
+        limit,
+        offset,
+        summary: { open: requests.length, in_progress: 0, due_soon: 0, overdue: 0, completed_today: 0 },
+      }),
+    });
+  });
+  await page.goto("/admin");
+  await openPanel(page, "Guest Requests");
+  await expect(page.locator("#service-request-result-count")).toContainText("1–50 of 55 matching");
+  await expect(page.locator("#service-request-list")).toContainText("request-054");
+  await expect(page.locator("#service-request-page-next")).toBeEnabled();
+  await page.locator("#service-request-page-next").click();
+  await expect(page.locator("#service-request-page-info")).toHaveText("Page 2 of 2");
+  await expect(page.locator("#service-request-result-count")).toContainText("51–55 of 55 matching");
+  await expect(page.locator("#service-request-list")).toContainText("request-000");
+  await expect(page.locator("#service-request-page-next")).toBeDisabled();
+  await page.locator("#service-request-page-previous").click();
+  await expect(page.locator("#service-request-page-info")).toHaveText("Page 1 of 2");
 });
 
 test("operations assistant formats evidence, completes the first reply, and keeps follow-up context", async ({ page }) => {
@@ -2046,6 +2299,8 @@ test("users and access panels expose username-first management", async ({ page }
   await expect(page.getByRole("heading", { name: "User management" })).toBeVisible();
   await expect(page.locator("#users-table")).toBeVisible();
   await expect(page.locator("#users-table-body").getByText("@admin")).toBeVisible();
+  await expect(page.locator("#users-page-info")).toContainText("Page 1 of 1");
+  await expect(page.locator("#users-page-next")).toBeDisabled();
   await page.getByRole("button", { name: "Create User" }).click();
   await expect(page.locator("#admin-username")).toBeVisible();
   await expect(page.locator("#admin-email")).toHaveAttribute("placeholder", "name@hotel.com");
@@ -2059,6 +2314,61 @@ test("users and access panels expose username-first management", async ({ page }
   await openPanel(page, "Audit");
   await expect(page.getByRole("heading", { name: "Audit logs" })).toBeVisible();
   await expect(page.locator("#audit .data-table-shell")).toBeVisible();
+});
+
+test("user management requests bounded pages and server-side filters", async ({ page }) => {
+  const requests = [];
+  await page.route("**/api/admin/users**", async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    const url = new URL(route.request().url());
+    const offset = Number(url.searchParams.get("offset") || 0);
+    requests.push({ offset, query: url.searchParams.get("q"), status: url.searchParams.get("status") });
+    const filtered = Boolean(url.searchParams.get("q"));
+    const username = filtered ? "needle-user" : (offset ? "page-user-51" : "page-user-1");
+    const displayName = filtered ? "Needle User" : (offset ? "Page User 51" : "Page User 1");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        users: [{
+          id: "user-" + offset + "-" + username,
+          username,
+          display_name: displayName,
+          email: null,
+          property_id: null,
+          role: "Super Admin",
+          status: url.searchParams.get("status") || "active",
+          last_login: null,
+          created: null,
+        }],
+        total: filtered ? 1 : 51,
+        limit: 50,
+        offset,
+      }),
+    });
+  });
+
+  await page.goto("/admin");
+  await openPanel(page, "Users");
+  await expect(page.locator("#users-page-info")).toContainText("Page 1 of 2");
+  await expect(page.locator("#users-table-body")).toContainText("@page-user-1");
+  await page.locator("#users-page-next").click();
+  await expect(page.locator("#users-page-info")).toContainText("Page 2 of 2");
+  await expect(page.locator("#users-table-body")).toContainText("@page-user-51");
+  await expect.poll(() => requests[requests.length - 1]?.offset).toBe(50);
+  await page.locator("#users-page-previous").click();
+  await expect(page.locator("#users-table-body")).toContainText("@page-user-1");
+  await expect.poll(() => requests[requests.length - 1]?.offset).toBe(0);
+
+  await page.locator("#users-page-next").click();
+  await expect(page.locator("#users-table-body")).toContainText("@page-user-51");
+  await page.locator("#user-search").fill("needle");
+  await expect(page.locator("#users-page-info")).toContainText("Page 1 of 1");
+  await expect(page.locator("#users-table-body")).toContainText("@needle-user");
+  await expect.poll(() => requests[requests.length - 1]?.query).toBe("needle");
+  await page.locator("#user-status-filter").selectOption("disabled");
+  await expect.poll(() => requests[requests.length - 1]?.status).toBe("disabled");
+  await expect.poll(() => requests[requests.length - 1]?.offset).toBe(0);
 });
 
 test("role dialog and audit action buttons work", async ({ page }) => {
@@ -2076,6 +2386,48 @@ test("role dialog and audit action buttons work", async ({ page }) => {
   const emptyState = page.locator("#audit-empty");
   await expect.poll(async () => (await auditRows.count()) > 0 || await emptyState.isVisible()).toBeTruthy();
   if (await auditRows.count()) await expect(page.locator("#audit-table-body")).toBeVisible();
+});
+
+test("audit log uses bounded server pages with working next and previous controls", async ({ page }) => {
+  const requestedOffsets = [];
+  await page.route("**/api/admin/audit**", async (route) => {
+    const url = new URL(route.request().url());
+    const limit = Number(url.searchParams.get("limit"));
+    const offset = Number(url.searchParams.get("offset"));
+    requestedOffsets.push({ limit, offset });
+    const events = Array.from({ length: limit }, (_, index) => ({
+      audit_id: offset + index + 1,
+      timestamp: 1792126733,
+      username: "fixture-auditor",
+      display_name: "Fixture Auditor",
+      role: "Auditor",
+      property_id: null,
+      action: `fixture-action-${offset + index}`,
+      resource: "fixture",
+      resource_id: String(offset + index),
+      ip_address: "127.0.0.1",
+    }));
+    await route.fulfill({ json: { events, total: 101, limit, offset } });
+  });
+
+  await page.goto("/admin");
+  await openPanel(page, "Audit");
+  await expect(page.locator("#audit-table-body tr")).toHaveCount(50);
+  await expect(page.locator("#audit-page-info")).toContainText("Page 1 of 3");
+  await expect(page.locator("#audit-page-previous")).toBeDisabled();
+  await expect(page.locator("#audit-page-next")).toBeEnabled();
+
+  await page.locator("#audit-page-next").click();
+  await expect.poll(() => requestedOffsets.length).toBe(2);
+  await expect(page.locator("#audit-table-body tr").first()).toContainText("fixture-action-50");
+  await expect(page.locator("#audit-page-info")).toContainText("Page 2 of 3");
+  await expect(page.locator("#audit-page-previous")).toBeEnabled();
+  expect(requestedOffsets).toEqual([{ limit: 50, offset: 0 }, { limit: 50, offset: 50 }]);
+
+  await page.locator("#audit-page-previous").click();
+  await expect.poll(() => requestedOffsets.length).toBe(3);
+  await expect(page.locator("#audit-table-body tr").first()).toContainText("fixture-action-0");
+  expect(requestedOffsets[2]).toEqual({ limit: 50, offset: 0 });
 });
 
 // --- 2. Core Configuration Workflow (serial - mutates shared DB) ---
@@ -2352,4 +2704,103 @@ test("security: no API keys in client JS", async ({ page }) => {
   const guestBody = await page.content();
   expect(guestBody).not.toContain("GEMINI_API_KEY");
   expect(guestBody).not.toContain("OPENAI_API_KEY");
+});
+
+test("admin: published guest waypoint exposes a scannable signed QR", async ({ page, request }) => {
+  const csrf = await loginAdmin(request);
+  const propertyId = `wayfinding-e2e-${Date.now().toString(36)}`;
+  const label = `QR Lobby ${Date.now().toString(36)}`;
+  const domain = `${propertyId}.example.test`;
+  const base = `/api/admin/properties/${propertyId}`;
+  let propertyCreated = false;
+  try {
+    const createdProperty = await request.put(base, {
+      headers: csrfHeaders(request),
+      data: {
+        property_id: propertyId,
+        hotel_name: "Wayfinding QR E2E",
+        timezone: "Asia/Manila",
+        domain,
+        guardrails: { directions_enabled: true },
+        app_settings: {
+          deployment: {
+            guest_access_enabled: true,
+            https_required: true,
+            public_base_url: `https://${domain}`,
+          },
+        },
+      },
+    });
+    expect(createdProperty.ok(), await createdProperty.text()).toBeTruthy();
+    propertyCreated = true;
+
+    const buildingResponse = await request.post(`${base}/buildings`, {
+      headers: csrfHeaders(request), data: { data: { name: "Wayfinding Building" } },
+    });
+    expect(buildingResponse.ok(), await buildingResponse.text()).toBeTruthy();
+    const building = await buildingResponse.json();
+    const floorResponse = await request.post(`${base}/floors`, {
+      headers: csrfHeaders(request), data: { data: { building_id: building.building_id, name: "Lobby", level: 0 } },
+    });
+    expect(floorResponse.ok(), await floorResponse.text()).toBeTruthy();
+    const floor = await floorResponse.json();
+    const zoneResponse = await request.put(`${base}/zones`, {
+      headers: csrfHeaders(request),
+      data: { data: {
+        floor_id: floor.floor_id, name: "Guest Lobby",
+        geometry: { type: "rectangle", x: 0, y: 0, width: 1200, height: 720 },
+      } },
+    });
+    expect(zoneResponse.ok(), await zoneResponse.text()).toBeTruthy();
+    const zone = await zoneResponse.json();
+    const mapSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720"><rect width="1200" height="720" fill="#fff"/></svg>';
+    const mapResponse = await request.post(`${base}/floors/${floor.floor_id}/maps`, {
+      headers: csrfHeaders(request),
+      data: {
+        filename: "lobby.svg", content_type: "image/svg+xml",
+        content_base64: Buffer.from(mapSvg).toString("base64"), width: 1200, height: 720,
+      },
+    });
+    expect(mapResponse.ok(), await mapResponse.text()).toBeTruthy();
+    const nodeResponse = await request.post(`${base}/navigation/nodes`, {
+      headers: csrfHeaders(request),
+      data: { data: { floor_id: floor.floor_id, zone_id: zone.zone_id, label, x: 80, y: 120, guest_visible: true } },
+    });
+    expect(nodeResponse.ok(), await nodeResponse.text()).toBeTruthy();
+
+    const draftResponse = await request.post(`${base}/map-revisions`, { headers: csrfHeaders(request) });
+    expect(draftResponse.ok(), await draftResponse.text()).toBeTruthy();
+    const draft = await draftResponse.json();
+    const publishResponse = await request.post(`${base}/map-revisions/${draft.revision_id}/publish`, {
+      headers: csrfHeaders(request), data: { expected_current_revision_id: null },
+    });
+    expect(publishResponse.ok(), await publishResponse.text()).toBeTruthy();
+
+    await page.goto("/admin");
+    await page.locator('body[data-admin-ready="true"]').waitFor();
+    await page.locator("#property-switcher").selectOption(propertyId);
+    await expect(page.locator("#property-switcher")).toHaveValue(propertyId);
+    await openPanel(page, "Zones & Maps");
+    await expect(page.locator("#map-publish-status")).toContainText("Published revision");
+    await page.locator("#zone-tree .map-object-row").filter({ hasText: label }).click();
+    const qrPanel = page.locator("#map-wayfinding-qr-panel");
+    await expect(qrPanel).toBeVisible();
+    await page.getByRole("button", { name: "Generate QR code" }).click();
+    await expect(page.locator("#map-wayfinding-status")).toContainText("QR code ready");
+    const qrImage = page.locator("#map-wayfinding-qr");
+    await expect(qrImage).toBeVisible();
+    expect(await qrImage.getAttribute("src")).toMatch(/^data:image\/svg\+xml;charset=utf-8,/);
+    const guestLink = page.locator("#map-wayfinding-url");
+    await expect(guestLink).toBeVisible();
+    const guestUrl = new URL(await guestLink.getAttribute("href"));
+    expect(guestUrl.protocol).toBe("https:");
+    expect(guestUrl.searchParams.get("property_id")).toBe(propertyId);
+    expect(guestUrl.searchParams.get("start_node_id")).toMatch(/^node_/);
+    expect(guestUrl.searchParams.get("start_sig")).toMatch(/^[0-9a-f]{64}$/);
+  } finally {
+    if (propertyCreated) {
+      const removed = await request.delete(base, { headers: csrfHeaders(request) });
+      expect(removed.ok(), await removed.text()).toBeTruthy();
+    }
+  }
 });

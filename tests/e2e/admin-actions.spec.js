@@ -537,6 +537,64 @@ test("admin conversation buttons: takeover, staff response, and close", async ({
   await expect(page.locator("#conversation-list")).toContainText("Resolved");
 });
 
+test("conversation inbox uses bounded server pages and keeps complete status counts", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "The pagination control only needs one browser profile.");
+  const records = Array.from({ length: 52 }, (_, index) => ({
+    session_id: index < 50
+      ? `first-page-${String(index).padStart(3, "0")}`
+      : `next-page-${String(index).padStart(3, "0")}`,
+    client_id: `pagination-guest-${index}`,
+    created_at: 1_797_000_000 + index,
+    last_message_at: null,
+    message_count: 0,
+    status: "open",
+    state: "ai_active",
+    human_takeover: false,
+    restaurant_id: null,
+    restaurant_name: index < 50 ? "Hotel team" : `Page two guest ${index}`,
+    assigned_user_id: null,
+    assigned_user_name: "",
+    escalation_reason: "",
+    messages: [],
+  }));
+  const offsets = [];
+  await page.route("**/api/admin/properties/*/conversations?*", async (route) => {
+    const url = new URL(route.request().url());
+    const limit = Number(url.searchParams.get("limit"));
+    const offset = Number(url.searchParams.get("offset"));
+    offsets.push({ limit, offset });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        conversations: records.slice(offset, offset + limit),
+        total: records.length,
+        limit,
+        offset,
+        status_counts: { waiting_for_staff: 0, assigned: 0, human_active: 0, ai_active: 52, resolved: 0 },
+        retention: { retention_days: 30 },
+      }),
+    });
+  });
+
+  await page.goto("/admin");
+  await openPanel(page, "Conversations");
+  await expect(page.locator("#conversation-page-info")).toHaveText("Page 1 of 2");
+  await expect(page.locator("#conversation-count-all")).toHaveText("52");
+  await expect(page.locator("#conversation-result-count")).toHaveText("1–50 of 52 conversations");
+  await expect(page.locator("#conversation-list button")).toHaveCount(50);
+  await expect(page.locator("#conversation-page-previous")).toBeDisabled();
+  await page.locator("#conversation-page-next").click();
+  await expect(page.locator("#conversation-page-info")).toHaveText("Page 2 of 2");
+  await expect(page.locator("#conversation-result-count")).toHaveText("51–52 of 52 conversations");
+  await expect(page.locator("#conversation-list button")).toHaveCount(2);
+  await expect(page.locator("#conversation-list")).toContainText("Page two guest 51");
+  await expect(page.locator("#conversation-page-previous")).toBeEnabled();
+  await expect(page.locator("#conversation-page-next")).toBeDisabled();
+  expect(offsets).toContainEqual({ limit: 50, offset: 0 });
+  expect(offsets).toContainEqual({ limit: 50, offset: 50 });
+});
+
 test("admin conversation queue can assign an escalated conversation to staff", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium", "The mutation workflow only needs one browser profile.");
   const suffix = Date.now().toString(36);

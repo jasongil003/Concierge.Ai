@@ -65,11 +65,128 @@ def test_guest_confirmation_creates_trackable_request(admin_client, tmp_path: Pa
     assert request_record["sla_target_seconds"] == 1200
 
     overview = admin_client.get(f"/api/admin/properties/{property_id}/hospitality").json()
-    assert overview["service_requests"][0]["request_id"] == request_record["request_id"]
+    assert overview["service_requests"] == []
+    request_page = admin_client.get(f"/api/admin/properties/{property_id}/service-requests?status=all")
+    assert request_page.status_code == 200, request_page.text
+    assert request_page.json()["service_requests"][0]["request_id"] == request_record["request_id"]
     history = admin_client.get(
         f"/api/admin/properties/{property_id}/service-requests/{request_record['request_id']}/history"
     ).json()["history"]
     assert history[0]["action"] == "created"
+
+
+def test_admin_service_requests_are_filtered_and_paginated_across_the_property(admin_client, tmp_path: Path, monkeypatch):
+    hospitality = HospitalityStore(tmp_path / "paged-requests.db")
+    monkeypatch.setattr(main_module, "hospitality", hospitality)
+    property_id = admin_client.get("/api/admin/properties").json()["properties"][0]["property_id"]
+    created = []
+    for index in range(55):
+        created.append(hospitality.create_service_request(property_id, {
+            "description": "Unique Needle in the queue" if index == 0 else f"Routine request {index}",
+            "room": "Needle Room" if index == 0 else str(400 + index),
+            "department": "Housekeeping",
+        }))
+    completed = hospitality.update_service_status(property_id, created[-1]["request_id"], "completed")
+    hospitality.create_service_request("other-property", {"description": "Other property must stay hidden"})
+
+    first = admin_client.get(f"/api/admin/properties/{property_id}/service-requests?limit=10&offset=0&status=all")
+    second = admin_client.get(f"/api/admin/properties/{property_id}/service-requests?limit=10&offset=10&status=all")
+    assert first.status_code == second.status_code == 200
+    first_page, second_page = first.json(), second.json()
+    assert first_page["total"] == first_page["all_total"] == 55
+    assert len(first_page["service_requests"]) == len(second_page["service_requests"]) == 10
+    assert first_page["offset"] == 0 and second_page["offset"] == 10
+    expected = sorted(created, key=lambda item: (item["created_at"], item["request_id"]), reverse=True)
+    assert [item["request_id"] for item in first_page["service_requests"] + second_page["service_requests"]] == [item["request_id"] for item in expected[:20]]
+    assert not ({item["request_id"] for item in first_page["service_requests"]} & {item["request_id"] for item in second_page["service_requests"]})
+
+    searched = admin_client.get(f"/api/admin/properties/{property_id}/service-requests?status=all&q=unique%20needle")
+    assert searched.status_code == 200
+    assert searched.json()["total"] == 1
+    assert searched.json()["service_requests"][0]["request_id"] == created[0]["request_id"]
+
+    open_page = admin_client.get(f"/api/admin/properties/{property_id}/service-requests?status=open")
+    completed_today = admin_client.get(f"/api/admin/properties/{property_id}/service-requests?status=completed_today")
+    assert open_page.json()["total"] == 54
+    assert open_page.json()["summary"]["open"] == 54
+    assert completed_today.json()["total"] == 1
+    assert completed_today.json()["service_requests"][0]["request_id"] == completed["request_id"]
+    assert completed_today.json()["summary"]["completed_today"] == 1
+    assert admin_client.get(f"/api/admin/properties/{property_id}/service-requests?limit=101").status_code == 422
+    assert admin_client.get(f"/api/admin/properties/{property_id}/service-requests?status=made_up").status_code == 422
+
+
+def test_overdue_escalations_are_bounded_scoped_and_idempotent(tmp_path: Path):
+    store = HospitalityStore(tmp_path / "service-escalations.db")
+    store.upsert_department("hotel-a", {"name": "Housekeeping", "escalation_target": "Duty Manager"})
+    store.upsert_department("hotel-a", {"name": "Front Desk", "escalation_target": ""})
+    store.upsert_department("hotel-a", {"name": "Engineering", "escalation_target": "Chief Engineer", "enabled": False})
+    store.upsert_department("hotel-b", {"name": "Housekeeping", "escalation_target": "Hotel B Manager"})
+
+    eligible = store.create_service_request("hotel-a", {"department": "Housekeeping", "description": "Late towels"})
+    other_property = store.create_service_request("hotel-b", {"department": "Housekeeping", "description": "Late towels at B"})
+    no_target = store.create_service_request("hotel-a", {"department": "Front Desk", "description": "Unrouted"})
+    disabled = store.create_service_request("hotel-a", {"department": "Engineering", "description": "Disabled route"})
+    future = store.create_service_request("hotel-a", {"department": "Housekeeping", "description": "Not due yet"})
+    terminal = store.create_service_request("hotel-a", {"department": "Housekeeping", "description": "Already completed"})
+    now = max(item["created_at"] for item in (eligible, other_property, no_target, disabled, future, terminal)) + 600
+    with store._connect() as db:
+        for request, due_at in (
+            (eligible, now - 600),
+            (other_property, now - 500),
+            (no_target, now - 400),
+            (disabled, now - 300),
+            (future, now + 60),
+            (terminal, now - 100),
+        ):
+            db.execute("UPDATE service_requests SET due_at=? WHERE property_id=? AND request_id=?", (due_at, request["property_id"], request["request_id"]))
+    store.update_service_status("hotel-a", terminal["request_id"], "completed")
+
+    assert store.queue_overdue_service_request_escalations(limit=1, now=now) == 1
+    page_a = store.service_request_page("hotel-a", status="all")
+    by_id_a = {item["request_id"]: item for item in page_a["service_requests"]}
+    assert by_id_a[eligible["request_id"]]["escalation"] == {
+        "request_id": eligible["request_id"],
+        "target": "Duty Manager",
+        "due_at": now - 600,
+        "scheduled_at": now,
+        "status": "queued",
+    }
+    assert by_id_a[no_target["request_id"]]["escalation"] is None
+    assert by_id_a[disabled["request_id"]]["escalation"] is None
+    assert by_id_a[future["request_id"]]["escalation"] is None
+    assert by_id_a[terminal["request_id"]]["escalation"] is None
+    assert [event["action"] for event in store.request_history("hotel-a", eligible["request_id"])] == [
+        "created", "overdue_escalation_queued",
+    ]
+
+    assert store.queue_overdue_service_request_escalations(limit=10, now=now) == 1
+    page_b = store.service_request_page("hotel-b", status="all")
+    assert page_b["service_requests"][0]["request_id"] == other_property["request_id"]
+    assert page_b["service_requests"][0]["escalation"]["target"] == "Hotel B Manager"
+    assert store.queue_overdue_service_request_escalations(now=now) == 0
+
+
+def test_concurrent_overdue_escalation_workers_queue_one_event(tmp_path: Path):
+    store = HospitalityStore(tmp_path / "concurrent-service-escalations.db")
+    store.upsert_department("hotel-a", {"name": "Housekeeping", "escalation_target": "Duty Manager"})
+    request = store.create_service_request("hotel-a", {"department": "Housekeeping", "description": "One overdue request"})
+    now = request["created_at"] + 600
+    with store._connect() as db:
+        db.execute("UPDATE service_requests SET due_at=? WHERE property_id=? AND request_id=?", (now - 1, "hotel-a", request["request_id"]))
+    barrier = Barrier(8)
+
+    def schedule():
+        barrier.wait(timeout=5)
+        return store.queue_overdue_service_request_escalations(now=now)
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        results = list(executor.map(lambda _: schedule(), range(8)))
+
+    assert sum(results) == 1
+    assert [event["action"] for event in store.request_history("hotel-a", request["request_id"])] == [
+        "created", "overdue_escalation_queued",
+    ]
 
 
 def test_guest_service_request_is_idempotent(admin_client, tmp_path: Path, monkeypatch):
