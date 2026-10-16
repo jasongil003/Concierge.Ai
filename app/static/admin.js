@@ -7953,21 +7953,37 @@ async function saveRole(event) {
   }
 }
 
-async function loadUsers() {
+let userPageOffset = 0;
+const userPageLimit = 50;
+let userPageTotal = 0;
+let userLoadVersion = 0;
+let userFilterSignature = null;
+let userSearchTimer = null;
+
+async function loadUsers({ resetPage = false } = {}) {
   if (!state.roles.length && can("roles.view")) await loadRoles();
-  const payload = await jsonFetch("/api/admin/users");
-  state.users = payload.users;
+  const params = new URLSearchParams();
+  const query = $("user-search").value.trim();
+  const status = $("user-status-filter").value;
+  if (query) params.set("q", query);
+  if (status) params.set("status", status);
+  const filterSignature = params.toString();
+  if (resetPage || filterSignature !== userFilterSignature) userPageOffset = 0;
+  userFilterSignature = filterSignature;
+  params.set("limit", String(userPageLimit));
+  params.set("offset", String(userPageOffset));
+  const version = ++userLoadVersion;
+  const payload = await jsonFetch("/api/admin/users?" + params.toString());
+  if (version !== userLoadVersion) return;
+  state.users = Array.isArray(payload.users) ? payload.users : [];
+  userPageTotal = Number.isInteger(payload.total) ? payload.total : state.users.length;
+  userPageOffset = Number.isInteger(payload.offset) ? payload.offset : userPageOffset;
   renderUsers();
 }
 
 function renderUsers() {
-  const query = $("user-search").value.trim().toLowerCase();
-  const status = $("user-status-filter").value;
-  const users = state.users.filter((user) => {
-    const matchesQuery = !query || user.username.toLowerCase().includes(query) || user.display_name.toLowerCase().includes(query);
-    return matchesQuery && (!status || user.status === status);
-  });
-  $("user-count").textContent = `${users.length} user${users.length === 1 ? "" : "s"}`;
+  const users = state.users;
+  $("user-count").textContent = userPageTotal + " user" + (userPageTotal === 1 ? "" : "s");
   $("users-empty").hidden = users.length > 0;
   const body = $("users-table-body");
   body.innerHTML = "";
@@ -7998,8 +8014,30 @@ function renderUsers() {
     }
     body.appendChild(row);
   }
+  const pageCount = Math.ceil(userPageTotal / userPageLimit);
+  const first = userPageTotal ? userPageOffset + 1 : 0;
+  const last = Math.min(userPageOffset + users.length, userPageTotal);
+  $("users-page-info").textContent = pageCount
+    ? "Page " + (Math.floor(userPageOffset / userPageLimit) + 1) + " of " + pageCount + " · " + first + "–" + last + " of " + userPageTotal
+    : "No pages";
+  $("users-page-previous").disabled = userPageOffset === 0 || !userPageTotal;
+  $("users-page-next").disabled = userPageOffset + userPageLimit >= userPageTotal;
 }
 
+function changeUserPage(direction) {
+  const lastPageOffset = Math.max(0, Math.ceil(userPageTotal / userPageLimit) - 1) * userPageLimit;
+  const nextOffset = Math.max(0, Math.min(userPageOffset + direction * userPageLimit, lastPageOffset));
+  if (nextOffset === userPageOffset) return;
+  userPageOffset = nextOffset;
+  loadUsers().catch((error) => showToast(error.message, "error"));
+}
+
+function scheduleUserSearch() {
+  clearTimeout(userSearchTimer);
+  userSearchTimer = setTimeout(() => {
+    loadUsers({ resetPage: true }).catch((error) => showToast(error.message, "error"));
+  }, 180);
+}
 async function openUserDialog(user = null) {
   if (!state.roles.length) await loadRoles();
   hydratePropertyOptions();
@@ -9098,8 +9136,10 @@ function setup() {
   $("restaurant-assignment-clear").addEventListener("click", () => {
     for (const checkbox of document.querySelectorAll("#restaurant-assignment-list input")) checkbox.checked = false;
   });
-  $("user-search").addEventListener("input", renderUsers);
-  $("user-status-filter").addEventListener("change", renderUsers);
+  $("user-search").addEventListener("input", scheduleUserSearch);
+  $("user-status-filter").addEventListener("change", () => loadUsers({ resetPage: true }).catch((error) => showToast(error.message, "error")));
+  $("users-page-previous").addEventListener("click", () => changeUserPage(-1));
+  $("users-page-next").addEventListener("click", () => changeUserPage(1));
   $("create-role-button").addEventListener("click", () => openRoleDialog().catch((error) => showToast(error.message, "error")));
   $("role-form").addEventListener("submit", saveRole);
   $("password-reset-form").addEventListener("submit", resetUserPassword);
