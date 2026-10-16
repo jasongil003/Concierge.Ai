@@ -149,8 +149,7 @@ class LocationAnalyticsStore:
         return deleted
 
     def cleanup_retention(self, now: int | None = None) -> int:
-        """Purge records without a currently retained active stay."""
-        current = _now() if now is None else int(now)
+        """Purge records without a currently active stay."""
         tables = (
             "location_observations",
             "zone_visits",
@@ -169,9 +168,8 @@ class LocationAnalyticsStore:
                         WHERE s.property_id={table}.property_id
                           AND s.stay_id={table}.stay_id
                           AND s.status='active'
-                          AND (s.retention_until IS NULL OR s.retention_until>?)
                     )""",  # nosec B608
-                    (current,),
+                    (),
                 )
                 deleted += cursor.rowcount
         return deleted

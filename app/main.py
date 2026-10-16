@@ -21,7 +21,7 @@ import time
 import uuid
 from typing import Any, Awaitable, Callable
 from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from email.message import EmailMessage
 from urllib.parse import quote, urlparse, urlsplit
 
@@ -1120,6 +1120,8 @@ class DeviceSessionPayload(BaseModel):
     browser_session_id: str | None = None
     room: str | None = None
     pms_guest_id: str | None = None
+    # Legacy client field retained for request compatibility; the server-side
+    # GUEST_DATA_RETENTION_DAYS policy controls post-checkout cleanup.
     retention_days: int = Field(default=2, ge=0, le=60)
 
 
@@ -1880,6 +1882,7 @@ async def set_guest_privacy(payload: GuestPrivacyPayload, request: Request, sess
             payload.consents,
             expires_at=expiry,
             location_stay_id=(linked_stay or {}).get("stay_id"),
+            linked_stay_id=(linked_stay or {}).get("stay_id"),
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -5683,7 +5686,7 @@ async def reconnect_session(property_id: str, payload: DeviceSessionPayload) -> 
             browser_session_id=payload.browser_session_id,
             room=payload.room,
             pms_guest_id=payload.pms_guest_id,
-            retention_days=payload.retention_days,
+            retention_days=settings.guest_data_retention_days,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -6277,7 +6280,7 @@ def _queue_hotel_event_reminders(*, property_id: str | None = None, now: int | N
             continue
         try:
             property_timezone = ZoneInfo(property_record.timezone)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, ZoneInfoNotFoundError):
             metrics.WORKER_FAILURES.labels("guest_event_reminders_timezone").inc()
             logger.error("Guest event reminders skipped for property with invalid timezone")
             continue
