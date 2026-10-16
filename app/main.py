@@ -2410,23 +2410,27 @@ async def list_admin_audit(
     resource: str = "",
     start_at: int | None = None,
     end_at: int | None = None,
-    limit: int = 100,
+    limit: int = 50,
+    offset: int = 0,
 ) -> dict[str, Any]:
-    return {
-        "events": admin_auth.list_audit(
-            _admin_principal(request),
-            {
-                "username": username,
-                "property_id": property_id,
-                "role_name": role,
-                "action": action,
-                "resource": resource,
-                "start_at": start_at,
-                "end_at": end_at,
-            },
-            limit=limit,
-        )
-    }
+    if not 1 <= limit <= 100:
+        raise HTTPException(status_code=422, detail="Audit page size must be between 1 and 100.")
+    if not 0 <= offset <= 1_000_000:
+        raise HTTPException(status_code=422, detail="Audit page offset must be between 0 and 1000000.")
+    return admin_auth.list_audit_page(
+        _admin_principal(request),
+        {
+            "username": username,
+            "property_id": property_id,
+            "role_name": role,
+            "action": action,
+            "resource": resource,
+            "start_at": start_at,
+            "end_at": end_at,
+        },
+        limit=limit,
+        offset=offset,
+    )
 
 
 @app.get("/api/admin/properties")

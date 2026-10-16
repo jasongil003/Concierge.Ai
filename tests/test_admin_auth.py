@@ -764,3 +764,62 @@ def test_audit_records_administrative_actions(auth_client: TestClient):
     })
     events = auth_client.get("/api/admin/audit").json()["events"]
     assert any(event["action"] == "auth.password_changed" for event in events)
+
+
+def test_audit_api_returns_stable_bounded_pages_and_clamps_stale_offsets(
+    auth_store: AdminAuthStore, auth_client: TestClient
+):
+    login(auth_client)
+    with auth_store._connect() as db:
+        for index in range(5):
+            db.execute(
+                """INSERT INTO admin_audit_logs
+                   (timestamp, username, display_name, role_name, property_id, action, resource, resource_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (1000, "pagination-user", "Pagination User", "Auditor", "tenant-a", "pagination.fixture", "fixture", f"row-{index}"),
+            )
+
+    first = auth_client.get("/api/admin/audit", params={"action": "pagination.fixture", "limit": 2, "offset": 0})
+    second = auth_client.get("/api/admin/audit", params={"action": "pagination.fixture", "limit": 2, "offset": 2})
+    stale = auth_client.get("/api/admin/audit", params={"action": "pagination.fixture", "limit": 2, "offset": 99})
+
+    assert first.status_code == second.status_code == stale.status_code == 200
+    assert first.json()["total"] == second.json()["total"] == stale.json()["total"] == 5
+    assert first.json()["offset"] == 0
+    assert second.json()["offset"] == 2
+    assert stale.json()["offset"] == 4
+    assert [item["resource_id"] for item in first.json()["events"]] == ["row-4", "row-3"]
+    assert [item["resource_id"] for item in second.json()["events"]] == ["row-2", "row-1"]
+    assert [item["resource_id"] for item in stale.json()["events"]] == ["row-0"]
+    assert auth_client.get("/api/admin/audit", params={"limit": 101}).status_code == 422
+    assert auth_client.get("/api/admin/audit", params={"offset": -1}).status_code == 422
+
+
+def test_paged_audit_log_preserves_property_scope(auth_store: AdminAuthStore, auth_client: TestClient):
+    _, administrator = auth_store.login("admin", ADMIN_PASSWORD, "127.0.0.1", "test")
+    auth_store.create_user(
+        {
+            "username": "tenant-a-admin",
+            "display_name": "Tenant A Admin",
+            "password": "TenantAPass123!",
+            "role_id": "role-property-administrator",
+            "property_id": "tenant-a",
+            "status": "active",
+        },
+        actor=administrator,
+    )
+    with auth_store._connect() as db:
+        for property_id in ("tenant-a", "tenant-b"):
+            db.execute(
+                """INSERT INTO admin_audit_logs
+                   (timestamp, username, display_name, role_name, property_id, action, resource, resource_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (1000, "scoped-user", "Scoped User", "Auditor", property_id, "pagination.scope", "fixture", property_id),
+            )
+
+    login(auth_client, "tenant-a-admin", "TenantAPass123!")
+    response = auth_client.get("/api/admin/audit", params={"action": "pagination.scope", "limit": 1})
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+    assert [item["property_id"] for item in response.json()["events"]] == ["tenant-a"]

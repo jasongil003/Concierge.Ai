@@ -8183,7 +8183,13 @@ async function deleteUser(user) {
   showToast("User deleted.");
 }
 
-async function loadAudit() {
+let auditPageOffset = 0;
+const auditPageLimit = 50;
+let auditPageTotal = 0;
+let auditLoadVersion = 0;
+let auditFilterSignature = null;
+
+async function loadAudit({ resetPage = false } = {}) {
   hydratePropertyOptions();
   const params = new URLSearchParams();
   if ($("audit-username").value.trim()) params.set("username", $("audit-username").value.trim());
@@ -8195,15 +8201,41 @@ async function loadAudit() {
     params.set("start_at", String(Math.floor(start.getTime() / 1000)));
     params.set("end_at", String(Math.floor((start.getTime() + 86400000 - 1) / 1000)));
   }
+  const filterSignature = params.toString();
+  if (resetPage || filterSignature !== auditFilterSignature) auditPageOffset = 0;
+  auditFilterSignature = filterSignature;
+  params.set("limit", String(auditPageLimit));
+  params.set("offset", String(auditPageOffset));
+  const version = ++auditLoadVersion;
   const payload = await jsonFetch(`/api/admin/audit?${params.toString()}`);
+  if (version !== auditLoadVersion) return;
+  const events = Array.isArray(payload.events) ? payload.events : [];
+  auditPageTotal = Number.isInteger(payload.total) ? payload.total : events.length;
+  auditPageOffset = Number.isInteger(payload.offset) ? payload.offset : auditPageOffset;
   const body = $("audit-table-body");
   body.innerHTML = "";
-  $("audit-empty").hidden = payload.events.length > 0;
-  for (const event of payload.events) {
+  $("audit-empty").hidden = events.length > 0;
+  for (const event of events) {
     const row = document.createElement("tr");
     row.innerHTML = `<td>${escapeHTML(formatDate(event.timestamp))}</td><td><div class="user-cell"><strong>${escapeHTML(event.display_name || "System")}</strong><span>${event.username ? `@${escapeHTML(event.username)}` : "Unauthenticated"}</span></div></td><td>${escapeHTML(event.role || "—")}</td><td>${escapeHTML(propertyName(event.property_id))}</td><td>${escapeHTML(event.action)}</td><td>${escapeHTML(event.resource)}${event.resource_id ? `<br><small>${escapeHTML(event.resource_id)}</small>` : ""}</td><td>${escapeHTML(event.ip_address || "—")}</td>`;
     body.appendChild(row);
   }
+  const pageCount = Math.ceil(auditPageTotal / auditPageLimit);
+  const first = auditPageTotal ? auditPageOffset + 1 : 0;
+  const last = Math.min(auditPageOffset + events.length, auditPageTotal);
+  $("audit-page-info").textContent = pageCount
+    ? `Page ${Math.floor(auditPageOffset / auditPageLimit) + 1} of ${pageCount} · ${first}–${last} of ${auditPageTotal}`
+    : "No pages";
+  $("audit-page-previous").disabled = auditPageOffset === 0 || !auditPageTotal;
+  $("audit-page-next").disabled = auditPageOffset + auditPageLimit >= auditPageTotal;
+}
+
+function changeAuditPage(direction) {
+  const lastPageOffset = Math.max(0, Math.ceil(auditPageTotal / auditPageLimit) - 1) * auditPageLimit;
+  const nextOffset = Math.max(0, Math.min(auditPageOffset + direction * auditPageLimit, lastPageOffset));
+  if (nextOffset === auditPageOffset) return;
+  auditPageOffset = nextOffset;
+  loadAudit().catch((error) => showToast(error.message, "error"));
 }
 
 async function changePassword(event) {
@@ -9090,7 +9122,9 @@ function setup() {
   });
   $("default-password-change-form").addEventListener("submit", (event) => changeDefaultPassword(event));
   $("refresh-audit").addEventListener("click", () => loadAudit().catch((error) => showToast(error.message, "error")));
-  $("apply-audit-filters").addEventListener("click", () => loadAudit().catch((error) => showToast(error.message, "error")));
+  $("apply-audit-filters").addEventListener("click", () => loadAudit({ resetPage: true }).catch((error) => showToast(error.message, "error")));
+  $("audit-page-previous").addEventListener("click", () => changeAuditPage(-1));
+  $("audit-page-next").addEventListener("click", () => changeAuditPage(1));
   for (const button of document.querySelectorAll("[data-close-dialog]")) {
     button.addEventListener("click", () => $(button.dataset.closeDialog).close());
   }

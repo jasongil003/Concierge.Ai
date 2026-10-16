@@ -2166,6 +2166,48 @@ test("role dialog and audit action buttons work", async ({ page }) => {
   if (await auditRows.count()) await expect(page.locator("#audit-table-body")).toBeVisible();
 });
 
+test("audit log uses bounded server pages with working next and previous controls", async ({ page }) => {
+  const requestedOffsets = [];
+  await page.route("**/api/admin/audit**", async (route) => {
+    const url = new URL(route.request().url());
+    const limit = Number(url.searchParams.get("limit"));
+    const offset = Number(url.searchParams.get("offset"));
+    requestedOffsets.push({ limit, offset });
+    const events = Array.from({ length: limit }, (_, index) => ({
+      audit_id: offset + index + 1,
+      timestamp: 1792126733,
+      username: "fixture-auditor",
+      display_name: "Fixture Auditor",
+      role: "Auditor",
+      property_id: null,
+      action: `fixture-action-${offset + index}`,
+      resource: "fixture",
+      resource_id: String(offset + index),
+      ip_address: "127.0.0.1",
+    }));
+    await route.fulfill({ json: { events, total: 101, limit, offset } });
+  });
+
+  await page.goto("/admin");
+  await openPanel(page, "Audit");
+  await expect(page.locator("#audit-table-body tr")).toHaveCount(50);
+  await expect(page.locator("#audit-page-info")).toContainText("Page 1 of 3");
+  await expect(page.locator("#audit-page-previous")).toBeDisabled();
+  await expect(page.locator("#audit-page-next")).toBeEnabled();
+
+  await page.locator("#audit-page-next").click();
+  await expect.poll(() => requestedOffsets.length).toBe(2);
+  await expect(page.locator("#audit-table-body tr").first()).toContainText("fixture-action-50");
+  await expect(page.locator("#audit-page-info")).toContainText("Page 2 of 3");
+  await expect(page.locator("#audit-page-previous")).toBeEnabled();
+  expect(requestedOffsets).toEqual([{ limit: 50, offset: 0 }, { limit: 50, offset: 50 }]);
+
+  await page.locator("#audit-page-previous").click();
+  await expect.poll(() => requestedOffsets.length).toBe(3);
+  await expect(page.locator("#audit-table-body tr").first()).toContainText("fixture-action-0");
+  expect(requestedOffsets[2]).toEqual({ limit: 50, offset: 0 });
+});
+
 // --- 2. Core Configuration Workflow (serial - mutates shared DB) ---
 
 test.describe("config workflow (serial)", () => {

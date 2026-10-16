@@ -1120,7 +1120,7 @@ class AdminAuthStore:
             db.execute("DELETE FROM admin_roles WHERE role_id = ?", (role_id,))
         self.audit(principal, "roles.deleted", "role", role_id, property_id=role["property_id"], metadata={"name": role["name"]})
 
-    def list_audit(self, principal: AdminPrincipal, filters: dict[str, Any], limit: int = 100) -> list[dict[str, Any]]:
+    def _audit_filter(self, principal: AdminPrincipal, filters: dict[str, Any]) -> tuple[str, list[Any]]:
         clauses: list[str] = []
         params: list[Any] = []
         if not principal.can("properties.all"):
@@ -1131,19 +1131,17 @@ class AdminAuthStore:
             if value:
                 clauses.append(f"{field} = ?")
                 params.append(value)
-        if filters.get("start_at"):
+        if filters.get("start_at") is not None:
             clauses.append("timestamp >= ?")
             params.append(int(filters["start_at"]))
-        if filters.get("end_at"):
+        if filters.get("end_at") is not None:
             clauses.append("timestamp <= ?")
             params.append(int(filters["end_at"]))
         where = "WHERE " + " AND ".join(clauses) if clauses else ""
-        params.append(max(1, min(limit, 500)))
-        with self._connect() as db:
-            rows = db.execute(
-                # B608 rationale: where clauses use fixed allowlisted fields; all filter values are bound.
-                f"SELECT * FROM admin_audit_logs {where} ORDER BY timestamp DESC, audit_id DESC LIMIT ?", params  # nosec B608
-            ).fetchall()
+        return where, params
+
+    @staticmethod
+    def _audit_event_payload(rows: list[Any]) -> list[dict[str, Any]]:
         return [
             {
                 "audit_id": row["audit_id"], "timestamp": row["timestamp"], "username": row["username"],
@@ -1154,6 +1152,45 @@ class AdminAuthStore:
             }
             for row in rows
         ]
+
+    def _query_audit_page(
+        self,
+        principal: AdminPrincipal,
+        filters: dict[str, Any],
+        *,
+        limit: int,
+        offset: int,
+        max_limit: int,
+    ) -> dict[str, Any]:
+        bounded_limit = max(1, min(int(limit), max_limit))
+        bounded_offset = max(0, min(int(offset), 1_000_000))
+        where, filter_params = self._audit_filter(principal, filters)
+        with self._connect() as db:
+            total_row = db.execute(
+                f"SELECT COUNT(*) AS total FROM admin_audit_logs {where}",  # nosec B608
+                filter_params,
+            ).fetchone()
+            total = int(total_row["total"] if total_row else 0)
+            bounded_offset = min(bounded_offset, ((total - 1) // bounded_limit) * bounded_limit) if total else 0
+            rows = db.execute(
+                # B608 rationale: where clauses use fixed allowlisted fields; all filter values are bound.
+                f"SELECT * FROM admin_audit_logs {where} ORDER BY timestamp DESC, audit_id DESC LIMIT ? OFFSET ?",  # nosec B608
+                [*filter_params, bounded_limit, bounded_offset],
+            ).fetchall()
+        return {
+            "events": self._audit_event_payload(rows),
+            "total": total,
+            "limit": bounded_limit,
+            "offset": bounded_offset,
+        }
+
+    def list_audit_page(
+        self, principal: AdminPrincipal, filters: dict[str, Any], limit: int = 50, offset: int = 0
+    ) -> dict[str, Any]:
+        return self._query_audit_page(principal, filters, limit=limit, offset=offset, max_limit=100)
+
+    def list_audit(self, principal: AdminPrincipal, filters: dict[str, Any], limit: int = 100) -> list[dict[str, Any]]:
+        return self._query_audit_page(principal, filters, limit=limit, offset=0, max_limit=500)["events"]
 
     def audit(
         self,
