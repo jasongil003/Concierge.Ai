@@ -129,3 +129,12 @@ The key is excluded from backup contents and hidden from the settings object's r
 - Acceptance ledger totals: **216/384 core locally verified (56.25%)**, 70 implemented, 56 partial, 41 blocked, zero failed, and one core product deferral. H-05 Lottie is deferred per the user's October 16 direction; it remains in the denominator and has no verification credit. R-X01 alone is excluded.
 - The published PR #63 head at the start of this continuation was `616de318bf85b8504852e3b8f6d18cc80ef091e7`. Its hosted [run #276](https://github.com/jasongil003/Concierge.Ai/actions/runs/38908867509) passed 9/10 jobs; backend/browser, PostgreSQL/Redis, Docker, dependencies, static security, and both platform deployment validations passed. Full-history Gitleaks alone failed on three retained historical findings. Connector publication of the reviewed updated candidate and its hosted run are pending.
 - Release remains RED. The issuer and repository owner must complete revocation and authorized history cleanup; a repository administrator must require CI checks. Privacy policy, live hotel/provider/device validation, and off-host recovery remain open. No merge, deployment, or shared history rewrite occurred.
+
+
+## Hosted acceptance — PR #63 run #277
+
+- The connector-published implementation head is `b9825a678b21d2d82b2fcbf3529e706811fe137c`. PR #63 remains open, draft, and unmerged; `main` is unchanged.
+- Hosted run [#277](https://github.com/jasongil003/Concierge.Ai/actions/runs/38914471464) completed with **9/10 jobs passing**. Backend: **1,382 passed, 19 skipped, 2 warnings**. Browser: **368 passed, 42 skipped, 0 failed** in 8.7 minutes. PostgreSQL/Redis integration, Docker runtime, npm and pip dependency audits, static security, and Linux/macOS deployment passed.
+- Secret scanning is the sole failing job because retained historical findings remain in repository history. The local redacted current-worktree scan returned zero findings. No finding values are reproduced.
+- Final acceptance remains **216/384 (56.25%) locally verified**, 70 implemented, 56 partial, 41 blocked, zero failed, and one core deferred item (H-05). R-X01 alone is excluded. H-05 remains in the denominator and receives no verification credit.
+- Release stays RED until issuer revocation and owner-authorized history cleanup, required main-branch checks, property/privacy-owner policy approval, live integrations/device acceptance, and off-host recovery are complete. No merge, deployment, credential rotation, or shared-history rewrite occurred.
