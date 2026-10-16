@@ -680,17 +680,14 @@ class AdminAuthStore:
             total_row = db.execute(f"SELECT COUNT(*) AS total {from_clause} {where}", params).fetchone()
             total = int(total_row["total"] if total_row else 0)
             bounded_offset = min(bounded_offset, ((total - 1) // bounded_limit) * bounded_limit) if total else 0
-            rows = db.execute(
-                f"""
-                SELECT u.*, r.name AS role_name, r.slug AS role_slug,
-                       (SELECT COUNT(*) FROM admin_sessions s WHERE s.user_id = u.user_id
-                        AND s.revoked_at IS NULL AND s.expires_at > ?) AS active_sessions
-                {from_clause} {where}
-                ORDER BY u.created_at DESC, u.user_id DESC
-                LIMIT ? OFFSET ?
-                """,
-                [int(time.time()), *params, bounded_limit, bounded_offset],
-            ).fetchall()
+            # B608 rationale: the FROM and WHERE fragments are fixed SQL built from allowlisted filters; caller values stay bound.
+            page_query = (
+                "SELECT u.*, r.name AS role_name, r.slug AS role_slug, "
+                "(SELECT COUNT(*) FROM admin_sessions s WHERE s.user_id = u.user_id "
+                "AND s.revoked_at IS NULL AND s.expires_at > ?) AS active_sessions "
+                f"{from_clause} {where} ORDER BY u.created_at DESC, u.user_id DESC LIMIT ? OFFSET ?"  # nosec B608
+            )
+            rows = db.execute(page_query, [int(time.time()), *params, bounded_limit, bounded_offset]).fetchall()
         users = [self._serialize_user(row) | {"restaurant_ids": self._restaurant_ids_for_user(row["user_id"])} for row in rows]
         return {"users": users, "total": total, "limit": bounded_limit, "offset": bounded_offset}
 

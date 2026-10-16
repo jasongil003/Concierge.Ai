@@ -1915,6 +1915,57 @@ test("knowledge panel exposes managed source controls", async ({ page }) => {
   await expect(page.locator("#knowledge-list")).toBeVisible();
 });
 
+test("managed knowledge review queue uses bounded pages and server search", async ({ page }) => {
+  const requests = [];
+  await page.route("**/api/admin/properties/*/knowledge/managed**", async (route) => {
+    const url = new URL(route.request().url());
+    const offset = Number(url.searchParams.get("offset") || 0);
+    const query = url.searchParams.get("q");
+    requests.push({ offset, query });
+    const filtered = Boolean(query);
+    const title = filtered ? "Needle Evidence" : (offset ? "Review Item 51" : "Review Item 1");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [{
+          item_id: "knowledge-" + offset,
+          source_id: null,
+          title,
+          content: filtered ? "Needle found in verified knowledge" : "Verified facilities information",
+          category: "Facilities",
+          status: "ready_review",
+          visibility: "admin",
+          conflict: false,
+          risk_flags: [],
+          location: {},
+        }],
+        total: filtered ? 1 : 51,
+        limit: 50,
+        offset,
+        sources: [],
+        categories: ["Facilities"],
+        limits: {},
+      }),
+    });
+  });
+
+  await page.goto("/admin");
+  await openPanel(page, "Knowledge");
+  await expect(page.locator("#managed-knowledge-page-info")).toContainText("Page 1 of 2");
+  await expect(page.locator("#managed-knowledge-list")).toContainText("Review Item 1");
+  await page.locator("#managed-knowledge-page-next").click();
+  await expect(page.locator("#managed-knowledge-page-info")).toContainText("Page 2 of 2");
+  await expect(page.locator("#managed-knowledge-list")).toContainText("Review Item 51");
+  await expect.poll(() => requests[requests.length - 1]?.offset).toBe(50);
+
+  await page.locator("#managed-knowledge-search").fill("needle");
+  await expect(page.locator("#managed-knowledge-page-info")).toContainText("Page 1 of 1");
+  await expect(page.locator("#managed-knowledge-list")).toContainText("Needle Evidence");
+  await expect.poll(() => requests[requests.length - 1]?.query).toBe("needle");
+  await expect.poll(() => requests[requests.length - 1]?.offset).toBe(0);
+});
+
 test("wifi panel: truthful status and manual test are available", async ({ page }) => {
   await page.goto("/admin");
   await openPanel(page, "ANTlabs / Wi-Fi");
@@ -2204,6 +2255,55 @@ test("user management requests bounded pages and server-side filters", async ({ 
   await page.locator("#user-status-filter").selectOption("disabled");
   await expect.poll(() => requests[requests.length - 1]?.status).toBe("disabled");
   await expect.poll(() => requests[requests.length - 1]?.offset).toBe(0);
+});
+
+test("user management requests bounded pages and server-side filters", async ({ page }) => {
+  const requests = [];
+  await page.route("**/api/admin/users**", async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    const url = new URL(route.request().url());
+    const offset = Number(url.searchParams.get("offset") || 0);
+    requests.push({ offset, query: url.searchParams.get("q"), status: url.searchParams.get("status") });
+    const username = url.searchParams.get("q") ? "needle-user" : offset ? "page-user-51" : "page-user-1";
+    const displayName = url.searchParams.get("q") ? "Needle User" : `Page User ${offset ? 51 : 1}`;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        users: [{
+          id: `user-${offset}-${username}`,
+          username,
+          display_name: displayName,
+          email: null,
+          property_id: null,
+          role: "Super Admin",
+          status: url.searchParams.get("status") || "active",
+          last_login: null,
+          created: null,
+        }],
+        total: url.searchParams.get("q") ? 1 : 51,
+        limit: 50,
+        offset,
+      }),
+    });
+  });
+
+  await page.goto("/admin");
+  await openPanel(page, "Users");
+  await expect(page.locator("#users-page-info")).toContainText("Page 1 of 2");
+  await expect(page.locator("#users-table-body")).toContainText("@page-user-1");
+  await page.locator("#users-page-next").click();
+  await expect(page.locator("#users-page-info")).toContainText("Page 2 of 2");
+  await expect(page.locator("#users-table-body")).toContainText("@page-user-51");
+  await expect.poll(() => requests.at(-1)?.offset).toBe(50);
+
+  await page.locator("#user-search").fill("needle");
+  await expect(page.locator("#users-page-info")).toContainText("Page 1 of 1");
+  await expect(page.locator("#users-table-body")).toContainText("@needle-user");
+  await expect.poll(() => requests.at(-1)?.query).toBe("needle");
+  await page.locator("#user-status-filter").selectOption("disabled");
+  await expect.poll(() => requests.at(-1)?.status).toBe("disabled");
+  await expect.poll(() => requests.at(-1)?.offset).toBe(0);
 });
 
 test("role dialog and audit action buttons work", async ({ page }) => {

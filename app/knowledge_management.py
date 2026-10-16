@@ -544,6 +544,66 @@ class KnowledgeStore:
         with self._db() as db: rows = db.execute(sql, params).fetchall()
         return [self._item(row) for row in rows]
 
+    def list_items_page(
+        self,
+        property_id: str,
+        *,
+        source_id: str | None = None,
+        status: str | None = None,
+        query: str = "",
+        role_slug: str = "",
+        allow_all: bool = False,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        bounded_limit = max(1, min(int(limit), 100))
+        bounded_offset = max(0, min(int(offset), 1_000_000))
+        normalized_query = str(query or "").strip().lower()
+        if len(normalized_query) > 100:
+            raise ValueError("Knowledge search must be 100 characters or fewer.")
+
+        clauses = ["property_id=?"]
+        params: list[Any] = [property_id]
+        if source_id:
+            clauses.append("source_id=?")
+            params.append(source_id)
+        if status:
+            clauses.append("status=?")
+            params.append(status)
+        if normalized_query:
+            escaped_query = normalized_query.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+            pattern = f"%{escaped_query}%"
+            clauses.append("(LOWER(title) LIKE ? ESCAPE '!' OR LOWER(content) LIKE ? ESCAPE '!')")
+            params.extend((pattern, pattern))
+        if not allow_all:
+            visible = ["visibility IN ('guest','staff')"]
+            if role_slug in {"property-administrator", "content-manager"}:
+                visible.append("visibility='admin'")
+            if role_slug in {"property-administrator", "property-manager"}:
+                visible.append("visibility='manager'")
+            if role_slug == "engineering":
+                visible.append("visibility='engineering'")
+            visible.append("(visibility='role' AND role_slug=?)")
+            clauses.append("(" + " OR ".join(visible) + ")")
+            params.append(role_slug)
+        where = "WHERE " + " AND ".join(clauses)
+        with self._db() as db:
+            # B608 rationale: WHERE is assembled only from fixed SQL fragments; caller values are bound parameters.
+            total_row = db.execute(f"SELECT COUNT(*) AS total FROM km_items {where}", params).fetchone()  # nosec B608
+            total = int(total_row["total"] if total_row else 0)
+            bounded_offset = min(bounded_offset, ((total - 1) // bounded_limit) * bounded_limit) if total else 0
+            rows = db.execute(
+                f"SELECT * FROM km_items {where} ORDER BY updated_at DESC, item_id DESC LIMIT ? OFFSET ?",  # nosec B608
+                [*params, bounded_limit, bounded_offset],
+            ).fetchall()
+        return {
+            "items": [self._item(row) for row in rows],
+            "total": total,
+            "limit": bounded_limit,
+            "offset": bounded_offset,
+        }
+
+
     @staticmethod
     def _item(row: sqlite3.Row) -> dict[str, Any]:
         result = dict(row)

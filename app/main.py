@@ -4586,11 +4586,29 @@ def _knowledge_item_allowed(item: dict[str, Any] | None, principal: AdminPrincip
 
 
 @app.get("/api/admin/properties/{property_id}/knowledge/managed")
-async def managed_knowledge(property_id: str, request: Request, source_id: str | None = None, status: str | None = None, q: str = "") -> dict[str, Any]:
+async def managed_knowledge(
+    property_id: str,
+    request: Request,
+    source_id: str | None = None,
+    status: str | None = None,
+    q: str = Query(default="", max_length=100),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=1_000_000),
+) -> dict[str, Any]:
     _require_property(property_id)
     principal = _admin_principal(request)
-    items = [item for item in knowledge_management.list_items(property_id, source_id=source_id, status=status, query=q) if _knowledge_item_allowed(item, principal)]
-    return {"items": items, "sources": knowledge_management.list_sources(property_id), "categories": list(CATEGORIES), "limits": {"max_file_bytes": settings.knowledge_max_file_bytes, "max_files_per_upload": settings.knowledge_max_files_per_upload, "max_files_per_property": settings.knowledge_max_files_per_property, "storage_quota_bytes": settings.knowledge_storage_quota_bytes}}
+    page = knowledge_management.list_items_page(
+        property_id,
+        source_id=source_id,
+        status=status,
+        query=q,
+        role_slug=principal.role_slug,
+        allow_all=principal.role_slug == "super-admin",
+        limit=limit,
+        offset=offset,
+    )
+    items = [item for item in page["items"] if _knowledge_item_allowed(item, principal)]
+    return page | {"items": items, "sources": knowledge_management.list_sources(property_id), "categories": list(CATEGORIES), "limits": {"max_file_bytes": settings.knowledge_max_file_bytes, "max_files_per_upload": settings.knowledge_max_files_per_upload, "max_files_per_property": settings.knowledge_max_files_per_property, "storage_quota_bytes": settings.knowledge_storage_quota_bytes}}
 
 
 @app.post("/api/admin/properties/{property_id}/knowledge/items")

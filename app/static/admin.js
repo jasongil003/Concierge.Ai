@@ -1786,11 +1786,39 @@ async function approveRestaurantWorkflow(resource, id, action) {
   await loadRestaurantWorkflows(); showToast(`${resource === "menus" ? "Menu" : "Promotion"} ${action}d.`);
 }
 
-async function loadKnowledge() {
+let managedKnowledgePageOffset = 0;
+const managedKnowledgePageLimit = 50;
+let managedKnowledgeTotal = 0;
+let managedKnowledgeLoadVersion = 0;
+let managedKnowledgeFilterSignature = null;
+let managedKnowledgePropertyId = "";
+let managedKnowledgeSearchTimer = null;
+
+async function loadKnowledge({ resetManagedPage = false } = {}) {
+  const propertyId = currentPropertyId();
   const base = `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge`;
-  const [legacy, managed, health] = await Promise.all([jsonFetch(base), jsonFetch(`${base}/managed`), jsonFetch(`${base}/health`)]);
+  const params = new URLSearchParams();
+  const query = $("managed-knowledge-search")?.value.trim() || "";
+  if (query) params.set("q", query);
+  const filterSignature = params.toString();
+  if (resetManagedPage || propertyId !== managedKnowledgePropertyId || filterSignature !== managedKnowledgeFilterSignature) {
+    managedKnowledgePageOffset = 0;
+  }
+  managedKnowledgePropertyId = propertyId;
+  managedKnowledgeFilterSignature = filterSignature;
+  params.set("limit", String(managedKnowledgePageLimit));
+  params.set("offset", String(managedKnowledgePageOffset));
+  const version = ++managedKnowledgeLoadVersion;
+  const [legacy, managed, health] = await Promise.all([
+    jsonFetch(base),
+    jsonFetch(`${base}/managed?${params.toString()}`),
+    jsonFetch(`${base}/health`),
+  ]);
+  if (version !== managedKnowledgeLoadVersion || propertyId !== currentPropertyId()) return;
   state.knowledge = legacy;
   state.managedKnowledge = managed;
+  managedKnowledgeTotal = Number.isInteger(managed.total) ? managed.total : (managed.items || []).length;
+  managedKnowledgePageOffset = Number.isInteger(managed.offset) ? managed.offset : managedKnowledgePageOffset;
   state.knowledgeHealth = health;
   renderKnowledge();
 }
@@ -1875,8 +1903,7 @@ function renderManagedKnowledge() {
   const target = $("managed-knowledge-list");
   if (!target) return;
   target.replaceChildren();
-  const query = $("managed-knowledge-search")?.value.trim().toLowerCase() || "";
-  const items = (state.managedKnowledge.items || []).filter((item) => !query || `${item.title} ${item.content}`.toLowerCase().includes(query));
+  const items = state.managedKnowledge.items || [];
   for (const item of items) {
     const row = document.createElement("article"); row.className = "compact-row knowledge-review"; row.dataset.sourceId = item.source_id || "";
     const source = state.managedKnowledge.sources.find((candidate) => candidate.source_id === item.source_id);
@@ -1905,6 +1932,30 @@ function renderManagedKnowledge() {
     row.append(details); target.append(row);
   }
   if (!items.length) target.textContent = "No matching extracted knowledge.";
+  const pageCount = Math.ceil(managedKnowledgeTotal / managedKnowledgePageLimit);
+  const first = managedKnowledgeTotal ? managedKnowledgePageOffset + 1 : 0;
+  const last = Math.min(managedKnowledgePageOffset + items.length, managedKnowledgeTotal);
+  $("managed-knowledge-page-info").textContent = pageCount
+    ? "Page " + (Math.floor(managedKnowledgePageOffset / managedKnowledgePageLimit) + 1) + " of " + pageCount + " · " + first + "–" + last + " of " + managedKnowledgeTotal
+    : "No pages";
+  $("managed-knowledge-page-previous").disabled = managedKnowledgePageOffset === 0 || !managedKnowledgeTotal;
+  $("managed-knowledge-page-next").disabled = managedKnowledgePageOffset + managedKnowledgePageLimit >= managedKnowledgeTotal;
+}
+
+
+function changeManagedKnowledgePage(direction) {
+  const lastPageOffset = Math.max(0, Math.ceil(managedKnowledgeTotal / managedKnowledgePageLimit) - 1) * managedKnowledgePageLimit;
+  const nextOffset = Math.max(0, Math.min(managedKnowledgePageOffset + direction * managedKnowledgePageLimit, lastPageOffset));
+  if (nextOffset === managedKnowledgePageOffset) return;
+  managedKnowledgePageOffset = nextOffset;
+  loadKnowledge().catch((error) => showToast(error.message, "error"));
+}
+
+function scheduleManagedKnowledgeSearch() {
+  clearTimeout(managedKnowledgeSearchTimer);
+  managedKnowledgeSearchTimer = setTimeout(() => {
+    loadKnowledge({ resetManagedPage: true }).catch((error) => showToast(error.message, "error"));
+  }, 180);
 }
 
 async function transitionKnowledge(itemId, action) {
@@ -9590,7 +9641,9 @@ function setup() {
     }
     event.target.value = "";
   });
-  $("managed-knowledge-search")?.addEventListener("input", renderManagedKnowledge);
+  $("managed-knowledge-search")?.addEventListener("input", scheduleManagedKnowledgeSearch);
+  $("managed-knowledge-page-previous")?.addEventListener("click", () => changeManagedKnowledgePage(-1));
+  $("managed-knowledge-page-next")?.addEventListener("click", () => changeManagedKnowledgePage(1));
   $("save-personality").addEventListener("click", () => savePersonality().catch((error) => showToast(error.message, "error")));
   $("save-guardrails").addEventListener("click", () => saveGuardrails().catch((error) => showToast(error.message, "error")));
   $("refresh-guardrail-diagnostics").addEventListener("click", () => loadGuardrailDiagnostics().catch((error) => showToast(error.message, "error")));
