@@ -234,4 +234,16 @@ Run #271 completed **9/10 jobs successfully**. C-30 remains **PARTIAL** because 
 | Gitleaks 8.24.3 redacted current-tree scan | **PASS:** 0 findings | Current source tree only; the separate hosted full-history scan remains necessary. Secret values are not reproduced. |
 | `node --check app/static/admin.js`; `python3 -m json.tool` on route policies and acceptance ledger; `git diff --check` | **PASS** | Syntax, JSON and whitespace validation. |
 
-The final accessibility-label correction was followed by another campaign browser run: **2 passed** across Chromium and mobile Chrome. The cloned checkout had no virtualenv and its installed dependency set lacked qrcode. Browser/backend runs used the existing workspace Python runtime and an import-only qrcode 8.2 path under `/private/tmp`; no application dependency manifest changed for this validation. The current candidate has not yet received hosted CI at this report revision. Physical-device, live-provider, clean-host recovery, and production-scale acceptance remain unverified.
+The final accessibility-label correction was followed by another campaign browser run: **2 passed** across Chromium and mobile Chrome. The cloned checkout had no virtualenv and its installed dependency set lacked qrcode. Browser/backend runs used the existing workspace Python runtime and an import-only qrcode 8.2 path under `/private/tmp`; no application dependency manifest changed for this validation. Physical-device, live-provider, clean-host recovery, and production-scale acceptance remain unverified.
+
+
+## 2026-10-16 hosted candidate run #277
+
+| Check | Result | Scope and limits |
+| --- | --- | --- |
+| Hosted backend | **PASS:** 1,382 passed, 19 skipped, 2 warnings | GitHub Actions on PR #63 code head `b9825a678b21d2d82b2fcbf3529e706811fe137c`. |
+| Hosted browser | **PASS:** 368 passed, 42 skipped, 0 failed, 8.7 min | Chromium and mobile Chrome functional suite. |
+| Hosted integrations and delivery checks | **PASS:** PostgreSQL/Redis, Docker, npm and pip audits, static security, Linux and macOS deployment | Candidate run #277. |
+| Hosted secret scan | **FAIL / RELEASE BLOCKER** | The Gitleaks job retains historical findings; local redacted current-tree scan is clean. Credential values are not reproduced. |
+
+Run [#277](https://github.com/jasongil003/Concierge.Ai/actions/runs/38914471464) is 9/10 jobs passed. The branch remains a draft PR and no merge or deployment occurred. Hosted job results do not establish live hotel/provider or physical-device acceptance.

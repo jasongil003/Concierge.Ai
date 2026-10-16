@@ -7,7 +7,7 @@
     "target_branch": "main",
     "remediation_branch": "codex/final-remediation-20261016",
     "starting_commit": "96d832afe70781575e9e00a862d9c746dfcddd2d",
-    "implementation_commit": "616de318bf85b8504852e3b8f6d18cc80ef091e7",
+    "implementation_commit": "b9825a678b21d2d82b2fcbf3529e706811fe137c",
     "github_main_at_start": "96d832afe70781575e9e00a862d9c746dfcddd2d",
     "source_matrix": "audit/master-feature-acceptance.json (2026-10-13 audit snapshot; superseded for current status by this ledger)",
     "core_denominator": 384,
@@ -136,6 +136,24 @@
         "skipped": 42,
         "failed": 2,
         "cause": "Two admin guidance cases failed because the new campaign tab lacked page-specific related-page links; fixed and passed in the final full rerun."
+      },
+      "hosted_candidate_run_277": {
+        "backend": {
+          "passed": 1382,
+          "skipped": 19,
+          "failed": 0,
+          "warnings": 2
+        },
+        "browser": {
+          "passed": 368,
+          "skipped": 42,
+          "failed": 0,
+          "duration_minutes": 8.7
+        },
+        "other_jobs": "PASS — PostgreSQL/Redis, Docker runtime, npm/pip dependency checks, static security, Linux/macOS deployment.",
+        "secret_scan": "FAIL — retained historical findings; current-tree local redacted scan had 0 findings.",
+        "run_id": "38914471464",
+        "head_commit": "b9825a678b21d2d82b2fcbf3529e706811fe137c"
       }
     },
     "github_base_ci": {
@@ -143,11 +161,11 @@
       "result": "9/10 jobs passed; secret-scan failed on three historical findings in audit/evidence/security-2026-10-12/recovery-harness-before.txt. No credential values are copied into this ledger."
     },
     "github_candidate_ci": {
-      "run_id": "38908867509",
-      "run_number": 276,
-      "head_commit": "616de318bf85b8504852e3b8f6d18cc80ef091e7",
+      "run_id": "38914471464",
+      "run_number": 277,
+      "head_commit": "b9825a678b21d2d82b2fcbf3529e706811fe137c",
       "pull_request": "https://github.com/jasongil003/Concierge.Ai/pull/63",
-      "result": "COMPLETED — 9/10 jobs passed. Backend, browser, PostgreSQL/Redis, Docker, Python and Node dependency audits, static security, and Linux/macOS deployment passed. Full-history secret scanning failed on three known historical findings; PR-diff and current-tree scans passed."
+      "result": "COMPLETED — 9/10 jobs passed. Backend: 1,382 passed / 19 skipped / 2 warnings. Browser: 368 passed / 42 skipped / 0 failed. PostgreSQL/Redis, Docker, npm/pip dependency audits, static security, and Linux/macOS deployment passed. Secret scanning remains the sole failure on retained historical findings; no credential values are reproduced."
     },
     "repository_release_controls": {
       "main_branch_protection": "DISABLED; GitHub integration denied branch-protection configuration access (HTTP 403).",
@@ -194,24 +212,25 @@
       "97369c6",
       "adec402",
       "7b31f7201ceaaa235bba74d054ba706f60291554",
-      "616de318bf85b8504852e3b8f6d18cc80ef091e7"
+      "616de318bf85b8504852e3b8f6d18cc80ef091e7",
+      "b9825a678b21d2d82b2fcbf3529e706811fe137c"
     ],
-    "current_head_at_ledger_creation": "616de318bf85b8504852e3b8f6d18cc80ef091e7",
+    "current_head_at_ledger_creation": "b9825a678b21d2d82b2fcbf3529e706811fe137c",
     "publication_state": {
       "git_push": "UNAVAILABLE — no GitHub username/token is configured for shell push.",
-      "connector_fallback": "APPROVED — user authorized updating the existing draft PR through the GitHub connector; updated snapshot pending.",
+      "connector_fallback": "COMPLETE — user-authorized connector publication updated the existing draft PR.",
       "remote_main_changed": false,
       "remote_branch_created": true,
-      "current_published_head": "616de318bf85b8504852e3b8f6d18cc80ef091e7",
+      "current_published_head": "b9825a678b21d2d82b2fcbf3529e706811fe137c",
       "pull_request_created": true,
       "pull_request_url": "https://github.com/jasongil003/Concierge.Ai/pull/63",
-      "hosted_branch_ci": "COMPLETED — 9/10 jobs passed. Backend, browser, PostgreSQL/Redis, Docker, Python and Node dependency audits, static security, and Linux/macOS deployment passed. Full-history secret scanning failed on three known historical findings; PR-diff and current-tree scans passed.",
-      "updated_candidate_hosted_ci": "PENDING — run after connector publication of this locally tested snapshot."
+      "hosted_branch_ci": "COMPLETED — 9/10 jobs passed. Backend: 1,382 passed / 19 skipped / 2 warnings. Browser: 368 passed / 42 skipped / 0 failed. PostgreSQL/Redis, Docker, npm/pip dependency audits, static security, and Linux/macOS deployment passed. Secret scanning remains the sole failure on retained historical findings; no credential values are reproduced.",
+      "implementation_candidate_commit": "b9825a678b21d2d82b2fcbf3529e706811fe137c"
     },
     "candidate_validation_state": {
-      "implementation_commit": "616de318bf85b8504852e3b8f6d18cc80ef091e7",
+      "implementation_commit": "b9825a678b21d2d82b2fcbf3529e706811fe137c",
       "local_focused_validation": "PASS — full backend 1,380 passed / 21 skipped / 0 failed; full nonvisual browser 368 passed / 42 skipped / 0 failed; final campaign browser 2/2; template-clone backend 2/2 and Chromium 1/1; Bandit, current-tree Gitleaks, JavaScript syntax, JSON, and whitespace checks passed.",
-      "hosted_ci": "PENDING — updated candidate will trigger a new run after connector publication. Previous published head run #276 passed 9/10; only full-history secret scanning failed."
+      "hosted_ci": "COMPLETED — 9/10 jobs passed. Backend: 1,382 passed / 19 skipped / 2 warnings. Browser: 368 passed / 42 skipped / 0 failed. PostgreSQL/Redis, Docker, npm/pip dependency audits, static security, and Linux/macOS deployment passed. Secret scanning remains the sole failure on retained historical findings; no credential values are reproduced."
     },
     "deferred_in_scope_requirement_ids": [
       "H-05"

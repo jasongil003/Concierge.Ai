@@ -2,7 +2,7 @@
 
 ## Current remediation update — 2026-10-16
 
-**Decision: RED — RELEASE BLOCKED.** The work is on `codex/final-remediation-20261016`, based on GitHub `main` at `96d832afe70781575e9e00a862d9c746dfcddd2d`. The published PR head at the start of this update was `616de318bf85b8504852e3b8f6d18cc80ef091e7`; final campaign, acceptance, and evidence changes are being prepared for connector publication to draft [PR #63](https://github.com/jasongil003/Concierge.Ai/pull/63). The last hosted run for that prior head, [#276](https://github.com/jasongil003/Concierge.Ai/actions/runs/38908867509), passed 9/10 jobs: backend, browser, PostgreSQL/Redis, Docker, both dependency audits, static security, and Linux/macOS deployment passed; only full-history secret scanning failed on three retained findings. Hosted CI for the updated candidate is pending publication.
+**Decision: RED — RELEASE BLOCKED.** Work started from GitHub `main` at `96d832afe70781575e9e00a862d9c746dfcddd2d` on `codex/final-remediation-20261016`. Draft [PR #63](https://github.com/jasongil003/Concierge.Ai/pull/63) now tests code head `b9825a678b21d2d82b2fcbf3529e706811fe137c`. Hosted run [#277](https://github.com/jasongil003/Concierge.Ai/actions/runs/38914471464) completed with **9/10 jobs passed**: backend **1,382 passed, 19 skipped**; browser **368 passed, 42 skipped, 0 failed**; PostgreSQL/Redis, Docker runtime, npm/pip dependency checks, static security, and Linux/macOS deployment passed. The secret-scan job remains the sole failure on retained historical findings; the local redacted current-tree scan found zero. PR #63 remains draft and unmerged; `main` was not changed.
 
 The [acceptance ledger](acceptance-ledger-2026-10-16.json) contains all 384 core requirements and 13 supplemental rows. Current local acceptance is **216 LOCALLY VERIFIED (56.25%), 70 IMPLEMENTED, 56 PARTIAL, 41 BLOCKED, 0 FAILED, and 1 DEFERRED core requirement**. H-05 Lottie was explicitly deferred by the user for the October 19 milestone and remains in the 384-item denominator without verification credit. R-X01, the 30,000-user target, is the only denominator-excluded item. No LIVE VERIFIED results are claimed.
 
@@ -24,7 +24,7 @@ The [acceptance ledger](acceptance-ledger-2026-10-16.json) contains all 384 core
 
 ## Next independently actionable work
 
-Publish the reviewed local candidate to PR #63 and inspect its hosted checks. Continue with issuer revocation and owner-authorized history cleanup, required branch protection, property policy approval, live integration/hotel-device evidence, and off-host recovery before release consideration.
+The candidate CI is complete. Continue with issuer revocation and owner-authorized history cleanup, required branch protection, property policy approval, live integration/hotel-device evidence, and off-host recovery before release consideration.
 
 ## Historical release-readiness snapshot (2026-10-12–13)
 
