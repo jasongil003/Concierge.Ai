@@ -6823,23 +6823,39 @@ async function playIntroPreview() {
   state.introPreviewTimer = window.setTimeout(() => stopIntroPreview("Intro preview finished."), duration);
 }
 
+// Protect unsaved retention drafts from stale inbox GET responses.
+let conversationLoadVersion = 0;
+let retentionDraftPropertyId = "";
+let retentionDraftDirty = false;
+
 async function loadConversations() {
+  const propertyId = currentPropertyId();
+  const version = ++conversationLoadVersion;
+  if (retentionDraftPropertyId !== propertyId) {
+    retentionDraftPropertyId = propertyId;
+    retentionDraftDirty = false;
+  }
   const button = $("refresh-conversations");
   const originalLabel = button.textContent;
   button.disabled = true;
   button.textContent = "Refreshing…";
   try {
-    const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations`);
+    const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}/conversations`);
+    if (version !== conversationLoadVersion || propertyId !== currentPropertyId()) return;
     state.conversations = Array.isArray(data.conversations) ? data.conversations : [];
-    $("conversation-retention-days").value = data.retention?.retention_days || 30;
+    if (!retentionDraftDirty) {
+      $("conversation-retention-days").value = data.retention?.retention_days ?? 30;
+    }
     const selectedId = state.selectedConversation?.session_id;
     state.selectedConversation = selectedId ? state.conversations.find((item) => item.session_id === selectedId) || null : null;
     $("conversation-last-refreshed").textContent = `Updated ${new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(new Date())}`;
     renderConversations();
     renderConversationMessages();
   } finally {
-    button.disabled = false;
-    button.textContent = originalLabel;
+    if (version === conversationLoadVersion) {
+      button.disabled = false;
+      button.textContent = originalLabel === "Refreshing…" ? "Refresh inbox" : originalLabel;
+    }
   }
 }
 
@@ -6848,14 +6864,23 @@ async function saveConversationRetention() {
   if (!Number.isInteger(retentionDays) || retentionDays < 1 || retentionDays > 365) {
     throw new Error("Choose a retention period from 1 to 365 days.");
   }
+  const propertyId = currentPropertyId();
   const button = $("save-conversation-retention");
   button.disabled = true;
+  // Invalidate any GET started before the mutation, including the initial panel load.
+  ++conversationLoadVersion;
   try {
-    await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations/retention`, { method: "PUT", body: JSON.stringify({ retention_days: retentionDays }) });
+    const saved = await jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}/conversations/retention`, { method: "PUT", body: JSON.stringify({ retention_days: retentionDays }) });
+    if (propertyId !== currentPropertyId()) return;
+    retentionDraftDirty = false;
+    $("conversation-retention-days").value = saved.retention_days;
     await loadConversations();
     showToast("Conversation retention updated.");
   } finally {
     button.disabled = false;
+    const refresh = $("refresh-conversations");
+    refresh.disabled = false;
+    refresh.textContent = "Refresh inbox";
   }
 }
 
@@ -9137,6 +9162,10 @@ function setup() {
   $("save-recommendation").addEventListener("click", () => saveRecommendation().catch((error) => showToast(error.message, "error")));
   $("refresh-conversations").addEventListener("click", () => loadConversations().catch((error) => showToast(error.message, "error")));
   $("save-conversation-retention").addEventListener("click", () => saveConversationRetention().catch((error) => showToast(error.message, "error")));
+  $("conversation-retention-days").addEventListener("input", () => {
+    retentionDraftPropertyId = currentPropertyId();
+    retentionDraftDirty = true;
+  });
   $("conversation-search").addEventListener("input", renderConversations);
   $("conversation-status-filter").addEventListener("change", renderConversations);
   for (const card of document.querySelectorAll("[data-conversation-filter]")) card.addEventListener("click", () => {
