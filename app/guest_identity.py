@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .database import connect_database, table_exists
+from .database import connect_database, table_columns, table_exists
 
 
 def _now() -> int:
@@ -60,6 +60,7 @@ class GuestIdentityStore:
                     status TEXT NOT NULL,
                     memory_summary TEXT NOT NULL DEFAULT '{}',
                     retention_until INTEGER,
+                    retention_days INTEGER NOT NULL DEFAULT 2,
                     created_at INTEGER NOT NULL,
                     updated_at INTEGER NOT NULL,
                     checked_out_at INTEGER
@@ -75,6 +76,17 @@ class GuestIdentityStore:
                     last_seen_at INTEGER NOT NULL
                 );
                 """
+            )
+            if "retention_days" not in table_columns(db, "concierge_stays"):
+                db.execute(
+                    "ALTER TABLE concierge_stays ADD COLUMN retention_days INTEGER NOT NULL DEFAULT 2"
+                )
+            # Older releases used this deadline to expire active stays. The
+            # retention window applies only after an explicit checkout.
+            db.execute("UPDATE concierge_stays SET retention_until=NULL WHERE status='active'")
+            db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_concierge_stays_retention "
+                "ON concierge_stays(status,retention_until)"
             )
 
     def property_secret(self, property_id: str) -> str:
@@ -113,6 +125,7 @@ class GuestIdentityStore:
         retention_days: int = 2,
     ) -> dict[str, Any]:
         now = _now()
+        keep_days = max(int(retention_days), 0)
         with self._connect() as db:
             stay = db.execute(
                 """SELECT * FROM concierge_stays
@@ -122,19 +135,17 @@ class GuestIdentityStore:
             ).fetchone()
             if stay is None:
                 stay_id = "stay_" + uuid.uuid4().hex[:16]
-                retention_until = now + max(retention_days, 0) * 86400
                 db.execute(
                     """INSERT INTO concierge_stays
-                    (stay_id,property_id,device_id,pms_guest_id,room,status,memory_summary,retention_until,created_at,updated_at,checked_out_at)
-                    VALUES(?,?,?,?,?,'active','{}',?,?,?,NULL)""",
-                    (stay_id, property_id, device_id, pms_guest_id, room, retention_until, now, now),
+                    (stay_id,property_id,device_id,pms_guest_id,room,status,memory_summary,retention_until,retention_days,created_at,updated_at,checked_out_at)
+                    VALUES(?,?,?,?,?,'active','{}',NULL,?,?,?,NULL)""",
+                    (stay_id, property_id, device_id, pms_guest_id, room, keep_days, now, now),
                 )
                 stay = db.execute("SELECT * FROM concierge_stays WHERE stay_id=?", (stay_id,)).fetchone()
             else:
-                retention_until = now + max(retention_days, 0) * 86400
                 db.execute(
-                    "UPDATE concierge_stays SET room=COALESCE(?,room), pms_guest_id=COALESCE(?,pms_guest_id), retention_until=?, updated_at=? WHERE stay_id=?",
-                    (room, pms_guest_id, retention_until, now, stay["stay_id"]),
+                    "UPDATE concierge_stays SET room=COALESCE(?,room), pms_guest_id=COALESCE(?,pms_guest_id), retention_days=?, retention_until=NULL, updated_at=? WHERE property_id=? AND stay_id=? AND status='active'",
+                    (room, pms_guest_id, keep_days, now, property_id, stay["stay_id"]),
                 )
                 stay = db.execute("SELECT * FROM concierge_stays WHERE stay_id=?", (stay["stay_id"],)).fetchone()
             guest_session_id = "gs_" + uuid.uuid4().hex[:16]
@@ -178,17 +189,25 @@ class GuestIdentityStore:
 
     def checkout(self, property_id: str, stay_id: str, anonymize: bool = True) -> dict[str, Any]:
         now = _now()
-        memory = "{}" if anonymize else None
         with self._connect() as db:
             if anonymize:
                 db.execute(
-                    "UPDATE concierge_stays SET status='checked_out', memory_summary=?, room=NULL, pms_guest_id=NULL, checked_out_at=?, updated_at=? WHERE property_id=? AND stay_id=?",
-                    (memory, now, now, property_id, stay_id),
+                    """UPDATE concierge_stays
+                       SET status='checked_out',memory_summary='{}',room=NULL,pms_guest_id=NULL,
+                           checked_out_at=COALESCE(checked_out_at,?),
+                           retention_until=COALESCE(retention_until,? + retention_days * 86400),
+                           updated_at=CASE WHEN status='active' THEN ? ELSE updated_at END
+                       WHERE property_id=? AND stay_id=?""",
+                    (now, now, now, property_id, stay_id),
                 )
             else:
                 db.execute(
-                    "UPDATE concierge_stays SET status='checked_out', checked_out_at=?, updated_at=? WHERE property_id=? AND stay_id=?",
-                    (now, now, property_id, stay_id),
+                    """UPDATE concierge_stays
+                       SET status='checked_out',checked_out_at=COALESCE(checked_out_at,?),
+                           retention_until=COALESCE(retention_until,? + retention_days * 86400),
+                           updated_at=CASE WHEN status='active' THEN ? ELSE updated_at END
+                       WHERE property_id=? AND stay_id=?""",
+                    (now, now, now, property_id, stay_id),
                 )
             row = db.execute("SELECT * FROM concierge_stays WHERE property_id=? AND stay_id=?", (property_id, stay_id)).fetchone()
         if not row:
@@ -205,13 +224,14 @@ class GuestIdentityStore:
             ).fetchall()
         return list(dict.fromkeys(str(row["concierge_session_id"]) for row in rows if row["concierge_session_id"]))
 
-    def cleanup_retention(self, property_id: str | None = None) -> int:
-        now = _now()
-        query = "SELECT property_id,stay_id,device_id FROM concierge_stays WHERE retention_until IS NOT NULL AND retention_until<=?"
-        params: tuple[Any, ...] = (now,)
-        if property_id:
+    def cleanup_retention(self, property_id: str | None = None, *, now: int | None = None) -> int:
+        current = _now() if now is None else int(now)
+        query = "DELETE FROM concierge_stays WHERE status='checked_out' AND retention_until IS NOT NULL AND retention_until<=?"
+        params: tuple[Any, ...] = (current,)
+        if property_id is not None:
             query += " AND property_id=?"
-            params = (now, property_id)
+            params = (current, property_id)
+        query += " RETURNING property_id,stay_id,device_id"
         with self._connect() as db:
             if not table_exists(db, "concierge_stays"):
                 return 0
@@ -222,16 +242,21 @@ class GuestIdentityStore:
                     (stay["property_id"], stay["stay_id"]),
                 )
                 db.execute(
-                    "DELETE FROM concierge_stays WHERE property_id=? AND stay_id=?",
-                    (stay["property_id"], stay["stay_id"]),
-                )
-                db.execute(
                     """DELETE FROM device_identities WHERE property_id=? AND device_id=?
                        AND NOT EXISTS (SELECT 1 FROM concierge_stays s
                            WHERE s.property_id=device_identities.property_id
                              AND s.device_id=device_identities.device_id)""",
                     (stay["property_id"], stay["device_id"]),
                 )
+            orphan_query = """DELETE FROM guest_sessions WHERE NOT EXISTS (
+                SELECT 1 FROM concierge_stays s
+                WHERE s.property_id=guest_sessions.property_id AND s.stay_id=guest_sessions.stay_id
+            )"""
+            orphan_params: tuple[Any, ...] = ()
+            if property_id is not None:
+                orphan_query += " AND property_id=?"
+                orphan_params = (property_id,)
+            db.execute(orphan_query, orphan_params)
             return len(expired)
 
     def list_stays(self, property_id: str) -> list[dict[str, Any]]:

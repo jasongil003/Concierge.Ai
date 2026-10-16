@@ -1,6 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from threading import Barrier
+from types import SimpleNamespace
 import importlib
 import time
 import uuid
@@ -331,6 +332,46 @@ def test_notification_rules_use_property_timezone_across_countries_and_dst(tmp_p
     july = int(datetime(2026, 7, 1, tzinfo=timezone.utc).timestamp())
     assert store.evaluate_notification("australia", sydney_rule["rule_id"], "summer", {}, now=at_utc_midnight)["allowed"] is True
     assert store.evaluate_notification("australia", sydney_rule["rule_id"], "winter", {}, now=july)["reason"] == "outside_send_window"
+
+
+def test_quiet_hours_follow_dst_gap_and_repeated_local_hour(tmp_path):
+    properties = PropertyStore(tmp_path / "dst-quiet-hours.db")
+    store = HospitalityStore(tmp_path / "dst-quiet-hours.db")
+    properties.upsert(PropertyRecord(
+        property_id="new-york-dst", hotel_name="DST Test Property", timezone="America/New_York",
+    ))
+    spring_rule = store.create_notification_rule("new-york-dst", {
+        "name": "Spring quiet interval", "category": "operational",
+        "policy": {"quiet_hours": {"start": "02:00", "end": "04:00"}},
+    })
+    fall_rule = store.create_notification_rule("new-york-dst", {
+        "name": "Fall repeated hour", "category": "operational",
+        "policy": {"quiet_hours": {"start": "01:00", "end": "02:00"}},
+    })
+    spring_after_jump = int(datetime(2026, 3, 8, 7, 30, tzinfo=timezone.utc).timestamp())
+    fall_first_one_thirty = int(datetime(2026, 11, 1, 5, 30, tzinfo=timezone.utc).timestamp())
+    fall_second_one_thirty = int(datetime(2026, 11, 1, 6, 30, tzinfo=timezone.utc).timestamp())
+
+    assert store.evaluate_notification(
+        "new-york-dst", spring_rule["rule_id"], "spring-stay", {}, now=spring_after_jump,
+    )["reason"] == "quiet_hours"
+    assert store.evaluate_notification(
+        "new-york-dst", fall_rule["rule_id"], "fall-stay-a", {}, now=fall_first_one_thirty,
+    )["reason"] == "quiet_hours"
+    assert store.evaluate_notification(
+        "new-york-dst", fall_rule["rule_id"], "fall-stay-b", {}, now=fall_second_one_thirty,
+    )["reason"] == "quiet_hours"
+
+
+def test_event_reminders_skip_unknown_property_timezone(monkeypatch):
+    policy = {"guest_notification_delivery": {"event_reminders_enabled": True}}
+    monkeypatch.setattr(
+        main_module.properties, "get",
+        lambda _property_id: SimpleNamespace(
+            property_id="bad-timezone-property", timezone="Mars/Olympus_Mons", app_settings=policy,
+        ),
+    )
+    assert main_module._queue_hotel_event_reminders(property_id="bad-timezone-property", now=100) == 0
 
 
 def test_inbox_schedule_and_frequency_limits_are_enforced_on_atomic_claim(tmp_path):
@@ -701,8 +742,26 @@ def test_verified_hotel_event_reaches_only_consented_guest_once(admin_client):
 def test_withdrawing_proactive_consent_immediately_removes_optional_notifications(admin_client):
     session_id, stay = _start_authenticated_guest(admin_client)
     stay_id = stay["stay_id"]
+    second_session_response = admin_client.post("/api/session/start", json={
+        "client_id": f"notification-linked-{uuid.uuid4().hex}", "property_id": "test-property",
+    })
+    assert second_session_response.status_code == 200, second_session_response.text
+    second_session_id = second_session_response.json()["session_id"]
+    main_module.store.mark_authenticated(second_session_id)
+    device_id = next(
+        row["device_id"] for row in main_module.guest_identities.list_guest_sessions("test-property")
+        if row["stay_id"] == stay_id
+    )
+    linked = main_module.guest_identities.reconnect_or_create_stay(
+        "test-property", device_id, concierge_session_id=second_session_id,
+    )
+    assert linked["stay_id"] == stay_id
     main_module.privacy_consents.set(
         "test-property", session_id, {"proactive_notifications": True},
+    )
+    main_module.privacy_consents.set(
+        "test-property", second_session_id, {"proactive_notifications": True},
+        linked_stay_id=stay_id,
     )
     main_module.hospitality.set_guest_notification_preference(
         "test-property", stay_id, "experience", True,
@@ -719,9 +778,56 @@ def test_withdrawing_proactive_consent_immediately_removes_optional_notification
         "session_id": session_id, "consents": {"proactive_notifications": False},
     })
     assert response.status_code == 200, response.text
+    assert main_module.privacy_consents.get("test-property", session_id)["proactive_notifications"] is False
+    assert main_module.privacy_consents.get("test-property", second_session_id)["proactive_notifications"] is False
     rows = main_module.hospitality.list_guest_inbox_notifications("test-property", stay_id)
     assert [row["notification_id"] for row in rows] == [operational["notification_id"]]
     assert optional["notification_id"] not in {row["notification_id"] for row in rows}
+
+    reconsented = admin_client.put("/api/guest/privacy", json={
+        "session_id": session_id, "consents": {"proactive_notifications": True},
+    })
+    assert reconsented.status_code == 200, reconsented.text
+    suppressed = main_module.hospitality.create_guest_inbox_notification(
+        "test-property", stay_id, optional["event_id"], "experience",
+        "Poolside reminder", "Previously withdrawn event reminder.",
+    )
+    assert suppressed["suppressed"] is True
+    assert suppressed["created"] is False
+    assert [row["notification_id"] for row in main_module.hospitality.list_guest_inbox_notifications("test-property", stay_id)] == [
+        operational["notification_id"],
+    ]
+
+
+def test_retention_worker_recovers_interrupted_optional_notification_withdrawal(admin_client):
+    session_id, stay = _start_authenticated_guest(admin_client)
+    stay_id = stay["stay_id"]
+    granted = admin_client.put("/api/guest/privacy", json={
+        "session_id": session_id, "consents": {"proactive_notifications": True},
+    })
+    assert granted.status_code == 200, granted.text
+    main_module.hospitality.set_guest_notification_preference(
+        "test-property", stay_id, "experience", True,
+    )
+    notification = _queue(
+        main_module.hospitality, property_id="test-property", stay_id=stay_id,
+        event_id=f"interrupted-withdrawal-{uuid.uuid4().hex}", category="experience",
+    )
+
+    # Simulate a process restart after consent persistence but before the API's
+    # immediate inbox purge.
+    main_module.privacy_consents.set(
+        "test-property", session_id, {"proactive_notifications": False},
+        linked_stay_id=stay_id,
+    )
+    main_module.hospitality.cleanup_guest_inbox_retention()
+
+    assert main_module.hospitality.list_guest_inbox_notifications("test-property", stay_id) == []
+    requeued = main_module.hospitality.create_guest_inbox_notification(
+        "test-property", stay_id, notification["event_id"], "experience",
+        "Old reminder", "This content was withdrawn.",
+    )
+    assert requeued["suppressed"] is True
 
 
 def test_facility_closure_notifies_active_property_guests_with_operational_opt_out(admin_client, request):
