@@ -1,5 +1,23 @@
 # Master remediation log
 
+## Remediation addendum — 2026-10-16
+
+Starting from current `main` at `96d832afe70781575e9e00a862d9c746dfcddd2d`; source commit: `f8bcf3d`; additional property-scope regression commit: `2a0cc6f` on `codex/final-remediation-20261016`.
+
+| ID | Root cause | Correction | Evidence/result |
+| --- | --- | --- | --- |
+| MASTER-ADMIN-RETENTION-002, High | Asynchronous inbox refresh/save responses could replace a newer retention draft, restore stale server state, or update the wrong property context. | Track draft and property-context versions; keep pending edits dirty; preserve canonical PUT results; ignore stale responses; retain drafts after failed saves. | `tests/e2e/admin-retention-races.spec.js`: six deterministic scenarios, 12 passes across Chromium and mobile Chromium. |
+| MASTER-ANALYTICS-PEAK-001, Medium | Location analytics did not expose timezone-aware peak observed hours, and report range/timezone inputs were not bounded/validated. | Aggregate distinct pseudonymous devices by property-local hour/day; show sample-day context and observed-device wording; add interval/timezone validation and lookup indexes. | `test_location_peak_hours_are_property_local_and_deduplicate_devices_per_day`, invalid timezone/interval tests, and 93-day API limit test passed. |
+| MASTER-GUEST-ENTRY-001, High | Admin had no first-party QR artifact for the approved guest URL, and no NFC URL-record guidance. | Add enabled-HTTPS canonical-origin validation, scoped SVG endpoint and RBAC policy, no-store response headers, URL copy control, and safe QR/NFC instructions. | `tests/test_guest_entry.py`: 4 passed; focused Chromium preview test: 1 passed. Physical scanning/tag writing remains pending. |
+| MASTER-WAYFINDING-001, Medium | Published map waypoints had no signed QR entry that selected the guest's route origin. | Generate property/node-bound signed HTTPS QR links only for published guest-visible nodes; verify current publication at guest entry; render the published map and preserve the QR node as route origin while excluding signature parameters from gateway context. | `tests/test_guest_entry.py`: 6 passed; admin QR flow: 1 Chromium pass; guest QR flow: 2 passes (Chromium and mobile Chrome). Physical scanning and hotel floor-plan validation remain pending. |
+| MASTER-RBAC-001, High | Network Access status/QR reads needed explicit property-scope enforcement in addition to route permission policy. | Check `network.view` and `AdminPrincipal.can_access_property` before returning property network/entry information. | Startup RBAC inventory passed; focused scoped endpoint test passed. |
+
+Full local validation did not pass cleanly: backend **1329 pass, 21 skip, 5 fail**; the five installer failures could not bind because a pre-existing local process held port 8080. The full nonvisual browser suite passed **351**, skipped **39**; visual checks passed **4**. See [the current release assessment](MASTER_RELEASE_READINESS.md) and [fresh ledger](acceptance-ledger-2026-10-16.json) for complete results and open release gates.
+
+The repository owner explicitly approved connector publication of `codex/final-remediation-20261016` to `jasongil003/Concierge.Ai`. Shell Git push is unavailable, so the approved connector upload and draft PR are in progress. At this snapshot no remote branch, pull request, or hosted branch run exists; `main` is unchanged. The earlier rejected attempt left a few unreachable blob objects, but no branch ref or commit. Do not merge until release gates and hosted checks are resolved.
+
+The rows below preserve the historical 2026-10-12–13 remediation record.
+
 Date: 2026-10-12–13 (Asia/Manila). Baseline: `41c0ea1a7937035db6078cbb944f1e94f2fbad63`; initial checkout was clean at `d328484`. `git fetch origin --prune` updated main, then `git switch -c codex/master-product-audit-2026-10-12 origin/main` established the current branch. No push, merge or production deployment was performed. Final tested implementation/commit receipts are in `MASTER_RELEASE_READINESS.md`.
 
 | ID | Root cause | Smallest correction | Regression before → after | Commit |

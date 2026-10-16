@@ -127,6 +127,10 @@
     "authentication": "required",
     "permission": "domains.view"
   },
+  "GET /api/admin/properties/{property_id}/guest-entry/qr.svg": {
+    "authentication": "required",
+    "permission": "network.view"
+  },
   "GET /api/admin/properties/{property_id}/network-access/status": {
     "authentication": "required",
     "permission": "network.view"
@@ -212,6 +216,14 @@
     "permission": "properties.view"
   },
   "GET /api/admin/properties/{property_id}/navigation/route": {
+    "authentication": "required",
+    "permission": "properties.view"
+  },
+  "GET /api/admin/properties/{property_id}/navigation/nodes/{node_id}/wayfinding-qr.svg": {
+    "authentication": "required",
+    "permission": "properties.view"
+  },
+  "GET /api/admin/properties/{property_id}/navigation/nodes/{node_id}/wayfinding-url": {
     "authentication": "required",
     "permission": "properties.view"
   },

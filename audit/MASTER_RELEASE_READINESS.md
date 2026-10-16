@@ -1,5 +1,33 @@
 # Master release readiness
 
+## Current remediation update — 2026-10-16
+
+**Decision: RED — RELEASE BLOCKED.** Work started from current GitHub `main` at `96d832afe70781575e9e00a862d9c746dfcddd2d` on `codex/final-remediation-20261016`. Source fixes are committed as `f8bcf3d`; the additional property-scope regression is committed as `2a0cc6f`; this report commit follows separately. The 30,000-user target is deferred by the user and excluded from acceptance.
+
+The [fresh acceptance ledger](acceptance-ledger-2026-10-16.json) contains all 384 core requirements and 13 supplemental rows. Core status is **213 LOCALLY VERIFIED (55.47%), 70 IMPLEMENTED, 59 PARTIAL, 37 BLOCKED, and 5 FAILED**. No LIVE VERIFIED result is claimed. Local status does not establish production readiness.
+
+### Current remediation and validation
+
+- Fixed the admin conversation-retention race across stale refreshes, property switches, edits made during save, failed saves, and server-canonical values. Six deterministic browser scenarios passed in Chromium and mobile Chromium (**12/12 runs**).
+- Added property-local peak observed-hour reporting with daily pseudonym deduplication, bounded report intervals, and copy that explicitly describes sampled observations rather than occupancy. Property-isolation/timezone tests passed.
+- Added an admin QR for the saved HTTPS guest origin, a scoped SVG endpoint, canonical URL copying, and NFC URL-record guidance. The endpoint requires `network.view`, checks property scope, and returns no-store SVG. Focused backend tests passed (**4/4**) and the focused Chromium UI test passed (**1/1**). Physical QR/NFC acceptance remains pending.
+- Added signed, property-bound wayfinding QR links for published guest-visible map nodes. The guest start endpoint verifies the signature and current published map, and the guest flow carries the QR node into route-origin selection without adding signature parameters to gateway context. Focused backend tests passed (**6/6**); admin QR generation passed in Chromium (**1/1**); guest route flow passed in Chromium and mobile Chrome (**2/2**). K-18 is locally verified; physical scanning and hotel map/waypoint validation remain pending.
+- Focused backend set: **19 passed**; guest-entry endpoint scope regression: **4 passed**. Latest full local backend run: **1329 passed, 21 skipped, 5 failed**. All five failures were installer checks unable to bind because a pre-existing local listener held port 8080; that process was left running. This is not reported as a green full-suite result.
+- Full nonvisual browser run: **351 passed, 39 skipped, 0 failed** across desktop Chromium and mobile Chrome. Visual browser checks: **4 passed**. `git diff --check`, JavaScript syntax, and current Bandit scan passed. Final-manifest pip-audit found no known vulnerabilities; npm audit reported zero high-severity vulnerabilities. Gitleaks 8.24.3 no-git redacted scan after the wayfinding changes reported **0 current-worktree findings**; hosted full-history secret-scan validation remains required.
+
+### Release gates still open
+
+- Current full-history Gitleaks scan still finds three historical credential records in `audit/evidence/security-2026-10-12/recovery-harness-before.txt`; current tracked-source scan reports zero findings. The credential issuer must revoke the credential and confirm revocation. The repository owner must then authorize coordinated shared-history cleanup and rerun the scan. Cleanup was validated only in a disposable mirror; no shared history was rewritten.
+- `main` branch protection is disabled. The GitHub integration returned HTTP 403 for rule administration. A repository administrator must require Backend, Browser, PostgreSQL/Redis, Docker, dependency, static-security, secret-scan, Linux-deployment, and macOS-deployment checks.
+- Base-branch GitHub Actions run `38843201718` had **9/10 jobs pass**; `secret-scan` failed on historical findings. The repository owner explicitly approved connector publication of `codex/final-remediation-20261016` to `jasongil003/Concierge.Ai`. Shell Git push is unavailable; at this snapshot the approved connector upload, remote branch, draft PR, and candidate CI are still pending. `main` has not changed. Do not merge until the historical-secret remediation, required checks, and external acceptance gates are resolved.
+- The ledger records remaining incomplete product requirements, including pagination, template cloning, campaigns/audience selection, emergency-notification policy, and monetary AI cost. The location retention duration needs approval from the property data controller. Live AI/Places/PMS/WLAN/delivery acceptance and physical hotel-device validation still require their owners and credentials.
+
+The 2026-10-12–13 report below is preserved as a historical audit snapshot; its metrics and decision do not represent this remediation candidate.
+
+---
+
+## Historical release-readiness snapshot (2026-10-12–13)
+
 Date: **2026-10-12–13 (Asia/Manila)**. Baseline: `41c0ea1a7937035db6078cbb944f1e94f2fbad63`. Branch: `codex/master-product-audit-2026-10-12`. Final tested implementation commit: `ecfe3f42963896cd86a291450fa574a4c26b197f`; backend fixes committed as `d2d09ba9028448d7e2a88320643b1aaafb9004af`. Report commit is discoverable with `git log -1 -- audit/MASTER_RELEASE_READINESS.md`; the report does not claim a future self-referential hash.
 
 Environment: Darwin arm64, CPython 3.11.16, Node 26.7.0, desktop Chromium and Pixel 7 emulation. Test state is temporary synthetic SQLite plus isolated Linux containers with PostgreSQL 16/Redis; existing persistent state is guarded unchanged. Git fetch and GitHub evidence retrieval succeeded. No production deployment, merge, push, real customer mutation, provider credential bypass or hotel hardware test was performed.

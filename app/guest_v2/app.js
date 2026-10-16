@@ -216,7 +216,19 @@
   }
 
   function gatewayContext() {
-    return Object.fromEntries(new URLSearchParams(window.location.search).entries());
+    return Object.fromEntries([...new URLSearchParams(window.location.search).entries()]
+      .filter(([key]) => key !== "start_node_id" && key !== "start_sig"));
+  }
+
+  function wayfindingStartContext() {
+    const params = new URLSearchParams(window.location.search);
+    const nodeId = params.get("start_node_id") || "";
+    const signature = params.get("start_sig") || "";
+    if (!nodeId && !signature) return null;
+    if (!/^[A-Za-z0-9_-]{1,80}$/.test(nodeId) || !/^[0-9a-f]{64}$/.test(signature)) {
+      return { invalid: true };
+    }
+    return { nodeId, signature };
   }
 
   function createClientId() {
@@ -523,11 +535,14 @@
             && validText(location.image_url || "", 500) && (!location.image_url || Boolean(safeApprovedHttpsUrl(location.image_url)))
             && validText(location.image_label || "", 80) && validSourceIds(location.source_ids));
           const routeNodeIds = Array.isArray(block.route_node_ids) ? block.route_node_ids : [];
+          const startingNodeId = block.starting_node_id || "";
           return validText(block.title, 120) && validText(block.label || "", 120)
             && validText(block.map_alt || "", 500) && (hasCoordinates || hasFloorPlan)
             && validSourceIds(block.source_ids)
             && validText(block.floor_id || "", 80) && validText(block.floor_label || "", 120)
             && validText(block.focused_marker_id || "", 80)
+            && validText(startingNodeId, 80)
+            && (!startingNodeId || floorViews.some((floor) => floor.markers.some((marker) => marker.id === startingNodeId)))
             && typeof (block.synthetic_demo ?? false) === "boolean"
             && typeof (block.directions_enabled ?? false) === "boolean"
             && floorsValid && locationsValid
@@ -975,7 +990,9 @@
     const resolvedInitialFloor = floorViews.find((floor) => floor.floor_id === block.floor_id)
       || (floorViews.length === 1 && !block.floor_id ? floorViews[0] : null);
     const initialFloorId = resolvedInitialFloor?.floor_id || "";
-    const initialMarkerId = resolvedInitialFloor?.markers?.some((marker) => marker.id === block.focused_marker_id)
+    const preferredStartNodeId = block.starting_node_id || "";
+    const initialMarkerId = !preferredStartNodeId
+      && resolvedInitialFloor?.markers?.some((marker) => marker.id === block.focused_marker_id)
       ? block.focused_marker_id : "";
     const mapKey = String(block.id || "");
     const rememberedState = mapViewStates.get(mapKey);
@@ -1332,12 +1349,12 @@
       canvas.appendChild(markerLayer);
       viewport.appendChild(canvas);
       if (startSelect) {
-        const currentStart = startSelect.value;
+        const currentStart = startSelect.value || preferredStartNodeId;
         startSelect.replaceChildren();
         const placeholder = document.createElement("option");
         placeholder.value = ""; placeholder.textContent = "Choose a place"; startSelect.appendChild(placeholder);
         for (const marker of floorViews.flatMap((item) => item.markers || [])) {
-          if (marker.id === selectedMarkerId) continue;
+          if (marker.id === selectedMarkerId && marker.id !== preferredStartNodeId) continue;
           const option = document.createElement("option");
           const markerFloor = floorViews.find((item) => item.markers?.some((entry) => entry.id === marker.id));
           option.value = marker.id;
@@ -1968,6 +1985,45 @@
     messages = [];
   }
 
+  async function showWayfindingStart() {
+    const context = wayfindingStartContext();
+    if (!context) return;
+    if (context.nodeId && messages.some((message) =>
+      (message.blocks || []).some((block) => block.type === "map_view" && block.starting_node_id === context.nodeId))) return;
+    if (context.invalid && messages.some((message) =>
+      (message.blocks || []).some((block) => block.id === "wayfinding-invalid"))) return;
+
+    let blocks;
+    if (context.invalid) {
+      blocks = [{
+        id: "wayfinding-invalid",
+        type: "text",
+        content: "This wayfinding code is incomplete. Please ask the hotel team for directions.",
+      }];
+    } else {
+      try {
+        const query = new URLSearchParams({
+          property_id: property.property_id,
+          start_node_id: context.nodeId,
+          start_sig: context.signature,
+        });
+        const result = await api(`/api/guest/wayfinding/start?${query.toString()}`);
+        const map = validateBlock(result.map);
+        if (map.type !== "map_view" || map.starting_node_id !== context.nodeId) throw new Error("Unavailable wayfinding entry.");
+        const label = validText(result.starting_node?.label, 120) ? result.starting_node.label : "the marked location";
+        const floor = validText(result.map.floor_label, 120) ? ` on ${result.map.floor_label}` : "";
+        blocks = [
+          { id: newId(), type: "text", content: `Your starting point is ${label}${floor}. Choose a destination on the map to request directions.` },
+          map,
+        ];
+      } catch {
+        blocks = [{ id: newId(), type: "text", content: "This wayfinding code is no longer available. Please ask the hotel team for directions." }];
+      }
+    }
+    messages.push({ id: newId(), role: "assistant", blocks });
+    persistMessages();
+  }
+
   async function startNewConversation() {
     if (inputPending || !property) return;
     const oldSession = sessionId;
@@ -1996,6 +2052,7 @@
       guestNotifications = [];
       guestNotificationPreferences = {};
       guestPrivacyConsents = {};
+      await showWayfindingStart();
       if ($("guest-tools-dialog").open) $("guest-tools-dialog").close();
       $("open-guest-tools").setAttribute("aria-expanded", "false");
       $("composer-input").value = "";
@@ -2066,6 +2123,7 @@
       renderWelcome(config);
       clientId = createClientId();
       await startSession();
+      await showWayfindingStart();
       renderMessages();
       updateComposer();
       if (messages.length === 0) $("composer-input").focus({ preventScroll: true });

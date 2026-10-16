@@ -62,6 +62,12 @@ from .build_info import BUILD_IDENTITY
 from . import system_diagnostics
 from .improvement_loop import ImprovementLoopManager, ImprovementLoopStore
 from .guest_identity import GuestIdentityStore, pseudonymous_device_id
+from .guest_entry import (
+    canonical_guest_entry_url,
+    guest_entry_qr_svg,
+    signed_wayfinding_entry_url,
+    verify_wayfinding_start_signature,
+)
 from .guest_context import build_guest_context
 from .stay_context import StayContextEngine
 from .assistant_decisions import AssistantDecisionEngine
@@ -1672,6 +1678,51 @@ async def guest_route(
         return zones.route(record.property_id, from_node_id, to_node_id, guest=True, accessible=accessible)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/guest/wayfinding/start")
+async def guest_wayfinding_start(
+    request: Request,
+    start_node_id: str,
+    start_sig: str,
+    property_id: str | None = None,
+) -> Response:
+    record = _guest_property(request, property_id)
+    _enforce_guest_network(request, record)
+    if not verify_wayfinding_start_signature(
+        record.property_id,
+        start_node_id,
+        start_sig,
+        guest_identities.property_secret(record.property_id),
+    ):
+        raise HTTPException(status_code=404, detail="Wayfinding code is unavailable.")
+    if not normalize_guardrails(record.guardrails)["directions_enabled"]:
+        raise HTTPException(status_code=404, detail="Wayfinding code is unavailable.")
+    overview = zones.overview(record.property_id, guest=True)
+    node = next((
+        item for item in overview.get("navigation_nodes", [])
+        if str(item.get("node_id") or "") == start_node_id and item.get("guest_visible")
+    ), None)
+    map_block = _intelligent_guest_floor_map_block(
+        record.property_id,
+        "map",
+        focus_node_id=start_node_id,
+    )
+    if not node or not map_block:
+        raise HTTPException(status_code=404, detail="Wayfinding code is unavailable.")
+    map_block["directions_enabled"] = True
+    map_block["starting_node_id"] = start_node_id
+    return JSONResponse(
+        {
+            "starting_node": {
+                "node_id": start_node_id,
+                "label": str(node.get("label") or "")[:120],
+                "floor_id": str(node.get("floor_id") or "")[:80],
+            },
+            "map": map_block,
+        },
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/api/guest/facilities")
@@ -4825,7 +4876,94 @@ async def verify_property_deployment(property_id: str) -> dict[str, Any]:
 async def network_access_status(property_id: str, request: Request) -> dict[str, Any]:
     record = _require_property_record(property_id)
     principal = _admin_principal(request)
+    if not principal.can("network.view") or not principal.can_access_property(property_id):
+        raise HTTPException(status_code=404, detail="Property not found.")
     return _network_access_status(record, principal)
+
+
+@app.get("/api/admin/properties/{property_id}/guest-entry/qr.svg")
+async def guest_entry_qr(property_id: str, request: Request) -> Response:
+    record = _require_property_record(property_id)
+    principal = _admin_principal(request)
+    if not principal.can("network.view") or not principal.can_access_property(property_id):
+        raise HTTPException(status_code=404, detail="Property not found.")
+    url = canonical_guest_entry_url(record)
+    if url is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Configure Guest Access with an approved HTTPS domain before generating its QR code.",
+        )
+    return Response(
+        content=guest_entry_qr_svg(url),
+        media_type="image/svg+xml",
+        headers={
+            "Cache-Control": "no-store",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+def _published_wayfinding_entry(property_id: str, node_id: str) -> tuple[PropertyRecord, dict[str, Any], str] | None:
+    record = properties.get(property_id)
+    if record is None or not normalize_guardrails(record.guardrails)["directions_enabled"]:
+        return None
+    overview = zones.overview(property_id, guest=True)
+    node = next((
+        item for item in overview.get("navigation_nodes", [])
+        if str(item.get("node_id") or "") == node_id and item.get("guest_visible")
+    ), None)
+    if not node:
+        return None
+    # Require an image-backed, published floor map that the guest renderer can display.
+    map_block = _intelligent_guest_floor_map_block(property_id, "map", focus_node_id=node_id)
+    if not map_block:
+        return None
+    url = signed_wayfinding_entry_url(record, node_id, guest_identities.property_secret(property_id))
+    if not url:
+        return None
+    return record, node, url
+
+
+@app.get("/api/admin/properties/{property_id}/navigation/nodes/{node_id}/wayfinding-qr.svg")
+async def wayfinding_node_qr(property_id: str, node_id: str, request: Request) -> Response:
+    _require_property(property_id)
+    principal = _admin_principal(request)
+    if not principal.can("properties.view") or not principal.can_access_property(property_id):
+        raise HTTPException(status_code=404, detail="Property not found.")
+    entry = _published_wayfinding_entry(property_id, node_id)
+    if not entry:
+        raise HTTPException(
+            status_code=409,
+            detail="Publish this guest-visible waypoint on an image-backed map and enable directions before creating its QR code.",
+        )
+    _record, _node, url = entry
+    return Response(
+        content=guest_entry_qr_svg(url),
+        media_type="image/svg+xml",
+        headers={
+            "Cache-Control": "no-store",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+            "X-Content-Type-Options": "nosniff",
+            "X-Concierge-Wayfinding-URL": url,
+        },
+    )
+
+
+@app.get("/api/admin/properties/{property_id}/navigation/nodes/{node_id}/wayfinding-url")
+async def wayfinding_node_url(property_id: str, node_id: str, request: Request) -> dict[str, str]:
+    _require_property(property_id)
+    principal = _admin_principal(request)
+    if not principal.can("properties.view") or not principal.can_access_property(property_id):
+        raise HTTPException(status_code=404, detail="Property not found.")
+    entry = _published_wayfinding_entry(property_id, node_id)
+    if not entry:
+        raise HTTPException(
+            status_code=409,
+            detail="Publish this guest-visible waypoint on an image-backed map and enable directions before creating its QR code.",
+        )
+    _record, node, url = entry
+    return {"url": url, "label": str(node.get("label") or "")[:120]}
 
 
 @app.put("/api/admin/properties/{property_id}/network-access/management")
@@ -5775,7 +5913,23 @@ async def live_location_analytics(property_id: str) -> dict[str, Any]:
 @app.post("/api/admin/properties/{property_id}/location/report")
 async def location_report(property_id: str, payload: AnalyticsQuery) -> dict[str, Any]:
     _require_property(property_id)
-    return location_analytics.aggregate(property_id, payload.start_at, payload.end_at, payload.filters)
+    if payload.start_at < 0 or payload.end_at < payload.start_at:
+        raise HTTPException(status_code=422, detail="Choose a valid report interval.")
+    if payload.end_at - payload.start_at > 93 * 86_400:
+        raise HTTPException(status_code=422, detail="Location reports are limited to 93 days.")
+    property_record = properties.get(property_id)
+    if property_record is None:
+        raise HTTPException(status_code=404, detail="Property not found.")
+    try:
+        return location_analytics.aggregate(
+            property_id,
+            payload.start_at,
+            payload.end_at,
+            payload.filters,
+            timezone_name=property_record.timezone,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.get("/api/admin/properties/{property_id}/intro")
@@ -8872,7 +9026,12 @@ def _intelligent_guest_facility_directory_block(property_id: str) -> dict[str, A
     }
 
 
-def _intelligent_guest_floor_map_block(property_id: str, query: str) -> dict[str, Any] | None:
+def _intelligent_guest_floor_map_block(
+    property_id: str,
+    query: str,
+    *,
+    focus_node_id: str | None = None,
+) -> dict[str, Any] | None:
     """Build map views only from this property's guest-visible maps and nodes."""
     overview = zones.overview(property_id, guest=True)
     floors = {str(item.get("floor_id")): item for item in overview.get("floors", [])}
@@ -8971,6 +9130,19 @@ def _intelligent_guest_floor_map_block(property_id: str, query: str) -> dict[str
     if not floor_views:
         return None
 
+    selected_view = None
+    focused_marker = None
+    if focus_node_id:
+        focused_matches = [
+            (view, marker)
+            for view in floor_views
+            for marker in view["markers"]
+            if marker["id"] == focus_node_id
+        ]
+        if len(focused_matches) != 1:
+            return None
+        selected_view, focused_marker = focused_matches[0]
+
     facilities = [
         item for item in hospitality.guest_facilities(property_id).get("facilities", [])
         if not item.get("archived") and item.get("live_status") not in {"maintenance", "private_event"}
@@ -9013,8 +9185,6 @@ def _intelligent_guest_floor_map_block(property_id: str, query: str) -> dict[str
             or str(floors.get(view["floor_id"], {}).get("level", "")) == requested_level
         )), None)
 
-    selected_view = None
-    focused_marker = None
     def resolve_facility_location(facility: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]] | None:
         facility_floor_id = str(facility.get("floor_id") or "")
         facility_zone_id = str(facility.get("zone_id") or "")
@@ -9169,6 +9339,7 @@ def _intelligent_guest_floor_map_block(property_id: str, query: str) -> dict[str
         "floor_label": selected_view["label"],
         "floors": floor_views,
         "focused_marker_id": focused_marker["id"] if focused_marker else "",
+        "starting_node_id": focus_node_id or "",
         "synthetic_demo": selected_view["synthetic_demo"],
         "route_node_ids": [],
         "locations": locations,

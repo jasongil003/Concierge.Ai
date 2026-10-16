@@ -105,3 +105,17 @@ Base: fetched `main` `7185e18df2ae3b8f100804b7c3618a3909a831b6`. Local tested co
 | Hosted CI #246 | **COMPLETED; all jobs passed except secret scan** | Backend passed (1,321 passed, 19 skipped), browser passed (339 passed, 39 skipped), PostgreSQL/Redis integration, Docker runtime, dependency audits, static security, and Linux/macOS deployment passed. Secret scan failed at its redacted current-worktree step; the later forced-text history step did not run. This is PR #61 head `03f07aa9cfbe2029943cdec013524a3e85b48889`. |
 
 The current branch does not contain dependency changes. No production data, gateway, provider account, or deployment configuration was accessed. Continue to treat the historical credential, failed current-worktree secret scan, and missing required CI checks as open release blockers.
+
+## 2026-10-16 signed guest wayfinding QR on `codex/final-remediation-20261016`
+
+The candidate adds signed, property-bound HTTPS QR links for published guest-visible waypoint nodes. The guest endpoint resolves only the currently published map/node, rejects tampered or cross-property signatures, and seeds the route origin while keeping QR signature fields out of gateway context. The acceptance ledger marks K-18 locally verified; real-device scanning, printing, and hotel map/waypoint accuracy remain untested.
+
+| Check | Result | Scope / limit |
+| --- | --- | --- |
+| `tests/test_guest_entry.py` | **PASS: 6 passed** | Signature property/node binding, published-map QR generation and guest resolution, tampering, cross-property, and hidden-node denial. Ran with the isolated `/private/tmp/phase5-venv` environment and disposable dependency path. |
+| Admin wayfinding QR Playwright | **PASS: 1 passed** | Chromium; real local admin API, synthetic published map/node, SVG QR and HTTPS signed URL. |
+| Guest wayfinding QR Playwright | **PASS: 2 passed** | Desktop Chromium and mobile Chrome; published map, start origin, destination selection, gateway-context filtering, and new-chat continuity. |
+| JavaScript syntax, JSON policy parse, `git diff --check` | **PASS** | `app/static/admin.js`, `app/guest_v2/app.js`, both changed e2e files, and `app/admin_route_policies.json`. |
+| Gitleaks 8.24.3 current worktree | **PASS: 0 findings** | No-git redacted scan. Full-history hosted secret scan remains a release gate. |
+
+Prior full local runs remain separate: backend **1,329 passed, 21 skipped, 5 failed** (the five installer tests could not bind because a pre-existing process held port 8080); nonvisual browser **351 passed, 39 skipped**; visual browser **4 passed**. No new full-suite run is claimed for this QR change.

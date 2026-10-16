@@ -749,6 +749,34 @@ test("Network Access saves exact guest hosts", async ({ page }, testInfo) => {
   }
 });
 
+test("Network Access displays the HTTPS guest URL and QR for printing or NFC", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "The network configuration workflow needs one browser profile.");
+  const guestUrl = "https://concierge.example.test";
+  await page.route(/\/api\/admin\/properties\/[^/]+\/network-access\/status$/, async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    data.guest = {
+      ...data.guest,
+      enabled: true,
+      https_required: true,
+      domain: "concierge.example.test",
+      url: guestUrl,
+    };
+    await route.fulfill({ response, json: data });
+  });
+  await page.route(/\/api\/admin\/properties\/[^/]+\/guest-entry\/qr\.svg$/, (route) =>
+    route.fulfill({ status: 200, contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg"/>' }));
+
+  await page.goto("/admin");
+  await openPanel(page, "Network Access");
+  await expect(page.locator("#guest-entry-preview")).toBeVisible();
+  await expect(page.locator("#guest-entry-qr")).toBeVisible();
+  await expect(page.locator("#guest-entry-url")).toHaveAttribute("href", guestUrl);
+  await expect(page.locator("#guest-entry-url")).toHaveText(guestUrl);
+  await expect(page.locator("#network-access")).toContainText("write the approved guest URL as a URL or URI record");
+  await expect(page.locator("#network-access")).toContainText("Do not write a guest session token");
+});
+
 test("overview panel: operational health is visible and configuration moved out", async ({ page }) => {
   let dashboardLoads = 0;
   page.on("request", (request) => {
@@ -2352,4 +2380,103 @@ test("security: no API keys in client JS", async ({ page }) => {
   const guestBody = await page.content();
   expect(guestBody).not.toContain("GEMINI_API_KEY");
   expect(guestBody).not.toContain("OPENAI_API_KEY");
+});
+
+test("admin: published guest waypoint exposes a scannable signed QR", async ({ page, request }) => {
+  const csrf = await loginAdmin(request);
+  const propertyId = `wayfinding-e2e-${Date.now().toString(36)}`;
+  const label = `QR Lobby ${Date.now().toString(36)}`;
+  const domain = `${propertyId}.example.test`;
+  const base = `/api/admin/properties/${propertyId}`;
+  let propertyCreated = false;
+  try {
+    const createdProperty = await request.put(base, {
+      headers: csrfHeaders(request),
+      data: {
+        property_id: propertyId,
+        hotel_name: "Wayfinding QR E2E",
+        timezone: "Asia/Manila",
+        domain,
+        guardrails: { directions_enabled: true },
+        app_settings: {
+          deployment: {
+            guest_access_enabled: true,
+            https_required: true,
+            public_base_url: `https://${domain}`,
+          },
+        },
+      },
+    });
+    expect(createdProperty.ok(), await createdProperty.text()).toBeTruthy();
+    propertyCreated = true;
+
+    const buildingResponse = await request.post(`${base}/buildings`, {
+      headers: csrfHeaders(request), data: { data: { name: "Wayfinding Building" } },
+    });
+    expect(buildingResponse.ok(), await buildingResponse.text()).toBeTruthy();
+    const building = await buildingResponse.json();
+    const floorResponse = await request.post(`${base}/floors`, {
+      headers: csrfHeaders(request), data: { data: { building_id: building.building_id, name: "Lobby", level: 0 } },
+    });
+    expect(floorResponse.ok(), await floorResponse.text()).toBeTruthy();
+    const floor = await floorResponse.json();
+    const zoneResponse = await request.put(`${base}/zones`, {
+      headers: csrfHeaders(request),
+      data: { data: {
+        floor_id: floor.floor_id, name: "Guest Lobby",
+        geometry: { type: "rectangle", x: 0, y: 0, width: 1200, height: 720 },
+      } },
+    });
+    expect(zoneResponse.ok(), await zoneResponse.text()).toBeTruthy();
+    const zone = await zoneResponse.json();
+    const mapSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720"><rect width="1200" height="720" fill="#fff"/></svg>';
+    const mapResponse = await request.post(`${base}/floors/${floor.floor_id}/maps`, {
+      headers: csrfHeaders(request),
+      data: {
+        filename: "lobby.svg", content_type: "image/svg+xml",
+        content_base64: Buffer.from(mapSvg).toString("base64"), width: 1200, height: 720,
+      },
+    });
+    expect(mapResponse.ok(), await mapResponse.text()).toBeTruthy();
+    const nodeResponse = await request.post(`${base}/navigation/nodes`, {
+      headers: csrfHeaders(request),
+      data: { data: { floor_id: floor.floor_id, zone_id: zone.zone_id, label, x: 80, y: 120, guest_visible: true } },
+    });
+    expect(nodeResponse.ok(), await nodeResponse.text()).toBeTruthy();
+
+    const draftResponse = await request.post(`${base}/map-revisions`, { headers: csrfHeaders(request) });
+    expect(draftResponse.ok(), await draftResponse.text()).toBeTruthy();
+    const draft = await draftResponse.json();
+    const publishResponse = await request.post(`${base}/map-revisions/${draft.revision_id}/publish`, {
+      headers: csrfHeaders(request), data: { expected_current_revision_id: null },
+    });
+    expect(publishResponse.ok(), await publishResponse.text()).toBeTruthy();
+
+    await page.goto("/admin");
+    await page.locator('body[data-admin-ready="true"]').waitFor();
+    await page.locator("#property-switcher").selectOption(propertyId);
+    await expect(page.locator("#property-switcher")).toHaveValue(propertyId);
+    await openPanel(page, "Zones & Maps");
+    await expect(page.locator("#map-publish-status")).toContainText("Published revision");
+    await page.locator("#zone-tree .map-object-row").filter({ hasText: label }).click();
+    const qrPanel = page.locator("#map-wayfinding-qr-panel");
+    await expect(qrPanel).toBeVisible();
+    await page.getByRole("button", { name: "Generate QR code" }).click();
+    await expect(page.locator("#map-wayfinding-status")).toContainText("QR code ready");
+    const qrImage = page.locator("#map-wayfinding-qr");
+    await expect(qrImage).toBeVisible();
+    expect(await qrImage.getAttribute("src")).toMatch(/^data:image\/svg\+xml;charset=utf-8,/);
+    const guestLink = page.locator("#map-wayfinding-url");
+    await expect(guestLink).toBeVisible();
+    const guestUrl = new URL(await guestLink.getAttribute("href"));
+    expect(guestUrl.protocol).toBe("https:");
+    expect(guestUrl.searchParams.get("property_id")).toBe(propertyId);
+    expect(guestUrl.searchParams.get("start_node_id")).toMatch(/^node_/);
+    expect(guestUrl.searchParams.get("start_sig")).toMatch(/^[0-9a-f]{64}$/);
+  } finally {
+    if (propertyCreated) {
+      const removed = await request.delete(base, { headers: csrfHeaders(request) });
+      expect(removed.ok(), await removed.text()).toBeTruthy();
+    }
+  }
 });
