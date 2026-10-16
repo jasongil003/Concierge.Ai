@@ -143,3 +143,17 @@ The run completed with 9/10 jobs passing. Draft PR #63 remains open and mergeabl
 | JavaScript syntax and `git diff --check` | **PASS** | `app/static/admin.js`; candidate diff. |
 
 Commits `97369c6` and `adec402` provide pagination for the Conversations inbox only; C-30 remains **PARTIAL** until the other high-volume admin lists gain bounded pages and controls. Hosted run #259 predates these commits, so hosted validation of the pagination change is pending.
+
+## 2026-10-16 PR #63 hosted run #260 and pagination mock correction
+
+| Check | Result | Scope / limit |
+| --- | --- | --- |
+| Backend workflow suite | **PASS:** 1,349 passed, 19 skipped | Hosted CI [run #260](https://github.com/jasongil003/Concierge.Ai/actions/runs/38866073706), candidate head `46d6c1d2e3dbd6208c7aac3f80b80d2e4eb17013`. |
+| Browser workflow suite | **FAIL:** 342 passed, 41 skipped, 15 failed | Twelve failures were six retention-race tests in desktop/mobile whose route mocks still matched the old URL without pagination query parameters. Three additional onboarding/network-access assertions failed only in the full hosted suite and passed in focused local reruns; full-suite interaction remains to be rechecked. |
+| PostgreSQL/Redis, Docker runtime, Python/Node dependency audits, static security, Linux/macOS deployment validation | **PASS** | Hosted CI run #260. |
+| PR-diff and current-worktree Gitleaks scans | **PASS:** no findings | Hosted CI run #260. |
+| Forced-text full-history Gitleaks scan | **FAIL / RELEASE BLOCKER:** three known historical findings | Hosted CI run #260. Values omitted; issuer revocation and repository-owner-authorized history cleanup remain required. |
+| Corrected retention-race route mock | **PASS:** 6 passed | Local Chromium against the candidate implementation after updating the mock to match the paginated inbox URL. |
+| Focused onboarding and network-access browser checks | **PASS:** 3 passed, 1 skipped | Local Chromium and mobile Chrome emulation. These checks were run separately, so they do not resolve the three full-suite-only failures. |
+
+The browser mock correction is in the next candidate update. Keep release acceptance **RED** until the refreshed hosted full suite and external release gates are resolved.
