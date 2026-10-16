@@ -67,7 +67,7 @@ platform_record_manifest() {
 }
 
 platform_retention() {
-    find "$BACKUP_ROOT" -type f -name 'concierge-*.zip' -mtime +30 -delete
+    find "$BACKUP_ROOT" -type f \( -name 'concierge-*.zip.enc' -o -name 'concierge-*.zip' \) -mtime +30 -delete
     current=$(readlink "$APP_ROOT/current")
     ls -1dt "$APP_ROOT"/releases/*/ 2>/dev/null | tail -n +4 | while IFS= read -r old_release; do
         old_release=${old_release%/}
@@ -106,16 +106,4 @@ platform_local_ai_status() {
     curl --fail --silent --show-error --max-time 2 http://127.0.0.1:11434/api/tags
 }
 
-platform_boot_id() { cat /proc/sys/kernel/random/boot_id; }
-
-platform_data_signature() {
-    platform_compose exec -T concierge python -c 'import hashlib,json; from app.config import settings; from app.properties import PropertyStore; records=[r.to_dict(include_secrets=True) for r in PropertyStore(settings.db_path).list()]; print(json.dumps({"count":len(records),"signature":hashlib.sha256(json.dumps(records,sort_keys=True,separators=(",",":")).encode()).hexdigest()}))'
-}
-
-platform_boot_components() {
-    systemctl is-active --quiet docker.service
-    systemctl is-active --quiet concierge.service
-    services=$(platform_compose ps --status running --services)
-    printf '%s\n' "$services" | grep -qx concierge || return 1
-    printf '%s\n' "$services" | grep -qx proxy || return 1
-}
+plat

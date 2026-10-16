@@ -45,6 +45,7 @@ def test_production_proxy_is_loopback_only_and_requires_canonical_admin_boundari
     assert "CANONICAL_HOSTS: ${CANONICAL_HOSTS:?" in compose
     assert "PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?" in compose
     assert "ADMIN_ALLOWED_CIDRS: ${ADMIN_ALLOWED_CIDRS:?" in compose
+    assert "CONCIERGE_BACKUP_ENCRYPTION_KEY: ${CONCIERGE_BACKUP_ENCRYPTION_KEY:?" in compose
     assert "FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-172.29.0.2}" in compose
     assert "proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;" in nginx
 
@@ -103,64 +104,4 @@ def test_fresh_appliance_config_hides_and_saves_confirmed_admin_password(tmp_pat
     values = dotenv_values(config_path)
     assert values["ADMIN_BOOTSTRAP_USERNAME"] == "root"
     assert values["ADMIN_BOOTSTRAP_PASSWORD"] == password
-    assert values["CREDENTIAL_ENCRYPTION_SECRET"]
-    if os.name != "nt":
-        assert config_path.stat().st_mode & 0o777 == 0o640
-
-
-def test_linux_appliance_migrates_postgresql_before_application_initialization():
-    platform = (ROOT / "deploy/linux/platform.sh").read_text(encoding="utf-8")
-    migration = re.search(r"platform_migrate\(\) \{(.*?)\n\}", platform, re.DOTALL)
-
-    assert migration is not None
-    commands = migration.group(1)
-    assert commands.index('os.getenv("DATABASE_URL"') < commands.index("alembic upgrade head")
-    assert commands.index("alembic upgrade head") < commands.index("import app.main")
-
-
-def test_production_compose_rejects_weak_bootstrap_password_without_echoing_config(tmp_path: Path):
-    config_path = tmp_path / "concierge.env"
-    config_path.write_text("ADMIN_BOOTSTRAP_PASSWORD='admin'\n", encoding="utf-8")
-    environment = {
-        **os.environ,
-        "CONCIERGE_CONFIG_FILE": str(config_path),
-        "CONCIERGE_VERSION": "0.9.2",
-        "CONCIERGE_COMMIT": "a1b2c3d4",
-        "CONCIERGE_BUILD_DATE": "2026-10-06T01:02:03Z",
-    }
-    environment.pop("ADMIN_BOOTSTRAP_PASSWORD", None)
-    wrapper = ROOT / "deploy/docker-compose.sh"
-    rejected = subprocess.run(
-        ["bash", str(wrapper), "appliance", "config", "--quiet"],
-        env=environment,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert rejected.returncode == 1
-    assert "unique ADMIN_BOOTSTRAP_PASSWORD" in rejected.stderr
-    assert "admin'" not in rejected.stderr
-
-    config_path.write_text("ADMIN_BOOTSTRAP_PASSWORD='Production-Only-Password-42!'\n", encoding="utf-8")
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    captured = tmp_path / "compose-args.txt"
-    docker = fake_bin / "docker"
-    docker.write_text("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$CAPTURE_COMPOSE_ARGS\"\n", encoding="utf-8")
-    docker.chmod(0o755)
-    environment.update({
-        "PATH": f"{fake_bin}:{os.environ.get('PATH', '')}",
-        "CAPTURE_COMPOSE_ARGS": str(captured),
-    })
-    accepted = subprocess.run(
-        ["bash", str(wrapper), "appliance", "config", "--quiet"],
-        env=environment,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert accepted.returncode == 0, accepted.stderr
-    assert captured.is_file()
-    assert "Production-Only-Password-42!" not in accepted.stdout + accepted.stderr
+    assert values["CREDENTIAL_ENCRYPTION_SEC
