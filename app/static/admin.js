@@ -65,14 +65,21 @@ const state = {
   guestSessionLinks: [],
   guestStays: [],
   guestDevices: [],
+  guestSelectedStay: null,
+  guestSessionPages: {},
+  guestSessionOffsets: { sessions: 0, guest_sessions: 0, stays: 0, devices: 0 },
+  guestRecordCounts: null,
+  guestSessionResultCount: 0,
+  sessionRequestSequence: 0,
   recommendations: [],
   hospitality: null,
   restaurantMenus: [],
   restaurantPromotions: [],
   restaurantAnalytics: null,
   mapBackgrounds: new Map(),
-  knowledge: { items: [], documents: [], faqs: [] },
-  managedKnowledge: { items: [], sources: [], categories: [] },
+  knowledge: { items: [], documents: [], faqs: [], pages: {} },
+  knowledgeOffsets: { items: 0, documents: 0, faqs: 0 },
+  managedKnowledge: { items: [], sources: [], source_pages: {}, categories: [] },
   knowledgeHealth: null,
   hotelAIFiles: [],
   hotelAISubmitting: false,
@@ -98,6 +105,7 @@ const INTRO_TEMPLATES = {
 };
 let restaurantAssignmentRequestId = 0;
 let dashboardRequestId = 0;
+let sessionSearchTimer = null;
 
 const $ = (id) => document.getElementById(id);
 
@@ -1804,32 +1812,55 @@ let managedKnowledgeLoadVersion = 0;
 let managedKnowledgeFilterSignature = null;
 let managedKnowledgePropertyId = "";
 let managedKnowledgeSearchTimer = null;
+const sourceFilePageLimit = 25;
+let knowledgeSourcePageOffset = 0;
+let legacyKnowledgePropertyId = "";
 
-async function loadKnowledge({ resetManagedPage = false } = {}) {
+async function loadKnowledge({ resetManagedPage = false, resetLegacyPages = false } = {}) {
   const propertyId = currentPropertyId();
-  const base = `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge`;
+  const base = `/api/admin/properties/${encodeURIComponent(propertyId)}/knowledge`;
+  const legacyParams = new URLSearchParams({
+    limit: "25",
+    entry_offset: String(state.knowledgeOffsets.items || 0),
+    document_offset: String(state.knowledgeOffsets.documents || 0),
+    faq_offset: String(state.knowledgeOffsets.faqs || 0),
+  });
+  if (resetLegacyPages || propertyId !== legacyKnowledgePropertyId) {
+    state.knowledgeOffsets = { items: 0, documents: 0, faqs: 0 };
+  }
+  legacyKnowledgePropertyId = propertyId;
+  legacyParams.set("entry_offset", String(state.knowledgeOffsets.items || 0));
+  legacyParams.set("document_offset", String(state.knowledgeOffsets.documents || 0));
+  legacyParams.set("faq_offset", String(state.knowledgeOffsets.faqs || 0));
   const params = new URLSearchParams();
   const query = $("managed-knowledge-search")?.value.trim() || "";
   if (query) params.set("q", query);
   const filterSignature = params.toString();
   if (resetManagedPage || propertyId !== managedKnowledgePropertyId || filterSignature !== managedKnowledgeFilterSignature) {
     managedKnowledgePageOffset = 0;
+    knowledgeSourcePageOffset = 0;
   }
   managedKnowledgePropertyId = propertyId;
   managedKnowledgeFilterSignature = filterSignature;
   params.set("limit", String(managedKnowledgePageLimit));
   params.set("offset", String(managedKnowledgePageOffset));
+  params.set("source_limit", String(sourceFilePageLimit));
+  params.set("source_offset", String(knowledgeSourcePageOffset));
   const version = ++managedKnowledgeLoadVersion;
   const [legacy, managed, health] = await Promise.all([
-    jsonFetch(base),
+    jsonFetch(`${base}?${legacyParams.toString()}`),
     jsonFetch(`${base}/managed?${params.toString()}`),
     jsonFetch(`${base}/health`),
   ]);
   if (version !== managedKnowledgeLoadVersion || propertyId !== currentPropertyId()) return;
   state.knowledge = legacy;
   state.managedKnowledge = managed;
+  state.knowledgeOffsets.items = Number.isInteger(legacy.pages?.items?.offset) ? legacy.pages.items.offset : state.knowledgeOffsets.items;
+  state.knowledgeOffsets.documents = Number.isInteger(legacy.pages?.documents?.offset) ? legacy.pages.documents.offset : state.knowledgeOffsets.documents;
+  state.knowledgeOffsets.faqs = Number.isInteger(legacy.pages?.faqs?.offset) ? legacy.pages.faqs.offset : state.knowledgeOffsets.faqs;
   managedKnowledgeTotal = Number.isInteger(managed.total) ? managed.total : (managed.items || []).length;
   managedKnowledgePageOffset = Number.isInteger(managed.offset) ? managed.offset : managedKnowledgePageOffset;
+  knowledgeSourcePageOffset = Number.isInteger(managed.source_pages?.offset) ? managed.source_pages.offset : knowledgeSourcePageOffset;
   state.knowledgeHealth = health;
   renderKnowledge();
 }
@@ -1842,6 +1873,32 @@ function makeActionButton(label, handler, secondary = false) {
   button.className = `btn ${destructive ? "btn-danger" : secondary ? "btn-ghost" : "btn-secondary"} btn-sm`;
   button.addEventListener("click", () => Promise.resolve(handler()).catch((error) => showToast(error.message, "error")));
   return button;
+}
+
+function renderKnowledgePageNavigation(mountId, page, onOffsetChange, label) {
+  const nav = $(mountId);
+  if (!nav) return;
+  nav.replaceChildren();
+  const total = Number(page?.total || 0);
+  const limit = Number(page?.limit || 25);
+  const offset = Number(page?.offset || 0);
+  const previous = document.createElement("button");
+  previous.className = "secondary";
+  previous.type = "button";
+  previous.textContent = "Previous page";
+  previous.disabled = offset <= 0;
+  previous.addEventListener("click", () => onOffsetChange(Math.max(0, offset - limit)));
+  const info = document.createElement("span");
+  info.setAttribute("aria-live", "polite");
+  info.textContent = total ? `Showing ${offset + 1}–${Math.min(offset + limit, total)} of ${total}` : "No pages";
+  const next = document.createElement("button");
+  next.className = "secondary";
+  next.type = "button";
+  next.textContent = "Next page";
+  next.disabled = offset + limit >= total;
+  next.addEventListener("click", () => onOffsetChange(Math.min(offset + limit, Math.max(0, total - 1))));
+  nav.setAttribute("aria-label", label);
+  nav.append(previous, info, next);
 }
 
 function renderKnowledge() {
@@ -1859,6 +1916,10 @@ function renderKnowledge() {
     entryList.appendChild(row);
   }
   if (!entryList.children.length) entryList.textContent = "No hotel knowledge has been added.";
+  renderKnowledgePageNavigation("knowledge-entry-pagination", state.knowledge.pages?.items, (offset) => {
+    state.knowledgeOffsets.items = offset;
+    loadKnowledge().catch((error) => showToast(error.message, "error"));
+  }, "Hotel knowledge entry pages");
 
   const documentList = $("document-list"); documentList.innerHTML = "";
   for (const item of state.knowledge.documents || []) {
@@ -1866,6 +1927,12 @@ function renderKnowledge() {
     row.innerHTML = `<strong>${escapeHTML(item.source_name || item.title)}</strong><span>${escapeHTML(item.status)} · ${escapeHTML(item.content_type || "unknown type")}</span><span>${escapeHTML(item.error || "Ready for verified retrieval")}</span>`;
     row.append(makeActionButton("Delete", () => deleteKnowledgeItem(item.item_id), true)); documentList.appendChild(row);
   }
+  renderKnowledgePageNavigation("knowledge-document-pagination", state.knowledge.pages?.documents, (offset) => {
+    state.knowledgeOffsets.documents = offset;
+    loadKnowledge().catch((error) => showToast(error.message, "error"));
+  }, "Legacy document pages");
+
+  const sourceList = $("knowledge-source-list"); sourceList.replaceChildren();
   for (const source of state.managedKnowledge.sources || []) {
     const row = document.createElement("div"); row.className = "compact-row";
     row.innerHTML = `<strong>${escapeHTML(source.filename)}</strong><span>${escapeHTML(source.status.replaceAll("_", " "))} · version ${source.version}${source.previous_source_id ? ` · replaces ${escapeHTML(source.previous_source_id.slice(0, 8))}` : ""} · ${escapeHTML(source.extension)} · ${escapeHTML(formatDate(source.created_at))}</span><span>${escapeHTML(source.error || "Review extracted knowledge before publishing.")}</span>`;
@@ -1893,9 +1960,14 @@ function renderKnowledge() {
       await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge/sources/${source.source_id}/supersede`, { method: "POST" }); await loadKnowledge();
     }, true));
     if (can("knowledge.delete")) row.append(makeActionButton("Delete source", async () => { if (!window.confirm(`Permanently delete ${source.filename} and all derived knowledge?`)) return; await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/knowledge/sources/${source.source_id}`, { method: "DELETE" }); await loadKnowledge(); }, true));
-    documentList.appendChild(row);
+    sourceList.appendChild(row);
   }
-  if (!documentList.children.length) documentList.textContent = "No knowledge documents uploaded yet.";
+  if (!documentList.children.length) documentList.textContent = "No legacy document records.";
+  if (!sourceList.children.length) sourceList.textContent = "No uploaded source files.";
+  renderKnowledgePageNavigation("knowledge-source-pagination", state.managedKnowledge.source_pages, (offset) => {
+    knowledgeSourcePageOffset = offset;
+    loadKnowledge().catch((error) => showToast(error.message, "error"));
+  }, "Uploaded document source pages");
 
   const faqList = $("faq-list"); faqList.innerHTML = "";
   for (const item of state.knowledge.faqs || []) {
@@ -1908,6 +1980,10 @@ function renderKnowledge() {
     faqList.appendChild(row);
   }
   if (!faqList.children.length) faqList.textContent = "No FAQs configured yet.";
+  renderKnowledgePageNavigation("knowledge-faq-pagination", state.knowledge.pages?.faqs, (offset) => {
+    state.knowledgeOffsets.faqs = offset;
+    loadKnowledge().catch((error) => showToast(error.message, "error"));
+  }, "FAQ pages");
 }
 
 function renderManagedKnowledge() {
@@ -1918,7 +1994,8 @@ function renderManagedKnowledge() {
   for (const item of items) {
     const row = document.createElement("article"); row.className = "compact-row knowledge-review"; row.dataset.sourceId = item.source_id || "";
     const source = state.managedKnowledge.sources.find((candidate) => candidate.source_id === item.source_id);
-    row.innerHTML = `<strong>${escapeHTML(item.title)}</strong><span>${escapeHTML(item.category)} · ${escapeHTML(item.status.replaceAll("_", " "))} · ${escapeHTML(item.visibility)}${item.conflict ? " · Conflict" : ""}${item.risk_flags?.length ? ` · Review: ${escapeHTML(item.risk_flags.join(", "))}` : ""}</span><span>${escapeHTML(source?.filename || "Admin Knowledge Entry")} · ${escapeHTML(JSON.stringify(item.location))}</span><p>${escapeHTML(item.content)}</p>`;
+    const sourceLabel = source?.filename || (item.source_id ? `Source ${item.source_id.slice(0, 8)}` : "Admin Knowledge Entry");
+    row.innerHTML = `<strong>${escapeHTML(item.title)}</strong><span>${escapeHTML(item.category)} · ${escapeHTML(item.status.replaceAll("_", " "))} · ${escapeHTML(item.visibility)}${item.conflict ? " · Conflict" : ""}${item.risk_flags?.length ? ` · Review: ${escapeHTML(item.risk_flags.join(", "))}` : ""}</span><span>${escapeHTML(sourceLabel)} · ${escapeHTML(JSON.stringify(item.location))}</span><p>${escapeHTML(item.content)}</p>`;
     const details = document.createElement("div"); details.className = "knowledge-review-details"; details.hidden = true;
     const title = document.createElement("input"); title.value = item.title; title.setAttribute("aria-label", "Knowledge title");
     const content = document.createElement("textarea"); content.value = item.content; content.rows = 4; content.setAttribute("aria-label", "Knowledge content");
@@ -6593,21 +6670,14 @@ function stayMemoryLabel(memory = {}) {
   return parts.length ? parts.join(", ") : "No notes saved";
 }
 
-function sessionSearchText(record) {
-  return JSON.stringify(record || {}).toLowerCase();
-}
-
 function renderSessionSummary() {
-  const sessions = state.guestSessions || [];
-  const links = state.guestSessionLinks || [];
-  const stays = state.guestStays || [];
-  const devices = state.guestDevices || [];
+  const summary = state.guestRecordCounts || {};
   const counts = {
-    total: sessions.length + links.length + stays.length + devices.length,
-    active: sessions.filter((session) => session.session_status === "active").length,
-    stays: stays.filter((stay) => stay.status === "active").length,
-    expired: sessions.filter((session) => session.session_status !== "active").length,
-    devices: devices.length,
+    total: summary.total_records || 0,
+    active: summary.active_sessions || 0,
+    stays: summary.active_stays || 0,
+    expired: summary.expired_sessions || 0,
+    devices: summary.devices || 0,
   };
   for (const [key, value] of Object.entries(counts)) $(`session-count-${key}`).textContent = value;
   const activeFilter = $("session-record-filter").value;
@@ -6618,28 +6688,50 @@ function renderSessionSummary() {
 
 function renderSessionRecords() {
   const list = $("session-list");
-  const filter = $("session-record-filter").value;
-  const query = $("session-record-search").value.trim().toLowerCase();
-  const sessions = (state.guestSessions || []).filter((item) => (filter === "all" || filter === "active-sessions" && item.session_status === "active" || filter === "expired-sessions" && item.session_status !== "active") && (!query || sessionSearchText(item).includes(query)));
-  const links = (state.guestSessionLinks || []).filter((item) => (filter === "all" || filter === "guest-links") && (!query || sessionSearchText(item).includes(query)));
-  const stays = (state.guestStays || []).filter((item) => (filter === "all" || filter === "active-stays" && item.status === "active" || filter === "checked-out-stays" && item.status !== "active") && (!query || sessionSearchText(item).includes(query)));
-  const devices = (state.guestDevices || []).filter((item) => (filter === "all" || filter === "devices") && (!query || sessionSearchText(item).includes(query)));
-  const total = sessions.length + links.length + stays.length + devices.length;
+  const pages = state.guestSessionPages || {};
+  const sessions = state.guestSessions || [];
+  const links = state.guestSessionLinks || [];
+  const stays = state.guestStays || [];
+  const devices = state.guestDevices || [];
+  const total = Number(state.guestSessionResultCount || 0);
   $("session-result-count").textContent = `${total} ${total === 1 ? "record" : "records"}`;
   list.replaceChildren();
   renderSessionSummary();
 
-  const appendGroup = (label, items, renderItem) => {
-    if (!items.length) return;
+  const appendGroup = (label, key, items, renderItem) => {
+    const page = pages[key] || { total: 0, limit: 25, offset: 0 };
+    if (!page.total) return;
     const group = sessionRecordElement("section", "session-record-group");
-    group.appendChild(sessionRecordElement("h3", "", `${label} · ${items.length}`));
+    group.appendChild(sessionRecordElement("h3", "", `${label} · ${page.total} matching`));
     const records = sessionRecordElement("div", "session-record-group-list");
     for (const item of items) records.appendChild(renderItem(item));
     group.appendChild(records);
+    const start = page.total ? page.offset + 1 : 0;
+    const end = Math.min(page.offset + items.length, page.total);
+    const pagination = sessionRecordElement("nav", "session-record-pagination");
+    pagination.setAttribute("aria-label", `${label} pages`);
+    const previous = sessionRecordElement("button", "secondary", "Previous page");
+    previous.type = "button";
+    previous.disabled = page.offset <= 0;
+    previous.addEventListener("click", () => {
+      state.guestSessionOffsets[key] = Math.max(0, page.offset - page.limit);
+      loadSessions().catch((error) => showToast(error.message, "error"));
+    });
+    const pageInfo = sessionRecordElement("span", "", `Showing ${start}–${end} of ${page.total}`);
+    pageInfo.setAttribute("aria-live", "polite");
+    const next = sessionRecordElement("button", "secondary", "Next page");
+    next.type = "button";
+    next.disabled = page.offset + items.length >= page.total;
+    next.addEventListener("click", () => {
+      state.guestSessionOffsets[key] = page.offset + page.limit;
+      loadSessions().catch((error) => showToast(error.message, "error"));
+    });
+    pagination.append(previous, pageInfo, next);
+    group.appendChild(pagination);
     list.appendChild(group);
   };
 
-  appendGroup("Guest sessions", sessions, (session) => {
+  appendGroup("Guest sessions", "sessions", sessions, (session) => {
     const card = sessionRecordElement("article", "session-record-card");
     const header = sessionRecordElement("header", "session-record-header");
     const title = sessionRecordElement("div", "session-record-title");
@@ -6663,7 +6755,7 @@ function renderSessionRecords() {
     return card;
   });
 
-  appendGroup("WLAN and integration links", links, (link) => {
+  appendGroup("WLAN and integration links", "guest_sessions", links, (link) => {
     const card = sessionRecordElement("article", "session-record-card");
     const header = sessionRecordElement("header", "session-record-header");
     const title = sessionRecordElement("div", "session-record-title");
@@ -6688,7 +6780,7 @@ function renderSessionRecords() {
     return card;
   });
 
-  appendGroup("Guest stays", stays, (stay) => {
+  appendGroup("Guest stays", "stays", stays, (stay) => {
     const card = sessionRecordElement("article", "session-record-card");
     const header = sessionRecordElement("header", "session-record-header");
     const title = sessionRecordElement("div", "session-record-title");
@@ -6713,6 +6805,7 @@ function renderSessionRecords() {
     action.type = "button";
     action.title = stay.status === "active" ? "Load this stay in the notes editor" : "Checked-out stay notes are read-only";
     action.addEventListener("click", () => {
+      state.guestSelectedStay = stay;
       $("memory-stay-id").value = stay.stay_id;
       updateStayMemoryEditor(stay);
       $("memory-stay-id").scrollIntoView({ behavior: "smooth", block: "center" });
@@ -6721,7 +6814,7 @@ function renderSessionRecords() {
     return card;
   });
 
-  appendGroup("Pseudonymous device identities", devices, (device) => {
+  appendGroup("Pseudonymous device identities", "devices", devices, (device) => {
     const card = sessionRecordElement("article", "session-record-card device-record-card");
     const header = sessionRecordElement("header", "session-record-header");
     const title = sessionRecordElement("div", "session-record-title");
@@ -6741,6 +6834,7 @@ function renderSessionRecords() {
 
   if (!total) {
     const empty = sessionRecordElement("div", "session-record-empty");
+    const query = $("session-record-search").value.trim();
     empty.append(sessionRecordElement("strong", "", query ? "No records match this search" : "No guest records yet"));
     empty.append(sessionRecordElement("span", "", query ? "Try a different session, stay, room, or device search." : "Guest sessions, stays, and pseudonymous WLAN identities will appear here.") );
     list.appendChild(empty);
@@ -6750,26 +6844,47 @@ function renderSessionRecords() {
 async function loadSessions() {
   const button = $("refresh-sessions");
   const originalLabel = button?.textContent || "Refresh records";
+  const requestId = ++state.sessionRequestSequence;
+  const propertyId = currentPropertyId();
+  const params = new URLSearchParams({
+    limit: "25",
+    q: $("session-record-search").value.trim(),
+    filter: $("session-record-filter").value,
+    session_offset: String(state.guestSessionOffsets.sessions || 0),
+    link_offset: String(state.guestSessionOffsets.guest_sessions || 0),
+    stay_offset: String(state.guestSessionOffsets.stays || 0),
+    device_offset: String(state.guestSessionOffsets.devices || 0),
+  });
   if (button) { button.disabled = true; button.textContent = "Refreshing…"; }
   try {
-    const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/sessions`);
+    const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}/sessions?${params}`);
+    if (requestId !== state.sessionRequestSequence || propertyId !== currentPropertyId()) return;
     state.guestSessions = data.sessions || [];
     state.guestSessionLinks = data.guest_sessions || [];
     state.guestStays = data.stays || [];
     state.guestDevices = data.devices || [];
+    state.guestSessionPages = data.pages || {};
+    state.guestRecordCounts = data.counts || {};
+    state.guestSessionResultCount = Number(data.result_count || 0);
     const selector = $("memory-stay-id");
-    const previousSelection = selector.value;
     selector.replaceChildren(new Option("Select a stay", ""));
     for (const stay of state.guestStays) {
       const description = [stay.room ? `Room ${stay.room}` : "No room", stay.status === "active" ? "Active" : "Checked out", stay.stay_id].join(" · ");
       selector.appendChild(new Option(description, stay.stay_id));
     }
-    selector.value = state.guestStays.some((stay) => stay.stay_id === previousSelection) ? previousSelection : "";
-    updateStayMemoryEditor(state.guestStays.find((stay) => stay.stay_id === selector.value) || null);
+    if (state.guestSelectedStay && state.guestSelectedStay.property_id !== propertyId) state.guestSelectedStay = null;
+    let selectedStay = state.guestStays.find((stay) => stay.stay_id === state.guestSelectedStay?.stay_id) || state.guestSelectedStay;
+    if (selectedStay && !state.guestStays.some((stay) => stay.stay_id === selectedStay.stay_id)) {
+      const description = [selectedStay.room ? `Room ${selectedStay.room}` : "No room", selectedStay.status === "active" ? "Active" : "Checked out", selectedStay.stay_id].join(" · ");
+      selector.appendChild(new Option(description, selectedStay.stay_id));
+    }
+    selector.value = selectedStay?.stay_id || "";
+    state.guestSelectedStay = selectedStay || null;
+    updateStayMemoryEditor(selectedStay || null);
     renderSessionRecords();
     $("session-last-refreshed").textContent = `Updated ${new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(new Date())}`;
   } finally {
-    if (button) { button.disabled = false; button.textContent = originalLabel; }
+    if (button && requestId === state.sessionRequestSequence) { button.disabled = false; button.textContent = originalLabel; }
   }
 }
 
@@ -6795,8 +6910,10 @@ async function createStaySession() {
       }),
     });
     $("session-raw-mac").value = "";
+    state.guestSelectedStay = result.stay;
     await loadSessions();
     $("memory-stay-id").value = result.stay.stay_id;
+    state.guestSelectedStay = result.stay;
     updateStayMemoryEditor(result.stay);
     showToast("Guest stay created or restored; WLAN identity is pseudonymous.");
   } finally {
@@ -6807,11 +6924,12 @@ async function createStaySession() {
 
 async function saveStayMemory() {
   const stayId = $("memory-stay-id").value;
-  const stay = state.guestStays.find((item) => item.stay_id === stayId);
+  const stay = state.guestStays.find((item) => item.stay_id === stayId)
+    || (state.guestSelectedStay?.stay_id === stayId ? state.guestSelectedStay : null);
   if (!stayId || !stay) throw new Error("Select a guest stay first.");
   if (stay.status !== "active") throw new Error("Stay notes can only be changed for an active stay.");
   const lines = (id) => $(id).value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean).slice(0, 20);
-  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/stays/${encodeURIComponent(stayId)}/memory`, {
+  const updatedStay = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/stays/${encodeURIComponent(stayId)}/memory`, {
     method: "PUT",
     body: JSON.stringify({ memory: {
       conversation_summary: $("memory-summary").value.trim(),
@@ -6821,6 +6939,7 @@ async function saveStayMemory() {
       important_context: $("memory-important-context").value.trim(),
     } }),
   });
+  state.guestSelectedStay = updatedStay;
   await loadSessions();
   showToast("Stay notes saved.");
 }
@@ -9653,13 +9772,28 @@ function setup() {
   $("floor-map-upload").addEventListener("change", (event) => uploadFloorMap(event.target.files?.[0]).catch((error) => showToast(error.message, "error")).finally(() => { event.target.value = ""; }));
   $("create-stay-session").addEventListener("click", () => createStaySession().catch((error) => showToast(error.message, "error")));
   $("save-stay-memory").addEventListener("click", () => saveStayMemory().catch((error) => showToast(error.message, "error")));
-  $("memory-stay-id").addEventListener("change", () => updateStayMemoryEditor(state.guestStays.find((stay) => stay.stay_id === $("memory-stay-id").value) || null));
+  $("memory-stay-id").addEventListener("change", () => {
+    const stayId = $("memory-stay-id").value;
+    state.guestSelectedStay = state.guestStays.find((stay) => stay.stay_id === stayId)
+      || (state.guestSelectedStay?.stay_id === stayId ? state.guestSelectedStay : null);
+    updateStayMemoryEditor(state.guestSelectedStay);
+  });
   $("refresh-sessions").addEventListener("click", () => loadSessions().catch((error) => showToast(error.message, "error")));
-  $("session-record-search").addEventListener("input", renderSessionRecords);
-  $("session-record-filter").addEventListener("change", renderSessionRecords);
+  $("session-record-search").addEventListener("input", () => {
+    clearTimeout(sessionSearchTimer);
+    sessionSearchTimer = setTimeout(() => {
+      state.guestSessionOffsets = { sessions: 0, guest_sessions: 0, stays: 0, devices: 0 };
+      loadSessions().catch((error) => showToast(error.message, "error"));
+    }, 250);
+  });
+  $("session-record-filter").addEventListener("change", () => {
+    state.guestSessionOffsets = { sessions: 0, guest_sessions: 0, stays: 0, devices: 0 };
+    loadSessions().catch((error) => showToast(error.message, "error"));
+  });
   for (const card of document.querySelectorAll("[data-session-filter]")) card.addEventListener("click", () => {
     $("session-record-filter").value = card.dataset.sessionFilter;
-    renderSessionRecords();
+    state.guestSessionOffsets = { sessions: 0, guest_sessions: 0, stays: 0, devices: 0 };
+    loadSessions().catch((error) => showToast(error.message, "error"));
   });
   $("record-observation").addEventListener("click", () => recordObservation().catch((error) => showToast(error.message, "error")));
   $("load-location-report").addEventListener("click", () => loadLocationReport().catch((error) => showToast(error.message, "error")));

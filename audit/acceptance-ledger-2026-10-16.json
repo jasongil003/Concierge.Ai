@@ -7,7 +7,7 @@
     "target_branch": "main",
     "remediation_branch": "codex/final-remediation-20261016",
     "starting_commit": "96d832afe70781575e9e00a862d9c746dfcddd2d",
-    "implementation_commit": "b9825a678b21d2d82b2fcbf3529e706811fe137c",
+    "implementation_commit": "5d32823930583c700d4b9b309025a7d1af7cc861",
     "github_main_at_start": "96d832afe70781575e9e00a862d9c746dfcddd2d",
     "source_matrix": "audit/master-feature-acceptance.json (2026-10-13 audit snapshot; superseded for current status by this ledger)",
     "core_denominator": 384,
@@ -37,10 +37,10 @@
     "live_verified_count": 0,
     "test_results": {
       "full_backend_local": {
-        "passed": 1380,
+        "passed": 1383,
         "skipped": 21,
         "failed": 0,
-        "scope": "Final full `python -m pytest -q -rs` on isolated local state; 2 dependency warnings; skips require PostgreSQL/Redis services or Linux-only `RLIMIT_AS` / `systemd-analyze`."
+        "scope": "Full local `pytest -q -rs` run against the PR candidate with J-06 and C-30 paging changes; 1,383 passed, 21 skipped, 0 failed. Skips require PostgreSQL/Redis services or Linux-only RLIMIT_AS / systemd-analyze support; 2 dependency deprecation warnings."
       },
       "focused_backend_after_remediation": {
         "passed": 19,
@@ -57,11 +57,11 @@
         "failed": 0,
         "scope": "tests/test_guest_entry.py, including signed property/node binding, published-map QR generation, guest start resolution, tampered signature rejection, cross-property rejection, and hidden-node denial"
       },
-      "full_browser_nonvisual": {
-        "passed": 368,
+      "full_browser_local": {
+        "passed": 374,
         "skipped": 42,
         "failed": 0,
-        "scope": "Final full `npm run test:e2e -- --grep-invert @visual` run across desktop Chromium and mobile Chrome; 6.8 minutes."
+        "scope": "Final local `npm run test:e2e -- --grep-invert @visual` across desktop Chromium and mobile Chrome; 374 passed, 42 skipped, 0 failed in 7.0 minutes. The initial C-30 run exposed four stale upload/onboarding assertions; fixture isolation and expected list were corrected before this passing rerun."
       },
       "retention_race_browser": {
         "passed": 12,
@@ -86,13 +86,23 @@
       "visual_browser": {
         "passed": 4,
         "failed": 0,
-        "scope": "guest home and admin design; desktop/mobile"
+        "scope": "Configured guest-home and admin design visual snapshot tests passed on Chromium and mobile Chrome after the C-30 UI changes."
       },
-      "bandit": "PASS — exact CI command at medium severity/confidence; existing parser/nosec warnings only, no threshold findings.",
+      "service_request_escalation_backend": {
+        "passed": 15,
+        "failed": 0,
+        "scope": "`tests/test_service_catalog.py` on the exact J-06 candidate; includes overdue, future, terminal, disabled-target, no-target, property isolation, bounded batch, idempotency, and concurrent-worker cases."
+      },
+      "service_request_escalation_browser": {
+        "passed": 2,
+        "failed": 0,
+        "scope": "`tests/e2e/admin.spec.js` queued escalation badge and activity-history test passed in Chromium and mobile Chromium."
+      },
+      "bandit": "PASS — exact CI command at medium severity/confidence; zero medium/high findings after replacing SQL-fragment interpolation with static SQL and bound parameters. Existing parser and nosec warnings remain.",
       "pip_audit": "PASS — final requirements-dev manifest, including qrcode==8.2; no known vulnerabilities found.",
       "npm_audit": "PASS — zero high-level vulnerabilities on the unchanged base package manifests",
-      "current_worktree_gitleaks": "PASS — Gitleaks 8.24.3 redacted scan of the final current source tree after code and audit-document edits: 0 findings. This is not a full-history scan.",
-      "git_diff_check_and_js_syntax": "PASS — final `git diff --check`, `node --check app/static/admin.js`, and JSON validation for route policies and acceptance ledger.",
+      "current_worktree_gitleaks": "Local Gitleaks binary unavailable. Hosted run #279 on the previously published J-06 head confirms its PR-range scan and --no-git current-worktree scan pass. The combined CI shell step then fails on its final full reachable-history --all --text scan, which finds three retained historical findings; the current C-30 working-tree changes await the next hosted run.",
+      "git_diff_check_and_js_syntax": "PASS — `git diff --check`, `node --check app/static/admin.js`, Python compilation, and acceptance-ledger JSON validation on the J-06 candidate.",
       "focused_map_schema_regressions": "PASS — 2 hosted failing map-response regressions pass locally after adding and validating starting_node_id in MapViewBlock.",
       "conversation_pagination_backend": {
         "passed": 57,
@@ -108,7 +118,7 @@
       "campaign_backend_local": {
         "passed": 3,
         "failed": 0,
-        "scope": "tests/test_notification_campaigns.py; included in the full backend result of 1,380 passed / 21 skipped / 0 failed."
+        "scope": "tests/test_notification_campaigns.py; included in the full backend result of 1,382 passed / 21 skipped / 0 failed."
       },
       "campaign_browser_local": {
         "passed": 2,
@@ -154,6 +164,31 @@
         "secret_scan": "FAIL — retained historical findings; current-tree local redacted scan had 0 findings.",
         "run_id": "38914471464",
         "head_commit": "b9825a678b21d2d82b2fcbf3529e706811fe137c"
+      },
+      "admin_session_knowledge_pagination_backend": {
+        "passed": 20,
+        "failed": 0,
+        "scope": "tests/test_admin_session_pagination.py, tests/test_operational_admin.py, tests/test_high_rbac_boundaries.py, and tests/test_hotel_neutrality.py after session/activity/knowledge/source pagination additions."
+      },
+      "admin_session_knowledge_pagination_browser": {
+        "passed": 4,
+        "failed": 0,
+        "scope": "Two Playwright cases on Chromium and mobile Chrome: guest stay/activity search and pagination; hotel knowledge entry paging."
+      },
+      "hosted_gitleaks_run_279": {
+        "result": "PR-range and current worktree scans PASS; full reachable-history scan FAILS with three retained historical findings.",
+        "scope": "Run #279 on published head 5d32823930583c700d4b9b309025a7d1af7cc861. Gitleaks action history-range scan and the explicit --no-git worktree scan both report no leaks; the explicit --all --text scan is the command that reports three findings. GitHub attributes this final command to the combined current-worktree step.",
+        "credential_values_exposed": false
+      },
+      "c30_first_full_browser_run": {
+        "failed": 4,
+        "cause": "The document-upload test looked in the legacy-document list after uploads were moved to a separate source list; the empty-workspace test removed only one synthetic property although Chromium and mobile Chrome share the isolated run database.",
+        "remediation": "Updated the assertions to the distinct source/legacy lists and deleted all synthetic properties before onboarding. The corrected full E2E run passed 374 with 42 skips and 0 failures."
+      },
+      "responsive_mobile_evidence_refresh": {
+        "passed": 4,
+        "failed": 0,
+        "scope": "Chromium responsive matrix at 430x932, 390x844, 375x812, and 320x720 passed after waiting for the mobile sidebar to finish sliding offscreen before capturing screenshots."
       }
     },
     "github_base_ci": {
@@ -213,24 +248,25 @@
       "adec402",
       "7b31f7201ceaaa235bba74d054ba706f60291554",
       "616de318bf85b8504852e3b8f6d18cc80ef091e7",
-      "b9825a678b21d2d82b2fcbf3529e706811fe137c"
+      "b9825a678b21d2d82b2fcbf3529e706811fe137c",
+      "5d32823930583c700d4b9b309025a7d1af7cc861"
     ],
-    "current_head_at_ledger_creation": "b9825a678b21d2d82b2fcbf3529e706811fe137c",
+    "current_head_at_ledger_creation": "5d32823930583c700d4b9b309025a7d1af7cc861",
     "publication_state": {
       "git_push": "UNAVAILABLE — no GitHub username/token is configured for shell push.",
       "connector_fallback": "COMPLETE — user-authorized connector publication updated the existing draft PR.",
       "remote_main_changed": false,
       "remote_branch_created": true,
-      "current_published_head": "b9825a678b21d2d82b2fcbf3529e706811fe137c",
+      "current_published_head": "5d32823930583c700d4b9b309025a7d1af7cc861",
       "pull_request_created": true,
       "pull_request_url": "https://github.com/jasongil003/Concierge.Ai/pull/63",
-      "hosted_branch_ci": "COMPLETED — 9/10 jobs passed. Backend: 1,382 passed / 19 skipped / 2 warnings. Browser: 368 passed / 42 skipped / 0 failed. PostgreSQL/Redis, Docker, npm/pip dependency audits, static security, and Linux/macOS deployment passed. Secret scanning remains the sole failure on retained historical findings; no credential values are reproduced.",
-      "implementation_candidate_commit": "b9825a678b21d2d82b2fcbf3529e706811fe137c"
+      "hosted_branch_ci": "Run #279 completed on the published J-06 head: 9/10 jobs succeeded; the only failed job is secret-scan due to three retained findings in the explicit full reachable-history scan. The PR-range and --no-git current-worktree scans passed. Local C-30 paging changes are not part of this run.",
+      "implementation_candidate_commit": "5d32823930583c700d4b9b309025a7d1af7cc861"
     },
     "candidate_validation_state": {
-      "implementation_commit": "b9825a678b21d2d82b2fcbf3529e706811fe137c",
-      "local_focused_validation": "PASS — full backend 1,380 passed / 21 skipped / 0 failed; full nonvisual browser 368 passed / 42 skipped / 0 failed; final campaign browser 2/2; template-clone backend 2/2 and Chromium 1/1; Bandit, current-tree Gitleaks, JavaScript syntax, JSON, and whitespace checks passed.",
-      "hosted_ci": "COMPLETED — 9/10 jobs passed. Backend: 1,382 passed / 19 skipped / 2 warnings. Browser: 368 passed / 42 skipped / 0 failed. PostgreSQL/Redis, Docker, npm/pip dependency audits, static security, and Linux/macOS deployment passed. Secret scanning remains the sole failure on retained historical findings; no credential values are reproduced."
+      "implementation_commit": "5d32823930583c700d4b9b309025a7d1af7cc861",
+      "local_focused_validation": "PASS — full backend 1,383 passed / 21 skipped / 0 failed; full nonvisual Chromium/mobile E2E 374 passed / 42 skipped / 0 failed; focused C-30 API/RBAC/knowledge suite 20 passed; focused pagination/upload/onboarding browser regressions 8 passed; responsive mobile evidence refresh 4 passed; visual snapshots 4 passed. Exact CI Bandit, JavaScript syntax, Python compilation, JSON validation, and whitespace checks passed. The first full browser run exposed four stale UI assertion/isolation failures; they were corrected before the green full rerun.",
+      "hosted_ci": "The last published head is 5d32823930583c700d4b9b309025a7d1af7cc861; run #279 completed 9/10 jobs with only the reachable-history secret scan failing. The local C-30 paging patch remains unpublished and requires a fresh hosted run."
     },
     "deferred_in_scope_requirement_ids": [
       "H-05"
@@ -2416,9 +2452,9 @@
       "requirement_id": "C-30",
       "category": "ADMIN PORTAL",
       "expected_behavior": "Pagination: function correctly within the selected property and authorized identity; meet the behavior described in the master request.",
-      "current_implementation": "The property Conversations inbox and guest service-request queue support bounded server pages (maximum 100), stable ordering, property/restaurant-role or department-scoped totals, and previous/next controls. Conversation search remains scoped to the current page because message bodies are encrypted. The service-request queue searches and filters across the full authorized collection on the server. The audit log now supports bounded filtered pages, stable timestamp/audit-ID ordering, scoped totals, offset clamping, and previous/next controls. Other high-volume admin lists are not yet paginated.",
-      "verified_functionality": "Conversation pagination is covered by tests/test_conversation_pagination.py and prior Chromium flows. Service-request pagination, global summary counts, cross-page text/status filters, property scoping, department scoping, and RBAC passed 19 focused backend tests; the three Chromium request-queue tests passed, including next/previous page navigation. For audit pagination, tests/test_admin_auth.py -k audit passed 3 tests using an import-only qrcode stub that raises if QR generation is invoked; Node syntax checks passed for app/static/admin.js and tests/e2e/admin.spec.js. The deterministic audit-pagination regression passed in hosted Chromium and mobile Chrome. Hosted run #271 on code head 930e86def98ea8e0eb8f2ae2ed8c8bdb1ea1c734 passed 1,360 backend tests (19 skipped) and 361 browser tests (41 skipped, 0 failed); PostgreSQL/Redis, Docker, dependency, static-security, and Linux/macOS deployment jobs also passed. Current-tree and PR-diff Gitleaks scans were clear; forced-text full-history scanning found the same three known historical findings. This closes the Conversations, service-request queue, and audit-log slices only.",
-      "missing_functionality": "Extend bounded server pagination and controls to other high-volume admin collections. Current conversation search covers the loaded page only.",
+      "current_implementation": "The property Conversations inbox and guest service-request queue support bounded server pages (maximum 100), stable ordering, property/restaurant-role or department-scoped totals, and previous/next controls. Conversation search remains scoped to the current page because message bodies are encrypted. The service-request queue searches and filters across the full authorized collection on the server. The audit log supports bounded filtered pages, stable ordering, scoped totals, offset clamping, and controls. Guest sessions, stay activity, guest-session links, pseudonymous devices, legacy knowledge entries/documents/FAQs, and managed uploaded sources now have bounded property-scoped pages, independent search/offsets where applicable, and complete result counts. Other high-volume admin collections have not all been individually inventoried for paging.",
+      "verified_functionality": "Conversation, service-request, and audit pagination have prior dedicated backend/browser evidence retained below. The added session/activity and knowledge/source API integration tests verify independently bounded pages, full counts, filtering, invalid bounds, and property isolation; the dedicated Playwright flows verify stay paging, uploaded-source display, empty-workspace setup, and knowledge paging on Chromium and mobile Chrome. Focused API/RBAC suite: 20 passed. Targeted regression browser suite: 8 passed across both projects. Full nonvisual browser suite: 374 passed, 42 skipped, 0 failed. The responsive evidence refresh also passed at four mobile widths. Full local backend suite: 1,383 passed, 21 skipped, 0 failed. Conversation search still cannot search encrypted message bodies across the entire conversation collection; it is limited to loaded session pages.",
+      "missing_functionality": "Conversation search covers loaded session pages only because message bodies are encrypted. Inventory remaining broad admin collections and page any that can grow without an operational bound. Preserve property and role/department scoping in any additional page APIs.",
       "evidence_test_reference": [
         "tests/test_conversation_pagination.py::test_conversation_inbox_pages_are_bounded_scoped_and_report_full_counts — PASS",
         "tests/test_restaurant_workflows.py::test_restaurant_manager_and_staff_are_limited_to_assigned_restaurants — paginated page/count remains role-scoped",
@@ -2437,7 +2473,13 @@
         "GET /api/admin/properties/{property_id}/service-requests?limit={1..100}&offset={0..1000000}&status={state}&q={text}",
         "GET /api/admin/properties/{property_id}/conversations?limit={1..100}&offset={0..1000000}&status={state}",
         "app/session_store.py::SessionStore.conversation_status_counts",
-        "app/session_store.py::SessionStore.conversations"
+        "app/session_store.py::SessionStore.conversations",
+        "tests/test_admin_session_pagination.py::test_admin_guest_records_are_server_filtered_paged_and_property_scoped — PASS",
+        "tests/e2e/session-pagination.spec.js::guest stays search on the server and paginate on desktop and mobile — PASS [chromium, mobile-chrome]",
+        "tests/e2e/session-pagination.spec.js::hotel knowledge entries use bounded pages on desktop and mobile — PASS [chromium, mobile-chrome]",
+        "GET /api/admin/properties/{property_id}/sessions?limit={1..100}&offset={0..1000000}&q={text}&status={active|expired}",
+        "GET /api/admin/properties/{property_id}/knowledge?entry_limit={1..100}&entry_offset={0..1000000}&document_limit={1..100}&document_offset={0..1000000}&faq_limit={1..100}&faq_offset={0..1000000}",
+        "GET /api/admin/properties/{property_id}/knowledge/managed?source_limit={1..100}&source_offset={0..1000000}"
       ],
       "severity": "Medium",
       "blocking_dependency": "None identified for the remaining local pagination work.",
@@ -6268,13 +6310,20 @@
       "requirement_id": "J-06",
       "category": "OPERATIONS AND SERVICE REQUESTS",
       "expected_behavior": "Escalation: function correctly within the selected property and authorized identity; meet the behavior described in the master request.",
-      "current_implementation": "Department escalation_target and guest conversation escalation exist; autonomous overdue escalation scheduling/confirmed delivery is not demonstrated.",
-      "verified_functionality": "tests/test_restaurant_workflows.py:172::test_conversation_takeover_is_atomic_and_ai_stays_paused passed in the recorded local run. NOT RUN for this individual acceptance criterion in the inventory pass; see MASTER_UI_UX_REVIEW for executed scope.",
-      "missing_functionality": "Add bounded policy-controlled overdue escalation worker with durable/idempotent delivery evidence.",
+      "current_implementation": "Enabled departments with a configured escalation_target receive one durable, property-scoped in-app queue record for each overdue open service request. The admin queue badge and request activity history expose the queued state; external notification delivery is not claimed.",
+      "verified_functionality": "`tests/test_service_catalog.py::test_overdue_escalations_are_bounded_scoped_and_idempotent` and `::test_concurrent_overdue_escalation_workers_queue_one_event` passed in the full local backend suite. `tests/e2e/admin.spec.js::requests panel identifies queued overdue escalations and records their in-app history` passed in Chromium and mobile Chromium.",
+      "missing_functionality": "Staff destination delivery, receipt acknowledgement, and delivery monitoring require an authorized external channel and live acceptance; a queued in-app record is not delivery confirmation.",
       "evidence_test_reference": [
         "tests/test_restaurant_workflows.py:172::test_conversation_takeover_is_atomic_and_ai_stays_paused — PASS (Isolated local backend suite)",
+        "tests/test_service_catalog.py::test_overdue_escalations_are_bounded_scoped_and_idempotent — PASS",
+        "tests/test_service_catalog.py::test_concurrent_overdue_escalation_workers_queue_one_event — PASS",
+        "tests/e2e/admin.spec.js::requests panel identifies queued overdue escalations and records their in-app history — PASS [Chromium, mobile Chromium]",
         "app/static/admin.js:126",
-        "app/hospitality.py:197",
+        "app/hospitality.py:1630",
+        "app/main.py:303",
+        "app/main.py:6647",
+        "app/static/admin.js:7839",
+        "app/static/admin.js:7913",
         "app/session_store.py:978",
         "app/main.py:1687",
         "app/main.py:5800",
@@ -6283,7 +6332,7 @@
         "API: POST /api/guest/actions/confirm; PUT /api/admin/properties/{property_id}/service-requests/{request_id}; PUT /api/admin/properties/{property_id}/service-requests/{request_id}/status"
       ],
       "severity": "Medium",
-      "blocking_dependency": "None identified for local remediation.",
+      "blocking_dependency": "Hotel/provider owner must authorize a department destination and provide a live acknowledgement protocol before external delivery can be accepted.",
       "status": "PARTIAL",
       "scope": "CORE — included in the original 384-item denominator",
       "source_matrix_status": "PARTIALLY IMPLEMENTED"

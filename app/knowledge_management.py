@@ -357,6 +357,7 @@ class KnowledgeStore:
               retry_count INTEGER NOT NULL DEFAULT 0, next_retry_at INTEGER, dead_lettered_at INTEGER,
               FOREIGN KEY(previous_source_id) REFERENCES km_sources(source_id));
             CREATE INDEX IF NOT EXISTS idx_km_sources_property ON km_sources(property_id,status,created_at);
+            CREATE INDEX IF NOT EXISTS idx_km_sources_property_activity ON km_sources(property_id,created_at DESC,source_id DESC);
             DROP INDEX IF EXISTS idx_km_sources_digest;
             CREATE UNIQUE INDEX IF NOT EXISTS idx_km_sources_active_digest ON km_sources(property_id,sha256) WHERE status!='archived';
             CREATE TABLE IF NOT EXISTS km_items (
@@ -463,6 +464,35 @@ class KnowledgeStore:
         with self._db() as db:
             rows = db.execute("SELECT * FROM km_sources WHERE property_id=? ORDER BY created_at DESC", (property_id,)).fetchall()
         return [dict(row) for row in rows]
+
+    def list_sources_page(
+        self, property_id: str, *, query: str = "", limit: int = 25, offset: int = 0,
+    ) -> dict[str, Any]:
+        bounded_limit = int(limit)
+        bounded_offset = int(offset)
+        if not 1 <= bounded_limit <= 100 or not 0 <= bounded_offset <= 1_000_000:
+            raise ValueError("Invalid knowledge source page bounds.")
+        search = str(query or "").strip().casefold()[:100]
+        escaped = search.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+        pattern = f"%{escaped}%" if search else ""
+        params = (property_id, search, pattern, pattern, pattern)
+        with self._db() as db:
+            total_row = db.execute(
+                """SELECT COUNT(*) AS total FROM km_sources WHERE property_id=?
+                AND (?='' OR (LOWER(filename) LIKE ? ESCAPE '!' OR LOWER(status) LIKE ? ESCAPE '!'
+                    OR LOWER(source_id) LIKE ? ESCAPE '!'))""",
+                params,
+            ).fetchone()
+            total = int(total_row["total"] if total_row else 0)
+            bounded_offset = min(bounded_offset, ((total - 1) // bounded_limit) * bounded_limit) if total else 0
+            rows = db.execute(
+                """SELECT * FROM km_sources WHERE property_id=?
+                AND (?='' OR (LOWER(filename) LIKE ? ESCAPE '!' OR LOWER(status) LIKE ? ESCAPE '!'
+                    OR LOWER(source_id) LIKE ? ESCAPE '!'))
+                ORDER BY created_at DESC,source_id DESC LIMIT ? OFFSET ?""",
+                (*params, bounded_limit, bounded_offset),
+            ).fetchall()
+        return {"items": [dict(row) for row in rows], "total": total, "limit": bounded_limit, "offset": bounded_offset}
 
     def process(self, property_id: str, source_id: str) -> dict[str, Any]:
         source = self.get_source(property_id, source_id)

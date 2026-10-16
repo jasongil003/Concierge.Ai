@@ -10,6 +10,21 @@ from typing import Any
 from .database import connect_database, table_columns, table_exists
 
 
+MAX_ADMIN_SESSION_PAGE_SIZE = 100
+MAX_ADMIN_SESSION_PAGE_OFFSET = 1_000_000
+
+
+def _session_page_bounds(limit: int, offset: int) -> tuple[int, int]:
+    page_limit, page_offset = int(limit), int(offset)
+    if not 1 <= page_limit <= MAX_ADMIN_SESSION_PAGE_SIZE or not 0 <= page_offset <= MAX_ADMIN_SESSION_PAGE_OFFSET:
+        raise ValueError("Invalid guest-record page bounds.")
+    return page_limit, page_offset
+
+
+def _session_search_term(query: str) -> str:
+    return str(query or "").strip().casefold()[:120]
+
+
 def _now() -> int:
     return int(time.time())
 
@@ -87,6 +102,18 @@ class GuestIdentityStore:
             db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_concierge_stays_retention "
                 "ON concierge_stays(status,retention_until)"
+            )
+            db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_concierge_stays_property_activity "
+                "ON concierge_stays(property_id,updated_at DESC,stay_id DESC)"
+            )
+            db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_guest_sessions_property_activity "
+                "ON guest_sessions(property_id,last_seen_at DESC,guest_session_id DESC)"
+            )
+            db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_device_identities_property_activity "
+                "ON device_identities(property_id,last_seen_at DESC,device_id DESC)"
             )
 
     def property_secret(self, property_id: str) -> str:
@@ -263,6 +290,35 @@ class GuestIdentityStore:
         with self._connect() as db:
             return [self._stay_dict(row) for row in db.execute("SELECT * FROM concierge_stays WHERE property_id=? ORDER BY updated_at DESC", (property_id,))]
 
+    def list_stays_page(
+        self, property_id: str, *, limit: int = 50, offset: int = 0, query: str = "", status: str | None = None,
+    ) -> dict[str, Any]:
+        limit, offset = _session_page_bounds(limit, offset)
+        search = _session_search_term(query)
+        pattern = f"%{search}%" if search else ""
+        if status not in (None, "active", "checked_out"):
+            raise ValueError("Unsupported stay filter.")
+        with self._connect() as db:
+            total = int(db.execute(
+                """SELECT COUNT(*) FROM concierge_stays
+                WHERE property_id=? AND (?='' OR status=?)
+                  AND (?='' OR LOWER(stay_id) LIKE ? OR LOWER(COALESCE(device_id,'')) LIKE ?
+                    OR LOWER(COALESCE(pms_guest_id,'')) LIKE ? OR LOWER(COALESCE(room,'')) LIKE ?
+                    OR LOWER(COALESCE(memory_summary,'')) LIKE ?)""",
+                (property_id, status or "", status or "", search, pattern, pattern, pattern, pattern, pattern),
+            ).fetchone()[0])
+            actual_offset = min(offset, max(total - 1, 0) // limit * limit)
+            rows = db.execute(
+                """SELECT * FROM concierge_stays
+                WHERE property_id=? AND (?='' OR status=?)
+                  AND (?='' OR LOWER(stay_id) LIKE ? OR LOWER(COALESCE(device_id,'')) LIKE ?
+                    OR LOWER(COALESCE(pms_guest_id,'')) LIKE ? OR LOWER(COALESCE(room,'')) LIKE ?
+                    OR LOWER(COALESCE(memory_summary,'')) LIKE ?)
+                ORDER BY updated_at DESC, stay_id DESC LIMIT ? OFFSET ?""",
+                (property_id, status or "", status or "", search, pattern, pattern, pattern, pattern, pattern, limit, actual_offset),
+            ).fetchall()
+        return {"items": [self._stay_dict(row) for row in rows], "total": total, "limit": limit, "offset": actual_offset}
+
     def list_guest_sessions(self, property_id: str) -> list[dict[str, Any]]:
         with self._connect() as db:
             rows = db.execute(
@@ -276,9 +332,75 @@ class GuestIdentityStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def list_guest_sessions_page(
+        self, property_id: str, *, limit: int = 50, offset: int = 0, query: str = "",
+    ) -> dict[str, Any]:
+        limit, offset = _session_page_bounds(limit, offset)
+        search = _session_search_term(query)
+        pattern = f"%{search}%" if search else ""
+        params = (property_id, search, pattern, pattern, pattern, pattern, pattern, pattern, pattern)
+        with self._connect() as db:
+            count = db.execute(
+                """SELECT COUNT(*) FROM guest_sessions gs
+                JOIN concierge_stays s ON s.stay_id=gs.stay_id AND s.property_id=gs.property_id
+                WHERE gs.property_id=? AND (?='' OR LOWER(gs.guest_session_id) LIKE ? OR LOWER(gs.stay_id) LIKE ?
+                    OR LOWER(COALESCE(gs.concierge_session_id,'')) LIKE ? OR LOWER(COALESCE(gs.antlabs_session_id,'')) LIKE ?
+                    OR LOWER(COALESCE(gs.browser_session_id,'')) LIKE ? OR LOWER(COALESCE(s.device_id,'')) LIKE ?
+                    OR LOWER(COALESCE(s.room,'')) LIKE ?)""",
+                params,
+            ).fetchone()
+            total = int(count[0])
+            actual_offset = min(offset, max(total - 1, 0) // limit * limit)
+            rows = db.execute(
+                """SELECT gs.guest_session_id,gs.stay_id,gs.concierge_session_id,
+                gs.antlabs_session_id,gs.browser_session_id,gs.created_at,gs.last_seen_at,
+                s.device_id,s.room,s.status AS stay_status
+                FROM guest_sessions gs
+                JOIN concierge_stays s ON s.stay_id=gs.stay_id AND s.property_id=gs.property_id
+                WHERE gs.property_id=? AND (?='' OR LOWER(gs.guest_session_id) LIKE ? OR LOWER(gs.stay_id) LIKE ?
+                    OR LOWER(COALESCE(gs.concierge_session_id,'')) LIKE ? OR LOWER(COALESCE(gs.antlabs_session_id,'')) LIKE ?
+                    OR LOWER(COALESCE(gs.browser_session_id,'')) LIKE ? OR LOWER(COALESCE(s.device_id,'')) LIKE ?
+                    OR LOWER(COALESCE(s.room,'')) LIKE ?)
+                ORDER BY gs.last_seen_at DESC, gs.guest_session_id DESC LIMIT ? OFFSET ?""",
+                (*params, limit, actual_offset),
+            ).fetchall()
+        return {"items": [dict(row) for row in rows], "total": total, "limit": limit, "offset": actual_offset}
+
     def list_devices(self, property_id: str) -> list[dict[str, Any]]:
         with self._connect() as db:
             return [dict(row) for row in db.execute("SELECT * FROM device_identities WHERE property_id=? ORDER BY last_seen_at DESC", (property_id,))]
+
+    def list_devices_page(
+        self, property_id: str, *, limit: int = 50, offset: int = 0, query: str = "",
+    ) -> dict[str, Any]:
+        limit, offset = _session_page_bounds(limit, offset)
+        search = _session_search_term(query)
+        pattern = f"%{search}%" if search else ""
+        with self._connect() as db:
+            total = int(db.execute(
+                """SELECT COUNT(*) FROM device_identities WHERE property_id=?
+                AND (?='' OR LOWER(device_id) LIKE ? OR LOWER(source) LIKE ?)""",
+                (property_id, search, pattern, pattern),
+            ).fetchone()[0])
+            actual_offset = min(offset, max(total - 1, 0) // limit * limit)
+            rows = db.execute(
+                """SELECT * FROM device_identities WHERE property_id=?
+                AND (?='' OR LOWER(device_id) LIKE ? OR LOWER(source) LIKE ?)
+                ORDER BY last_seen_at DESC, device_id DESC LIMIT ? OFFSET ?""",
+                (property_id, search, pattern, pattern, limit, actual_offset),
+            ).fetchall()
+        return {"items": [dict(row) for row in rows], "total": total, "limit": limit, "offset": actual_offset}
+
+    def session_record_counts(self, property_id: str) -> dict[str, int]:
+        with self._connect() as db:
+            stays = db.execute(
+                """SELECT COUNT(*) AS total,
+                COUNT(CASE WHEN status='active' THEN 1 END) AS active
+                FROM concierge_stays WHERE property_id=?""", (property_id,),
+            ).fetchone()
+            links = db.execute("SELECT COUNT(*) FROM guest_sessions WHERE property_id=?", (property_id,)).fetchone()
+            devices = db.execute("SELECT COUNT(*) FROM device_identities WHERE property_id=?", (property_id,)).fetchone()
+        return {"stays": int(stays["total"]), "active_stays": int(stays["active"]), "guest_links": int(links[0]), "devices": int(devices[0])}
 
     def _stay_dict(self, row: sqlite3.Row, guest_session_id: str | None = None) -> dict[str, Any]:
         data = dict(row)

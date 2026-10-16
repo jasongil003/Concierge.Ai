@@ -4565,7 +4565,7 @@ async def update_property_guardrails(property_id: str, payload: GuardrailConfigP
 async def property_guardrail_diagnostics(property_id: str, request: Request) -> dict[str, Any]:
     record = _require_property_record(property_id)
     decision = network_guard.evaluate(property_id, record.guardrails, request.client.host if request.client else "", request.headers, _request_id(request))
-    active = sum(1 for item in store.sessions(property_id) if item["session_status"] == "active")
+    active = store.session_record_counts(property_id)["active_sessions"]
     return {
         "detected_client_ip": decision.client_ip,
         "matched_network": decision.matched_network or None,
@@ -4578,13 +4578,38 @@ async def property_guardrail_diagnostics(property_id: str, request: Request) -> 
 
 
 @app.get("/api/admin/properties/{property_id}/knowledge")
-async def list_property_knowledge(property_id: str, request: Request) -> dict[str, Any]:
+async def list_property_knowledge(
+    property_id: str,
+    request: Request,
+    q: str = "",
+    limit: int = 25,
+    entry_offset: int = 0,
+    document_offset: int = 0,
+    faq_offset: int = 0,
+) -> dict[str, Any]:
     _require_property(property_id)
-    items = operations.list_knowledge(property_id)
+    if not 1 <= limit <= 100:
+        raise HTTPException(status_code=422, detail="Knowledge page size must be between 1 and 100.")
+    if any(offset < 0 or offset > 1_000_000 for offset in (entry_offset, document_offset, faq_offset)):
+        raise HTTPException(status_code=422, detail="Knowledge page offsets must be between 0 and 1000000.")
+    if len(q) > 120:
+        raise HTTPException(status_code=422, detail="Knowledge search must be 120 characters or fewer.")
+    principal = _admin_principal(request)
+    try:
+        entries = operations.list_knowledge_page(property_id, "entry", query=q, limit=limit, offset=entry_offset)
+        faqs = operations.list_knowledge_page(property_id, "faq", query=q, limit=limit, offset=faq_offset)
+        documents = operations.list_knowledge_page(property_id, "document", query=q, limit=limit, offset=document_offset) if principal.can("knowledge.edit") else {"items": [], "total": 0, "limit": limit, "offset": 0}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {
-        "items": [item for item in items if item["kind"] == "entry"],
-        "documents": [item for item in items if item["kind"] == "document"] if _admin_principal(request).can("knowledge.edit") else [],
-        "faqs": [item for item in items if item["kind"] == "faq"],
+        "items": entries["items"],
+        "documents": documents["items"],
+        "faqs": faqs["items"],
+        "pages": {
+            "items": {key: entries[key] for key in ("total", "limit", "offset")},
+            "documents": {key: documents[key] for key in ("total", "limit", "offset")},
+            "faqs": {key: faqs[key] for key in ("total", "limit", "offset")},
+        },
     }
 
 
@@ -4623,6 +4648,8 @@ async def managed_knowledge(
     q: str = Query(default="", max_length=100),
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0, le=1_000_000),
+    source_limit: int = Query(default=25, ge=1, le=100),
+    source_offset: int = Query(default=0, ge=0, le=1_000_000),
 ) -> dict[str, Any]:
     _require_property(property_id)
     principal = _admin_principal(request)
@@ -4636,8 +4663,17 @@ async def managed_knowledge(
         limit=limit,
         offset=offset,
     )
+    source_page = knowledge_management.list_sources_page(
+        property_id, query=q, limit=source_limit, offset=source_offset,
+    )
     items = [item for item in page["items"] if _knowledge_item_allowed(item, principal)]
-    return page | {"items": items, "sources": knowledge_management.list_sources(property_id), "categories": list(CATEGORIES), "limits": {"max_file_bytes": settings.knowledge_max_file_bytes, "max_files_per_upload": settings.knowledge_max_files_per_upload, "max_files_per_property": settings.knowledge_max_files_per_property, "storage_quota_bytes": settings.knowledge_storage_quota_bytes}}
+    return page | {
+        "items": items,
+        "sources": source_page["items"],
+        "source_pages": {key: source_page[key] for key in ("total", "limit", "offset")},
+        "categories": list(CATEGORIES),
+        "limits": {"max_file_bytes": settings.knowledge_max_file_bytes, "max_files_per_upload": settings.knowledge_max_files_per_upload, "max_files_per_property": settings.knowledge_max_files_per_property, "storage_quota_bytes": settings.knowledge_storage_quota_bytes},
+    }
 
 
 @app.post("/api/admin/properties/{property_id}/knowledge/items")
@@ -5722,13 +5758,67 @@ async def admin_route(property_id: str, from_node_id: str, to_node_id: str) -> d
 
 
 @app.get("/api/admin/properties/{property_id}/sessions")
-async def admin_sessions(property_id: str) -> dict[str, Any]:
+async def admin_sessions(
+    property_id: str,
+    limit: int = 25,
+    q: str = "",
+    filter: str = "all",
+    session_offset: int = 0,
+    link_offset: int = 0,
+    stay_offset: int = 0,
+    device_offset: int = 0,
+) -> dict[str, Any]:
     _require_property(property_id)
+    if not 1 <= limit <= 100:
+        raise HTTPException(status_code=422, detail="Session record page size must be between 1 and 100.")
+    if any(offset < 0 or offset > 1_000_000 for offset in (session_offset, link_offset, stay_offset, device_offset)):
+        raise HTTPException(status_code=422, detail="Session record page offsets must be between 0 and 1000000.")
+    if len(q) > 120:
+        raise HTTPException(status_code=422, detail="Session record search must be 120 characters or fewer.")
+    if filter not in {"all", "active-sessions", "expired-sessions", "guest-links", "active-stays", "checked-out-stays", "devices"}:
+        raise HTTPException(status_code=422, detail="Invalid session record filter.")
+    include = {
+        "sessions": filter in {"all", "active-sessions", "expired-sessions"},
+        "guest_sessions": filter in {"all", "guest-links"},
+        "stays": filter in {"all", "active-stays", "checked-out-stays"},
+        "devices": filter in {"all", "devices"},
+    }
+    empty_page = {"items": [], "total": 0, "limit": limit, "offset": 0}
+    try:
+        session_page = store.sessions_page(
+            property_id, limit=limit, offset=session_offset, query=q,
+            status={"active-sessions": "active", "expired-sessions": "expired"}.get(filter),
+        ) if include["sessions"] else empty_page
+        link_page = guest_identities.list_guest_sessions_page(
+            property_id, limit=limit, offset=link_offset, query=q,
+        ) if include["guest_sessions"] else empty_page
+        stay_page = guest_identities.list_stays_page(
+            property_id, limit=limit, offset=stay_offset, query=q,
+            status={"active-stays": "active", "checked-out-stays": "checked_out"}.get(filter),
+        ) if include["stays"] else empty_page
+        device_page = guest_identities.list_devices_page(
+            property_id, limit=limit, offset=device_offset, query=q,
+        ) if include["devices"] else empty_page
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    counts = {
+        **store.session_record_counts(property_id),
+        **guest_identities.session_record_counts(property_id),
+    }
+    counts["total_records"] = counts["sessions"] + counts["guest_links"] + counts["stays"] + counts["devices"]
     return {
-        "sessions": store.sessions(property_id),
-        "stays": guest_identities.list_stays(property_id),
-        "guest_sessions": guest_identities.list_guest_sessions(property_id),
-        "devices": guest_identities.list_devices(property_id),
+        "sessions": session_page["items"],
+        "stays": stay_page["items"],
+        "guest_sessions": link_page["items"],
+        "devices": device_page["items"],
+        "pages": {
+            "sessions": {key: session_page[key] for key in ("total", "limit", "offset")},
+            "stays": {key: stay_page[key] for key in ("total", "limit", "offset")},
+            "guest_sessions": {key: link_page[key] for key in ("total", "limit", "offset")},
+            "devices": {key: device_page[key] for key in ("total", "limit", "offset")},
+        },
+        "counts": counts,
+        "result_count": session_page["total"] + stay_page["total"] + link_page["total"] + device_page["total"],
     }
 
 

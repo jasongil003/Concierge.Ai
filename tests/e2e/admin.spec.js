@@ -63,9 +63,13 @@ test.beforeEach(async ({ page, request }) => {
 });
 
 test("admin onboarding: create the first property from an empty workspace", async ({ page, request }) => {
-  const existingPropertyId = await getFirstPropertyId(request);
-  const removed = await request.delete(`/api/admin/properties/${existingPropertyId}`, { headers: csrfHeaders(request) });
-  expect(removed.ok()).toBeTruthy();
+  const existingResponse = await request.get("/api/admin/properties");
+  expect(existingResponse.ok()).toBeTruthy();
+  const existingProperties = (await existingResponse.json()).properties;
+  for (const property of existingProperties) {
+    const removed = await request.delete("/api/admin/properties/" + encodeURIComponent(property.property_id), { headers: csrfHeaders(request) });
+    expect(removed.ok(), await removed.text()).toBeTruthy();
+  }
 
   await page.goto("/admin");
   await page.locator('body[data-admin-ready="true"]').waitFor();
@@ -124,7 +128,8 @@ test("admin onboarding: create the first property from an empty workspace", asyn
   await openPanel(page, "FAQs");
   await expect(page.locator("#faq-list")).toContainText("No FAQs configured yet.");
   await openPanel(page, "Documents");
-  await expect(page.locator("#document-list")).toContainText("No knowledge documents uploaded yet.");
+  await expect(page.locator("#document-list")).toContainText("No legacy document records.");
+  await expect(page.locator("#knowledge-source-list")).toContainText("No uploaded source files.");
 
   await page.goto("/");
   await expect(page.locator("#home-view")).toBeVisible();
@@ -260,7 +265,7 @@ test("document upload creates reviewable knowledge without publishing", async ({
   await openPanel(page, "Documents");
   const filename = `Pool-Hours-${Date.now()}.txt`;
   await page.locator("#knowledge-document-upload").setInputFiles({ name: filename, mimeType: "text/plain", buffer: Buffer.from(`Pool hours: 06:00-22:00\nSource: ${filename}`) });
-  await expect(page.locator("#document-list")).toContainText(filename);
+  await expect(page.locator("#knowledge-source-list")).toContainText(filename);
   await openPanel(page, "Knowledge");
   await expect(page.locator("#managed-knowledge-list")).toContainText("Pool hours: 06:00-22:00");
   await expect(page.locator("#managed-knowledge-list")).toContainText("ready review");
