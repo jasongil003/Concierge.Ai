@@ -828,3 +828,88 @@ def test_retention_worker_recovers_interrupted_optional_notification_withdrawal(
         "Old reminder", "This content was withdrawn.",
     )
     assert requeued["suppressed"] is True
+<<<<<<< HEAD
+=======
+
+
+def test_facility_closure_notifies_active_property_guests_with_operational_opt_out(admin_client, request):
+    property_id = f"closure-property-{uuid.uuid4().hex[:10]}"
+    other_property_id = f"closure-other-{uuid.uuid4().hex[:10]}"
+    request.addfinalizer(lambda: main_module.properties.delete(property_id))
+    request.addfinalizer(lambda: main_module.properties.delete(other_property_id))
+    for scoped_property_id in (property_id, other_property_id):
+        main_module.properties.upsert(PropertyRecord(
+            property_id=scoped_property_id,
+            hotel_name="Closure Test Hotel",
+            timezone="Asia/Manila",
+            app_settings={"guest_notification_delivery": {
+                "quiet_hours": {}, "send_window": {},
+            }},
+        ))
+
+    notified_session, notified_stay = _start_authenticated_guest(admin_client, property_id)
+    opted_out_session, opted_out_stay = _start_authenticated_guest(admin_client, property_id)
+    other_session, other_stay = _start_authenticated_guest(admin_client, other_property_id)
+    main_module.hospitality.set_guest_notification_preference(
+        property_id, opted_out_stay["stay_id"], "operational", False,
+    )
+
+    facility = main_module.hospitality.upsert_facility_profile(property_id, {
+        "name": "Rooftop Pool", "live_status": "open",
+    })
+    response = admin_client.put(
+        f"/api/admin/properties/{property_id}/hospitality/facilities",
+        json={"data": {
+            "facility_id": facility["facility_id"],
+            "name": "Rooftop Pool",
+            "live_status": "maintenance",
+            "status_note": "Inspection in progress. Please use the indoor pool.",
+        }},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["live_status"] == "maintenance"
+
+    delivered_to_default = main_module.hospitality.list_guest_inbox_notifications(
+        property_id, notified_stay["stay_id"],
+    )
+    assert len(delivered_to_default) == 1
+    assert delivered_to_default[0]["category"] == "operational"
+    assert "Rooftop Pool" in delivered_to_default[0]["body"]
+    assert "Inspection in progress. Please use the indoor pool." in delivered_to_default[0]["body"]
+    assert main_module.hospitality.list_guest_inbox_notifications(
+        property_id, opted_out_stay["stay_id"],
+    ) == []
+    assert main_module.hospitality.list_guest_inbox_notifications(
+        other_property_id, other_stay["stay_id"],
+    ) == []
+
+    repeat = admin_client.put(
+        f"/api/admin/properties/{property_id}/hospitality/facilities",
+        json={"data": {
+            "facility_id": facility["facility_id"],
+            "name": "Rooftop Pool",
+            "live_status": "maintenance",
+            "status_note": "Inspection in progress. Please use the indoor pool.",
+        }},
+    )
+    assert repeat.status_code == 200, repeat.text
+    assert len(main_module.hospitality.list_guest_inbox_notifications(
+        property_id, notified_stay["stay_id"],
+    )) == 1
+
+    reopened = admin_client.put(
+        f"/api/admin/properties/{property_id}/hospitality/facilities",
+        json={"data": {
+            "facility_id": facility["facility_id"],
+            "name": "Rooftop Pool",
+            "live_status": "open",
+        }},
+    )
+    assert reopened.status_code == 200, reopened.text
+    updates = main_module.hospitality.list_guest_inbox_notifications(
+        property_id, notified_stay["stay_id"],
+    )
+    assert len(updates) == 2
+    reopened_notice = next(item for item in updates if "is open again." in item["body"])
+    assert "Inspection in progress" not in reopened_notice["body"]
+>>>>>>> 96d832afe70781575e9e00a862d9c746dfcddd2d
