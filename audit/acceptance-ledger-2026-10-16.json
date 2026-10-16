@@ -7,7 +7,7 @@
     "target_branch": "main",
     "remediation_branch": "codex/final-remediation-20261016",
     "starting_commit": "96d832afe70781575e9e00a862d9c746dfcddd2d",
-    "implementation_commit": "101ed7d29ee31e63617943453cc3499b5a4ec4bd",
+    "implementation_commit": "adec4029ade9e49aa681d79586cf0a7847756eca",
     "github_main_at_start": "96d832afe70781575e9e00a862d9c746dfcddd2d",
     "source_matrix": "audit/master-feature-acceptance.json (2026-10-13 audit snapshot; superseded for current status by this ledger)",
     "core_denominator": 384,
@@ -19,19 +19,19 @@
     "verified_percentage": 55.47,
     "verified_formula": "100 × (LOCALLY VERIFIED + LIVE VERIFIED) core rows / 384. No LIVE VERIFIED rows are claimed. R-X01 is deferred and excluded.",
     "core_status_counts": {
-      "BLOCKED": 37,
-      "FAILED": 5,
+      "BLOCKED": 41,
+      "FAILED": 4,
       "IMPLEMENTED": 70,
       "LOCALLY VERIFIED": 213,
-      "PARTIAL": 59
+      "PARTIAL": 56
     },
     "status_counts_all_rows": {
-      "BLOCKED": 39,
+      "BLOCKED": 43,
       "DEFERRED": 1,
-      "FAILED": 5,
+      "FAILED": 4,
       "IMPLEMENTED": 70,
       "LOCALLY VERIFIED": 221,
-      "PARTIAL": 61
+      "PARTIAL": 58
     },
     "live_verified_count": 0,
     "test_results": {
@@ -92,18 +92,29 @@
       "npm_audit": "PASS — zero high-level vulnerabilities on the unchanged base package manifests",
       "current_worktree_gitleaks": "PASS — Gitleaks 8.24.3 no-git redacted scan after QR changes: 0 findings. Hosted full-history secret scanning remains required.",
       "git_diff_check_and_js_syntax": "PASS after QR changes",
-      "focused_map_schema_regressions": "PASS — 2 hosted failing map-response regressions pass locally after adding and validating starting_node_id in MapViewBlock."
+      "focused_map_schema_regressions": "PASS — 2 hosted failing map-response regressions pass locally after adding and validating starting_node_id in MapViewBlock.",
+      "conversation_pagination_backend": {
+        "passed": 57,
+        "failed": 0,
+        "scope": "tests/test_conversation_pagination.py, tests/test_restaurant_workflows.py, tests/test_guest_privacy_consent.py, tests/test_notification_delivery.py, tests/test_high_rbac_boundaries.py; 2 dependency deprecation warnings."
+      },
+      "conversation_pagination_browser": {
+        "passed": 3,
+        "failed": 0,
+        "scope": "Chromium: bounded inbox pages/status counts; takeover/staff reply/resolve; restaurant assignment."
+      },
+      "pagination_javascript_and_diff": "PASS — node --check app/static/admin.js and git diff --check after pagination changes."
     },
     "github_base_ci": {
       "run_id": "38843201718",
       "result": "9/10 jobs passed; secret-scan failed on three historical findings in audit/evidence/security-2026-10-12/recovery-harness-before.txt. No credential values are copied into this ledger."
     },
     "github_candidate_ci": {
-      "run_id": "38861282815",
-      "run_number": 258,
-      "head_commit": "79a33c5c4fdd9de55b8182d5ae6d1ce68f4d1693",
+      "run_id": "38862722596",
+      "run_number": 259,
+      "head_commit": "4563d0064da1e306a67f173a8b729d99811aec7b",
       "pull_request": "https://github.com/jasongil003/Concierge.Ai/pull/63",
-      "result": "COMPLETED — 9/10 jobs passed. Backend: 1,348 passed, 19 skipped. Browser: 356 passed, 40 skipped. PostgreSQL/Redis, Docker, dependency, static-security, and Linux/macOS deployment jobs passed. Secret scan failed only on three known historical findings; the PR-diff scan and current-worktree scan found no leaks."
+      "result": "COMPLETED — 9/10 jobs passed. Backend: 1,348 passed, 19 skipped. Browser: 356 passed, 40 skipped. PostgreSQL/Redis, Docker, dependency audits, static security, and Linux/macOS deployment passed. The PR-diff scan and current-worktree no-git scan found no leaks. The forced-text full-history scan found three known historical findings; no credential values are reproduced here. This run predates implementation commits 97369c6 and adec402; focused local validation passed and refreshed hosted CI is pending publication."
     },
     "repository_release_controls": {
       "main_branch_protection": "DISABLED; GitHub integration denied branch-protection configuration access (HTTP 403).",
@@ -146,7 +157,9 @@
       "f8bcf3d",
       "2a0cc6f",
       "3c4e3bd",
-      "101ed7d29ee31e63617943453cc3499b5a4ec4bd"
+      "101ed7d29ee31e63617943453cc3499b5a4ec4bd",
+      "97369c6",
+      "adec402"
     ],
     "current_head_at_ledger_creation": "101ed7d29ee31e63617943453cc3499b5a4ec4bd",
     "publication_state": {
@@ -154,10 +167,16 @@
       "connector_fallback": "COMPLETE — the owner-authorized branch snapshot is published as an open draft PR.",
       "remote_main_changed": false,
       "remote_branch_created": true,
-      "tested_candidate_commit": "79a33c5c4fdd9de55b8182d5ae6d1ce68f4d1693",
+      "tested_candidate_commit": "4563d0064da1e306a67f173a8b729d99811aec7b",
       "pull_request_created": true,
       "pull_request_url": "https://github.com/jasongil003/Concierge.Ai/pull/63",
-      "hosted_branch_ci": "COMPLETED — run #258 (38861282815), 9/10 jobs passed; full-history secret scan remains failed on three known historical findings. A follow-up audit-doc commit will trigger another run."
+      "hosted_branch_ci": "COMPLETED — run #259 (38862722596), 9/10 jobs passed; backend 1,348 passed / 19 skipped, browser 356 passed / 40 skipped. PR-diff and current-worktree scans were clear; forced-text full-history Gitleaks found three known historical findings. This run predates implementation commits 97369c6 and adec402; refreshed hosted CI is pending publication.",
+      "implementation_candidate_commit": "adec4029ade9e49aa681d79586cf0a7847756eca"
+    },
+    "candidate_validation_state": {
+      "implementation_commit": "adec4029ade9e49aa681d79586cf0a7847756eca",
+      "local_focused_validation": "PASS — backend regression set 57/57, focused Chromium flows 3/3, JavaScript syntax and whitespace checks pass.",
+      "hosted_ci": "PENDING — implementation commits postdate run #259 and await publication."
     }
   },
   "requirements": [
@@ -835,29 +854,39 @@
       "requirement_id": "A-26",
       "category": "GUEST EXPERIENCE",
       "expected_behavior": "Guest privacy controls: function correctly within the selected property and authorized identity; meet the behavior described in the master request.",
-      "current_implementation": "Preference opt-in/review/edit/clear and truthful authorized-staff/retained-conversation disclosure pass locally. Comprehensive privacy controls are incomplete because location collection/retention consent and authoritative notification opt-out remain absent.",
-      "verified_functionality": "tests/test_personalization.py:11::test_guest_preferences_are_private_until_the_guest_opts_in passed in the recorded local run. tests/test_personalization.py:80::test_guest_controls_api_and_chat_context_respect_consent passed in the recorded local run. tests/e2e/guest-privacy.spec.js:6::guest privacy explains staff access and retained conversations truthfully passed in chromium. tests/e2e/guest-privacy.spec.js:6::guest privacy explains staff access and retained conversations truthfully passed in mobile-chrome. Automated Chromium browser PASS for guest privacy explains staff access and retained conversations truthfully. Evidence: audit/evidence/browser-2026-10-12/playwright-final-candidate.log. Physical iOS/Android, captive portals and live external providers not certified.",
-      "missing_functionality": "Complete property/stay-scoped location retention/collection consent and authoritative notification preferences/opt-out; keep preference and disclosure regressions.",
+      "current_implementation": "Guest privacy GET/PUT uses default-false consent categories. Location ingestion requires an authenticated linked active stay, property location policy, explicit stay-bound consent and a server-derived pseudonymous identity; withdrawal and checkout erase location data. Optional notification consent and guest-scoped opt-out are authoritative, with withdrawal purging optional inbox items. The implementation has local regression coverage; production policy acceptance remains external.",
+      "verified_functionality": "Hosted candidate CI run #259 passed the complete backend suite (1,348 passed, 19 skipped). Focused regression references are listed below; CI totals are suite-level, not per-test hosted receipts. Physical iOS/Android, property-policy approval, and live provider/delivery acceptance remain unverified.",
+      "missing_functionality": "Obtain property/privacy approval for the retention duration, deletion scope, consent copy and approved notification audience; then validate the approved choices against the target property and live integrations.",
       "evidence_test_reference": [
-        "tests/test_personalization.py:11::test_guest_preferences_are_private_until_the_guest_opts_in — PASS (Isolated local backend suite)",
-        "tests/test_personalization.py:80::test_guest_controls_api_and_chat_context_respect_consent — PASS (Isolated local backend suite)",
-        "tests/e2e/guest-privacy.spec.js:6::guest privacy explains staff access and retained conversations truthfully — PASS [chromium]",
-        "tests/e2e/guest-privacy.spec.js:6::guest privacy explains staff access and retained conversations truthfully — PASS [mobile-chrome]",
-        "app/static/app.js:15",
-        "app/personalization.py:210",
-        "app/main.py:1615",
-        "app/main.py:1407",
-        "app/main.py:1543",
-        "app/main.py:6387",
-        "tests/test_personalization.py:11",
-        "tests/test_personalization.py:80",
-        "API: GET /api/hotel; GET /api/guest/home; POST /api/chat"
+        "tests/test_guest_privacy_consent.py::test_guest_privacy_defaults_grants_withdraws_and_isolates_properties",
+        "tests/test_guest_privacy_consent.py::test_location_consent_cannot_be_granted_before_stay_link",
+        "tests/test_guest_privacy_consent.py::test_location_observation_requires_consent_and_never_persists_unauthorized_mac",
+        "tests/test_guest_privacy_consent.py::test_location_observation_grant_withdrawal_and_server_derived_binding",
+        "tests/test_guest_privacy_consent.py::test_location_observation_requires_active_property_policy_and_valid_session",
+        "tests/test_guest_privacy_consent.py::test_checkout_erases_guest_consent_and_location_data",
+        "tests/test_guest_privacy_consent.py::test_consent_and_location_retention_cleanup",
+        "tests/test_guest_privacy_consent.py::test_checkout_starts_retention_and_repeat_checkout_does_not_extend_it",
+        "tests/test_guest_privacy_consent.py::test_session_reconnect_uses_server_retention_policy_not_client_value",
+        "tests/test_guest_privacy_consent.py::test_concurrent_retention_cleanup_is_idempotent_and_property_scoped",
+        "tests/test_guest_privacy_consent.py::test_expired_optional_consent_is_retained_for_active_stay_then_removed_on_checkout",
+        "tests/test_guest_privacy_consent.py::test_optional_consent_withdrawal_cascades_across_linked_sessions",
+        "tests/test_guest_privacy_consent.py::test_periodic_retention_cleans_expired_data_without_app_restart",
+        "tests/test_notification_delivery.py::test_preferences_are_guest_scoped_and_input_validation_is_strict",
+        "tests/test_notification_delivery.py::test_guest_notification_api_requires_linked_stay_and_optional_consent",
+        "tests/test_notification_delivery.py::test_notification_evaluation_cannot_trust_caller_preferences_or_inactive_stays",
+        "tests/test_notification_delivery.py::test_withdrawing_proactive_consent_immediately_removes_optional_notifications",
+        "tests/test_notification_delivery.py::test_retention_worker_recovers_interrupted_optional_notification_withdrawal",
+        "Hosted PR #63 CI run #259: backend 1,348 passed, 19 skipped; browser 356 passed, 40 skipped.",
+        "app/privacy_consent.py",
+        "app/location_analytics.py",
+        "app/guest_identity.py",
+        "app/main.py"
       ],
       "severity": "High",
-      "blocking_dependency": "None identified for local remediation.",
-      "status": "PARTIAL",
+      "blocking_dependency": "Property data controller/privacy owner must approve retention duration, deletion scope, guest-facing consent text, and allowed notification/location policy before live collection or outbound activation.",
+      "status": "BLOCKED",
       "scope": "CORE — included in the original 384-item denominator",
-      "source_matrix_status": "PARTIALLY IMPLEMENTED"
+      "source_matrix_status": "BLOCKED BY EXTERNAL DEPENDENCY"
     },
     {
       "requirement_id": "A-27",
@@ -2330,19 +2359,24 @@
       "requirement_id": "C-30",
       "category": "ADMIN PORTAL",
       "expected_behavior": "Pagination: function correctly within the selected property and authorized identity; meet the behavior described in the master request.",
-      "current_implementation": "Admin lists generally load arrays and filter in the browser; no collection-wide page/cursor navigation controls found.",
-      "verified_functionality": "NOT RUN for this individual acceptance criterion in the inventory pass; see MASTER_UI_UX_REVIEW for executed scope.",
-      "missing_functionality": "Add property/role scoped bounded server pagination to high-volume lists, then browser controls.",
+      "current_implementation": "The property Conversations inbox now supports bounded server pages (maximum 100), stable activity ordering, property/restaurant-role-scoped totals and status counts, and previous/next controls. Search is intentionally scoped to the current page because message bodies are encrypted. Other high-volume admin lists are not yet paginated.",
+      "verified_functionality": "tests/test_conversation_pagination.py and the role-scoped page assertion in tests/test_restaurant_workflows.py pass in the 57-test backend regression set. Playwright pagination, conversation takeover/reply/resolve, and restaurant assignment passed in Chromium (3/3). Node syntax and git diff checks passed. The implementation is committed as 97369c69828ae881236455b367548a4c88cde4e3 with detail-state follow-up adec4029ade9e49aa681d79586cf0a7847756eca. This closes the Conversations inbox slice only.",
+      "missing_functionality": "Extend bounded server pagination and controls to the other high-volume admin collections. Current conversation search covers the loaded page only.",
       "evidence_test_reference": [
-        "app/static/admin.js:6125",
-        "app/main.py:396",
-        "API: No general paginated list contract"
+        "tests/test_conversation_pagination.py::test_conversation_inbox_pages_are_bounded_scoped_and_report_full_counts — PASS",
+        "tests/test_restaurant_workflows.py::test_restaurant_manager_and_staff_are_limited_to_assigned_restaurants — paginated page/count remains role-scoped",
+        "tests/e2e/admin-actions.spec.js::conversation inbox uses bounded server pages and keeps complete status counts — PASS [chromium]",
+        "tests/e2e/admin-actions.spec.js::admin conversation buttons: takeover, staff response, and close — PASS [chromium]",
+        "tests/e2e/admin-actions.spec.js::admin conversation queue can assign an escalated conversation to staff — PASS [chromium]",
+        "GET /api/admin/properties/{property_id}/conversations?limit={1..100}&offset={0..1000000}&status={state}",
+        "app/session_store.py::SessionStore.conversation_status_counts",
+        "app/session_store.py::SessionStore.conversations"
       ],
       "severity": "Medium",
-      "blocking_dependency": "None identified for local remediation.",
-      "status": "FAILED",
+      "blocking_dependency": "None identified for the remaining local pagination work.",
+      "status": "PARTIAL",
       "scope": "CORE — included in the original 384-item denominator",
-      "source_matrix_status": "MISSING"
+      "source_matrix_status": "PARTIALLY IMPLEMENTED"
     },
     {
       "requirement_id": "C-31",
@@ -7219,27 +7253,39 @@
       "requirement_id": "L-14",
       "category": "SESSIONS AND STAY MEMORY",
       "expected_behavior": "Guest privacy controls: function correctly within the selected property and authorized identity; meet the behavior described in the master request.",
-      "current_implementation": "Preference opt-in/review/edit/clear and truthful authorized-staff/retained-conversation disclosure pass locally. Comprehensive privacy controls are incomplete because location collection/retention consent and authoritative notification opt-out remain absent.",
-      "verified_functionality": "tests/test_personalization.py:11::test_guest_preferences_are_private_until_the_guest_opts_in passed in the recorded local run. tests/test_personalization.py:80::test_guest_controls_api_and_chat_context_respect_consent passed in the recorded local run. NOT RUN for this individual acceptance criterion in the inventory pass; see MASTER_UI_UX_REVIEW for executed scope.",
-      "missing_functionality": "Complete property/stay-scoped location retention/collection consent and authoritative notification preferences/opt-out; keep preference and disclosure regressions.",
+      "current_implementation": "Guest privacy GET/PUT uses default-false consent categories. Location ingestion requires an authenticated linked active stay, property location policy, explicit stay-bound consent and a server-derived pseudonymous identity; withdrawal and checkout erase location data. Optional notification consent and guest-scoped opt-out are authoritative, with withdrawal purging optional inbox items. The implementation has local regression coverage; production policy acceptance remains external.",
+      "verified_functionality": "Hosted candidate CI run #259 passed the complete backend suite (1,348 passed, 19 skipped). Focused regression references are listed below; CI totals are suite-level, not per-test hosted receipts. Physical iOS/Android, property-policy approval, and live provider/delivery acceptance remain unverified.",
+      "missing_functionality": "Obtain property/privacy approval for the retention duration, deletion scope, consent copy and approved notification audience; then validate the approved choices against the target property and live integrations.",
       "evidence_test_reference": [
-        "tests/test_personalization.py:11::test_guest_preferences_are_private_until_the_guest_opts_in — PASS (Isolated local backend suite)",
-        "tests/test_personalization.py:80::test_guest_controls_api_and_chat_context_respect_consent — PASS (Isolated local backend suite)",
-        "app/static/admin.js:6256",
-        "app/personalization.py:192",
-        "app/personalization.py:302",
-        "app/main.py:5951",
-        "app/main.py:6004",
-        "app/main.py:5050",
-        "tests/test_personalization.py:11",
-        "tests/test_personalization.py:80",
-        "API: POST /api/session/start; POST /api/session/resume; GET /api/admin/properties/{property_id}/sessions"
+        "tests/test_guest_privacy_consent.py::test_guest_privacy_defaults_grants_withdraws_and_isolates_properties",
+        "tests/test_guest_privacy_consent.py::test_location_consent_cannot_be_granted_before_stay_link",
+        "tests/test_guest_privacy_consent.py::test_location_observation_requires_consent_and_never_persists_unauthorized_mac",
+        "tests/test_guest_privacy_consent.py::test_location_observation_grant_withdrawal_and_server_derived_binding",
+        "tests/test_guest_privacy_consent.py::test_location_observation_requires_active_property_policy_and_valid_session",
+        "tests/test_guest_privacy_consent.py::test_checkout_erases_guest_consent_and_location_data",
+        "tests/test_guest_privacy_consent.py::test_consent_and_location_retention_cleanup",
+        "tests/test_guest_privacy_consent.py::test_checkout_starts_retention_and_repeat_checkout_does_not_extend_it",
+        "tests/test_guest_privacy_consent.py::test_session_reconnect_uses_server_retention_policy_not_client_value",
+        "tests/test_guest_privacy_consent.py::test_concurrent_retention_cleanup_is_idempotent_and_property_scoped",
+        "tests/test_guest_privacy_consent.py::test_expired_optional_consent_is_retained_for_active_stay_then_removed_on_checkout",
+        "tests/test_guest_privacy_consent.py::test_optional_consent_withdrawal_cascades_across_linked_sessions",
+        "tests/test_guest_privacy_consent.py::test_periodic_retention_cleans_expired_data_without_app_restart",
+        "tests/test_notification_delivery.py::test_preferences_are_guest_scoped_and_input_validation_is_strict",
+        "tests/test_notification_delivery.py::test_guest_notification_api_requires_linked_stay_and_optional_consent",
+        "tests/test_notification_delivery.py::test_notification_evaluation_cannot_trust_caller_preferences_or_inactive_stays",
+        "tests/test_notification_delivery.py::test_withdrawing_proactive_consent_immediately_removes_optional_notifications",
+        "tests/test_notification_delivery.py::test_retention_worker_recovers_interrupted_optional_notification_withdrawal",
+        "Hosted PR #63 CI run #259: backend 1,348 passed, 19 skipped; browser 356 passed, 40 skipped.",
+        "app/privacy_consent.py",
+        "app/location_analytics.py",
+        "app/guest_identity.py",
+        "app/main.py"
       ],
       "severity": "High",
-      "blocking_dependency": "None identified for local remediation.",
-      "status": "PARTIAL",
+      "blocking_dependency": "Property data controller/privacy owner must approve retention duration, deletion scope, guest-facing consent text, and allowed notification/location policy before live collection or outbound activation.",
+      "status": "BLOCKED",
       "scope": "CORE — included in the original 384-item denominator",
-      "source_matrix_status": "PARTIALLY IMPLEMENTED"
+      "source_matrix_status": "BLOCKED BY EXTERNAL DEPENDENCY"
     },
     {
       "requirement_id": "M-01",
@@ -7448,39 +7494,55 @@
       "requirement_id": "M-11",
       "category": "LOCATION ANALYTICS",
       "expected_behavior": "Privacy controls: function correctly within the selected property and authorized identity; meet the behavior described in the master request.",
-      "current_implementation": "Pseudonymous identity and aggregate admin display exist; no guest location-consent lifecycle or complete location-retention enforcement.",
-      "verified_functionality": "NOT RUN for this individual acceptance criterion in the inventory pass; see MASTER_UI_UX_REVIEW for executed scope.",
-      "missing_functionality": "Define lawful guest controls and enforce collection/retention/aggregate access boundaries; test no sensitive WLAN details in guest responses.",
+      "current_implementation": "Guest privacy GET/PUT uses default-false consent categories. Location ingestion requires an authenticated linked active stay, property location policy, explicit stay-bound consent and a server-derived pseudonymous identity; withdrawal and checkout erase location data. Optional notification consent and guest-scoped opt-out are authoritative, with withdrawal purging optional inbox items. The implementation has local regression coverage; production policy acceptance remains external. Admin analytics are property-scoped; guest privacy endpoints do not expose WLAN identifiers or location observation records.",
+      "verified_functionality": "Hosted candidate CI run #259 passed the complete backend suite (1,348 passed, 19 skipped). Focused regression references are listed below; CI totals are suite-level, not per-test hosted receipts. WLAN controller feed and property approval have not been tested against a live hotel.",
+      "missing_functionality": "Approve location retention and aggregate-access policy, then validate the target property WLAN feed and confirm its configured guest-safe projection and deletion scope.",
       "evidence_test_reference": [
-        "app/static/admin.js:6334",
-        "app/location_analytics.py:165",
-        "app/personalization.py:24",
-        "API: /api/admin/properties/{property_id}/location/live; /location/observations; /location/report"
+        "tests/test_guest_privacy_consent.py::test_location_observation_requires_consent_and_never_persists_unauthorized_mac",
+        "tests/test_guest_privacy_consent.py::test_location_observation_grant_withdrawal_and_server_derived_binding",
+        "tests/test_guest_privacy_consent.py::test_location_observation_requires_active_property_policy_and_valid_session",
+        "tests/test_guest_privacy_consent.py::test_checkout_erases_guest_consent_and_location_data",
+        "tests/test_guest_privacy_consent.py::test_consent_and_location_retention_cleanup",
+        "tests/test_guest_privacy_consent.py::test_checkout_starts_retention_and_repeat_checkout_does_not_extend_it",
+        "tests/test_guest_privacy_consent.py::test_session_reconnect_uses_server_retention_policy_not_client_value",
+        "tests/test_guest_privacy_consent.py::test_concurrent_retention_cleanup_is_idempotent_and_property_scoped",
+        "Hosted PR #63 CI run #259: backend 1,348 passed, 19 skipped.",
+        "app/location_analytics.py",
+        "app/privacy_consent.py",
+        "app/main.py: property-scoped admin location routes"
       ],
       "severity": "High",
-      "blocking_dependency": "None identified for local remediation.",
-      "status": "PARTIAL",
+      "blocking_dependency": "Property data controller/privacy owner must approve retention duration, deletion scope, guest-facing consent text, and allowed notification/location policy before live collection or outbound activation. Hotel operations must provide an authorized WLAN/controller feed for live acceptance.",
+      "status": "BLOCKED",
       "scope": "CORE — included in the original 384-item denominator",
-      "source_matrix_status": "PARTIALLY IMPLEMENTED"
+      "source_matrix_status": "BLOCKED BY EXTERNAL DEPENDENCY"
     },
     {
       "requirement_id": "M-12",
       "category": "LOCATION ANALYTICS",
       "expected_behavior": "Guest-safe views: function correctly within the selected property and authorized identity; meet the behavior described in the master request.",
-      "current_implementation": "Pseudonymous identity and aggregate admin display exist; no guest location-consent lifecycle or complete location-retention enforcement.",
-      "verified_functionality": "NOT RUN for this individual acceptance criterion in the inventory pass; see MASTER_UI_UX_REVIEW for executed scope.",
-      "missing_functionality": "Define lawful guest controls and enforce collection/retention/aggregate access boundaries; test no sensitive WLAN details in guest responses.",
+      "current_implementation": "Guest privacy GET/PUT uses default-false consent categories. Location ingestion requires an authenticated linked active stay, property location policy, explicit stay-bound consent and a server-derived pseudonymous identity; withdrawal and checkout erase location data. Optional notification consent and guest-scoped opt-out are authoritative, with withdrawal purging optional inbox items. The implementation has local regression coverage; production policy acceptance remains external. Admin analytics are property-scoped; guest privacy endpoints do not expose WLAN identifiers or location observation records.",
+      "verified_functionality": "Hosted candidate CI run #259 passed the complete backend suite (1,348 passed, 19 skipped). Focused regression references are listed below; CI totals are suite-level, not per-test hosted receipts. WLAN controller feed and property approval have not been tested against a live hotel.",
+      "missing_functionality": "Approve location retention and aggregate-access policy, then validate the target property WLAN feed and confirm its configured guest-safe projection and deletion scope.",
       "evidence_test_reference": [
-        "app/static/admin.js:6334",
-        "app/location_analytics.py:165",
-        "app/personalization.py:24",
-        "API: /api/admin/properties/{property_id}/location/live; /location/observations; /location/report"
+        "tests/test_guest_privacy_consent.py::test_location_observation_requires_consent_and_never_persists_unauthorized_mac",
+        "tests/test_guest_privacy_consent.py::test_location_observation_grant_withdrawal_and_server_derived_binding",
+        "tests/test_guest_privacy_consent.py::test_location_observation_requires_active_property_policy_and_valid_session",
+        "tests/test_guest_privacy_consent.py::test_checkout_erases_guest_consent_and_location_data",
+        "tests/test_guest_privacy_consent.py::test_consent_and_location_retention_cleanup",
+        "tests/test_guest_privacy_consent.py::test_checkout_starts_retention_and_repeat_checkout_does_not_extend_it",
+        "tests/test_guest_privacy_consent.py::test_session_reconnect_uses_server_retention_policy_not_client_value",
+        "tests/test_guest_privacy_consent.py::test_concurrent_retention_cleanup_is_idempotent_and_property_scoped",
+        "Hosted PR #63 CI run #259: backend 1,348 passed, 19 skipped.",
+        "app/location_analytics.py",
+        "app/privacy_consent.py",
+        "app/main.py: property-scoped admin location routes"
       ],
       "severity": "High",
-      "blocking_dependency": "None identified for local remediation.",
-      "status": "PARTIAL",
+      "blocking_dependency": "Property data controller/privacy owner must approve retention duration, deletion scope, guest-facing consent text, and allowed notification/location policy before live collection or outbound activation. Hotel operations must provide an authorized WLAN/controller feed for live acceptance.",
+      "status": "BLOCKED",
       "scope": "CORE — included in the original 384-item denominator",
-      "source_matrix_status": "PARTIALLY IMPLEMENTED"
+      "source_matrix_status": "BLOCKED BY EXTERNAL DEPENDENCY"
     },
     {
       "requirement_id": "M-13",

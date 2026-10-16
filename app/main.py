@@ -5619,13 +5619,29 @@ async def admin_sessions(property_id: str) -> dict[str, Any]:
 
 
 @app.get("/api/admin/properties/{property_id}/conversations")
-async def property_conversations(property_id: str, request: Request) -> dict[str, Any]:
+async def property_conversations(
+    property_id: str,
+    request: Request,
+    limit: int = 50,
+    offset: int = 0,
+    status: str = "",
+) -> dict[str, Any]:
     _require_property(property_id)
     principal = _admin_principal(request)
     if not principal.can("conversations.view") or not principal.can_access_property(property_id):
         raise HTTPException(status_code=403, detail="Permission required: conversations.view")
+    if not 1 <= limit <= 100:
+        raise HTTPException(status_code=422, detail="Conversation page size must be between 1 and 100.")
+    if not 0 <= offset <= 1_000_000:
+        raise HTTPException(status_code=422, detail="Conversation page offset must be between 0 and 1000000.")
+    if status not in {"", "waiting_for_staff", "assigned", "human_active", "ai_active", "resolved"}:
+        raise HTTPException(status_code=422, detail="Invalid conversation state filter.")
     restaurant_ids = None if principal.can("properties.all") or principal.can("properties.edit") else _assigned_restaurant_ids(principal, property_id)
-    conversations = store.conversations(property_id, restaurant_ids)
+    status_counts = store.conversation_status_counts(property_id, restaurant_ids)
+    total = status_counts.get(status, 0) if status else sum(status_counts.values())
+    last_page_offset = max(0, ((total - 1) // limit) * limit) if total else 0
+    offset = min(offset, last_page_offset)
+    conversations = store.conversations(property_id, restaurant_ids, limit=limit, offset=offset, state_filter=status)
     for conversation in conversations:
         restaurant_id = conversation.get("restaurant_id")
         restaurant = hospitality.get_restaurant(property_id, restaurant_id) if restaurant_id else None
@@ -5636,7 +5652,14 @@ async def property_conversations(property_id: str, request: Request) -> dict[str
         # the guest explicitly submitted, along with staff replies.
         conversation["messages"] = [message for message in conversation.get("messages", []) if message.get("role") == "staff"]
         conversation["message_count"] = len(conversation["messages"]) + int(bool(conversation.get("escalation_reason")))
-    return {"conversations": conversations, "retention": store.retention(property_id)}
+    return {
+        "conversations": conversations,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "status_counts": status_counts,
+        "retention": store.retention(property_id),
+    }
 
 
 @app.get("/api/admin/properties/{property_id}/conversations/retention")

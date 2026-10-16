@@ -63,4 +63,18 @@ Do not approve an external pilot or production release until the security, gover
 
 The guest browser flow filters the signed start parameters from gateway context and preserves the QR waypoint as the route origin across destination selection and a new chat. The feature tests use synthetic properties/maps; they do not establish physical-device, hotel-network, or production acceptance.
 
-Draft [PR #63](https://github.com/jasongil003/Concierge.Ai/pull/63) is mergeable and remains draft. Hosted run [#258](https://github.com/jasongil003/Concierge.Ai/actions/runs/38861282815) passed 9/10 jobs: backend **1,348 passed, 19 skipped**, browser **356 passed, 40 skipped**, and PostgreSQL/Redis, Docker, dependencies, static security, and both deployment validations passed. Only full-history Gitleaks failed on the three known historical findings; the changed-commit and current-worktree scans were clear. This evidence update will trigger another candidate run. Release recommendation remains RED.
+Draft [PR #63](https://github.com/jasongil003/Concierge.Ai/pull/63) is mergeable and remains draft. Hosted run [#258](https://github.com/jasongil003/Concierge.Ai/actions/runs/38861282815) passed 9/10 jobs: backend **1,348 passed, 19 skipped**, browser **356 passed, 40 skipped**, and PostgreSQL/Redis, Docker, dependencies, static security, and both deployment validations passed. Only full-history Gitleaks failed on the three known historical findings; the changed-commit and current-worktree scans were clear. Release recommendation remains RED.
+
+## 2026-10-16 candidate refresh — PR #63 run #259
+
+- PR #63 remains open, draft and unmerged at head `4563d0064da1e306a67f173a8b729d99811aec7b`; `main` remains unchanged.
+- Hosted run [#259](https://github.com/jasongil003/Concierge.Ai/actions/runs/38862722596) completed with **9/10 jobs passed**. Backend: **1,348 passed, 19 skipped**; browser: **356 passed, 40 skipped**. PostgreSQL/Redis, Docker, dependency audits, static security, and Linux/macOS deployment passed.
+- The PR-diff scan and current-worktree no-git Gitleaks scans were clear. The forced-text full-history scan found three known historical findings; no credential values are reproduced.
+- The current ledger corrects privacy rows for existing stay-bound location consent, checkout/withdrawal cleanup and authoritative optional-notification opt-out. Property/privacy-owner approval of retention duration, deletion scope, consent copy and allowed audiences remains **BLOCKED**; live hotel/controller and provider validation remain outstanding.
+- Release recommendation remains **RED**. No merge, deployment, history rewrite, or credential rotation occurred.
+
+## 2026-10-16 local pagination slice — commit `97369c6`
+
+- The property Conversations inbox now loads stable, bounded server pages (default 50, maximum 100), reports property/restaurant-role-scoped totals and status counts, filters status on the server, and supports previous/next controls. Search is labeled as page-scoped because stored message bodies are encrypted. Follow-up `adec402` preserves selected detail and updates it after status/reply/assignment mutations even when the filter removes the row from the current page.
+- Focused backend/property-scope/privacy/notification regression set: **57 passed**. Focused Chromium pagination and existing takeover/reply/resolve/assignment workflows: **3 passed**. `node --check app/static/admin.js` and `git diff --check` passed.
+- This is a partial C-30 acceptance: pagination for other high-volume admin lists remains open. Commits `97369c6` and `adec402` postdate hosted run #259; refreshed hosted CI is pending publication.

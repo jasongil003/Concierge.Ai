@@ -909,10 +909,53 @@ class SessionStore:
             )
         return len(session_ids)
 
-    def conversations(self, property_id: str, restaurant_ids: set[str] | None = None) -> list[dict[str, Any]]:
+    def conversation_status_counts(self, property_id: str, restaurant_ids: set[str] | None = None) -> dict[str, int]:
+        self.purge_expired_conversations(property_id)
+        counts = {key: 0 for key in ("waiting_for_staff", "assigned", "human_active", "ai_active", "resolved")}
+        if restaurant_ids is not None and not restaurant_ids:
+            return counts
+        restaurant_clause = ""
+        params: list[Any] = [property_id]
+        if restaurant_ids is not None:
+            ordered_ids = sorted(restaurant_ids)
+            restaurant_clause = f" AND cs.restaurant_id IN ({','.join('?' for _ in ordered_ids)})"  # nosec B608 - generated placeholders only.
+            params.extend(ordered_ids)
+        state_key = """CASE
+            WHEN COALESCE(cs.state,'ai_active') IN ('waiting_for_staff','assigned','human_active','resolved') THEN COALESCE(cs.state,'ai_active')
+            WHEN cs.status='closed' THEN 'resolved'
+            WHEN cs.status='escalated' THEN 'waiting_for_staff'
+            ELSE 'ai_active' END"""
+        with self._connect() as db:
+            rows = db.execute(
+                f"""SELECT {state_key} AS state_key,COUNT(*) AS total
+                FROM sessions s LEFT JOIN conversation_state cs ON cs.session_id=s.session_id AND cs.property_id=s.property_id
+                WHERE s.property_id=?{restaurant_clause} GROUP BY state_key""",  # nosec B608 - fixed expression and generated placeholders only.
+                params,
+            ).fetchall()
+        for row in rows:
+            if row["state_key"] in counts:
+                counts[row["state_key"]] = int(row["total"])
+        return counts
+
+    def conversations(
+        self,
+        property_id: str,
+        restaurant_ids: set[str] | None = None,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+        state_filter: str = "",
+    ) -> list[dict[str, Any]]:
         self.purge_expired_conversations(property_id)
         if restaurant_ids is not None and not restaurant_ids:
             return []
+        if limit is not None and not 1 <= limit <= 100:
+            raise ValueError("Conversation page size must be between 1 and 100.")
+        if offset < 0 or offset > 1_000_000:
+            raise ValueError("Conversation page offset must be between 0 and 1000000.")
+        allowed_states = {"waiting_for_staff", "assigned", "human_active", "ai_active", "resolved"}
+        if state_filter and state_filter not in allowed_states:
+            raise ValueError("Invalid conversation state filter.")
         restaurant_clause = ""
         restaurant_params: tuple[Any, ...] = ()
         if restaurant_ids is not None:
@@ -930,11 +973,24 @@ class SessionStore:
                 LEFT JOIN conversation_state cs ON cs.session_id=s.session_id AND cs.property_id=s.property_id
                 WHERE s.property_id=? """
         )
-        query = query_start + restaurant_clause + " GROUP BY s.session_id ORDER BY COALESCE(MAX(m.created_at),s.created_at) DESC"  # nosec B608 - generated placeholders only; property and restaurant IDs are bound.
+        state_key = """CASE
+            WHEN COALESCE(cs.state,'ai_active') IN ('waiting_for_staff','assigned','human_active','resolved') THEN COALESCE(cs.state,'ai_active')
+            WHEN cs.status='closed' THEN 'resolved'
+            WHEN cs.status='escalated' THEN 'waiting_for_staff'
+            ELSE 'ai_active' END"""
+        query = query_start + restaurant_clause + " GROUP BY s.session_id"
+        params: list[Any] = [property_id, *restaurant_params]
+        if state_filter:
+            query += f" HAVING {state_key}=?"  # nosec B608 - state_key is a fixed SQL expression.
+            params.append(state_filter)
+        query += " ORDER BY COALESCE(MAX(m.created_at),s.created_at) DESC,s.session_id DESC"
+        if limit is not None:
+            query += " LIMIT ? OFFSET ?"
+            params.extend((limit, offset))
         with self._connect() as db:
             # The optional clause consists only of generated placeholders; all restaurant IDs are bound values.
             # B608 rationale: optional clause contains generated placeholders only; restaurant IDs are bound here.
-            rows = db.execute(query, (property_id, *restaurant_params)).fetchall()  # nosec B608
+            rows = db.execute(query, params).fetchall()  # nosec B608
             result = []
             for row in rows:
                 messages = db.execute(

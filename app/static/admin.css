@@ -374,6 +374,9 @@ a { color: inherit; text-decoration: none; }
 .conversation-list { display: grid; min-height: 0; align-content: start; gap: 7px; overflow: auto; padding: 1px 3px 2px 1px; }
 .conversation-queue { height: 100%; }
 .conversation-queue .conversation-list { flex: 1; }
+.conversation-pagination { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 10px; }
+.conversation-pagination span { color: var(--mid); font-size: 11px; text-align: center; }
+.conversation-pagination button { min-height: 36px; }
 .conversation-row { display: grid; width: 100%; gap: 6px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--white); text-align: left; }
 .conversation-row:hover { border-color: #aaa; background: #fafafa; }
 .conversation-row.selected { border-color: #555; box-shadow: inset 3px 0 #222; }
