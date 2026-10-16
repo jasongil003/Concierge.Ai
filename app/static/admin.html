@@ -178,6 +178,11 @@
             <section class="builder-template-group" aria-label="Theme palettes"><div><strong>Theme palettes</strong><small>Set the page-wide colors and typography in this draft.</small></div><div class="builder-template-options">
               <button type="button" data-design-preset="elegant">Elegant</button><button type="button" data-design-preset="minimal">Minimal</button><button type="button" data-design-preset="soft-gray">Soft gray</button><button type="button" data-design-preset="high-contrast">High contrast</button><button type="button" data-design-preset="graphite">Graphite</button><button type="button" data-design-preset="ocean">Ocean</button><button type="button" data-design-preset="botanical">Botanical</button><button type="button" data-design-preset="rose">Rose</button><button type="button" data-design-preset="coral">Coral</button><button type="button" data-design-preset="modern-elegance">Modern Elegance</button>
             </div><button class="builder-template-reset" id="reset-design-template" type="button">Reset page settings to saved draft</button></section>
+            <section class="builder-template-group" aria-label="Property design templates">
+              <div><strong>Copy published design</strong><small>Use another property’s published guest design as this property’s draft. Property settings, integrations, and credentials stay separate.</small></div>
+              <label for="builder-clone-source-property">Source property<select id="builder-clone-source-property"><option value="">Choose a property</option></select></label>
+              <button type="button" class="secondary" id="builder-clone-property-button" data-permission="concierge.edit" data-requires-property disabled>Copy to draft</button>
+            </section>
           </div>
           <div class="experience-builder-content">
             <aside class="builder-library-panel" aria-label="Page structure" data-permission="concierge.edit">

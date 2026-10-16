@@ -403,6 +403,10 @@
     "authentication": "required",
     "permission": "concierge.edit"
   },
+  "POST /api/admin/properties/{property_id}/design/clone": {
+    "authentication": "required",
+    "permission": "concierge.edit"
+  },
   "POST /api/admin/properties/{property_id}/design/publish": {
     "authentication": "required",
     "permission": "concierge.edit"

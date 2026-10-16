@@ -1035,6 +1035,13 @@ class DesignConfigPayload(BaseModel):
     expected_revision: int | None = Field(default=None, ge=1)
 
 
+class DesignClonePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_property_id: str = Field(min_length=1, max_length=120)
+    expected_revision: int | None = Field(default=None, ge=1)
+
+
 class DesignPublishPayload(BaseModel):
     expected_revision: int | None = Field(default=None, ge=1)
 
@@ -5338,6 +5345,58 @@ async def save_property_design_draft(property_id: str, payload: DesignConfigPayl
             raise HTTPException(status_code=409, detail={"message": str(exc), "current_revision": exc.current_revision}) from exc
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"status": "draft_saved", "draft": record.design_draft, "revision": record.design_revision}
+
+
+@app.post("/api/admin/properties/{property_id}/design/clone")
+async def clone_property_design(
+    property_id: str,
+    payload: DesignClonePayload,
+    request: Request,
+) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    if not principal.can("concierge.edit"):
+        raise HTTPException(status_code=403, detail="Permission denied.")
+    if not principal.can("properties.all") and principal.property_id != property_id:
+        raise HTTPException(status_code=403, detail="Property access denied.")
+    source_property_id = payload.source_property_id.strip()
+    if not source_property_id:
+        raise HTTPException(status_code=422, detail="Choose a source property.")
+    if source_property_id == property_id:
+        raise HTTPException(status_code=422, detail="Choose a different source property.")
+    if not principal.can("properties.all") and principal.property_id != source_property_id:
+        raise HTTPException(status_code=403, detail="Source property access denied.")
+    _require_property(property_id)
+    if properties.get(source_property_id) is None:
+        raise HTTPException(status_code=404, detail="Source property not found.")
+    try:
+        record = properties.clone_design_from(
+            source_property_id,
+            property_id,
+            expected_revision=payload.expected_revision,
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Property not found.") from None
+    except ValueError as exc:
+        if isinstance(exc, DesignRevisionConflict):
+            raise HTTPException(
+                status_code=409,
+                detail={"message": str(exc), "current_revision": exc.current_revision},
+            ) from exc
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    admin_auth.audit(
+        principal,
+        "design.cloned",
+        "property_design",
+        property_id,
+        property_id=property_id,
+        metadata={"source_property_id": source_property_id, "revision": record.design_revision},
+    )
+    return {
+        "status": "draft_saved",
+        "source_property_id": source_property_id,
+        "draft": record.design_draft,
+        "revision": record.design_revision,
+    }
 
 
 @app.post("/api/admin/properties/{property_id}/design/publish")
