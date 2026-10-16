@@ -386,6 +386,33 @@
         </div>
       </section>
 
+      <section class="panel" id="notification-campaigns">
+        <div class="page-title"><div><p>Guest experience · Messaging</p><h1>Notification campaigns</h1><span>Prepare verified, property-specific announcements and review an aggregate audience before publishing.</span></div></div>
+        <section class="health-banner warning" role="note"><div><span class="health-dot warning" aria-hidden="true">i</span><div><strong>In-app delivery only</strong><p>Publishing queues a message for active stays only when every linked guest session has promotional-message consent and the stay preference is enabled. This page does not send email or push notifications.</p></div></div></section>
+        <div class="notification-campaign-layout">
+          <section class="card settings-form" aria-labelledby="notification-campaign-form-title">
+            <div><h2 id="notification-campaign-form-title">New campaign</h2><p class="field-note">Use a verified operations or event source reference. The audience is fixed to eligible active stays; individual guest identities are never shown here.</p></div>
+            <form id="notification-campaign-form">
+              <label>Campaign name<input id="notification-campaign-name" maxlength="160" required></label>
+              <label>Guest-facing title<input id="notification-campaign-title" maxlength="160" required></label>
+              <label>Guest-facing message<textarea id="notification-campaign-body" rows="4" maxlength="2000" required></textarea></label>
+              <label>Verified source or approval reference<input id="notification-campaign-source" maxlength="160" required placeholder="For example, event or operations record ID"></label>
+              <div class="notification-campaign-actions">
+                <button id="notification-campaign-save" type="submit">Save draft</button>
+                <button id="notification-campaign-new" class="secondary" type="button">New campaign</button>
+                <button id="notification-campaign-preview-button" class="secondary" type="button" disabled>Preview audience</button>
+                <button id="notification-campaign-publish" type="button" disabled>Publish in-app</button>
+              </div>
+            </form>
+            <p class="field-note" id="notification-campaign-preview" role="status" aria-live="polite">Save a draft to preview its aggregate audience.</p>
+          </section>
+          <section class="card" aria-labelledby="campaign-list-title">
+            <div class="card-heading"><div><span>PROPERTY CAMPAIGNS</span><h2 id="campaign-list-title">Campaign history</h2></div><button class="secondary" id="notification-campaign-refresh" type="button">Refresh</button></div>
+            <div id="notification-campaign-list" class="notification-campaign-list" aria-live="polite"><div class="empty-state"><strong>Loading campaigns</strong><p>Campaigns remain scoped to the selected property.</p></div></div>
+          </section>
+        </div>
+      </section>
+
       <section class="panel" id="zones">
         <div class="page-title"><div><p>Zones</p><h1>Facility mapping and floor-plan editor</h1><span>Upload floor plans, place property locations, and connect map points to guest directions.</span></div></div>
         <section class="map-context-toolbar" aria-label="Floor plan selection">

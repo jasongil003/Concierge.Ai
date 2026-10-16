@@ -139,6 +139,10 @@
     "authentication": "required",
     "permission": "network.view"
   },
+  "GET /api/admin/properties/{property_id}/notification-campaigns": {
+    "authentication": "required",
+    "permission": "properties.view"
+  },
   "GET /api/admin/properties/{property_id}/notifications/deliveries": {
     "authentication": "required",
     "permission": "properties.view"
@@ -571,6 +575,18 @@
     "authentication": "required",
     "permission": "properties.edit"
   },
+  "POST /api/admin/properties/{property_id}/notification-campaigns": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "POST /api/admin/properties/{property_id}/notification-campaigns/{campaign_id}/preview": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "POST /api/admin/properties/{property_id}/notification-campaigns/{campaign_id}/publish": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
   "POST /api/admin/properties/{property_id}/notifications/rules": {
     "authentication": "required",
     "permission": "properties.edit"
@@ -706,6 +722,10 @@
   "PUT /api/admin/properties/{property_id}/menus/{menu_id}": {
     "authentication": "required",
     "permission": "restaurant.menu.edit"
+  },
+  "PUT /api/admin/properties/{property_id}/notification-campaigns/{campaign_id}": {
+    "authentication": "required",
+    "permission": "properties.edit"
   },
   "PUT /api/admin/properties/{property_id}/personalization": {
     "authentication": "required",
