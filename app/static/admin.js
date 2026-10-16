@@ -77,6 +77,9 @@ const state = {
   hotelAIFiles: [],
   hotelAISubmitting: false,
   webhooks: { webhooks: [], deliveries: [] },
+  notificationCampaigns: [],
+  selectedNotificationCampaignId: null,
+  notificationCampaignPreview: null,
   deployment: null,
   operations: null,
   operationsPeriod: "24h",
@@ -133,6 +136,7 @@ const NAV_SECTIONS = [
     items: [
       { id: "conversations", label: "Conversations", panel: "conversations", permission: "conversations.view", icon: "◫" },
       { id: "personalization", label: "Personalization", panel: "personalization-settings", permission: "properties.view", icon: "✧" },
+      { id: "notification-campaigns", label: "Notification Campaigns", panel: "notification-campaigns", permission: "properties.edit", icon: "◉" },
       { id: "guest-preview", label: "Conversation Modules", panel: "guest", permission: "concierge.view", icon: "◫" },
       { id: "recommendations", label: "Recommendations", panel: "recommendations", permission: "properties.view", icon: "✦" },
       { id: "location", label: "Location", panel: "location", permission: "analytics.view", icon: "⌖" },
@@ -281,7 +285,7 @@ function can(permission) {
 
 const PROPERTY_SCOPED_PANELS = new Set([
   "overview", "requests", "sessions", "system-health", "alerts", "conversations",
-  "personalization-settings", "guest", "recommendations", "location", "hotel-information",
+  "personalization-settings", "notification-campaigns", "guest", "recommendations", "location", "hotel-information",
   "rooms", "facilities", "restaurants", "service-catalog", "zones", "appearance", "intro",
   "analytics", "reports", "ai-assistant", "knowledge", "documents", "faqs", "ai-personality",
   "guardrails", "ai-usage", "questions", "request-analytics", "ai", "third-party", "wifi",
@@ -620,6 +624,11 @@ const PAGE_COMMENTS = {
     ["Choose a reporting period.", "Compare the usage metrics and provider/model activity list.", "Open Models & Providers or System Health to investigate elevated errors or latency."],
     "Costs are not shown unless verified billing data is connected; request counts alone do not establish spend."
   ],
+  "notification-campaigns": [
+    "Prepare property announcements for active stays and inspect consent eligibility before queuing a promotional message in the in-app guest inbox.",
+    ["Save a draft with a source or approval reference and guest-facing copy.", "Preview the aggregate audience; stays without promotional-message consent or an enabled promotional preference are excluded.", "Review the audience and confirm the in-app queue action, then monitor queued and read counts."],
+    "All active sessions linked to the stay must have promotional-message consent. Publishing queues in-app content only; it does not send email or push notifications."
+  ],
   "system-settings": [
     "Set application defaults and protected outbound email used for password-reset messages.",
     ["Set the default language, time zone, and any maintenance banner, then save.", "Configure SMTP host, port, security, sender, and credentials if email is required.", "Test the SMTP connection before saving the email configuration."],
@@ -701,6 +710,7 @@ const PAGE_LINKS = {
   reports: ["analytics", "ai-usage"],
   appearance: ["intro", "guest"],
   guest: ["appearance", "intro", "hotel-information"],
+  "notification-campaigns": ["personalization-settings", "sessions", "audit"],
   "personalization-settings": ["sessions", "guardrails", "knowledge"],
   zones: ["facilities", "location", "appearance"],
   sessions: ["location", "personalization-settings"],
@@ -881,6 +891,7 @@ function activatePanel(panelId, navId = null) {
   if (["ai-personality", "guardrails"].includes(panelId) && currentPropertyId()) loadAIPolicy();
   if (panelId === "guardrails" && currentPropertyId()) loadGuardrailDiagnostics().catch((error) => showToast(error.message, "error"));
   if (panelId === "webhooks" && currentPropertyId()) loadWebhooks().catch((error) => showToast(error.message, "error"));
+  if (panelId === "notification-campaigns" && currentPropertyId()) loadNotificationCampaigns().catch((error) => showToast(error.message, "error"));
   if (panelId === "network-access" && currentPropertyId()) {
     loadNetworkAccess().catch((error) => showToast(error.message, "error"));
     if (can("security.view")) loadGuardrailDiagnostics().catch((error) => showToast(error.message, "error"));
@@ -2125,6 +2136,120 @@ function addDetectedAddressRule() {
   if (!rules.includes(rule)) rules.push(rule);
   textarea.value = rules.join("\n");
   showToast(`Added ${rule}. Click Save Guardrails to apply it.`);
+}
+
+function selectedNotificationCampaign() {
+  return state.notificationCampaigns.find((campaign) => campaign.campaign_id === state.selectedNotificationCampaignId) || null;
+}
+
+function setNotificationCampaignForm(campaign = null) {
+  state.selectedNotificationCampaignId = campaign?.campaign_id || null;
+  state.notificationCampaignPreview = null;
+  $("notification-campaign-name").value = campaign?.name || "";
+  $("notification-campaign-title").value = campaign?.title || "";
+  $("notification-campaign-body").value = campaign?.body || "";
+  $("notification-campaign-source").value = campaign?.source_reference || "";
+  const editable = !campaign || campaign.status === "draft";
+  for (const id of ["notification-campaign-name", "notification-campaign-title", "notification-campaign-body", "notification-campaign-source"]) $(id).disabled = !editable;
+  $("notification-campaign-save").disabled = !editable;
+  $("notification-campaign-save").textContent = campaign ? "Save draft changes" : "Save draft";
+  $("notification-campaign-form-title").textContent = campaign ? (editable ? "Edit campaign draft" : "Campaign details") : "New campaign";
+  $("notification-campaign-preview-button").disabled = !campaign || !["draft", "failed"].includes(campaign.status);
+  $("notification-campaign-publish").disabled = !campaign || !["draft", "failed"].includes(campaign.status);
+  $("notification-campaign-preview").textContent = campaign ? `Revision ${campaign.revision} · ${campaign.status}. Preview the aggregate audience before publishing.` : "Save a draft to preview its aggregate audience.";
+  renderNotificationCampaigns();
+}
+
+function renderNotificationCampaigns() {
+  const root = $("notification-campaign-list");
+  if (!root) return;
+  root.replaceChildren();
+  if (!state.notificationCampaigns.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    const title = document.createElement("strong");
+    title.textContent = "No notification campaigns yet";
+    const detail = document.createElement("p");
+    detail.textContent = "Saved drafts and published campaign counts for this property will appear here.";
+    empty.append(title, detail);
+    root.appendChild(empty);
+    return;
+  }
+  for (const campaign of state.notificationCampaigns) {
+    const row = document.createElement("article");
+    row.className = "notification-campaign-row";
+    const info = document.createElement("div");
+    const title = document.createElement("h3");
+    title.textContent = campaign.name || "Untitled campaign";
+    const status = document.createElement("p");
+    status.className = "campaign-state";
+    status.textContent = `${campaign.status} · revision ${campaign.revision}`;
+    const metrics = document.createElement("small");
+    metrics.textContent = `${campaign.queued_count || 0} queued · ${campaign.suppressed_count || 0} suppressed · ${campaign.engagement?.read || 0} read`;
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "secondary";
+    edit.textContent = campaign.status === "draft" ? "Edit draft" : "View";
+    edit.dataset.campaignId = campaign.campaign_id;
+    info.append(title, status, metrics);
+    row.append(info, edit);
+    root.appendChild(row);
+  }
+}
+
+async function loadNotificationCampaigns() {
+  const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/notification-campaigns`);
+  state.notificationCampaigns = result.campaigns || [];
+  const selected = selectedNotificationCampaign();
+  if (selected) setNotificationCampaignForm(selected);
+  else renderNotificationCampaigns();
+}
+
+async function saveNotificationCampaign(event) {
+  event?.preventDefault();
+  const selected = selectedNotificationCampaign();
+  const payload = {
+    name: $("notification-campaign-name").value.trim(),
+    title: $("notification-campaign-title").value.trim(),
+    body: $("notification-campaign-body").value.trim(),
+    source_reference: $("notification-campaign-source").value.trim(),
+  };
+  if (selected) payload.expected_revision = selected.revision;
+  const root = `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/notification-campaigns`;
+  const result = await jsonFetch(selected ? `${root}/${encodeURIComponent(selected.campaign_id)}` : root, {
+    method: selected ? "PUT" : "POST", body: JSON.stringify(payload),
+  });
+  const campaign = result.campaign;
+  state.notificationCampaigns = [campaign, ...state.notificationCampaigns.filter((item) => item.campaign_id !== campaign.campaign_id)];
+  setNotificationCampaignForm(campaign);
+  showToast("Campaign draft saved.");
+}
+
+async function previewNotificationCampaign() {
+  const campaign = selectedNotificationCampaign();
+  if (!campaign) throw new Error("Save a campaign draft before previewing its audience.");
+  const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/notification-campaigns/${encodeURIComponent(campaign.campaign_id)}/preview`, {
+    method: "POST", body: JSON.stringify({ expected_revision: campaign.revision }),
+  });
+  state.notificationCampaignPreview = result;
+  $("notification-campaign-preview").textContent = `${result.eligible} eligible of ${result.active_stays} active stays · ${result.promotional_consent_required} missing promotional consent · ${result.promotional_preference_disabled} preference disabled. No guest identities are displayed.`;
+  return result;
+}
+
+async function publishNotificationCampaign() {
+  const campaign = selectedNotificationCampaign();
+  if (!campaign) throw new Error("Save a campaign draft before publishing.");
+  let preview = state.notificationCampaignPreview;
+  if (!preview || preview.revision !== campaign.revision) preview = await previewNotificationCampaign();
+  if (preview.eligible < 1) throw new Error("No active stays currently meet the promotional consent and preference requirements.");
+  if (!window.confirm(`Queue this promotional message in the in-app inbox for ${preview.eligible} eligible active stay${preview.eligible === 1 ? "" : "s"}? No email or push notification will be sent.`)) return;
+  const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/notification-campaigns/${encodeURIComponent(campaign.campaign_id)}/publish`, {
+    method: "POST", body: JSON.stringify({ expected_revision: campaign.revision }),
+  });
+  state.notificationCampaigns = [result.campaign, ...state.notificationCampaigns.filter((item) => item.campaign_id !== campaign.campaign_id)];
+  setNotificationCampaignForm(result.campaign);
+  $("notification-campaign-preview").textContent = `${result.queued} queued in-app · ${result.already_queued} already queued · ${result.suppressed_at_publish} suppressed after the final consent check.`;
+  showToast(`Campaign queued for ${result.queued} eligible stay${result.queued === 1 ? "" : "s"}.`);
 }
 
 async function loadWebhooks() { state.webhooks = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/webhooks`); renderWebhooks(); }
@@ -5563,6 +5688,10 @@ async function switchProperty(propertyId) {
   state.restaurantMenus = [];
   state.restaurantPromotions = [];
   state.webhooks = { webhooks: [], deliveries: [] };
+  state.notificationCampaigns = [];
+  state.selectedNotificationCampaignId = null;
+  state.notificationCampaignPreview = null;
+  setNotificationCampaignForm();
   state.deployment = null;
   const tasks = [];
   if (can("concierge.view")) tasks.push(loadDesign());
@@ -5591,6 +5720,7 @@ async function switchProperty(propertyId) {
       "ai-personality": () => loadAIPolicy(),
       guardrails: () => loadAIPolicy(),
       webhooks: () => loadWebhooks(),
+      "notification-campaigns": () => loadNotificationCampaigns(),
       "network-access": () => loadNetworkAccess(),
     }[activePanel];
     if (activeRefresh) tasks.push(Promise.resolve().then(activeRefresh));
@@ -9262,6 +9392,16 @@ function setup() {
   });
   $("default-password-change-form").addEventListener("submit", (event) => changeDefaultPassword(event));
   $("refresh-audit").addEventListener("click", () => loadAudit().catch((error) => showToast(error.message, "error")));
+  $("notification-campaign-form").addEventListener("submit", (event) => saveNotificationCampaign(event).catch((error) => showToast(error.message, "error")));
+  $("notification-campaign-new").addEventListener("click", () => setNotificationCampaignForm());
+  $("notification-campaign-refresh").addEventListener("click", () => loadNotificationCampaigns().catch((error) => showToast(error.message, "error")));
+  $("notification-campaign-preview-button").addEventListener("click", () => previewNotificationCampaign().catch((error) => showToast(error.message, "error")));
+  $("notification-campaign-publish").addEventListener("click", () => publishNotificationCampaign().catch((error) => showToast(error.message, "error")));
+  $("notification-campaign-list").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-campaign-id]");
+    if (!button) return;
+    setNotificationCampaignForm(state.notificationCampaigns.find((item) => item.campaign_id === button.dataset.campaignId) || null);
+  });
   $("apply-audit-filters").addEventListener("click", () => loadAudit({ resetPage: true }).catch((error) => showToast(error.message, "error")));
   $("audit-page-previous").addEventListener("click", () => changeAuditPage(-1));
   $("audit-page-next").addEventListener("click", () => changeAuditPage(1));

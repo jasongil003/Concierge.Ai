@@ -7,7 +7,7 @@
     "target_branch": "main",
     "remediation_branch": "codex/final-remediation-20261016",
     "starting_commit": "96d832afe70781575e9e00a862d9c746dfcddd2d",
-    "implementation_commit": "adec4029ade9e49aa681d79586cf0a7847756eca",
+    "implementation_commit": "616de318bf85b8504852e3b8f6d18cc80ef091e7",
     "github_main_at_start": "96d832afe70781575e9e00a862d9c746dfcddd2d",
     "source_matrix": "audit/master-feature-acceptance.json (2026-10-13 audit snapshot; superseded for current status by this ledger)",
     "core_denominator": 384,
@@ -15,31 +15,32 @@
     "deferred_requirement_ids": [
       "R-X01"
     ],
-    "verified_count": 213,
-    "verified_percentage": 55.47,
-    "verified_formula": "100 × (LOCALLY VERIFIED + LIVE VERIFIED) core rows / 384. No LIVE VERIFIED rows are claimed. R-X01 is deferred and excluded.",
+    "verified_count": 216,
+    "verified_percentage": 56.25,
+    "verified_formula": "100 × (LOCALLY VERIFIED + LIVE VERIFIED) core rows / 384. No LIVE VERIFIED rows are claimed. R-X01 alone is excluded; H-05 is deferred by product decision but remains in the core denominator without verification credit.",
     "core_status_counts": {
       "BLOCKED": 41,
-      "FAILED": 4,
+      "DEFERRED": 1,
+      "FAILED": 0,
       "IMPLEMENTED": 70,
-      "LOCALLY VERIFIED": 213,
+      "LOCALLY VERIFIED": 216,
       "PARTIAL": 56
     },
     "status_counts_all_rows": {
       "BLOCKED": 43,
-      "DEFERRED": 1,
-      "FAILED": 4,
+      "DEFERRED": 2,
+      "FAILED": 0,
       "IMPLEMENTED": 70,
-      "LOCALLY VERIFIED": 221,
+      "LOCALLY VERIFIED": 224,
       "PARTIAL": 58
     },
     "live_verified_count": 0,
     "test_results": {
       "full_backend_local": {
-        "passed": 1329,
+        "passed": 1380,
         "skipped": 21,
-        "failed": 5,
-        "failure_cause": "Installer tests could not bind because a pre-existing local Python listener held port 8080; it was left running."
+        "failed": 0,
+        "scope": "Final full `python -m pytest -q -rs` on isolated local state; 2 dependency warnings; skips require PostgreSQL/Redis services or Linux-only `RLIMIT_AS` / `systemd-analyze`."
       },
       "focused_backend_after_remediation": {
         "passed": 19,
@@ -57,10 +58,10 @@
         "scope": "tests/test_guest_entry.py, including signed property/node binding, published-map QR generation, guest start resolution, tampered signature rejection, cross-property rejection, and hidden-node denial"
       },
       "full_browser_nonvisual": {
-        "passed": 351,
-        "skipped": 39,
+        "passed": 368,
+        "skipped": 42,
         "failed": 0,
-        "scope": "desktop Chromium and mobile Chrome; run after deterministic test-property cleanup fix and before QR UI addition"
+        "scope": "Final full `npm run test:e2e -- --grep-invert @visual` run across desktop Chromium and mobile Chrome; 6.8 minutes."
       },
       "retention_race_browser": {
         "passed": 12,
@@ -87,11 +88,11 @@
         "failed": 0,
         "scope": "guest home and admin design; desktop/mobile"
       },
-      "bandit": "PASS — app scan at medium severity/confidence threshold",
+      "bandit": "PASS — exact CI command at medium severity/confidence; existing parser/nosec warnings only, no threshold findings.",
       "pip_audit": "PASS — final requirements-dev manifest, including qrcode==8.2; no known vulnerabilities found.",
       "npm_audit": "PASS — zero high-level vulnerabilities on the unchanged base package manifests",
-      "current_worktree_gitleaks": "PASS — Gitleaks 8.24.3 no-git redacted scan after QR changes: 0 findings. Hosted full-history secret scanning remains required.",
-      "git_diff_check_and_js_syntax": "PASS after QR changes",
+      "current_worktree_gitleaks": "PASS — Gitleaks 8.24.3 redacted scan of the final current source tree after code and audit-document edits: 0 findings. This is not a full-history scan.",
+      "git_diff_check_and_js_syntax": "PASS — final `git diff --check`, `node --check app/static/admin.js`, and JSON validation for route policies and acceptance ledger.",
       "focused_map_schema_regressions": "PASS — 2 hosted failing map-response regressions pass locally after adding and validating starting_node_id in MapViewBlock.",
       "conversation_pagination_backend": {
         "passed": 57,
@@ -103,18 +104,50 @@
         "failed": 0,
         "scope": "Chromium: bounded inbox pages/status counts; takeover/staff reply/resolve; restaurant assignment."
       },
-      "pagination_javascript_and_diff": "PASS — node --check app/static/admin.js and git diff --check after pagination changes."
+      "pagination_javascript_and_diff": "PASS — node --check app/static/admin.js and git diff --check after pagination changes.",
+      "campaign_backend_local": {
+        "passed": 3,
+        "failed": 0,
+        "scope": "tests/test_notification_campaigns.py; included in the full backend result of 1,380 passed / 21 skipped / 0 failed."
+      },
+      "campaign_browser_local": {
+        "passed": 2,
+        "failed": 0,
+        "scope": "tests/e2e/notification-campaigns.spec.js on final markup in Chromium and mobile Chrome."
+      },
+      "design_clone_backend_local": {
+        "passed": 2,
+        "failed": 0,
+        "scope": "tests/test_properties.py::test_clone_design_copies_published_config_into_target_draft_only and ::test_design_clone_endpoint_creates_draft_without_copying_property_settings; included in full backend suite."
+      },
+      "design_clone_browser_local": {
+        "passed": 1,
+        "failed": 0,
+        "scope": "tests/e2e/admin.spec.js::builder copies another property's published design into the selected property's draft in Chromium; mobile mutation sweep intentionally skips."
+      },
+      "prior_full_backend_local_failed": {
+        "passed": 1329,
+        "skipped": 21,
+        "failed": 5,
+        "cause": "Earlier run could not bind installer tests because a pre-existing local listener held port 8080; a subsequent isolated run passed all backend tests."
+      },
+      "prior_full_browser_nonvisual_guidance_failure": {
+        "passed": 366,
+        "skipped": 42,
+        "failed": 2,
+        "cause": "Two admin guidance cases failed because the new campaign tab lacked page-specific related-page links; fixed and passed in the final full rerun."
+      }
     },
     "github_base_ci": {
       "run_id": "38843201718",
       "result": "9/10 jobs passed; secret-scan failed on three historical findings in audit/evidence/security-2026-10-12/recovery-harness-before.txt. No credential values are copied into this ledger."
     },
     "github_candidate_ci": {
-      "run_id": "38868604334",
-      "run_number": 261,
-      "head_commit": "7b31f7201ceaaa235bba74d054ba706f60291554",
+      "run_id": "38908867509",
+      "run_number": 276,
+      "head_commit": "616de318bf85b8504852e3b8f6d18cc80ef091e7",
       "pull_request": "https://github.com/jasongil003/Concierge.Ai/pull/63",
-      "result": "COMPLETED — 9/10 jobs passed. Backend: 1,349 passed, 19 skipped. Browser: 357 passed, 41 skipped, 0 failed. PostgreSQL/Redis, Docker, dependency audits, static security, and Linux/macOS deployment passed. The PR-diff and current-worktree scans found no leaks. The forced-text full-history scan found three known historical findings; no credential values are reproduced."
+      "result": "COMPLETED — 9/10 jobs passed. Backend, browser, PostgreSQL/Redis, Docker, Python and Node dependency audits, static security, and Linux/macOS deployment passed. Full-history secret scanning failed on three known historical findings; PR-diff and current-tree scans passed."
     },
     "repository_release_controls": {
       "main_branch_protection": "DISABLED; GitHub integration denied branch-protection configuration access (HTTP 403).",
@@ -152,7 +185,7 @@
         "action": "Provide authorized credentials/contracts and run live provider, checkout, WLAN, and outbound-notification checks."
       }
     ],
-    "release_recommendation": "RED — RELEASE BLOCKED. Historical credential revocation/history cleanup and required branch protection remain unresolved, and several requirements remain partial, failed, or externally blocked.",
+    "release_recommendation": "RED — RELEASE BLOCKED. Historical credential revocation/history cleanup and required branch protection remain unresolved. H-05 is deferred in scope and excluded from verification credit; live property/provider and recovery acceptance remain open.",
     "implementation_commits": [
       "f8bcf3d",
       "2a0cc6f",
@@ -160,25 +193,29 @@
       "101ed7d29ee31e63617943453cc3499b5a4ec4bd",
       "97369c6",
       "adec402",
-      "7b31f7201ceaaa235bba74d054ba706f60291554"
+      "7b31f7201ceaaa235bba74d054ba706f60291554",
+      "616de318bf85b8504852e3b8f6d18cc80ef091e7"
     ],
-    "current_head_at_ledger_creation": "7b31f7201ceaaa235bba74d054ba706f60291554",
+    "current_head_at_ledger_creation": "616de318bf85b8504852e3b8f6d18cc80ef091e7",
     "publication_state": {
       "git_push": "UNAVAILABLE — no GitHub username/token is configured for shell push.",
-      "connector_fallback": "COMPLETE — the owner-authorized branch snapshot is published as an open draft PR.",
+      "connector_fallback": "APPROVED — user authorized updating the existing draft PR through the GitHub connector; updated snapshot pending.",
       "remote_main_changed": false,
       "remote_branch_created": true,
-      "tested_candidate_commit": "7b31f7201ceaaa235bba74d054ba706f60291554",
+      "current_published_head": "616de318bf85b8504852e3b8f6d18cc80ef091e7",
       "pull_request_created": true,
       "pull_request_url": "https://github.com/jasongil003/Concierge.Ai/pull/63",
-      "hosted_branch_ci": "COMPLETED — run #261 (38868604334), 9/10 jobs passed; backend 1,349 passed / 19 skipped, browser 357 passed / 41 skipped / 0 failed. PostgreSQL/Redis, Docker, dependency audits, static security, and Linux/macOS deployment passed. PR-diff/current-worktree scans were clear; forced-text full-history Gitleaks found three known historical findings.",
-      "implementation_candidate_commit": "7b31f7201ceaaa235bba74d054ba706f60291554"
+      "hosted_branch_ci": "COMPLETED — 9/10 jobs passed. Backend, browser, PostgreSQL/Redis, Docker, Python and Node dependency audits, static security, and Linux/macOS deployment passed. Full-history secret scanning failed on three known historical findings; PR-diff and current-tree scans passed.",
+      "updated_candidate_hosted_ci": "PENDING — run after connector publication of this locally tested snapshot."
     },
     "candidate_validation_state": {
-      "implementation_commit": "7b31f7201ceaaa235bba74d054ba706f60291554",
-      "local_focused_validation": "PASS — backend regression set 57/57; focused Chromium pagination flows 3/3; retention-race regressions 6/6 after updating the query-aware route mock; focused admin onboarding/network checks 3 passed, 1 skipped; JavaScript syntax and whitespace checks pass.",
-      "hosted_ci": "PASS — run #261 (38868604334): 9/10 jobs passed; backend 1,349 passed / 19 skipped; browser 357 passed / 41 skipped / 0 failed. The only failed job is full-history Gitleaks with three known historical findings."
-    }
+      "implementation_commit": "616de318bf85b8504852e3b8f6d18cc80ef091e7",
+      "local_focused_validation": "PASS — full backend 1,380 passed / 21 skipped / 0 failed; full nonvisual browser 368 passed / 42 skipped / 0 failed; final campaign browser 2/2; template-clone backend 2/2 and Chromium 1/1; Bandit, current-tree Gitleaks, JavaScript syntax, JSON, and whitespace checks passed.",
+      "hosted_ci": "PENDING — updated candidate will trigger a new run after connector publication. Previous published head run #276 passed 9/10; only full-history secret scanning failed."
+    },
+    "deferred_in_scope_requirement_ids": [
+      "H-05"
+    ]
   },
   "requirements": [
     {
@@ -5113,23 +5150,19 @@
       "requirement_id": "G-21",
       "category": "VISUAL PAGE BUILDER",
       "expected_behavior": "Template cloning: function correctly within the selected property and authorized identity; meet the behavior described in the master request.",
-      "current_implementation": "Individual components/sections can duplicate; whole property template cloning/storage API is absent.",
-      "verified_functionality": "tests/test_properties.py:341::test_guest_experience_visual_builder_schema_and_component_registry passed in the recorded local run. tests/test_properties.py:361::test_guest_experience_persists_controlled_layout_animation_and_appearance passed in the recorded local run. tests/test_properties.py:392::test_guest_button_actions_validate_external_urls_and_preserve_open_behavior passed in the recorded local run. NOT RUN for this individual acceptance criterion in the inventory pass; see MASTER_UI_UX_REVIEW for executed scope.",
-      "missing_functionality": "Implement property-safe whole-template cloning with asset references, revision and protected-field regression checks.",
+      "current_implementation": "The visual builder copies a source property’s validated published guest design into the selected target property’s draft. Compare-and-swap revision checks prevent stale writes; target publication history, app settings, integrations, and credentials remain target-owned.",
+      "verified_functionality": "Backend tests confirm the source published design and asset references are copied into the target draft only, target settings/credentials/published design/history remain intact, the target revision increments once, stale writes conflict, and same-property or missing-source attempts fail. The property-scoped admin endpoint and desktop builder copy-to-draft flow are covered.",
+      "missing_functionality": "No local G-21 clone-flow gap remains. Hosted candidate checks are pending publication; production deployment acceptance is separate.",
       "evidence_test_reference": [
-        "tests/test_properties.py:341::test_guest_experience_visual_builder_schema_and_component_registry — PASS (Isolated local backend suite)",
-        "tests/test_properties.py:361::test_guest_experience_persists_controlled_layout_animation_and_appearance — PASS (Isolated local backend suite)",
-        "tests/test_properties.py:392::test_guest_button_actions_validate_external_urls_and_preserve_open_behavior — PASS (Isolated local backend suite)",
-        "app/static/admin.js:3100",
-        "app/static/admin.js:4574",
-        "tests/test_properties.py:341",
-        "tests/test_properties.py:361",
-        "tests/test_properties.py:392",
-        "API: No saved template clone endpoint"
+        "tests/test_properties.py::test_clone_design_copies_published_config_into_target_draft_only — PASS",
+        "tests/test_properties.py::test_design_clone_endpoint_creates_draft_without_copying_property_settings — PASS",
+        "tests/e2e/admin.spec.js::builder copies another property's published design into the selected property's draft — PASS (Chromium; mobile mutation sweep intentionally skipped)",
+        "app/properties.py::PropertyStore.clone_design_from",
+        "app/main.py::POST /api/admin/properties/{property_id}/design/clone"
       ],
       "severity": "Medium",
       "blocking_dependency": "None identified for local remediation.",
-      "status": "FAILED",
+      "status": "LOCALLY VERIFIED",
       "scope": "CORE — included in the original 384-item denominator",
       "source_matrix_status": "MISSING"
     },
@@ -5346,18 +5379,15 @@
       "requirement_id": "H-05",
       "category": "INTRO EXPERIENCE",
       "expected_behavior": "Lottie support: function correctly within the selected property and authorized identity; meet the behavior described in the master request.",
-      "current_implementation": "Lottie JSON is neither accepted by ANIMATION_TYPES nor rendered by a Lottie runtime; custom assets are MP 4/WebM only.",
-      "verified_functionality": "NOT RUN for this individual acceptance criterion in the inventory pass; see MASTER_UI_UX_REVIEW for executed scope.",
-      "missing_functionality": "Make a product decision for Lottie. If retained, implement strict JSON/resource validation and bounded renderer/fallback tests.",
+      "current_implementation": "Lottie remains unsupported (intro assets are MP4/WebM only). The user explicitly deferred H-05 from the October 19, 2026 acceptance scope.",
+      "verified_functionality": "No Lottie implementation or verification is claimed. The product decision is to defer H-05 for this milestone.",
+      "missing_functionality": "Lottie support is deferred and should be reconsidered through product backlog before implementation.",
       "evidence_test_reference": [
-        "app/static/app.js:1",
-        "app/intro.py:89",
-        "app/zones.py:28",
-        "API: No Lottie upload/render contract"
+        "User response on 2026-10-16: “Defer (Recommended)” for H-05 Lottie acceptance scope."
       ],
       "severity": "Medium",
-      "blocking_dependency": "None identified for local remediation.",
-      "status": "FAILED",
+      "blocking_dependency": "Explicit user product decision on 2026-10-16: defer H-05. The row remains in the 384-item core denominator and receives no verification credit.",
+      "status": "DEFERRED",
       "scope": "CORE — included in the original 384-item denominator",
       "source_matrix_status": "MISSING"
     },
@@ -7754,18 +7784,19 @@
       "requirement_id": "N-09",
       "category": "PROACTIVE NOTIFICATIONS",
       "expected_behavior": "Campaigns: function correctly within the selected property and authorized identity; meet the behavior described in the master request.",
-      "current_implementation": "Rules/categories are persisted; no campaign entity/lifecycle or active-stay audience selection engine found.",
-      "verified_functionality": "NOT RUN for this individual acceptance criterion in the inventory pass; see MASTER_UI_UX_REVIEW for executed scope.",
-      "missing_functionality": "Define campaign/audience acceptance criteria and implement property-scoped preview/consent/publish/delivery/engagement lifecycle.",
+      "current_implementation": "Property-scoped campaign drafts support list/create/update, aggregate active-stay preview, compare-and-swap revisions, and guarded publish. Eligible stays receive in-app guest-inbox notices only; no email or push delivery is claimed.",
+      "verified_functionality": "Preview excludes stays unless the promotional preference is enabled and all active sessions linked to the stay inbox have promotional-message consent. Publish rechecks consent inside the write transaction and queues notices only for the current eligible audience. Campaign list reports queued/read counts. Backend and browser acceptance passed locally.",
+      "missing_functionality": "No local campaign-lifecycle gap remains for the in-app acceptance. Automated trigger acquisition is tracked separately by N-01–N-08; live deployment and production-scale delivery are not claimed.",
       "evidence_test_reference": [
-        "app/static/admin.html:1",
-        "app/hospitality.py:1544",
-        "app/main.py:5846",
-        "API: POST /api/admin/properties/{property_id}/notifications/rules; /notifications/rules/{rule_id}/evaluate"
+        "tests/test_notification_campaigns.py::test_campaign_preview_and_publish_only_queue_for_fully_consented_active_stays — PASS",
+        "tests/test_notification_campaigns.py::test_campaign_draft_revision_is_compare_and_swap_and_property_scoped — PASS",
+        "tests/e2e/notification-campaigns.spec.js::notification campaigns: save, preview aggregate consent, and confirm in-app publish — PASS (Chromium and mobile Chrome)",
+        "app/hospitality.py::create_notification_campaign/update_notification_campaign/begin_notification_campaign_publish",
+        "app/main.py::GET/POST/PUT /api/admin/properties/{property_id}/notification-campaigns; POST preview/publish"
       ],
       "severity": "Medium",
       "blocking_dependency": "None identified for local remediation.",
-      "status": "FAILED",
+      "status": "LOCALLY VERIFIED",
       "scope": "CORE — included in the original 384-item denominator",
       "source_matrix_status": "MISSING"
     },
@@ -7773,18 +7804,19 @@
       "requirement_id": "N-10",
       "category": "PROACTIVE NOTIFICATIONS",
       "expected_behavior": "Audience selection: function correctly within the selected property and authorized identity; meet the behavior described in the master request.",
-      "current_implementation": "Rules/categories are persisted; no campaign entity/lifecycle or active-stay audience selection engine found.",
-      "verified_functionality": "NOT RUN for this individual acceptance criterion in the inventory pass; see MASTER_UI_UX_REVIEW for executed scope.",
-      "missing_functionality": "Define campaign/audience acceptance criteria and implement property-scoped preview/consent/publish/delivery/engagement lifecycle.",
+      "current_implementation": "The campaign audience is derived server-side from active stays, enabled promotional preferences, and linked-session consent; the preview exposes aggregate counts only. Publishing repeats eligibility checks and does not return guest identifiers.",
+      "verified_functionality": "Backend regression tests confirm consent and active-stay filtering, property isolation, stale revision rejection, consent withdrawal between preview and publish, and suppression if any active session linked to the shared stay inbox lacks promotional consent. The browser flow saves a campaign, previews aggregates, and confirms in-app publishing.",
+      "missing_functionality": "No local audience-selection gap remains for aggregate, consent-checked in-app campaigns. Live provider/property validation and production-scale delivery are not claimed.",
       "evidence_test_reference": [
-        "app/static/admin.html:1",
-        "app/hospitality.py:1544",
-        "app/main.py:5846",
-        "API: POST /api/admin/properties/{property_id}/notifications/rules; /notifications/rules/{rule_id}/evaluate"
+        "tests/test_notification_campaigns.py::test_campaign_preview_and_publish_only_queue_for_fully_consented_active_stays — PASS",
+        "tests/test_notification_campaigns.py::test_campaign_draft_revision_is_compare_and_swap_and_property_scoped — PASS",
+        "tests/test_notification_campaigns.py::test_campaign_publish_rechecks_consent_after_preview_and_queue_guard_checks_every_linked_session — PASS",
+        "tests/e2e/notification-campaigns.spec.js::notification campaigns: save, preview aggregate consent, and confirm in-app publish — PASS (Chromium and mobile Chrome)",
+        "app/main.py::POST /api/admin/properties/{property_id}/notification-campaigns/{campaign_id}/preview"
       ],
       "severity": "Medium",
       "blocking_dependency": "None identified for local remediation.",
-      "status": "FAILED",
+      "status": "LOCALLY VERIFIED",
       "scope": "CORE — included in the original 384-item denominator",
       "source_matrix_status": "MISSING"
     },

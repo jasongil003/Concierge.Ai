@@ -219,3 +219,19 @@ Run #269 completed with **9/10 jobs passing**. The backup feature's external esc
 | Forced-text full-history Gitleaks scan | **FAIL / RELEASE BLOCKER:** three retained historical findings | Values omitted. No new current-tree finding was reported. |
 
 Run #271 completed **9/10 jobs successfully**. C-30 remains **PARTIAL** because remaining high-volume admin lists and collection-wide conversation search are open. The PR remains draft and release acceptance remains **RED** pending historical-secret remediation and the documented branch-protection, policy, integration, recovery, and hotel-device gates; no merge or deployment occurred.
+
+
+## 2026-10-16 remediation candidate — local validation
+
+| Check | Result | Scope and limits |
+| --- | --- | --- |
+| Full backend `python -m pytest -q -rs` | **PASS:** 1,380 passed, 21 skipped, 0 failed | Isolated temporary state; two dependency warnings. Skips require local PostgreSQL/Redis, Linux `RLIMIT_AS`, or `systemd-analyze`; those integration/platform checks are covered separately in hosted CI. |
+| Full nonvisual `npm run test:e2e -- --grep-invert @visual` | **PASS:** 368 passed, 42 skipped, 0 failed, 6.8 min | Desktop Chromium and mobile Chrome emulation. Includes the corrected Notification Campaigns page-guidance tests and campaign preview/publish flow. |
+| Targeted admin guidance and campaign browser checks | **PASS:** 4 passed, 2 skipped | Desktop 1440px, mobile 375px, and campaign flow in Chromium/mobile Chrome; viewport/project-specific combinations skip by test design. |
+| Campaign backend regressions | **PASS:** 3 passed | Aggregate consent eligibility, property scope and revision conflicts, publish-time consent recheck, shared-stay active-session guard. |
+| Template-clone backend and browser regressions | **PASS:** 2 backend tests and 1 Chromium browser test | Published design copied to target draft only; revision conflicts and protected property settings/credentials preserved. Mobile mutation sweep is intentionally skipped. |
+| Bandit exact CI command at Medium severity/confidence | **PASS** | Existing parser and `nosec` warnings only; no threshold finding. |
+| Gitleaks 8.24.3 redacted current-tree scan | **PASS:** 0 findings | Current source tree only; the separate hosted full-history scan remains necessary. Secret values are not reproduced. |
+| `node --check app/static/admin.js`; `python3 -m json.tool` on route policies and acceptance ledger; `git diff --check` | **PASS** | Syntax, JSON and whitespace validation. |
+
+The final accessibility-label correction was followed by another campaign browser run: **2 passed** across Chromium and mobile Chrome. The cloned checkout had no virtualenv and its installed dependency set lacked qrcode. Browser/backend runs used the existing workspace Python runtime and an import-only qrcode 8.2 path under `/private/tmp`; no application dependency manifest changed for this validation. The current candidate has not yet received hosted CI at this report revision. Physical-device, live-provider, clean-host recovery, and production-scale acceptance remain unverified.

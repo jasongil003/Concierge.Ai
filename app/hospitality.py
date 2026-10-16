@@ -7,7 +7,7 @@ from typing import Any
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from .database import connect_database, enable_foreign_keys, table_columns, table_exists
+from .database import PostgresCompatConnection, connect_database, enable_foreign_keys, table_columns, table_exists
 from urllib.parse import urlsplit
 
 
@@ -26,6 +26,10 @@ GUEST_INBOX_STATUSES = {"queued", "sent", "delivered", "read", "failed", "expire
 GUEST_INBOX_DISPATCH_STATUSES = {"queued", "sending", "retry_wait", "sent", "dead_letter", "expired"}
 MAX_GUEST_NOTIFICATION_ATTEMPTS = 10
 MAX_GUEST_NOTIFICATION_CLAIM_BATCH = 100
+
+
+class NotificationCampaignConflict(ValueError):
+    """A campaign draft changed or moved to a non-editable lifecycle state."""
 
 
 def _now() -> int:
@@ -1631,6 +1635,217 @@ class HospitalityStore:
             db.execute("INSERT INTO guest_feedback VALUES (:feedback_id,:property_id,:request_id,:stay_id,:resolution,:rating,:comment,:created_at)", record)
         return record
 
+    def create_notification_campaign(self, property_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        property_id = self._guest_scope_value(property_id, "Property id")
+        name = _clean(payload.get("name"), 160)
+        title = _clean(payload.get("title"), 160)
+        body = _clean(payload.get("body"), 2000)
+        source_reference = _clean(payload.get("source_reference"), 160)
+        if not name or not title or not body or not source_reference:
+            raise ValueError("Campaign name, title, guest message, and verified source reference are required.")
+        moment = _now()
+        rule_id = _id("campaign")
+        policy = {
+            "is_campaign": True,
+            "campaign_status": "draft",
+            "audience": "active_stays_with_promotional_consent",
+            "title": title,
+            "body": body,
+            "source_reference": source_reference,
+            "revision": 1,
+        }
+        record = {
+            "rule_id": rule_id,
+            "property_id": property_id,
+            "name": name,
+            "category": "promotional",
+            "trigger_type": "campaign",
+            "enabled": 0,
+            "policy": _json(policy),
+            "template": "",
+            "created_at": moment,
+            "updated_at": moment,
+        }
+        with self._connect() as db:
+            db.execute(
+                """INSERT INTO notification_rules
+                   (rule_id,property_id,name,category,trigger_type,enabled,policy,template,created_at,updated_at)
+                   VALUES (:rule_id,:property_id,:name,:category,:trigger_type,:enabled,:policy,:template,:created_at,:updated_at)""",
+                record,
+            )
+        return self._notification_campaign_dict(record)
+
+    def get_notification_campaign(self, property_id: str, campaign_id: str) -> dict[str, Any]:
+        property_id = self._guest_scope_value(property_id, "Property id")
+        campaign_id = self._guest_scope_value(campaign_id, "Campaign id")
+        with self._connect() as db:
+            row = db.execute(
+                """SELECT * FROM notification_rules WHERE property_id=? AND rule_id=?
+                   AND category='promotional' AND trigger_type='campaign'""",
+                (property_id, campaign_id),
+            ).fetchone()
+        if row is None:
+            raise KeyError("Campaign not found.")
+        return self._notification_campaign_dict(row)
+
+    def list_notification_campaigns(self, property_id: str) -> list[dict[str, Any]]:
+        property_id = self._guest_scope_value(property_id, "Property id")
+        with self._connect() as db:
+            rows = db.execute(
+                """SELECT * FROM notification_rules WHERE property_id=?
+                   AND category='promotional' AND trigger_type='campaign'
+                   ORDER BY updated_at DESC,rule_id""",
+                (property_id,),
+            ).fetchall()
+            campaigns = []
+            for row in rows:
+                campaign = self._notification_campaign_dict(row)
+                counts = db.execute(
+                    """SELECT status,COUNT(*) AS count FROM guest_inbox_notifications
+                       WHERE property_id=? AND event_id=? GROUP BY status""",
+                    (property_id, f"campaign:{row['rule_id']}"),
+                ).fetchall()
+                campaign["engagement"] = {status: 0 for status in ("queued", "sent", "delivered", "read", "failed", "expired")}
+                for count in counts:
+                    campaign["engagement"][str(count["status"])] = int(count["count"] or 0)
+                campaigns.append(campaign)
+        return campaigns
+
+    def update_notification_campaign(self, property_id: str, campaign_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        property_id = self._guest_scope_value(property_id, "Property id")
+        campaign_id = self._guest_scope_value(campaign_id, "Campaign id")
+        name = _clean(payload.get("name"), 160)
+        title = _clean(payload.get("title"), 160)
+        body = _clean(payload.get("body"), 2000)
+        source_reference = _clean(payload.get("source_reference"), 160)
+        if not name or not title or not body or not source_reference:
+            raise ValueError("Campaign name, title, guest message, and verified source reference are required.")
+        expected_revision = payload.get("expected_revision")
+        if isinstance(expected_revision, bool) or not isinstance(expected_revision, int) or expected_revision < 1:
+            raise ValueError("Expected campaign revision is required.")
+        moment = _now()
+        with self._connect() as db:
+            row = db.execute(
+                """SELECT * FROM notification_rules WHERE property_id=? AND rule_id=?
+                   AND category='promotional' AND trigger_type='campaign'""",
+                (property_id, campaign_id),
+            ).fetchone()
+            if row is None:
+                raise KeyError("Campaign not found.")
+            existing = self._notification_campaign_dict(row)
+            if existing["status"] != "draft" or existing["revision"] != expected_revision:
+                raise NotificationCampaignConflict("Campaign changed or is no longer a draft.")
+            policy = {
+                "is_campaign": True,
+                "campaign_status": "draft",
+                "audience": "active_stays_with_promotional_consent",
+                "title": title,
+                "body": body,
+                "source_reference": source_reference,
+                "revision": expected_revision + 1,
+            }
+            cursor = db.execute(
+                """UPDATE notification_rules SET name=?,policy=?,updated_at=?
+                   WHERE property_id=? AND rule_id=? AND policy=? AND enabled=0""",
+                (name, _json(policy), moment, property_id, campaign_id, row["policy"]),
+            )
+            if cursor.rowcount != 1:
+                raise NotificationCampaignConflict("Campaign changed while it was being saved.")
+            row = db.execute("SELECT * FROM notification_rules WHERE property_id=? AND rule_id=?", (property_id, campaign_id)).fetchone()
+        return self._notification_campaign_dict(row)
+
+    def begin_notification_campaign_publish(
+        self, property_id: str, campaign_id: str, expected_revision: int
+    ) -> dict[str, Any]:
+        property_id = self._guest_scope_value(property_id, "Property id")
+        campaign_id = self._guest_scope_value(campaign_id, "Campaign id")
+        if isinstance(expected_revision, bool) or not isinstance(expected_revision, int) or expected_revision < 1:
+            raise ValueError("Expected campaign revision is required.")
+        moment = _now()
+        with self._connect() as db:
+            row = db.execute(
+                """SELECT * FROM notification_rules WHERE property_id=? AND rule_id=?
+                   AND category='promotional' AND trigger_type='campaign'""",
+                (property_id, campaign_id),
+            ).fetchone()
+            if row is None:
+                raise KeyError("Campaign not found.")
+            existing = self._notification_campaign_dict(row)
+            stale_publish = existing["status"] == "publishing" and int(row["updated_at"]) <= moment - 300
+            if existing["revision"] != expected_revision or not (
+                existing["status"] in {"draft", "failed"} or stale_publish
+            ):
+                raise NotificationCampaignConflict("Campaign changed or is not ready to publish.")
+            policy = dict(existing["policy"])
+            policy.update({"campaign_status": "publishing", "revision": expected_revision + 1})
+            cursor = db.execute(
+                """UPDATE notification_rules SET policy=?,updated_at=?
+                   WHERE property_id=? AND rule_id=? AND policy=? AND enabled=0""",
+                (_json(policy), moment, property_id, campaign_id, row["policy"]),
+            )
+            if cursor.rowcount != 1:
+                raise NotificationCampaignConflict("Another publisher claimed this campaign.")
+            row = db.execute("SELECT * FROM notification_rules WHERE property_id=? AND rule_id=?", (property_id, campaign_id)).fetchone()
+        return self._notification_campaign_dict(row)
+
+    def finish_notification_campaign_publish(
+        self, property_id: str, campaign_id: str, *, queued_count: int, already_queued_count: int,
+        suppressed_count: int, failed: bool = False,
+    ) -> dict[str, Any]:
+        property_id = self._guest_scope_value(property_id, "Property id")
+        campaign_id = self._guest_scope_value(campaign_id, "Campaign id")
+        with self._connect() as db:
+            row = db.execute(
+                """SELECT * FROM notification_rules WHERE property_id=? AND rule_id=?
+                   AND category='promotional' AND trigger_type='campaign'""",
+                (property_id, campaign_id),
+            ).fetchone()
+            if row is None:
+                raise KeyError("Campaign not found.")
+            existing = self._notification_campaign_dict(row)
+            if existing["status"] != "publishing":
+                raise NotificationCampaignConflict("Campaign is no longer being published.")
+            policy = dict(existing["policy"])
+            policy.update({
+                "campaign_status": "failed" if failed else "published",
+                "revision": existing["revision"] + 1,
+                "queued_count": max(0, int(queued_count)),
+                "already_queued_count": max(0, int(already_queued_count)),
+                "suppressed_count": max(0, int(suppressed_count)),
+            })
+            cursor = db.execute(
+                """UPDATE notification_rules SET policy=?,updated_at=?
+                   WHERE property_id=? AND rule_id=? AND policy=? AND enabled=0""",
+                (_json(policy), _now(), property_id, campaign_id, row["policy"]),
+            )
+            if cursor.rowcount != 1:
+                raise NotificationCampaignConflict("Campaign state changed before publish completed.")
+            row = db.execute("SELECT * FROM notification_rules WHERE property_id=? AND rule_id=?", (property_id, campaign_id)).fetchone()
+        return self._notification_campaign_dict(row)
+
+    def _notification_campaign_dict(self, row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
+        data = self._notification_rule_dict(row)
+        policy = data.get("policy") or {}
+        if not policy.get("is_campaign"):
+            raise KeyError("Campaign not found.")
+        return {
+            "campaign_id": data["rule_id"],
+            "property_id": data["property_id"],
+            "name": data["name"],
+            "title": str(policy.get("title") or ""),
+            "body": str(policy.get("body") or ""),
+            "source_reference": str(policy.get("source_reference") or ""),
+            "audience": "active_stays_with_promotional_consent",
+            "status": str(policy.get("campaign_status") or "draft"),
+            "revision": int(policy.get("revision") or 1),
+            "created_at": int(data["created_at"]),
+            "updated_at": int(data["updated_at"]),
+            "queued_count": int(policy.get("queued_count") or 0),
+            "already_queued_count": int(policy.get("already_queued_count") or 0),
+            "suppressed_count": int(policy.get("suppressed_count") or 0),
+            "policy": policy,
+        }
+
     def create_notification_rule(self, property_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         category = str(payload.get("category") or "operational")
         if category not in NOTIFICATION_CATEGORIES:
@@ -1796,6 +2011,7 @@ class HospitalityStore:
         send_window: dict[str, Any] | None = None,
         max_per_window: int | None = None,
         frequency_window_seconds: int | None = None,
+        require_promotional_consent: bool = False,
         now: int | None = None,
     ) -> dict[str, Any]:
         """Queue one in-app inbox item, deduplicated within its property and stay.
@@ -1829,6 +2045,10 @@ class HospitalityStore:
             raise ValueError("Notification schedule must be a valid timestamp.")
 
         with self._connect() as db:
+            # Serialize consent changes with campaign inserts. SQLite's immediate
+            # transaction locks writers; PostgreSQL also locks the active stay,
+            # linked session, and each granting consent row below.
+            db.execute("BEGIN IMMEDIATE")
             suppressed = db.execute(
                 """SELECT 1 FROM guest_notification_suppressions
                    WHERE property_id=? AND stay_id=? AND event_id=?""",
@@ -1863,6 +2083,34 @@ class HospitalityStore:
             )
             if not enabled:
                 raise PermissionError("Guest has not opted in to this notification category.")
+            if require_promotional_consent:
+                if category != "promotional":
+                    raise ValueError("Promotional consent is only valid for promotional messages.")
+                if not all(table_exists(db, table) for table in ("guest_sessions", "concierge_stays", "guest_privacy_consents")):
+                    raise PermissionError("Active guest promotional consent is unavailable.")
+                active_session_sql = """SELECT gs.concierge_session_id
+                    FROM guest_sessions gs
+                    JOIN concierge_stays s
+                      ON s.property_id=gs.property_id AND s.stay_id=gs.stay_id AND s.status='active'
+                    WHERE gs.property_id=? AND gs.stay_id=?
+                      AND gs.concierge_session_id IS NOT NULL AND gs.concierge_session_id!=''
+                    ORDER BY gs.concierge_session_id"""
+                if isinstance(db, PostgresCompatConnection):
+                    active_session_sql += " FOR UPDATE OF gs,s"
+                session_rows = db.execute(active_session_sql, (property_id, stay_id)).fetchall()
+                session_ids = [str(row["concierge_session_id"]) for row in session_rows]
+                if not session_ids:
+                    raise PermissionError("Every active session linked to this stay must allow promotional messages.")
+                placeholders = ",".join("?" for _ in session_ids)
+                consent_sql = f"""SELECT session_id FROM guest_privacy_consents
+                    WHERE property_id=? AND category='promotional_messages' AND granted=1
+                      AND session_id IN ({placeholders})
+                    ORDER BY session_id"""
+                if isinstance(db, PostgresCompatConnection):
+                    consent_sql += " FOR UPDATE"
+                consent_rows = db.execute(consent_sql, (property_id, *session_ids)).fetchall()
+                if {str(row["session_id"]) for row in consent_rows} != set(session_ids):
+                    raise PermissionError("Every active session linked to this stay must allow promotional messages.")
 
             notification_id = _id("ginbox")
             cursor = db.execute(

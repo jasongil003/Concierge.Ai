@@ -124,6 +124,7 @@ from .hospitality import (
     GUEST_NOTIFICATION_DEFAULT_PREFERENCES,
     NOTIFICATION_CATEGORIES,
     HospitalityStore,
+    NotificationCampaignConflict,
 )
 from .intro import IntroExperienceStore
 from .location_analytics import LocationAnalyticsStore
@@ -1239,6 +1240,22 @@ class NotificationEvaluatePayload(BaseModel):
     stay_id: str | None = None
     verified_payload: dict[str, Any] = Field(default_factory=dict)
     current_zone_id: str | None = None
+
+
+class NotificationCampaignPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=160)
+    title: str = Field(min_length=1, max_length=160)
+    body: str = Field(min_length=1, max_length=2000)
+    source_reference: str = Field(min_length=1, max_length=160)
+    expected_revision: int | None = Field(default=None, ge=1)
+
+
+class NotificationCampaignActionPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: int = Field(ge=1)
 
 
 class ImprovementLoopConfigPayload(BaseModel):
@@ -6747,9 +6764,14 @@ def _dispatch_guest_inbox_notifications(*, property_id: str | None = None) -> in
                     else "promotional_messages"
                 )
                 enabled = hospitality.get_guest_notification_preferences(scope_property, scope_stay)[notification["category"]]
-                consented = any(
+                active_sessions = []
+                for session_id in guest_identities.sessions_for_stay(scope_property, scope_stay):
+                    linked_stay = guest_identities.active_stay_for_session(scope_property, session_id)
+                    if linked_stay and str(linked_stay.get("stay_id")) == scope_stay:
+                        active_sessions.append(session_id)
+                consented = bool(active_sessions) and all(
                     privacy_consents.get(scope_property, session_id)[consent_name]
-                    for session_id in guest_identities.sessions_for_stay(scope_property, scope_stay)
+                    for session_id in active_sessions
                 )
                 if not enabled or not consented:
                     hospitality.purge_guest_inbox_category(scope_property, scope_stay, notification["category"])
@@ -6907,6 +6929,193 @@ async def guest_notification_delivery_history(property_id: str, request: Request
         }
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+MAX_NOTIFICATION_CAMPAIGN_AUDIENCE = 5000
+
+
+def _campaign_stay_eligibility(property_id: str, stay_id: str) -> tuple[bool, str]:
+    sessions = guest_identities.sessions_for_stay(property_id, stay_id)
+    active_sessions = []
+    for session_id in sessions:
+        linked_stay = guest_identities.active_stay_for_session(property_id, session_id)
+        if linked_stay and str(linked_stay.get("stay_id")) == stay_id:
+            active_sessions.append(session_id)
+    if not active_sessions:
+        return False, "no_active_guest_session"
+    # Inbox messages are visible to every session for a stay. Require every
+    # active linked session to have opted in before using that shared inbox.
+    for session_id in active_sessions:
+        consent = privacy_consents.get(property_id, session_id, location_stay_id=stay_id)
+        if not consent.get("promotional_messages", False):
+            return False, "promotional_consent_required"
+    preferences = hospitality.get_guest_notification_preferences(property_id, stay_id)
+    if not preferences.get("promotional", False):
+        return False, "promotional_preference_disabled"
+    return True, "eligible"
+
+
+def _campaign_preview(property_id: str, campaign_id: str, expected_revision: int) -> dict[str, Any]:
+    campaign = hospitality.get_notification_campaign(property_id, campaign_id)
+    if campaign["revision"] != expected_revision:
+        raise NotificationCampaignConflict("Campaign changed after the draft was loaded.")
+    if campaign["status"] not in {"draft", "failed"}:
+        raise NotificationCampaignConflict("Only a saved or retryable campaign can be previewed.")
+    active_stays = [
+        stay for stay in guest_identities.list_stays(property_id)
+        if stay.get("status") == "active"
+    ]
+    if len(active_stays) > MAX_NOTIFICATION_CAMPAIGN_AUDIENCE:
+        raise HTTPException(status_code=413, detail="Campaign preview exceeds the safe active-stay audience limit.")
+    totals = {
+        "active_stays": len(active_stays),
+        "eligible": 0,
+        "no_active_guest_session": 0,
+        "promotional_consent_required": 0,
+        "promotional_preference_disabled": 0,
+    }
+    for stay in active_stays:
+        eligible, reason = _campaign_stay_eligibility(property_id, str(stay["stay_id"]))
+        totals["eligible" if eligible else reason] += 1
+    return {"campaign_id": campaign_id, "revision": campaign["revision"], "audience": "active_stays_with_promotional_consent", **totals}
+
+
+def _public_notification_campaign(campaign: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in campaign.items() if key != "policy"}
+
+
+@app.get("/api/admin/properties/{property_id}/notification-campaigns")
+async def list_notification_campaigns(property_id: str, request: Request) -> dict[str, Any]:
+    _require_property(property_id)
+    _admin_principal(request)
+    return {"campaigns": [_public_notification_campaign(item) for item in hospitality.list_notification_campaigns(property_id)]}
+
+
+@app.post("/api/admin/properties/{property_id}/notification-campaigns")
+async def create_notification_campaign(
+    property_id: str, payload: NotificationCampaignPayload, request: Request
+) -> dict[str, Any]:
+    _require_property(property_id)
+    _admin_principal(request)
+    try:
+        campaign = hospitality.create_notification_campaign(property_id, payload.model_dump())
+        return {"campaign": _public_notification_campaign(campaign)}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.put("/api/admin/properties/{property_id}/notification-campaigns/{campaign_id}")
+async def update_notification_campaign(
+    property_id: str, campaign_id: str, payload: NotificationCampaignPayload, request: Request
+) -> dict[str, Any]:
+    _require_property(property_id)
+    _admin_principal(request)
+    try:
+        campaign = hospitality.update_notification_campaign(property_id, campaign_id, payload.model_dump())
+        return {"campaign": _public_notification_campaign(campaign)}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Campaign not found.") from exc
+    except NotificationCampaignConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/notification-campaigns/{campaign_id}/preview")
+async def preview_notification_campaign(
+    property_id: str, campaign_id: str, payload: NotificationCampaignActionPayload, request: Request
+) -> dict[str, Any]:
+    _require_property(property_id)
+    _admin_principal(request)
+    try:
+        return _campaign_preview(property_id, campaign_id, payload.expected_revision)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Campaign not found.") from exc
+    except NotificationCampaignConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/notification-campaigns/{campaign_id}/publish")
+async def publish_notification_campaign(
+    property_id: str, campaign_id: str, payload: NotificationCampaignActionPayload, request: Request
+) -> dict[str, Any]:
+    _require_property(property_id)
+    _admin_principal(request)
+    try:
+        initial_preview = _campaign_preview(property_id, campaign_id, payload.expected_revision)
+        if initial_preview["eligible"] < 1:
+            raise HTTPException(status_code=409, detail="No active stays currently meet the promotional consent and preference requirements.")
+        campaign = hospitality.begin_notification_campaign_publish(
+            property_id, campaign_id, payload.expected_revision
+        )
+        moment = int(time.time())
+        property_record = properties.get(property_id)
+        property_timezone = property_record.timezone if property_record else "UTC"
+        counters = {"queued_count": 0, "already_queued_count": 0, "suppressed_count": 0}
+        active_stays = [
+            stay for stay in guest_identities.list_stays(property_id)
+            if stay.get("status") == "active"
+        ]
+        if len(active_stays) > MAX_NOTIFICATION_CAMPAIGN_AUDIENCE:
+            hospitality.finish_notification_campaign_publish(
+                property_id, campaign_id, queued_count=0, already_queued_count=0,
+                suppressed_count=0, failed=True,
+            )
+            raise HTTPException(status_code=413, detail="Campaign audience changed beyond the safe publish limit; review and retry.")
+        for stay in active_stays:
+            stay_id = str(stay["stay_id"])
+            eligible, _reason = _campaign_stay_eligibility(property_id, stay_id)
+            if not eligible:
+                counters["suppressed_count"] += 1
+                continue
+            try:
+                result = hospitality.create_guest_inbox_notification(
+                    property_id,
+                    stay_id,
+                    f"campaign:{campaign_id}",
+                    "promotional",
+                    campaign["title"],
+                    campaign["body"],
+                    expires_at=moment + 7 * 86400,
+                    timezone_name=property_timezone,
+                    require_promotional_consent=True,
+                    now=moment,
+                )
+            except PermissionError:
+                counters["suppressed_count"] += 1
+                continue
+            if result.get("created"):
+                counters["queued_count"] += 1
+            else:
+                counters["already_queued_count"] += 1
+        published = hospitality.finish_notification_campaign_publish(
+            property_id, campaign_id, **counters
+        )
+        return {
+            "campaign": _public_notification_campaign(published),
+            "audience": initial_preview["audience"],
+            "active_stays_at_preview": initial_preview["active_stays"],
+            "eligible_at_preview": initial_preview["eligible"],
+            "queued": counters["queued_count"],
+            "already_queued": counters["already_queued_count"],
+            "suppressed_at_publish": counters["suppressed_count"],
+            "delivery_state": "queued_in_app; delivery and guest read acknowledgement are recorded separately",
+        }
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Campaign not found.") from exc
+    except NotificationCampaignConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        try:
+            hospitality.finish_notification_campaign_publish(
+                property_id, campaign_id, queued_count=0, already_queued_count=0,
+                suppressed_count=0, failed=True,
+            )
+        except Exception:
+            logger.exception("Could not record interrupted notification campaign publication")
+        raise HTTPException(status_code=500, detail="Campaign publication was interrupted; retry the failed campaign.") from exc
 
 
 @app.post("/api/admin/properties/{property_id}/journey-events")
