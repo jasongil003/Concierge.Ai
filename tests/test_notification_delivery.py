@@ -828,8 +828,6 @@ def test_retention_worker_recovers_interrupted_optional_notification_withdrawal(
         "Old reminder", "This content was withdrawn.",
     )
     assert requeued["suppressed"] is True
-<<<<<<< HEAD
-=======
 
 
 def test_facility_closure_notifies_active_property_guests_with_operational_opt_out(admin_client, request):
@@ -912,4 +910,3 @@ def test_facility_closure_notifies_active_property_guests_with_operational_opt_o
     assert len(updates) == 2
     reopened_notice = next(item for item in updates if "is open again." in item["body"])
     assert "Inspection in progress" not in reopened_notice["body"]
->>>>>>> 96d832afe70781575e9e00a862d9c746dfcddd2d
