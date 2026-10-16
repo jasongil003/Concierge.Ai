@@ -1,6 +1,6 @@
 import math
 import re
-from typing import Any
+from typing import Any, Iterable
 from urllib.parse import urlsplit
 
 import httpx
@@ -9,15 +9,34 @@ from .config import settings
 
 
 PLACE_HINTS = {
-    "restaurant", "restaurants", "eat", "food", "cafe", "coffee", "bar",
-    "pharmacy", "mall", "shopping", "attraction", "nearby", "near me",
-    "things to do", "activity", "activities", "plan", "visit", "tour",
-    "tonight", "grocery", "groceries", "supermarket",
+    "restaurant", "restaurants", "eat", "food", "cafe", "cafes", "café", "cafés",
+    "coffee", "bar", "bars", "pharmacy", "pharmacies", "mall", "malls", "shopping",
+    "attraction", "attractions", "tourist", "sightseeing", "nearby", "near me",
+    "things to do", "activity", "activities", "plan", "visit", "tour", "tours",
+    "tonight", "grocery", "groceries", "supermarket", "supermarkets",
 }
 
+_DINING_INTENT_CUES = (
+    "restaurant", "restaurants", "dining", "eat", "hungry", "starving",
+    "something to eat", "food", "foods", "dinner", "lunch", "breakfast",
+    "cafe", "cafes", "café", "cafés", "coffee", "coffee shop", "coffee shops",
+)
+_ACTIVITY_INTENT_CUES = (
+    "activity", "activities", "things to do", "plan", "attraction", "attractions",
+    "tourist", "sightseeing", "tour", "tours", "visit", "surprise", "do this",
+    "do today", "afternoon", "tonight", "free tonight", "hours free", "free before",
+    "free for", "what should i do", "where can i go", "places to go",
+)
+_PROXIMITY_CUES = (
+    "nearby", "near me", "near the hotel", "around here", "where can i go",
+)
+
 _CATEGORY_CUES = (
-    ("restaurants", ("restaurant", "restaurants", "dining", "eat", "food")),
-    ("cafes", ("cafe", "cafes", "coffee", "coffee shop", "coffee shops")),
+    ("restaurants", (
+        "restaurant", "restaurants", "dining", "eat", "food", "foods", "hungry",
+        "starving", "something to eat", "dinner", "lunch", "breakfast",
+    )),
+    ("cafes", ("cafe", "cafes", "café", "cafés", "coffee", "coffee shop", "coffee shops")),
     ("bars and nightlife", ("bar", "bars", "pub", "pubs", "nightlife")),
     ("evening activities", ("tonight",)),
     ("pharmacies", ("pharmacy", "pharmacies", "chemist", "chemists", "drugstore", "drugstores")),
@@ -43,18 +62,62 @@ def _contains_phrase(text: str, phrase: str) -> bool:
     return re.search(r"(?<![\w])" + re.escape(phrase) + r"(?![\w])", text) is not None
 
 
-def _category_query(message: str) -> str:
-    """Return a fixed category query; never forward guest-authored text."""
-    text = message.casefold() if isinstance(message, str) else ""
-    categories = [
+def contains_any_phrase(message: str, phrases: Iterable[str]) -> bool:
+    """Match complete words and phrases so cue fragments do not trigger intent."""
+    if not isinstance(message, str):
+        return False
+    text = message.casefold()
+    return any(_contains_phrase(text, phrase.casefold()) for phrase in phrases)
+
+
+def has_dining_intent(message: str) -> bool:
+    return contains_any_phrase(message, _DINING_INTENT_CUES)
+
+
+def has_activity_intent(message: str) -> bool:
+    if contains_any_phrase(message, _ACTIVITY_INTENT_CUES):
+        return True
+    # A generic location request means attractions only when it is not attached
+    # to a more specific dining request such as “restaurants nearby”.
+    return not has_dining_intent(message) and contains_any_phrase(message, _PROXIMITY_CUES)
+
+
+def _matched_categories(text: str) -> list[str]:
+    return [
         category
         for category, cues in _CATEGORY_CUES
         if any(_contains_phrase(text, cue) for cue in cues)
     ]
+
+
+def _categories_for_message(message: str) -> list[str]:
+    text = message.casefold() if isinstance(message, str) else ""
+    categories = _matched_categories(text)
+    activity_requested = contains_any_phrase(text, _ACTIVITY_INTENT_CUES)
+    has_activity_category = "evening activities" in categories
+    if activity_requested and not has_activity_category:
+        categories.append("tourist attractions")
+    elif not categories and any(_contains_phrase(text, cue) for cue in _GENERIC_PLACE_CUES):
+        categories.append("tourist attractions")
+    return categories
+
+
+def required_category_permissions(message: str) -> set[str]:
+    """Return only category-specific permissions required by the fixed query."""
+    categories = set(_categories_for_message(message))
+    permissions: set[str] = set()
+    if categories.intersection({"restaurants", "cafes", "bars and nightlife"}):
+        permissions.add("restaurant_search_enabled")
+    if categories.intersection({"evening activities", "tourist attractions"}):
+        permissions.add("attractions_enabled")
+    return permissions
+
+
+def _category_query(message: str) -> str:
+    """Return a fixed category query; never forward guest-authored text."""
+    categories = _categories_for_message(message)
     if categories:
         return ", ".join(categories)
-    if any(_contains_phrase(text, cue) for cue in _GENERIC_PLACE_CUES):
-        return "tourist attractions"
     return "local places"
 
 
@@ -191,10 +254,7 @@ def _valid_place(place: Any, origin: tuple[float, float], radius_meters: float) 
 class GooglePlaces:
     @staticmethod
     def should_search(message: str) -> bool:
-        if not isinstance(message, str):
-            return False
-        text = message.casefold()
-        return any(hint in text for hint in PLACE_HINTS)
+        return contains_any_phrase(message, PLACE_HINTS)
 
     async def search(
         self,

@@ -4,6 +4,8 @@ Baseline: fetched `origin/main` `8ee80d2d688584795b6140582d609f81479b2137`, plus
 
 Continuation: fetched merged `origin/main` `d4649ff138c8ee9b6b8a681aae2132874894a7a2` on 2026-10-15 and reviewed the existing uncommitted `codex/priority-features-20261015` checkout. Rows that name the uncommitted priority branch are local acceptance only and do not change the production-verification column.
 
+Release-hardening continuation (2026-10-15): fetched `origin/main` at `7185e18df2ae3b8f100804b7c3618a3909a831b6`. Redundant draft PR #58 was closed because its tree exactly matched `main`. Facility closure/reopen notifications are in draft [PR #59](https://github.com/jasongil003/Concierge.Ai/pull/59); run #240's targeted browser retry passed 339 tests (39 skipped), but `secret-scan` failed. Nearby intent/category permission fixes are in draft [PR #60](https://github.com/jasongil003/Concierge.Ai/pull/60); run #243 passed browser, backend, PostgreSQL/Redis, Docker, dependency, static-security, and deployment jobs, with `secret-scan` failing. Docs-only run #244 is active on the latest branch head.
+
 | Feature | Implemented | Working | Tested | Production verified | Evidence / limit |
 | --- | --- | --- | --- | --- | --- |
 | Property branding and guest welcome | YES | YES | YES | UNVERIFIED | `app/guest_v2/app.js`, `tests/e2e/guest.spec.js`; local synthetic property. |
@@ -18,9 +20,9 @@ Continuation: fetched merged `origin/main` `d4649ff138c8ee9b6b8a681aae2132874894
 | Graceful no-map fallback | YES | YES | YES | UNVERIFIED | `tests/test_intelligent_ui.py`; local synthetic absence. |
 | Guest service proposal and confirmation | YES | YES | YES | UNVERIFIED | `tests/test_service_catalog.py` direct API and `tests/test_intelligent_ui.py`; actual department receipt unverified. |
 | Request idempotency, assignment, status | YES | PARTIAL | YES | UNVERIFIED | `tests/test_service_catalog.py`, staff/browser tests; live notification and staff operations unverified. |
-| Nearby external places | PARTIAL | UNVERIFIED | PARTIAL | UNVERIFIED | `app/places.py`, deterministic shaping tests; external provider, freshness, consent not tested live. |
+| Nearby external places | PARTIAL | PARTIAL | YES | UNVERIFIED | `app/places.py`, `tests/test_places.py`, and `tests/test_guest_privacy_consent.py`; complete-word intent matching and independent restaurant/attraction permission checks pass locally. External provider, freshness, approved privacy policy, and live consent behavior remain unverified. |
 | Guest external-processing and location consent controls | PARTIAL | PARTIAL | YES | UNVERIFIED | Uncommitted priority branch; `tests/test_guest_privacy_consent.py` covers local consent, denial, withdrawal, checkout, and retention. Approved property policy and live collection are absent. |
-| Guest notification inbox and dispatch | PARTIAL | PARTIAL | YES | UNVERIFIED | Uncommitted priority branch; `tests/test_notification_delivery.py` and guest browser flow use synthetic events. Actual guest delivery and staff operations are unverified. |
+| Guest notification inbox and dispatch | PARTIAL | PARTIAL | YES | UNVERIFIED | `tests/test_notification_delivery.py` and guest browser flow use synthetic events. Facility closure/reopen notices are proposed in [PR #59](https://github.com/jasongil003/Concierge.Ai/pull/59). Actual guest delivery and staff operations are unverified. |
 | Tonight recommendations in property timezone | PARTIAL | UNVERIFIED | PARTIAL | UNVERIFIED | Schedule/content paths exist; local-time precedence and live event data not accepted. |
 | Draft preservation, retry, session recovery | YES | YES | YES | UNVERIFIED | `tests/e2e/guest.spec.js` failed-send, duplicate, new-chat, history, expiry regressions. |
 | Knowledge upload, review, publication | YES | YES | YES | UNVERIFIED | `app/knowledge_management.py`, backend and admin browser tests; real content governance unverified. |
