@@ -18,6 +18,34 @@ def _store(tmp_path: Path) -> KnowledgeStore:
     return KnowledgeStore(tmp_path / "knowledge.db", tmp_path / "uploads")
 
 
+def test_managed_knowledge_pages_filter_before_counting_and_clamp_offsets(tmp_path: Path):
+    store = _store(tmp_path)
+    for index in range(5):
+        store.create_draft("hotel-a", f"Page Item {index}", f"Facilities information {index}", "Facilities", "actor")
+    guest_item = store.create_draft("hotel-a", "Guest Visible Item", "Guest facilities details", "Facilities", "actor")
+    store.update_item("hotel-a", guest_item["item_id"], {"visibility": "guest"}, "actor")
+    store.create_draft("hotel-b", "Other Property Item", "Private property details", "Facilities", "actor")
+
+    first = store.list_items_page("hotel-a", role_slug="content-manager", limit=2)
+    second = store.list_items_page("hotel-a", role_slug="content-manager", limit=2, offset=2)
+    repeated_first = store.list_items_page("hotel-a", role_slug="content-manager", limit=2)
+    assert first["total"] == second["total"] == 6
+    assert len(first["items"]) == len(second["items"]) == 2
+    assert [item["item_id"] for item in first["items"]] == [item["item_id"] for item in repeated_first["items"]]
+    assert {item["item_id"] for item in first["items"]}.isdisjoint({item["item_id"] for item in second["items"]})
+
+    stale = store.list_items_page("hotel-a", role_slug="content-manager", limit=2, offset=1_000_000)
+    assert stale["offset"] == 4
+    assert len(stale["items"]) == 2
+    filtered = store.list_items_page("hotel-a", role_slug="content-manager", query="PAGE ITEM 3")
+    assert filtered["total"] == 1
+    assert filtered["items"][0]["title"] == "Page Item 3"
+    restricted = store.list_items_page("hotel-a", role_slug="front-desk")
+    assert restricted["total"] == 1
+    assert [item["item_id"] for item in restricted["items"]] == [guest_item["item_id"]]
+
+
+
 def _pdf(text: str) -> bytes:
     stream = f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET".encode()
     objects = [

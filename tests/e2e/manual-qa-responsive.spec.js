@@ -46,7 +46,13 @@ async function openAdminPanel(page, panel) {
   await item.click();
   await expect(page.locator(".panel.active")).toHaveAttribute("id", panel);
   await expect(page.locator(".panel.active > .page-title h1, .panel.active > .onboarding-card h1").first()).toBeVisible();
-  if (isMobile) await expect(shell).not.toHaveClass(/mobile-nav-open/);
+  if (isMobile) {
+    await expect(shell).not.toHaveClass(/mobile-nav-open/);
+    const viewportWidth = page.viewportSize()?.width ?? 0;
+    await expect.poll(() => page.locator(".platform-sidebar").evaluate((element) => (
+      new DOMMatrixReadOnly(getComputedStyle(element).transform).m41
+    ))).toBeLessThan(-viewportWidth / 2);
+  }
 }
 
 async function expectNoHorizontalOverflow(page, label) {

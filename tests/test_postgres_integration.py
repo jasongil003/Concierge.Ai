@@ -201,6 +201,53 @@ def test_postgres_schema_inspection_admin_creation_and_assignment_validation(tmp
             db.execute("DELETE FROM properties WHERE property_id=?", (property_id,))
 
 
+def test_postgres_notification_campaign_page_search_and_page_engagement(tmp_path):
+    _configure()
+    from app.hospitality import HospitalityStore
+    from app.properties import PropertyRecord, PropertyStore
+
+    property_id = f"pg-campaign-page-{uuid.uuid4().hex[:10]}"
+    property_store = PropertyStore(tmp_path / "postgres-campaign-page.db")
+    hospitality = HospitalityStore(tmp_path / "postgres-campaign-page.db")
+    property_store.upsert(PropertyRecord(property_id=property_id, hotel_name="Campaign Page Integration"))
+    matching = hospitality.create_notification_campaign(property_id, {
+        "name": "Literal 100%_ campaign",
+        "title": "Pool update",
+        "body": "The pool is ready.",
+        "source_reference": "postgres-integration",
+    })
+    hospitality.create_notification_campaign(property_id, {
+        "name": "Literal 1000X campaign",
+        "title": "Dining update",
+        "body": "Dinner service begins at six.",
+        "source_reference": "postgres-integration",
+    })
+    try:
+        with connect_database(tmp_path / "postgres-campaign-page.db") as db:
+            now = int(time.time())
+            db.execute(
+                """INSERT INTO guest_inbox_notifications
+                   (notification_id,property_id,stay_id,event_id,category,title,body,status,created_at,updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    f"pg-campaign-inbox-{uuid.uuid4().hex}", property_id, "synthetic-stay",
+                    f"campaign:{matching['campaign_id']}", "promotional", "Pool update", "The pool is ready.",
+                    "queued", now, now,
+                ),
+            )
+
+        page = hospitality.notification_campaign_page(property_id, limit=1, offset=0, search="100%_")
+        assert page["total"] == 1
+        assert len(page["campaigns"]) == 1
+        assert page["campaigns"][0]["campaign_id"] == matching["campaign_id"]
+        assert page["campaigns"][0]["engagement"]["queued"] == 1
+    finally:
+        with connect_database(tmp_path / "postgres-campaign-page.db") as db:
+            db.execute("DELETE FROM guest_inbox_notifications WHERE property_id=?", (property_id,))
+            db.execute("DELETE FROM notification_rules WHERE property_id=? AND trigger_type='campaign'", (property_id,))
+            db.execute("DELETE FROM properties WHERE property_id=?", (property_id,))
+
+
 def test_postgres_guest_hostname_claims_are_serialized_across_writers(tmp_path):
     from app.properties import PropertyRecord, PropertyStore
 

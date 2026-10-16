@@ -27,7 +27,8 @@ def _source_tree(tmp_path: Path) -> Path:
         "APP_ENVIRONMENT=development\n"
         "ADMIN_BOOTSTRAP_USERNAME=root\n"
         "ADMIN_BOOTSTRAP_PASSWORD=admin\n"
-        "CREDENTIAL_ENCRYPTION_SECRET=\n",
+        "CREDENTIAL_ENCRYPTION_SECRET=\n"
+        "CONCIERGE_BACKUP_ENCRYPTION_KEY=\n",
         encoding="utf-8",
     )
     return root
@@ -46,6 +47,8 @@ def test_fresh_configuration_creates_private_env_secret_and_root_bootstrap(tmp_p
     assert values["ADMIN_BOOTSTRAP_PASSWORD"] == "admin"
     secret = values["CREDENTIAL_ENCRYPTION_SECRET"]
     assert isinstance(secret, str) and len(secret) >= 32
+    assert len(values["CONCIERGE_BACKUP_ENCRYPTION_KEY"]) == 64
+    assert all(char in "0123456789abcdef" for char in values["CONCIERGE_BACKUP_ENCRYPTION_KEY"])
     assert (root / ".env").stat().st_mode & 0o777 == 0o600
 
 
@@ -77,21 +80,25 @@ def test_installer_output_never_discloses_generated_secret(tmp_path: Path):
         check=True,
     )
     secret = dotenv_values(root / ".env")["CREDENTIAL_ENCRYPTION_SECRET"]
+    backup_key = dotenv_values(root / ".env")["CONCIERGE_BACKUP_ENCRYPTION_KEY"]
     assert secret not in result.stdout
     assert secret not in result.stderr
+    assert backup_key not in result.stdout + result.stderr
     assert "secret=generated" in result.stdout
 
 
 def test_valid_secret_and_existing_bootstrap_configuration_are_preserved(tmp_path: Path):
     root = _source_tree(tmp_path)
-    existing_secret = "kept-encryption-secret-value-1234567890"
+    existing_secret = "testtesttesttesttesttesttesttest"
+    existing_backup_key = "de" * 32
     (root / ".env").write_text(
         "DB_PATH=state/concierge.db\n"
         "UPLOAD_ROOT=state/uploads\n"
         "APP_ENVIRONMENT=development\n"
         "ADMIN_BOOTSTRAP_USERNAME=owner\n"
         "ADMIN_BOOTSTRAP_PASSWORD=OwnerPassword123!\n"
-        f"CREDENTIAL_ENCRYPTION_SECRET={existing_secret}\n",
+        f"CREDENTIAL_ENCRYPTION_SECRET={existing_secret}\n"
+        f"CONCIERGE_BACKUP_ENCRYPTION_KEY={existing_backup_key}\n",
         encoding="utf-8",
     )
 
@@ -101,6 +108,7 @@ def test_valid_secret_and_existing_bootstrap_configuration_are_preserved(tmp_pat
     assert secret_status == "preserved"
     assert admin_status == "preserved"
     assert values["CREDENTIAL_ENCRYPTION_SECRET"] == existing_secret
+    assert values["CONCIERGE_BACKUP_ENCRYPTION_KEY"] == existing_backup_key
     assert values["ADMIN_BOOTSTRAP_USERNAME"] == "owner"
     assert values["ADMIN_BOOTSTRAP_PASSWORD"] == "OwnerPassword123!"
 
@@ -121,6 +129,20 @@ def test_placeholder_encryption_secret_is_regenerated(tmp_path: Path):
     assert secret_status == "generated"
     assert secret != "short"
     assert len(secret) >= 32
+
+
+def test_invalid_existing_backup_key_fails_without_rotating_it(tmp_path: Path):
+    root = _source_tree(tmp_path)
+    (root / ".env").write_text(
+        "ADMIN_BOOTSTRAP_USERNAME=root\n"
+        "ADMIN_BOOTSTRAP_PASSWORD=admin\n"
+        "CREDENTIAL_ENCRYPTION_SECRET=testtesttesttesttesttesttesttest\n"
+        "CONCIERGE_BACKUP_ENCRYPTION_KEY=not-a-backup-key\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(source_install.InstallerError, match="preserved"):
+        source_install.prepare_environment(root)
+    assert dotenv_values(root / ".env")["CONCIERGE_BACKUP_ENCRYPTION_KEY"] == "not-a-backup-key"
 
 
 def test_existing_administrator_and_password_are_preserved_on_reinstall(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

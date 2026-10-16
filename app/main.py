@@ -26,7 +26,7 @@ from email.message import EmailMessage
 from urllib.parse import quote, urlparse, urlsplit
 
 import httpx
-from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
@@ -62,6 +62,12 @@ from .build_info import BUILD_IDENTITY
 from . import system_diagnostics
 from .improvement_loop import ImprovementLoopManager, ImprovementLoopStore
 from .guest_identity import GuestIdentityStore, pseudonymous_device_id
+from .guest_entry import (
+    canonical_guest_entry_url,
+    guest_entry_qr_svg,
+    signed_wayfinding_entry_url,
+    verify_wayfinding_start_signature,
+)
 from .guest_context import build_guest_context
 from .stay_context import StayContextEngine
 from .assistant_decisions import AssistantDecisionEngine
@@ -118,6 +124,7 @@ from .hospitality import (
     GUEST_NOTIFICATION_DEFAULT_PREFERENCES,
     NOTIFICATION_CATEGORIES,
     HospitalityStore,
+    NotificationCampaignConflict,
 )
 from .intro import IntroExperienceStore
 from .location_analytics import LocationAnalyticsStore
@@ -292,6 +299,11 @@ async def lifespan(app: FastAPI):
             except Exception as exc:
                 metrics.WORKER_FAILURES.labels("guest_event_reminders").inc()
                 logger.error("Guest event reminder scheduling failed (%s)", exc.__class__.__name__)
+            try:
+                await asyncio.to_thread(_queue_overdue_service_request_escalations)
+            except Exception as exc:
+                metrics.WORKER_FAILURES.labels("service_request_escalations").inc()
+                logger.error("Service request escalation scheduling failed (%s)", exc.__class__.__name__)
             try:
                 await asyncio.to_thread(_dispatch_guest_inbox_notifications)
             except Exception as exc:
@@ -1029,6 +1041,13 @@ class DesignConfigPayload(BaseModel):
     expected_revision: int | None = Field(default=None, ge=1)
 
 
+class DesignClonePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_property_id: str = Field(min_length=1, max_length=120)
+    expected_revision: int | None = Field(default=None, ge=1)
+
+
 class DesignPublishPayload(BaseModel):
     expected_revision: int | None = Field(default=None, ge=1)
 
@@ -1226,6 +1245,22 @@ class NotificationEvaluatePayload(BaseModel):
     stay_id: str | None = None
     verified_payload: dict[str, Any] = Field(default_factory=dict)
     current_zone_id: str | None = None
+
+
+class NotificationCampaignPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=160)
+    title: str = Field(min_length=1, max_length=160)
+    body: str = Field(min_length=1, max_length=2000)
+    source_reference: str = Field(min_length=1, max_length=160)
+    expected_revision: int | None = Field(default=None, ge=1)
+
+
+class NotificationCampaignActionPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: int = Field(ge=1)
 
 
 class ImprovementLoopConfigPayload(BaseModel):
@@ -1672,6 +1707,51 @@ async def guest_route(
         return zones.route(record.property_id, from_node_id, to_node_id, guest=True, accessible=accessible)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/guest/wayfinding/start")
+async def guest_wayfinding_start(
+    request: Request,
+    start_node_id: str,
+    start_sig: str,
+    property_id: str | None = None,
+) -> Response:
+    record = _guest_property(request, property_id)
+    _enforce_guest_network(request, record)
+    if not verify_wayfinding_start_signature(
+        record.property_id,
+        start_node_id,
+        start_sig,
+        guest_identities.property_secret(record.property_id),
+    ):
+        raise HTTPException(status_code=404, detail="Wayfinding code is unavailable.")
+    if not normalize_guardrails(record.guardrails)["directions_enabled"]:
+        raise HTTPException(status_code=404, detail="Wayfinding code is unavailable.")
+    overview = zones.overview(record.property_id, guest=True)
+    node = next((
+        item for item in overview.get("navigation_nodes", [])
+        if str(item.get("node_id") or "") == start_node_id and item.get("guest_visible")
+    ), None)
+    map_block = _intelligent_guest_floor_map_block(
+        record.property_id,
+        "map",
+        focus_node_id=start_node_id,
+    )
+    if not node or not map_block:
+        raise HTTPException(status_code=404, detail="Wayfinding code is unavailable.")
+    map_block["directions_enabled"] = True
+    map_block["starting_node_id"] = start_node_id
+    return JSONResponse(
+        {
+            "starting_node": {
+                "node_id": start_node_id,
+                "label": str(node.get("label") or "")[:120],
+                "floor_id": str(node.get("floor_id") or "")[:80],
+            },
+            "map": map_block,
+        },
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/api/guest/facilities")
@@ -2284,8 +2364,19 @@ async def delete_admin_role(role_id: str, request: Request) -> dict[str, str]:
 
 
 @app.get("/api/admin/users")
-async def list_admin_users(request: Request) -> dict[str, Any]:
-    return {"users": admin_auth.list_users(_admin_principal(request))}
+async def list_admin_users(
+    request: Request,
+    q: str = Query(default="", max_length=120),
+    status: str = Query(default="", max_length=20),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=1_000_000),
+) -> dict[str, Any]:
+    try:
+        return admin_auth.list_users_page(
+            _admin_principal(request), search=q, status=status, limit=limit, offset=offset
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.post("/api/admin/users")
@@ -2359,23 +2450,27 @@ async def list_admin_audit(
     resource: str = "",
     start_at: int | None = None,
     end_at: int | None = None,
-    limit: int = 100,
+    limit: int = 50,
+    offset: int = 0,
 ) -> dict[str, Any]:
-    return {
-        "events": admin_auth.list_audit(
-            _admin_principal(request),
-            {
-                "username": username,
-                "property_id": property_id,
-                "role_name": role,
-                "action": action,
-                "resource": resource,
-                "start_at": start_at,
-                "end_at": end_at,
-            },
-            limit=limit,
-        )
-    }
+    if not 1 <= limit <= 100:
+        raise HTTPException(status_code=422, detail="Audit page size must be between 1 and 100.")
+    if not 0 <= offset <= 1_000_000:
+        raise HTTPException(status_code=422, detail="Audit page offset must be between 0 and 1000000.")
+    return admin_auth.list_audit_page(
+        _admin_principal(request),
+        {
+            "username": username,
+            "property_id": property_id,
+            "role_name": role,
+            "action": action,
+            "resource": resource,
+            "start_at": start_at,
+            "end_at": end_at,
+        },
+        limit=limit,
+        offset=offset,
+    )
 
 
 @app.get("/api/admin/properties")
@@ -4470,7 +4565,7 @@ async def update_property_guardrails(property_id: str, payload: GuardrailConfigP
 async def property_guardrail_diagnostics(property_id: str, request: Request) -> dict[str, Any]:
     record = _require_property_record(property_id)
     decision = network_guard.evaluate(property_id, record.guardrails, request.client.host if request.client else "", request.headers, _request_id(request))
-    active = sum(1 for item in store.sessions(property_id) if item["session_status"] == "active")
+    active = store.session_record_counts(property_id)["active_sessions"]
     return {
         "detected_client_ip": decision.client_ip,
         "matched_network": decision.matched_network or None,
@@ -4483,13 +4578,38 @@ async def property_guardrail_diagnostics(property_id: str, request: Request) -> 
 
 
 @app.get("/api/admin/properties/{property_id}/knowledge")
-async def list_property_knowledge(property_id: str, request: Request) -> dict[str, Any]:
+async def list_property_knowledge(
+    property_id: str,
+    request: Request,
+    q: str = "",
+    limit: int = 25,
+    entry_offset: int = 0,
+    document_offset: int = 0,
+    faq_offset: int = 0,
+) -> dict[str, Any]:
     _require_property(property_id)
-    items = operations.list_knowledge(property_id)
+    if not 1 <= limit <= 100:
+        raise HTTPException(status_code=422, detail="Knowledge page size must be between 1 and 100.")
+    if any(offset < 0 or offset > 1_000_000 for offset in (entry_offset, document_offset, faq_offset)):
+        raise HTTPException(status_code=422, detail="Knowledge page offsets must be between 0 and 1000000.")
+    if len(q) > 120:
+        raise HTTPException(status_code=422, detail="Knowledge search must be 120 characters or fewer.")
+    principal = _admin_principal(request)
+    try:
+        entries = operations.list_knowledge_page(property_id, "entry", query=q, limit=limit, offset=entry_offset)
+        faqs = operations.list_knowledge_page(property_id, "faq", query=q, limit=limit, offset=faq_offset)
+        documents = operations.list_knowledge_page(property_id, "document", query=q, limit=limit, offset=document_offset) if principal.can("knowledge.edit") else {"items": [], "total": 0, "limit": limit, "offset": 0}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {
-        "items": [item for item in items if item["kind"] == "entry"],
-        "documents": [item for item in items if item["kind"] == "document"] if _admin_principal(request).can("knowledge.edit") else [],
-        "faqs": [item for item in items if item["kind"] == "faq"],
+        "items": entries["items"],
+        "documents": documents["items"],
+        "faqs": faqs["items"],
+        "pages": {
+            "items": {key: entries[key] for key in ("total", "limit", "offset")},
+            "documents": {key: documents[key] for key in ("total", "limit", "offset")},
+            "faqs": {key: faqs[key] for key in ("total", "limit", "offset")},
+        },
     }
 
 
@@ -4520,11 +4640,40 @@ def _knowledge_item_allowed(item: dict[str, Any] | None, principal: AdminPrincip
 
 
 @app.get("/api/admin/properties/{property_id}/knowledge/managed")
-async def managed_knowledge(property_id: str, request: Request, source_id: str | None = None, status: str | None = None, q: str = "") -> dict[str, Any]:
+async def managed_knowledge(
+    property_id: str,
+    request: Request,
+    source_id: str | None = None,
+    status: str | None = None,
+    q: str = Query(default="", max_length=100),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=1_000_000),
+    source_limit: int = Query(default=25, ge=1, le=100),
+    source_offset: int = Query(default=0, ge=0, le=1_000_000),
+) -> dict[str, Any]:
     _require_property(property_id)
     principal = _admin_principal(request)
-    items = [item for item in knowledge_management.list_items(property_id, source_id=source_id, status=status, query=q) if _knowledge_item_allowed(item, principal)]
-    return {"items": items, "sources": knowledge_management.list_sources(property_id), "categories": list(CATEGORIES), "limits": {"max_file_bytes": settings.knowledge_max_file_bytes, "max_files_per_upload": settings.knowledge_max_files_per_upload, "max_files_per_property": settings.knowledge_max_files_per_property, "storage_quota_bytes": settings.knowledge_storage_quota_bytes}}
+    page = knowledge_management.list_items_page(
+        property_id,
+        source_id=source_id,
+        status=status,
+        query=q,
+        role_slug=principal.role_slug,
+        allow_all=principal.role_slug == "super-admin",
+        limit=limit,
+        offset=offset,
+    )
+    source_page = knowledge_management.list_sources_page(
+        property_id, query=q, limit=source_limit, offset=source_offset,
+    )
+    items = [item for item in page["items"] if _knowledge_item_allowed(item, principal)]
+    return page | {
+        "items": items,
+        "sources": source_page["items"],
+        "source_pages": {key: source_page[key] for key in ("total", "limit", "offset")},
+        "categories": list(CATEGORIES),
+        "limits": {"max_file_bytes": settings.knowledge_max_file_bytes, "max_files_per_upload": settings.knowledge_max_files_per_upload, "max_files_per_property": settings.knowledge_max_files_per_property, "storage_quota_bytes": settings.knowledge_storage_quota_bytes},
+    }
 
 
 @app.post("/api/admin/properties/{property_id}/knowledge/items")
@@ -4825,7 +4974,94 @@ async def verify_property_deployment(property_id: str) -> dict[str, Any]:
 async def network_access_status(property_id: str, request: Request) -> dict[str, Any]:
     record = _require_property_record(property_id)
     principal = _admin_principal(request)
+    if not principal.can("network.view") or not principal.can_access_property(property_id):
+        raise HTTPException(status_code=404, detail="Property not found.")
     return _network_access_status(record, principal)
+
+
+@app.get("/api/admin/properties/{property_id}/guest-entry/qr.svg")
+async def guest_entry_qr(property_id: str, request: Request) -> Response:
+    record = _require_property_record(property_id)
+    principal = _admin_principal(request)
+    if not principal.can("network.view") or not principal.can_access_property(property_id):
+        raise HTTPException(status_code=404, detail="Property not found.")
+    url = canonical_guest_entry_url(record)
+    if url is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Configure Guest Access with an approved HTTPS domain before generating its QR code.",
+        )
+    return Response(
+        content=guest_entry_qr_svg(url),
+        media_type="image/svg+xml",
+        headers={
+            "Cache-Control": "no-store",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+def _published_wayfinding_entry(property_id: str, node_id: str) -> tuple[PropertyRecord, dict[str, Any], str] | None:
+    record = properties.get(property_id)
+    if record is None or not normalize_guardrails(record.guardrails)["directions_enabled"]:
+        return None
+    overview = zones.overview(property_id, guest=True)
+    node = next((
+        item for item in overview.get("navigation_nodes", [])
+        if str(item.get("node_id") or "") == node_id and item.get("guest_visible")
+    ), None)
+    if not node:
+        return None
+    # Require an image-backed, published floor map that the guest renderer can display.
+    map_block = _intelligent_guest_floor_map_block(property_id, "map", focus_node_id=node_id)
+    if not map_block:
+        return None
+    url = signed_wayfinding_entry_url(record, node_id, guest_identities.property_secret(property_id))
+    if not url:
+        return None
+    return record, node, url
+
+
+@app.get("/api/admin/properties/{property_id}/navigation/nodes/{node_id}/wayfinding-qr.svg")
+async def wayfinding_node_qr(property_id: str, node_id: str, request: Request) -> Response:
+    _require_property(property_id)
+    principal = _admin_principal(request)
+    if not principal.can("properties.view") or not principal.can_access_property(property_id):
+        raise HTTPException(status_code=404, detail="Property not found.")
+    entry = _published_wayfinding_entry(property_id, node_id)
+    if not entry:
+        raise HTTPException(
+            status_code=409,
+            detail="Publish this guest-visible waypoint on an image-backed map and enable directions before creating its QR code.",
+        )
+    _record, _node, url = entry
+    return Response(
+        content=guest_entry_qr_svg(url),
+        media_type="image/svg+xml",
+        headers={
+            "Cache-Control": "no-store",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+            "X-Content-Type-Options": "nosniff",
+            "X-Concierge-Wayfinding-URL": url,
+        },
+    )
+
+
+@app.get("/api/admin/properties/{property_id}/navigation/nodes/{node_id}/wayfinding-url")
+async def wayfinding_node_url(property_id: str, node_id: str, request: Request) -> dict[str, str]:
+    _require_property(property_id)
+    principal = _admin_principal(request)
+    if not principal.can("properties.view") or not principal.can_access_property(property_id):
+        raise HTTPException(status_code=404, detail="Property not found.")
+    entry = _published_wayfinding_entry(property_id, node_id)
+    if not entry:
+        raise HTTPException(
+            status_code=409,
+            detail="Publish this guest-visible waypoint on an image-backed map and enable directions before creating its QR code.",
+        )
+    _record, node, url = entry
+    return {"url": url, "label": str(node.get("label") or "")[:120]}
 
 
 @app.put("/api/admin/properties/{property_id}/network-access/management")
@@ -5169,6 +5405,58 @@ async def save_property_design_draft(property_id: str, payload: DesignConfigPayl
     return {"status": "draft_saved", "draft": record.design_draft, "revision": record.design_revision}
 
 
+@app.post("/api/admin/properties/{property_id}/design/clone")
+async def clone_property_design(
+    property_id: str,
+    payload: DesignClonePayload,
+    request: Request,
+) -> dict[str, Any]:
+    principal = _admin_principal(request)
+    if not principal.can("concierge.edit"):
+        raise HTTPException(status_code=403, detail="Permission denied.")
+    if not principal.can("properties.all") and principal.property_id != property_id:
+        raise HTTPException(status_code=403, detail="Property access denied.")
+    source_property_id = payload.source_property_id.strip()
+    if not source_property_id:
+        raise HTTPException(status_code=422, detail="Choose a source property.")
+    if source_property_id == property_id:
+        raise HTTPException(status_code=422, detail="Choose a different source property.")
+    if not principal.can("properties.all") and principal.property_id != source_property_id:
+        raise HTTPException(status_code=403, detail="Source property access denied.")
+    _require_property(property_id)
+    if properties.get(source_property_id) is None:
+        raise HTTPException(status_code=404, detail="Source property not found.")
+    try:
+        record = properties.clone_design_from(
+            source_property_id,
+            property_id,
+            expected_revision=payload.expected_revision,
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Property not found.") from None
+    except ValueError as exc:
+        if isinstance(exc, DesignRevisionConflict):
+            raise HTTPException(
+                status_code=409,
+                detail={"message": str(exc), "current_revision": exc.current_revision},
+            ) from exc
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    admin_auth.audit(
+        principal,
+        "design.cloned",
+        "property_design",
+        property_id,
+        property_id=property_id,
+        metadata={"source_property_id": source_property_id, "revision": record.design_revision},
+    )
+    return {
+        "status": "draft_saved",
+        "source_property_id": source_property_id,
+        "draft": record.design_draft,
+        "revision": record.design_revision,
+    }
+
+
 @app.post("/api/admin/properties/{property_id}/design/publish")
 async def publish_property_design(property_id: str, payload: DesignPublishPayload | None = None) -> dict[str, Any]:
     try:
@@ -5470,24 +5758,94 @@ async def admin_route(property_id: str, from_node_id: str, to_node_id: str) -> d
 
 
 @app.get("/api/admin/properties/{property_id}/sessions")
-async def admin_sessions(property_id: str) -> dict[str, Any]:
+async def admin_sessions(
+    property_id: str,
+    limit: int = 25,
+    q: str = "",
+    filter: str = "all",
+    session_offset: int = 0,
+    link_offset: int = 0,
+    stay_offset: int = 0,
+    device_offset: int = 0,
+) -> dict[str, Any]:
     _require_property(property_id)
+    if not 1 <= limit <= 100:
+        raise HTTPException(status_code=422, detail="Session record page size must be between 1 and 100.")
+    if any(offset < 0 or offset > 1_000_000 for offset in (session_offset, link_offset, stay_offset, device_offset)):
+        raise HTTPException(status_code=422, detail="Session record page offsets must be between 0 and 1000000.")
+    if len(q) > 120:
+        raise HTTPException(status_code=422, detail="Session record search must be 120 characters or fewer.")
+    if filter not in {"all", "active-sessions", "expired-sessions", "guest-links", "active-stays", "checked-out-stays", "devices"}:
+        raise HTTPException(status_code=422, detail="Invalid session record filter.")
+    include = {
+        "sessions": filter in {"all", "active-sessions", "expired-sessions"},
+        "guest_sessions": filter in {"all", "guest-links"},
+        "stays": filter in {"all", "active-stays", "checked-out-stays"},
+        "devices": filter in {"all", "devices"},
+    }
+    empty_page = {"items": [], "total": 0, "limit": limit, "offset": 0}
+    try:
+        session_page = store.sessions_page(
+            property_id, limit=limit, offset=session_offset, query=q,
+            status={"active-sessions": "active", "expired-sessions": "expired"}.get(filter),
+        ) if include["sessions"] else empty_page
+        link_page = guest_identities.list_guest_sessions_page(
+            property_id, limit=limit, offset=link_offset, query=q,
+        ) if include["guest_sessions"] else empty_page
+        stay_page = guest_identities.list_stays_page(
+            property_id, limit=limit, offset=stay_offset, query=q,
+            status={"active-stays": "active", "checked-out-stays": "checked_out"}.get(filter),
+        ) if include["stays"] else empty_page
+        device_page = guest_identities.list_devices_page(
+            property_id, limit=limit, offset=device_offset, query=q,
+        ) if include["devices"] else empty_page
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    counts = {
+        **store.session_record_counts(property_id),
+        **guest_identities.session_record_counts(property_id),
+    }
+    counts["total_records"] = counts["sessions"] + counts["guest_links"] + counts["stays"] + counts["devices"]
     return {
-        "sessions": store.sessions(property_id),
-        "stays": guest_identities.list_stays(property_id),
-        "guest_sessions": guest_identities.list_guest_sessions(property_id),
-        "devices": guest_identities.list_devices(property_id),
+        "sessions": session_page["items"],
+        "stays": stay_page["items"],
+        "guest_sessions": link_page["items"],
+        "devices": device_page["items"],
+        "pages": {
+            "sessions": {key: session_page[key] for key in ("total", "limit", "offset")},
+            "stays": {key: stay_page[key] for key in ("total", "limit", "offset")},
+            "guest_sessions": {key: link_page[key] for key in ("total", "limit", "offset")},
+            "devices": {key: device_page[key] for key in ("total", "limit", "offset")},
+        },
+        "counts": counts,
+        "result_count": session_page["total"] + stay_page["total"] + link_page["total"] + device_page["total"],
     }
 
 
 @app.get("/api/admin/properties/{property_id}/conversations")
-async def property_conversations(property_id: str, request: Request) -> dict[str, Any]:
+async def property_conversations(
+    property_id: str,
+    request: Request,
+    limit: int = 50,
+    offset: int = 0,
+    status: str = "",
+) -> dict[str, Any]:
     _require_property(property_id)
     principal = _admin_principal(request)
     if not principal.can("conversations.view") or not principal.can_access_property(property_id):
         raise HTTPException(status_code=403, detail="Permission required: conversations.view")
+    if not 1 <= limit <= 100:
+        raise HTTPException(status_code=422, detail="Conversation page size must be between 1 and 100.")
+    if not 0 <= offset <= 1_000_000:
+        raise HTTPException(status_code=422, detail="Conversation page offset must be between 0 and 1000000.")
+    if status not in {"", "waiting_for_staff", "assigned", "human_active", "ai_active", "resolved"}:
+        raise HTTPException(status_code=422, detail="Invalid conversation state filter.")
     restaurant_ids = None if principal.can("properties.all") or principal.can("properties.edit") else _assigned_restaurant_ids(principal, property_id)
-    conversations = store.conversations(property_id, restaurant_ids)
+    status_counts = store.conversation_status_counts(property_id, restaurant_ids)
+    total = status_counts.get(status, 0) if status else sum(status_counts.values())
+    last_page_offset = max(0, ((total - 1) // limit) * limit) if total else 0
+    offset = min(offset, last_page_offset)
+    conversations = store.conversations(property_id, restaurant_ids, limit=limit, offset=offset, state_filter=status)
     for conversation in conversations:
         restaurant_id = conversation.get("restaurant_id")
         restaurant = hospitality.get_restaurant(property_id, restaurant_id) if restaurant_id else None
@@ -5498,7 +5856,14 @@ async def property_conversations(property_id: str, request: Request) -> dict[str
         # the guest explicitly submitted, along with staff replies.
         conversation["messages"] = [message for message in conversation.get("messages", []) if message.get("role") == "staff"]
         conversation["message_count"] = len(conversation["messages"]) + int(bool(conversation.get("escalation_reason")))
-    return {"conversations": conversations, "retention": store.retention(property_id)}
+    return {
+        "conversations": conversations,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "status_counts": status_counts,
+        "retention": store.retention(property_id),
+    }
 
 
 @app.get("/api/admin/properties/{property_id}/conversations/retention")
@@ -5775,7 +6140,23 @@ async def live_location_analytics(property_id: str) -> dict[str, Any]:
 @app.post("/api/admin/properties/{property_id}/location/report")
 async def location_report(property_id: str, payload: AnalyticsQuery) -> dict[str, Any]:
     _require_property(property_id)
-    return location_analytics.aggregate(property_id, payload.start_at, payload.end_at, payload.filters)
+    if payload.start_at < 0 or payload.end_at < payload.start_at:
+        raise HTTPException(status_code=422, detail="Choose a valid report interval.")
+    if payload.end_at - payload.start_at > 93 * 86_400:
+        raise HTTPException(status_code=422, detail="Location reports are limited to 93 days.")
+    property_record = properties.get(property_id)
+    if property_record is None:
+        raise HTTPException(status_code=404, detail="Property not found.")
+    try:
+        return location_analytics.aggregate(
+            property_id,
+            payload.start_at,
+            payload.end_at,
+            payload.filters,
+            timezone_name=property_record.timezone,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.get("/api/admin/properties/{property_id}/intro")
@@ -5838,7 +6219,7 @@ async def hospitality_overview(property_id: str, request: Request) -> dict[str, 
     all_restaurants = principal.can("properties.all") or principal.can("properties.edit")
     assigned_ids = None if all_restaurants else _assigned_restaurant_ids(principal, property_id)
     department_id = principal.department_id if principal.role_slug == "department-manager" else None
-    overview = hospitality.overview(property_id, assigned_ids, department_id)
+    overview = hospitality.overview(property_id, assigned_ids, department_id, include_service_requests=False)
     if department_id is not None:
         catalog = hospitality.catalog(property_id, department_id=department_id)
         return {
@@ -5861,6 +6242,35 @@ async def hospitality_overview(property_id: str, request: Request) -> dict[str, 
         overview.pop("service_requests", None)
         overview.pop("notification_rules", None)
     return overview
+
+
+@app.get("/api/admin/properties/{property_id}/service-requests")
+async def list_admin_service_requests(
+    property_id: str,
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=1_000_000),
+    status: str = Query(default="open", max_length=30),
+    q: str = Query(default="", max_length=120),
+) -> dict[str, Any]:
+    _require_property(property_id)
+    principal = _admin_principal(request)
+    if not principal.can("requests.view"):
+        raise HTTPException(status_code=403, detail="This account cannot view guest requests.")
+    department = _department_scope_name(principal, property_id)
+    property_record = properties.get(property_id)
+    try:
+        return hospitality.service_request_page(
+            property_id,
+            limit=limit,
+            offset=offset,
+            status=status,
+            search=q,
+            department=department,
+            timezone_name=property_record.timezone if property_record else "UTC",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.get("/api/admin/properties/{property_id}/service-catalog")
@@ -5951,11 +6361,11 @@ async def list_restaurants(property_id: str, request: Request) -> dict[str, Any]
     _require_property(property_id)
     principal = _admin_principal(request)
     restaurant_ids = None if principal.can("properties.all") or principal.can("properties.edit") else _assigned_restaurant_ids(principal, property_id)
-    overview = hospitality.overview(property_id, restaurant_ids)
+    restaurants = hospitality.restaurants_for_property(property_id, restaurant_ids)
     if restaurant_ids is not None:
-        for item in overview["restaurants"]:
+        for item in restaurants:
             item.pop("internal_notes", None)
-    return {"restaurants": overview["restaurants"]}
+    return {"restaurants": restaurants}
 
 
 @app.get("/api/admin/properties/{property_id}/restaurants/{restaurant_id}")
@@ -6324,6 +6734,14 @@ def _queue_hotel_event_reminders(*, property_id: str | None = None, now: int | N
     return queued_count
 
 
+def _queue_overdue_service_request_escalations(*, limit: int = 100, now: int | None = None) -> int:
+    """Persist bounded in-app escalation events; external delivery is not implied."""
+    queued = hospitality.queue_overdue_service_request_escalations(limit=limit, now=now)
+    if queued:
+        metrics.SERVICE_REQUEST_ESCALATIONS.inc(queued)
+    return queued
+
+
 def _upsert_facility_profile_with_guest_notice(
     property_id: str,
     payload: dict[str, Any],
@@ -6449,9 +6867,14 @@ def _dispatch_guest_inbox_notifications(*, property_id: str | None = None) -> in
                     else "promotional_messages"
                 )
                 enabled = hospitality.get_guest_notification_preferences(scope_property, scope_stay)[notification["category"]]
-                consented = any(
+                active_sessions = []
+                for session_id in guest_identities.sessions_for_stay(scope_property, scope_stay):
+                    linked_stay = guest_identities.active_stay_for_session(scope_property, session_id)
+                    if linked_stay and str(linked_stay.get("stay_id")) == scope_stay:
+                        active_sessions.append(session_id)
+                consented = bool(active_sessions) and all(
                     privacy_consents.get(scope_property, session_id)[consent_name]
-                    for session_id in guest_identities.sessions_for_stay(scope_property, scope_stay)
+                    for session_id in active_sessions
                 )
                 if not enabled or not consented:
                     hospitality.purge_guest_inbox_category(scope_property, scope_stay, notification["category"])
@@ -6609,6 +7032,200 @@ async def guest_notification_delivery_history(property_id: str, request: Request
         }
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+MAX_NOTIFICATION_CAMPAIGN_AUDIENCE = 5000
+
+
+def _campaign_stay_eligibility(property_id: str, stay_id: str) -> tuple[bool, str]:
+    sessions = guest_identities.sessions_for_stay(property_id, stay_id)
+    active_sessions = []
+    for session_id in sessions:
+        linked_stay = guest_identities.active_stay_for_session(property_id, session_id)
+        if linked_stay and str(linked_stay.get("stay_id")) == stay_id:
+            active_sessions.append(session_id)
+    if not active_sessions:
+        return False, "no_active_guest_session"
+    # Inbox messages are visible to every session for a stay. Require every
+    # active linked session to have opted in before using that shared inbox.
+    for session_id in active_sessions:
+        consent = privacy_consents.get(property_id, session_id, location_stay_id=stay_id)
+        if not consent.get("promotional_messages", False):
+            return False, "promotional_consent_required"
+    preferences = hospitality.get_guest_notification_preferences(property_id, stay_id)
+    if not preferences.get("promotional", False):
+        return False, "promotional_preference_disabled"
+    return True, "eligible"
+
+
+def _campaign_preview(property_id: str, campaign_id: str, expected_revision: int) -> dict[str, Any]:
+    campaign = hospitality.get_notification_campaign(property_id, campaign_id)
+    if campaign["revision"] != expected_revision:
+        raise NotificationCampaignConflict("Campaign changed after the draft was loaded.")
+    if campaign["status"] not in {"draft", "failed"}:
+        raise NotificationCampaignConflict("Only a saved or retryable campaign can be previewed.")
+    active_stays = [
+        stay for stay in guest_identities.list_stays(property_id)
+        if stay.get("status") == "active"
+    ]
+    if len(active_stays) > MAX_NOTIFICATION_CAMPAIGN_AUDIENCE:
+        raise HTTPException(status_code=413, detail="Campaign preview exceeds the safe active-stay audience limit.")
+    totals = {
+        "active_stays": len(active_stays),
+        "eligible": 0,
+        "no_active_guest_session": 0,
+        "promotional_consent_required": 0,
+        "promotional_preference_disabled": 0,
+    }
+    for stay in active_stays:
+        eligible, reason = _campaign_stay_eligibility(property_id, str(stay["stay_id"]))
+        totals["eligible" if eligible else reason] += 1
+    return {"campaign_id": campaign_id, "revision": campaign["revision"], "audience": "active_stays_with_promotional_consent", **totals}
+
+
+def _public_notification_campaign(campaign: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in campaign.items() if key != "policy"}
+
+
+@app.get("/api/admin/properties/{property_id}/notification-campaigns")
+async def list_notification_campaigns(
+    property_id: str,
+    request: Request,
+    limit: int = Query(default=25, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=1_000_000),
+    q: str = Query(default="", max_length=120),
+) -> dict[str, Any]:
+    _require_property(property_id)
+    _admin_principal(request)
+    page = hospitality.notification_campaign_page(property_id, limit=limit, offset=offset, search=q)
+    return {**page, "campaigns": [_public_notification_campaign(item) for item in page["campaigns"]]}
+
+
+@app.post("/api/admin/properties/{property_id}/notification-campaigns")
+async def create_notification_campaign(
+    property_id: str, payload: NotificationCampaignPayload, request: Request
+) -> dict[str, Any]:
+    _require_property(property_id)
+    _admin_principal(request)
+    try:
+        campaign = hospitality.create_notification_campaign(property_id, payload.model_dump())
+        return {"campaign": _public_notification_campaign(campaign)}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.put("/api/admin/properties/{property_id}/notification-campaigns/{campaign_id}")
+async def update_notification_campaign(
+    property_id: str, campaign_id: str, payload: NotificationCampaignPayload, request: Request
+) -> dict[str, Any]:
+    _require_property(property_id)
+    _admin_principal(request)
+    try:
+        campaign = hospitality.update_notification_campaign(property_id, campaign_id, payload.model_dump())
+        return {"campaign": _public_notification_campaign(campaign)}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Campaign not found.") from exc
+    except NotificationCampaignConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/notification-campaigns/{campaign_id}/preview")
+async def preview_notification_campaign(
+    property_id: str, campaign_id: str, payload: NotificationCampaignActionPayload, request: Request
+) -> dict[str, Any]:
+    _require_property(property_id)
+    _admin_principal(request)
+    try:
+        return _campaign_preview(property_id, campaign_id, payload.expected_revision)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Campaign not found.") from exc
+    except NotificationCampaignConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/notification-campaigns/{campaign_id}/publish")
+async def publish_notification_campaign(
+    property_id: str, campaign_id: str, payload: NotificationCampaignActionPayload, request: Request
+) -> dict[str, Any]:
+    _require_property(property_id)
+    _admin_principal(request)
+    try:
+        initial_preview = _campaign_preview(property_id, campaign_id, payload.expected_revision)
+        if initial_preview["eligible"] < 1:
+            raise HTTPException(status_code=409, detail="No active stays currently meet the promotional consent and preference requirements.")
+        campaign = hospitality.begin_notification_campaign_publish(
+            property_id, campaign_id, payload.expected_revision
+        )
+        moment = int(time.time())
+        property_record = properties.get(property_id)
+        property_timezone = property_record.timezone if property_record else "UTC"
+        counters = {"queued_count": 0, "already_queued_count": 0, "suppressed_count": 0}
+        active_stays = [
+            stay for stay in guest_identities.list_stays(property_id)
+            if stay.get("status") == "active"
+        ]
+        if len(active_stays) > MAX_NOTIFICATION_CAMPAIGN_AUDIENCE:
+            hospitality.finish_notification_campaign_publish(
+                property_id, campaign_id, queued_count=0, already_queued_count=0,
+                suppressed_count=0, failed=True,
+            )
+            raise HTTPException(status_code=413, detail="Campaign audience changed beyond the safe publish limit; review and retry.")
+        for stay in active_stays:
+            stay_id = str(stay["stay_id"])
+            eligible, _reason = _campaign_stay_eligibility(property_id, stay_id)
+            if not eligible:
+                counters["suppressed_count"] += 1
+                continue
+            try:
+                result = hospitality.create_guest_inbox_notification(
+                    property_id,
+                    stay_id,
+                    f"campaign:{campaign_id}",
+                    "promotional",
+                    campaign["title"],
+                    campaign["body"],
+                    expires_at=moment + 7 * 86400,
+                    timezone_name=property_timezone,
+                    require_promotional_consent=True,
+                    now=moment,
+                )
+            except PermissionError:
+                counters["suppressed_count"] += 1
+                continue
+            if result.get("created"):
+                counters["queued_count"] += 1
+            else:
+                counters["already_queued_count"] += 1
+        published = hospitality.finish_notification_campaign_publish(
+            property_id, campaign_id, **counters
+        )
+        return {
+            "campaign": _public_notification_campaign(published),
+            "audience": initial_preview["audience"],
+            "active_stays_at_preview": initial_preview["active_stays"],
+            "eligible_at_preview": initial_preview["eligible"],
+            "queued": counters["queued_count"],
+            "already_queued": counters["already_queued_count"],
+            "suppressed_at_publish": counters["suppressed_count"],
+            "delivery_state": "queued_in_app; delivery and guest read acknowledgement are recorded separately",
+        }
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Campaign not found.") from exc
+    except NotificationCampaignConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        try:
+            hospitality.finish_notification_campaign_publish(
+                property_id, campaign_id, queued_count=0, already_queued_count=0,
+                suppressed_count=0, failed=True,
+            )
+        except Exception:
+            logger.exception("Could not record interrupted notification campaign publication")
+        raise HTTPException(status_code=500, detail="Campaign publication was interrupted; retry the failed campaign.") from exc
 
 
 @app.post("/api/admin/properties/{property_id}/journey-events")
@@ -8872,7 +9489,12 @@ def _intelligent_guest_facility_directory_block(property_id: str) -> dict[str, A
     }
 
 
-def _intelligent_guest_floor_map_block(property_id: str, query: str) -> dict[str, Any] | None:
+def _intelligent_guest_floor_map_block(
+    property_id: str,
+    query: str,
+    *,
+    focus_node_id: str | None = None,
+) -> dict[str, Any] | None:
     """Build map views only from this property's guest-visible maps and nodes."""
     overview = zones.overview(property_id, guest=True)
     floors = {str(item.get("floor_id")): item for item in overview.get("floors", [])}
@@ -8971,6 +9593,19 @@ def _intelligent_guest_floor_map_block(property_id: str, query: str) -> dict[str
     if not floor_views:
         return None
 
+    selected_view = None
+    focused_marker = None
+    if focus_node_id:
+        focused_matches = [
+            (view, marker)
+            for view in floor_views
+            for marker in view["markers"]
+            if marker["id"] == focus_node_id
+        ]
+        if len(focused_matches) != 1:
+            return None
+        selected_view, focused_marker = focused_matches[0]
+
     facilities = [
         item for item in hospitality.guest_facilities(property_id).get("facilities", [])
         if not item.get("archived") and item.get("live_status") not in {"maintenance", "private_event"}
@@ -9013,8 +9648,6 @@ def _intelligent_guest_floor_map_block(property_id: str, query: str) -> dict[str
             or str(floors.get(view["floor_id"], {}).get("level", "")) == requested_level
         )), None)
 
-    selected_view = None
-    focused_marker = None
     def resolve_facility_location(facility: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]] | None:
         facility_floor_id = str(facility.get("floor_id") or "")
         facility_zone_id = str(facility.get("zone_id") or "")
@@ -9169,6 +9802,7 @@ def _intelligent_guest_floor_map_block(property_id: str, query: str) -> dict[str
         "floor_label": selected_view["label"],
         "floors": floor_views,
         "focused_marker_id": focused_marker["id"] if focused_marker else "",
+        "starting_node_id": focus_node_id or "",
         "synthetic_demo": selected_view["synthetic_demo"],
         "route_node_ids": [],
         "locations": locations,

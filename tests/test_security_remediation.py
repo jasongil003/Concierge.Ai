@@ -32,6 +32,7 @@ def _production_settings(tmp_path: Path, **overrides) -> Settings:
         admin_bootstrap_password="ProductionOnly123!",
         admin_cookie_secure=True,
         credential_encryption_secret="a" * 32,
+        backup_encryption_key="b" * 64,
         antlabs_mode="browser_handoff",
         antlabs_auth_url="https://gateway.example.test/login/main.ant?c=proc",
         allow_body_property_selection=False,
@@ -87,6 +88,11 @@ def test_production_rejects_default_encryption_secret(tmp_path: Path):
         validate_production_settings(
             _production_settings(tmp_path, credential_encryption_secret="change-me")
         )
+
+
+def test_production_requires_independent_backup_encryption_key(tmp_path: Path):
+    with pytest.raises(RuntimeError, match="CONCIERGE_BACKUP_ENCRYPTION_KEY"):
+        validate_production_settings(_production_settings(tmp_path, backup_encryption_key="invalid"))
 
 
 def test_production_rejects_local_demo_encryption_secret_and_account_name(tmp_path: Path):

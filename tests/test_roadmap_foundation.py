@@ -1,4 +1,5 @@
 import base64
+from datetime import datetime, timezone
 from pathlib import Path
 
 from app.guest_identity import GuestIdentityStore, pseudonymous_device_id
@@ -118,6 +119,44 @@ def test_location_analytics_observation_dwell_movement_and_aggregation(tmp_path:
     assert report["area_metrics"][lobby["zone_id"]]["average_dwell_seconds"] == 120
     assert report["movement_patterns"][0]["source_zone_id"] == lobby["zone_id"]
     assert report["movement_patterns"][0]["destination_zone_id"] == pool["zone_id"]
+
+
+def test_location_peak_hours_are_property_local_and_deduplicate_devices_per_day(tmp_path: Path):
+    _, _, _, analytics, _ = _stores(tmp_path)
+    first_day_0900 = int(datetime(2026, 1, 1, 1, 0, tzinfo=timezone.utc).timestamp())
+    second_day_0900 = int(datetime(2026, 1, 2, 1, 0, tzinfo=timezone.utc).timestamp())
+    analytics.record_observation("hotel-a", "device-a", "lobby", "ap-1", stay_id="stay-a", observed_at=first_day_0900)
+    analytics.record_observation("hotel-a", "device-a", "lobby", "ap-1", stay_id="stay-a", observed_at=first_day_0900 + 1_800)
+    analytics.record_observation("hotel-a", "device-b", "lobby", "ap-2", stay_id="stay-b", observed_at=first_day_0900)
+    analytics.record_observation("hotel-a", "device-a", "lobby", "ap-1", stay_id="stay-a", observed_at=second_day_0900)
+    analytics.record_observation("hotel-a", "device-c", "lobby", "ap-3", stay_id="stay-c", observed_at=second_day_0900)
+    analytics.record_observation("hotel-b", "other-property-device", "lobby", "ap-4", stay_id="stay-x", observed_at=first_day_0900)
+
+    report = analytics.aggregate(
+        "hotel-a",
+        first_day_0900,
+        second_day_0900 + 3_600,
+        timezone_name="Asia/Manila",
+    )
+
+    assert report["timezone"] == "Asia/Manila"
+    assert report["hourly_observed_devices"] == [{
+        "hour": 9,
+        "average_observed_devices": 2.0,
+        "sample_days": 2,
+    }]
+    assert report["peak_hours"] == report["hourly_observed_devices"]
+
+
+def test_location_report_rejects_invalid_intervals_and_timezones(tmp_path: Path):
+    _, _, _, analytics, _ = _stores(tmp_path)
+
+    import pytest
+
+    with pytest.raises(ValueError, match="end must be at or after its start"):
+        analytics.aggregate("hotel-a", 2, 1)
+    with pytest.raises(ValueError, match="valid IANA timezone"):
+        analytics.aggregate("hotel-a", 1, 2, timezone_name="Mars/Olympus")
 
 
 def test_intro_config_and_asset_validation(tmp_path: Path):

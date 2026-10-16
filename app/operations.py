@@ -62,6 +62,8 @@ class OperationsStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_knowledge_property_kind
                     ON knowledge_items(property_id, kind, updated_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_knowledge_property_kind_activity
+                    ON knowledge_items(property_id,kind,updated_at DESC,item_id DESC);
 
                 CREATE TABLE IF NOT EXISTS webhooks (
                     webhook_id TEXT PRIMARY KEY,
@@ -135,6 +137,38 @@ class OperationsStore:
                     (property_id,),
                 ).fetchall()
         return [self._knowledge_row(row) for row in rows]
+
+    def list_knowledge_page(
+        self, property_id: str, kind: str, *, query: str = "", limit: int = 25, offset: int = 0,
+    ) -> dict[str, Any]:
+        if kind not in {"entry", "faq", "document"}:
+            raise ValueError("Unsupported knowledge record type.")
+        if not 1 <= int(limit) <= 100 or not 0 <= int(offset) <= 1_000_000:
+            raise ValueError("Invalid knowledge page bounds.")
+        limit, offset = int(limit), int(offset)
+        search = str(query or "").strip().casefold()[:120]
+        escaped = search.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+        pattern = f"%{escaped}%" if search else ""
+        params = (property_id, kind, search, pattern, pattern, pattern, pattern, pattern)
+
+        with self._connect() as db:
+            total = int(db.execute(
+                "SELECT COUNT(*) FROM knowledge_items WHERE property_id=? AND kind=? AND "
+                "(?='' OR (LOWER(title) LIKE ? ESCAPE '!' OR LOWER(question) LIKE ? ESCAPE '!' "
+                "OR LOWER(answer) LIKE ? ESCAPE '!' OR LOWER(body) LIKE ? ESCAPE '!' "
+                "OR LOWER(source_name) LIKE ? ESCAPE '!'))",
+                params,
+            ).fetchone()[0])
+            actual_offset = min(offset, max(total - 1, 0) // limit * limit)
+            rows = db.execute(
+                "SELECT * FROM knowledge_items WHERE property_id=? AND kind=? AND "
+                "(?='' OR (LOWER(title) LIKE ? ESCAPE '!' OR LOWER(question) LIKE ? ESCAPE '!' "
+                "OR LOWER(answer) LIKE ? ESCAPE '!' OR LOWER(body) LIKE ? ESCAPE '!' "
+                "OR LOWER(source_name) LIKE ? ESCAPE '!')) "
+                "ORDER BY updated_at DESC,item_id DESC LIMIT ? OFFSET ?",
+                (*params, limit, actual_offset),
+            ).fetchall()
+        return {"items": [self._knowledge_row(row) for row in rows], "total": total, "limit": limit, "offset": actual_offset}
 
     def save_knowledge(self, property_id: str, payload: dict[str, Any], item_id: str | None = None, *, allow_publish: bool = True) -> dict[str, Any]:
         if payload.get("enabled", True) and not allow_publish:

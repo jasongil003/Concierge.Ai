@@ -67,12 +67,26 @@ def test_restaurant_manager_and_staff_are_limited_to_assigned_restaurants(tmp_pa
         assert manager_login.status_code == 200
         manager_client.headers["X-CSRF-Token"] = manager_login.json()["user"]["csrf_token"]
 
-        restaurants = manager_client.get("/api/admin/properties/hotel-a/restaurants").json()["restaurants"]
+        with monkeypatch.context() as restaurant_list_scope:
+            restaurant_list_scope.setattr(
+                hospitality,
+                "overview",
+                lambda *_args, **_kwargs: pytest.fail("restaurant list must not materialize the full hospitality overview"),
+            )
+            restaurant_response = manager_client.get("/api/admin/properties/hotel-a/restaurants")
+        assert restaurant_response.status_code == 200, restaurant_response.text
+        restaurants = restaurant_response.json()["restaurants"]
         assert [item["restaurant_id"] for item in restaurants] == [grill["restaurant_id"]]
         assert "internal_notes" not in restaurants[0]
         overview = manager_client.get("/api/admin/properties/hotel-a/hospitality").json()
         assert [item["restaurant_id"] for item in overview["restaurants"]] == [grill["restaurant_id"]]
-        inbox = manager_client.get("/api/admin/properties/hotel-a/conversations").json()["conversations"]
+        assert manager_client.get("/api/admin/properties/hotel-a/service-requests").status_code == 403
+        inbox_page = manager_client.get("/api/admin/properties/hotel-a/conversations?limit=1&offset=0")
+        assert inbox_page.status_code == 200, inbox_page.text
+        inbox_payload = inbox_page.json()
+        inbox = inbox_payload["conversations"]
+        assert inbox_payload["total"] == 1
+        assert inbox_payload["status_counts"]["waiting_for_staff"] == 1
         assert {item["session_id"] for item in inbox} == {assigned_session.session_id}
         assigned_record = next(item for item in inbox if item["session_id"] == assigned_session.session_id)
         assert assigned_record["escalation_reason"] == "Menu question"

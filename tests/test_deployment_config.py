@@ -45,6 +45,7 @@ def test_production_proxy_is_loopback_only_and_requires_canonical_admin_boundari
     assert "CANONICAL_HOSTS: ${CANONICAL_HOSTS:?" in compose
     assert "PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?" in compose
     assert "ADMIN_ALLOWED_CIDRS: ${ADMIN_ALLOWED_CIDRS:?" in compose
+    assert "CONCIERGE_BACKUP_ENCRYPTION_KEY: ${CONCIERGE_BACKUP_ENCRYPTION_KEY:?" in compose
     assert "FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-172.29.0.2}" in compose
     assert "proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;" in nginx
 
@@ -104,8 +105,42 @@ def test_fresh_appliance_config_hides_and_saves_confirmed_admin_password(tmp_pat
     assert values["ADMIN_BOOTSTRAP_USERNAME"] == "root"
     assert values["ADMIN_BOOTSTRAP_PASSWORD"] == password
     assert values["CREDENTIAL_ENCRYPTION_SECRET"]
+    assert re.fullmatch(r"[0-9a-fA-F]{64}", values["CONCIERGE_BACKUP_ENCRYPTION_KEY"])
     if os.name != "nt":
         assert config_path.stat().st_mode & 0o777 == 0o640
+
+
+def test_existing_appliance_config_gains_key_without_rotating_valid_key(tmp_path: Path):
+    config_path = tmp_path / "concierge.env"
+    backup_key = "ef" * 32
+    config_path.write_text(
+        f"CONCIERGE_BACKUP_ENCRYPTION_KEY='{backup_key}'\nAPP_ENVIRONMENT='production'\n",
+        encoding="utf-8",
+    )
+    script = """
+        . "$CONFIGURE_SCRIPT"
+        info() { :; }
+        die() { printf '%s\\n' "$*" >&2; exit 1; }
+        chown() { return 0; }
+        CONCIERGE_OS=linux
+        generate_config "$CONFIG_PATH" "$STATE_PATH" "$BACKUP_PATH" '127.0.0.1/32' 'http://127.0.0.1:11434' concierge
+    """
+    environment = {
+        **os.environ,
+        "CONFIGURE_SCRIPT": str(ROOT / "deploy/common/configure.sh"),
+        "CONFIG_PATH": str(config_path),
+        "STATE_PATH": str(tmp_path / "state"),
+        "BACKUP_PATH": str(tmp_path / "backups"),
+    }
+    kept = subprocess.run(["bash", "-c", script], env=environment, capture_output=True, text=True, check=False)
+    assert kept.returncode == 0, kept.stderr
+    assert dotenv_values(config_path)["CONCIERGE_BACKUP_ENCRYPTION_KEY"] == backup_key
+
+    config_path.write_text("CONCIERGE_BACKUP_ENCRYPTION_KEY='invalid'\n", encoding="utf-8")
+    rejected = subprocess.run(["bash", "-c", script], env=environment, capture_output=True, text=True, check=False)
+    assert rejected.returncode == 1
+    assert "present but invalid" in rejected.stderr
+    assert dotenv_values(config_path)["CONCIERGE_BACKUP_ENCRYPTION_KEY"] == "invalid"
 
 
 def test_linux_appliance_migrates_postgresql_before_application_initialization():

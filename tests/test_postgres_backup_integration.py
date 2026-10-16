@@ -11,6 +11,9 @@ from psycopg import sql
 from sqlalchemy.engine import make_url
 
 from app.backup import create_backup, restore_backup, verify_backup
+
+
+TEST_BACKUP_KEY = "c3" * 32
 from app.database import configure_database, connect_database
 from app.properties import PropertyRecord, PropertyStore
 
@@ -50,7 +53,7 @@ def test_postgres_backup_restores_expected_records_to_clean_database(tmp_path: P
     uploads.mkdir()
     expected_upload = uploads / "evidence.txt"
     expected_upload.write_text("Restore drill evidence", encoding="utf-8")
-    archive = tmp_path / "concierge-postgres-backup.zip"
+    archive = tmp_path / "concierge-postgres-backup.zip.enc"
     configure_database(DATABASE_URL, pool_size=4, max_overflow=2, pool_timeout=2, pool_pre_ping=True)
     PropertyStore(tmp_path / "postgres-ignored.db").upsert(
         PropertyRecord(property_id=property_id, hotel_name="Restore Drill Property", domain="restore.example.test")
@@ -58,15 +61,18 @@ def test_postgres_backup_restores_expected_records_to_clean_database(tmp_path: P
     try:
         with _connect(maintenance_url, autocommit=True) as connection:
             connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(target_database)))
-        created = create_backup(tmp_path / "unused.sqlite", uploads, archive, database_url=DATABASE_URL)
+        created = create_backup(
+            tmp_path / "unused.sqlite", uploads, archive, database_url=DATABASE_URL, backup_key=TEST_BACKUP_KEY
+        )
         assert created["files"] == 2
-        assert verify_backup(archive, database_url=DATABASE_URL)["valid"] is True
+        assert verify_backup(archive, database_url=DATABASE_URL, backup_key=TEST_BACKUP_KEY)["valid"] is True
         restored_uploads = tmp_path / "restored-uploads"
         restore_backup(
             archive,
             tmp_path / "unused.sqlite",
             restored_uploads,
             database_url=target_url,
+            backup_key=TEST_BACKUP_KEY,
         )
         with _connect(target_url) as connection:
             row = connection.execute(

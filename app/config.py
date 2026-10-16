@@ -132,6 +132,9 @@ class Settings:
     ai_default_mode: str = os.getenv("AI_DEFAULT_MODE", "auto").strip().lower()
     max_output_tokens: int = int(os.getenv("MAX_OUTPUT_TOKENS", "160"))
     credential_encryption_secret: str = os.getenv("CREDENTIAL_ENCRYPTION_SECRET", "").strip()
+    backup_encryption_key: str = field(
+        default=os.getenv("CONCIERGE_BACKUP_ENCRYPTION_KEY", "").strip(), repr=False
+    )
 
     ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
     local_ai_allowed_endpoints: tuple[str, ...] = tuple(
@@ -319,6 +322,8 @@ def validate_production_settings(value: Settings, *, check_filesystem: bool = Tr
         or len(encryption_secret) < 32
     ):
         errors.append("CREDENTIAL_ENCRYPTION_SECRET must be a non-default value of at least 32 characters")
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", value.backup_encryption_key.strip()):
+        errors.append("CONCIERGE_BACKUP_ENCRYPTION_KEY must be a separately escrowed 32-byte key encoded as 64 hexadecimal characters")
     if not value.admin_cookie_secure:
         errors.append("ADMIN_COOKIE_SECURE must be enabled")
     if value.app_debug:

@@ -120,11 +120,25 @@ def _latest_backup(directory: Path | None) -> dict[str, str]:
     if directory is None or not directory.is_dir():
         return {"status": "unknown", "created_at": "unknown", "version": "unknown"}
     try:
-        backups = sorted(directory.glob("concierge-*.zip"), key=lambda item: item.stat().st_mtime, reverse=True)
+        backups = sorted(
+            [*directory.glob("concierge-*.zip.enc"), *directory.glob("concierge-*.zip")],
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        )
     except OSError:
         backups = []
     for path in backups[:20]:
         try:
+            if path.name.endswith(".zip.enc"):
+                with path.open("rb") as source:
+                    prefix = source.read(len(b"CONCIERGE.AI.ENCRYPTED.BACKUP\x00V1\n"))
+                if prefix != b"CONCIERGE.AI.ENCRYPTED.BACKUP\x00V1\n":
+                    continue
+                return {
+                    "status": "encrypted",
+                    "created_at": datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat(timespec="seconds"),
+                    "version": "unknown",
+                }
             with zipfile.ZipFile(path) as archive:
                 info = archive.getinfo("manifest.json")
                 if info.file_size > 1024 * 1024:

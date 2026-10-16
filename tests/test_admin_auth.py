@@ -676,6 +676,205 @@ def test_user_custom_role_and_password_management(auth_client: TestClient):
     ).status_code == 200
 
 
+
+def test_admin_user_list_is_paginated_filtered_and_stable(auth_client: TestClient):
+    csrf = login(auth_client)
+    for index in range(5):
+        response = auth_client.post(
+            "/api/admin/users",
+            headers={"X-CSRF-Token": csrf},
+            json={
+                "username": f"page-user-{index}",
+                "display_name": f"Page User {index}",
+                "password": "PageUserPassword123!",
+                "property_id": "tenant-a",
+                "role_id": "role-property-administrator",
+                "status": "disabled" if index == 4 else "active",
+            },
+        )
+        assert response.status_code == 200, response.text
+
+    first = auth_client.get("/api/admin/users?limit=2&offset=0").json()
+    second = auth_client.get("/api/admin/users?limit=2&offset=2").json()
+    assert first["total"] == second["total"] == 6
+    assert len(first["users"]) == len(second["users"]) == 2
+    repeated_first = auth_client.get("/api/admin/users?limit=2&offset=0").json()
+    assert [user["id"] for user in repeated_first["users"]] == [user["id"] for user in first["users"]]
+    first_ids = {user["id"] for user in first["users"]}
+    second_ids = {user["id"] for user in second["users"]}
+    assert first_ids.isdisjoint(second_ids)
+
+    stale = auth_client.get("/api/admin/users?limit=2&offset=1000000").json()
+    assert stale["offset"] == 4
+    assert len(stale["users"]) == 2
+
+    filtered = auth_client.get("/api/admin/users?q=PAGE-USER-3&status=active").json()
+    assert filtered["total"] == 1
+    assert [user["username"] for user in filtered["users"]] == ["page-user-3"]
+    assert auth_client.get("/api/admin/users?status=unknown").status_code == 422
+    assert auth_client.get("/api/admin/users?limit=0").status_code == 422
+    assert auth_client.get("/api/admin/users?offset=-1").status_code == 422
+
+
+def test_paginated_admin_user_list_keeps_property_scope(auth_client: TestClient):
+    csrf = login(auth_client)
+    main_module.properties.upsert(PropertyRecord(property_id="tenant-b", hotel_name="Test Tenant B"))
+    for username, property_id in (("tenant-a-admin", "tenant-a"), ("tenant-b-admin", "tenant-b")):
+        response = auth_client.post(
+            "/api/admin/users",
+            headers={"X-CSRF-Token": csrf},
+            json={
+                "username": username,
+                "display_name": username,
+                "password": "PropertyAdminPassword123!",
+                "property_id": property_id,
+                "role_id": "role-property-administrator",
+                "status": "active",
+                "force_password_change": False,
+            },
+        )
+        assert response.status_code == 200, response.text
+
+    login(auth_client, "tenant-a-admin", "PropertyAdminPassword123!")
+    result = auth_client.get("/api/admin/users?limit=100").json()
+    assert result["total"] >= 1
+    assert {user["property_id"] for user in result["users"]} == {"tenant-a"}
+
+def test_admin_user_list_is_paginated_filtered_and_stable(auth_client: TestClient):
+    csrf = login(auth_client)
+    for index in range(5):
+        response = auth_client.post(
+            "/api/admin/users",
+            headers={"X-CSRF-Token": csrf},
+            json={
+                "username": f"page-user-{index}",
+                "display_name": f"Page User {index}",
+                "password": "PageUserPassword123!",
+                "property_id": "tenant-a",
+                "role_id": "role-property-administrator",
+                "status": "disabled" if index == 4 else "active",
+            },
+        )
+        assert response.status_code == 200, response.text
+
+    first = auth_client.get("/api/admin/users?limit=2&offset=0").json()
+    second = auth_client.get("/api/admin/users?limit=2&offset=2").json()
+    assert first["total"] == second["total"] == 6
+    assert len(first["users"]) == len(second["users"]) == 2
+    repeated_first = auth_client.get("/api/admin/users?limit=2&offset=0").json()
+    assert [user["id"] for user in repeated_first["users"]] == [user["id"] for user in first["users"]]
+    first_ids = {user["id"] for user in first["users"]}
+    second_ids = {user["id"] for user in second["users"]}
+    assert first_ids.isdisjoint(second_ids)
+
+    stale = auth_client.get("/api/admin/users?limit=2&offset=1000000").json()
+    assert stale["offset"] == 4
+    assert len(stale["users"]) == 2
+
+    filtered = auth_client.get("/api/admin/users?q=PAGE-USER-3&status=active").json()
+    assert filtered["total"] == 1
+    assert [user["username"] for user in filtered["users"]] == ["page-user-3"]
+    assert auth_client.get("/api/admin/users?status=unknown").status_code == 422
+    assert auth_client.get("/api/admin/users?limit=0").status_code == 422
+    assert auth_client.get("/api/admin/users?offset=-1").status_code == 422
+
+
+def test_paginated_admin_user_list_keeps_property_scope(auth_client: TestClient, auth_store: AdminAuthStore):
+    csrf = login(auth_client)
+    main_module.properties.upsert(PropertyRecord(property_id="tenant-b", hotel_name="Test Tenant B"))
+    for username, property_id in (("tenant-a-admin", "tenant-a"), ("tenant-b-admin", "tenant-b")):
+        response = auth_client.post(
+            "/api/admin/users",
+            headers={"X-CSRF-Token": csrf},
+            json={
+                "username": username,
+                "display_name": username,
+                "password": "PropertyAdminPassword123!",
+                "property_id": property_id,
+                "role_id": "role-property-administrator",
+                "status": "active",
+                "force_password_change": False,
+            },
+        )
+        assert response.status_code == 200, response.text
+
+    login(auth_client, "tenant-a-admin", "PropertyAdminPassword123!")
+    result = auth_client.get("/api/admin/users?limit=100").json()
+    assert result["total"] >= 1
+    assert {user["property_id"] for user in result["users"]} == {"tenant-a"}
+
+
+def test_managed_knowledge_page_counts_only_role_visible_items(
+    auth_client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    from app.knowledge_management import KnowledgeStore
+
+    store = KnowledgeStore(tmp_path / "managed-knowledge.db", tmp_path / "managed-uploads")
+    monkeypatch.setattr(main_module, "knowledge_management", store)
+    admin_item = store.create_draft("tenant-a", "Admin item", "Verified admin-only fact", "Facilities", "admin")
+    manager_item = store.create_draft("tenant-a", "Manager item", "Manager-only fact", "Facilities", "admin")
+    store.update_item("tenant-a", manager_item["item_id"], {"visibility": "manager"}, "admin")
+
+    csrf = login(auth_client)
+    created = auth_client.post(
+        "/api/admin/users",
+        headers={"X-CSRF-Token": csrf},
+        json={
+            "username": "content.reviewer",
+            "display_name": "Content Reviewer",
+            "password": "ContentReviewerPassword123!",
+            "property_id": "tenant-a",
+            "role_id": "role-content-manager",
+            "status": "active",
+            "force_password_change": False,
+        },
+    )
+    assert created.status_code == 200, created.text
+    login(auth_client, "content.reviewer", "ContentReviewerPassword123!")
+
+    result = auth_client.get("/api/admin/properties/tenant-a/knowledge/managed?limit=1")
+    assert result.status_code == 200, result.text
+    page = result.json()
+    assert page["total"] == 1
+    assert [item["item_id"] for item in page["items"]] == [admin_item["item_id"]]
+    hidden_search = auth_client.get("/api/admin/properties/tenant-a/knowledge/managed?q=manager")
+    assert hidden_search.status_code == 200
+    assert hidden_search.json()["total"] == 0
+    assert auth_client.get("/api/admin/properties/tenant-a/knowledge/managed?limit=0").status_code == 422
+
+
+def test_property_admin_cannot_clone_design_from_another_property(
+    auth_client: TestClient, auth_store: AdminAuthStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    properties = PropertyStore(tmp_path / "design-clone-scope.db")
+    properties.upsert(PropertyRecord(property_id="tenant-a", hotel_name="Test Tenant A"))
+    properties.upsert(PropertyRecord(property_id="tenant-b", hotel_name="Test Tenant B"))
+    monkeypatch.setattr(main_module, "properties", properties)
+    csrf = login(auth_client)
+    created = auth_client.post(
+        "/api/admin/users",
+        headers={"X-CSRF-Token": csrf},
+        json={
+            "username": "tenant.a.designer",
+            "display_name": "Tenant A Designer",
+            "password": "TenantDesignerPassword123!",
+            "property_id": "tenant-a",
+            "role_id": "role-property-administrator",
+            "status": "active",
+            "force_password_change": False,
+        },
+    )
+    assert created.status_code == 200, created.text
+    login(auth_client, "tenant.a.designer", "TenantDesignerPassword123!")
+
+    response = auth_client.post(
+        "/api/admin/properties/tenant-a/design/clone",
+        json={"source_property_id": "tenant-b"},
+    )
+
+    assert response.status_code == 403
+
+
 def test_property_role_cannot_cross_tenant(auth_store: AdminAuthStore, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(main_module, "admin_auth", auth_store)
     super_token, super_principal = auth_store.login("admin", ADMIN_PASSWORD, "10.0.0.1", "test")
@@ -764,3 +963,62 @@ def test_audit_records_administrative_actions(auth_client: TestClient):
     })
     events = auth_client.get("/api/admin/audit").json()["events"]
     assert any(event["action"] == "auth.password_changed" for event in events)
+
+
+def test_audit_api_returns_stable_bounded_pages_and_clamps_stale_offsets(
+    auth_store: AdminAuthStore, auth_client: TestClient
+):
+    login(auth_client)
+    with auth_store._connect() as db:
+        for index in range(5):
+            db.execute(
+                """INSERT INTO admin_audit_logs
+                   (timestamp, username, display_name, role_name, property_id, action, resource, resource_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (1000, "pagination-user", "Pagination User", "Auditor", "tenant-a", "pagination.fixture", "fixture", f"row-{index}"),
+            )
+
+    first = auth_client.get("/api/admin/audit", params={"action": "pagination.fixture", "limit": 2, "offset": 0})
+    second = auth_client.get("/api/admin/audit", params={"action": "pagination.fixture", "limit": 2, "offset": 2})
+    stale = auth_client.get("/api/admin/audit", params={"action": "pagination.fixture", "limit": 2, "offset": 99})
+
+    assert first.status_code == second.status_code == stale.status_code == 200
+    assert first.json()["total"] == second.json()["total"] == stale.json()["total"] == 5
+    assert first.json()["offset"] == 0
+    assert second.json()["offset"] == 2
+    assert stale.json()["offset"] == 4
+    assert [item["resource_id"] for item in first.json()["events"]] == ["row-4", "row-3"]
+    assert [item["resource_id"] for item in second.json()["events"]] == ["row-2", "row-1"]
+    assert [item["resource_id"] for item in stale.json()["events"]] == ["row-0"]
+    assert auth_client.get("/api/admin/audit", params={"limit": 101}).status_code == 422
+    assert auth_client.get("/api/admin/audit", params={"offset": -1}).status_code == 422
+
+
+def test_paged_audit_log_preserves_property_scope(auth_store: AdminAuthStore, auth_client: TestClient):
+    _, administrator = auth_store.login("admin", ADMIN_PASSWORD, "127.0.0.1", "test")
+    auth_store.create_user(
+        {
+            "username": "tenant-a-admin",
+            "display_name": "Tenant A Admin",
+            "password": "TenantAPass123!",
+            "role_id": "role-property-administrator",
+            "property_id": "tenant-a",
+            "status": "active",
+        },
+        actor=administrator,
+    )
+    with auth_store._connect() as db:
+        for property_id in ("tenant-a", "tenant-b"):
+            db.execute(
+                """INSERT INTO admin_audit_logs
+                   (timestamp, username, display_name, role_name, property_id, action, resource, resource_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (1000, "scoped-user", "Scoped User", "Auditor", property_id, "pagination.scope", "fixture", property_id),
+            )
+
+    login(auth_client, "tenant-a-admin", "TenantAPass123!")
+    response = auth_client.get("/api/admin/audit", params={"action": "pagination.scope", "limit": 1})
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+    assert [item["property_id"] for item in response.json()["events"]] == ["tenant-a"]

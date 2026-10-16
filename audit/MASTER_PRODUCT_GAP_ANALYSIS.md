@@ -1,10 +1,16 @@
 # Master product gap analysis
 
-Date: **2026-10-12–13 (Asia/Manila)** (audit began October 12, finalized October 13). Baseline `41c0ea1a7937035db6078cbb944f1e94f2fbad63`. Audited HEAD `d2d09ba9028448d7e2a88320643b1aaafb9004af`. Final tested implementation commit: `ecfe3f42963896cd86a291450fa574a4c26b197f`; reports are committed separately. Environment and actual commands/results match the [acceptance matrix](MASTER_FEATURE_ACCEPTANCE_MATRIX.md). Inventory work modifies only the two reports and machine-readable matrix.
+## Current status continuation — 2026-10-16, PR #63
 
-The planned product is incomplete: **207/384 (53.91%)** original requirements meet their explicitly recorded local acceptance. Counts: IMPLEMENTED BUT UNVERIFIED=71, VERIFIED COMPLETE=207, PARTIALLY IMPLEMENTED=56, BLOCKED BY EXTERNAL DEPENDENCY=34, MISSING=16, BROKEN=0, DEFERRED BY PRODUCT DECISION=0. Local passing tests do not establish a working hotel network, live AI/PMS/notification integrations, platform installs, or 30,000-user capacity.
+The fresh ledger supersedes the October 12–13 status claims. Local acceptance is **216/384 (56.25%)**: 216 LOCALLY VERIFIED, 70 IMPLEMENTED, 56 PARTIAL, 41 BLOCKED, zero FAILED, and one DEFERRED core requirement. H-05 Lottie is deferred by explicit user decision and remains in the denominator; R-X01 (30,000 concurrent users) is excluded as previously directed.
 
-## Highest-priority product gaps and confirmed corrections
+N-09/N-10 campaign lifecycle and audience selection now have a property-scoped draft, aggregate consent-filtered preview, transactional consent recheck, and in-app inbox queue; automated triggers and live property delivery remain tracked separately. G-21 design cloning is locally verified: published guest design copies into the target draft without copying credentials, integrations, target settings, publication state, or history. C-30 remains partial, Q-23 remains partial, and external/privacy-dependent requirements remain blocked until owners provide evidence.
+
+Local validation on the candidate worktree: backend **1,380 passed, 21 skipped, 0 failed**; nonvisual browser **368 passed, 42 skipped, 0 failed**; Bandit passed; redacted current-tree Gitleaks found zero findings. Hosted PR #63 [run #277](https://github.com/jasongil003/Concierge.Ai/actions/runs/38914471464) completed with 9/10 jobs passed: backend **1,382/19 skipped**, browser **368/42 skipped**, PostgreSQL/Redis, Docker, dependencies, static security, and both deployment checks passed. The secret-scan job remains failed on retained historical findings. See [current release readiness](MASTER_RELEASE_READINESS.md) and the [acceptance ledger](acceptance-ledger-2026-10-16.json).
+
+**Release remains RED.** The historical secret must be revoked and shared-history cleanup authorized by the proper owners; branch protection, privacy policy approval, live integrations, hotel-device acceptance, and off-host recovery remain open. No merge or deployment is authorized by this acceptance report.
+
+## Historical highest-priority gaps from 2026-10-12–13
 
 | Priority | Gap | Evidence | Acceptance before closure |
 |---|---|---|---|
@@ -428,3 +434,5 @@ Roadmap unchecked checklist items encountered: **207**. Their text is retained b
 - Hotel revenue attribution/analytics
 
 Final tested implementation commit: `ecfe3f42963896cd86a291450fa574a4c26b197f`. Reports/evidence are committed separately; their receipt is discoverable with `git log -1 -- audit/MASTER_PRODUCT_GAP_ANALYSIS.md`. All test results refer to these unchanged committed implementation bytes, including explicitly scoped container receipts and local skips.
+
+2026-10-16 continuation: Q-23 full-archive encryption is implemented locally with AES-256-GCM and an independent operator-recoverable key. Focused tests passed; off-host replication, separately retrieved escrow, legacy archive handling, and clean-host recovery remain blocked on the recovery owner and authorized target.

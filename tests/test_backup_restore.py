@@ -16,6 +16,79 @@ from app.hospitality import HospitalityStore
 from app.operations import OperationsStore
 from app.guardrails import GuestHostnameConflict
 from app.properties import PropertyRecord, PropertyStore
+from app.system_diagnostics import last_backup
+
+
+TEST_BACKUP_KEY = "a1" * 32
+
+
+def test_backup_archive_requires_key_is_not_plaintext_and_authenticates_before_restore(tmp_path: Path):
+    source_db = tmp_path / "source.db"
+    source_uploads = tmp_path / "uploads"
+    source_uploads.mkdir()
+    PropertyStore(source_db).upsert(PropertyRecord(property_id="encrypted", hotel_name="Encrypted Backup"))
+    (source_uploads / "private.txt").write_text("synthetic upload payload", encoding="utf-8")
+    archive = tmp_path / "backup.zip.enc"
+
+    with pytest.raises(RuntimeError, match="CONCIERGE_BACKUP_ENCRYPTION_KEY"):
+        create_backup(source_db, source_uploads, archive)
+    created = create_backup(source_db, source_uploads, archive, backup_key=TEST_BACKUP_KEY)
+    encrypted_bytes = archive.read_bytes()
+    assert created["encrypted"] is True
+    assert encrypted_bytes.startswith(backup.ENCRYPTED_BACKUP_MAGIC)
+    assert not zipfile.is_zipfile(archive)
+    assert b"synthetic upload payload" not in encrypted_bytes
+    with pytest.raises(RuntimeError, match="CONCIERGE_BACKUP_ENCRYPTION_KEY"):
+        verify_backup(archive)
+    with pytest.raises(RuntimeError, match="authentication failed"):
+        verify_backup(archive, backup_key="ff" * 32)
+
+    target_db = tmp_path / "restore" / "restored.db"
+    target_uploads = tmp_path / "restore" / "uploads"
+    tampered = tmp_path / "tampered.zip.enc"
+    corrupted = bytearray(encrypted_bytes)
+    corrupted[-1] ^= 1
+    tampered.write_bytes(corrupted)
+    with pytest.raises(RuntimeError, match="authentication failed"):
+        restore_backup(tampered, target_db, target_uploads, backup_key=TEST_BACKUP_KEY)
+    assert not target_db.exists()
+    assert not target_uploads.exists()
+
+    restored = restore_backup(archive, target_db, target_uploads, backup_key=TEST_BACKUP_KEY)
+    assert restored["encrypted"] is True
+    assert PropertyStore(target_db).get("encrypted").hotel_name == "Encrypted Backup"
+    assert (target_uploads / "private.txt").read_text(encoding="utf-8") == "synthetic upload payload"
+
+
+def test_legacy_plaintext_backup_requires_explicit_operator_option(tmp_path: Path):
+    source_db = tmp_path / "source.db"
+    uploads = tmp_path / "uploads"
+    uploads.mkdir()
+    PropertyStore(source_db).upsert(PropertyRecord(property_id="legacy", hotel_name="Legacy Backup"))
+    encrypted = tmp_path / "encrypted.zip.enc"
+    create_backup(source_db, uploads, encrypted, backup_key=TEST_BACKUP_KEY)
+    with backup._plaintext_backup_archive(
+        encrypted, backup_key=TEST_BACKUP_KEY, allow_legacy_unencrypted=False
+    ) as (plain_archive, _encrypted):
+        legacy = tmp_path / "legacy.zip"
+        legacy.write_bytes(plain_archive.read_bytes())
+
+    with pytest.raises(RuntimeError, match="Plaintext legacy backups are disabled"):
+        verify_backup(legacy)
+    assert verify_backup(legacy, allow_legacy_unencrypted=True)["encrypted"] is False
+
+
+def test_backup_diagnostics_recognize_encrypted_archive_without_reading_plaintext(tmp_path: Path):
+    source_db = tmp_path / "source.db"
+    uploads = tmp_path / "uploads"
+    uploads.mkdir()
+    PropertyStore(source_db).upsert(PropertyRecord(property_id="diagnostics", hotel_name="Synthetic"))
+    create_backup(source_db, uploads, tmp_path / "backups" / "concierge-test.zip.enc", backup_key=TEST_BACKUP_KEY)
+
+    result = last_backup(tmp_path / "backups")
+
+    assert result["status"] == "encrypted"
+    assert result["version"] == "unknown"
 
 
 def test_backup_verify_and_actual_restore(tmp_path: Path):
@@ -65,16 +138,16 @@ def test_backup_verify_and_actual_restore(tmp_path: Path):
     upload.parent.mkdir(parents=True)
     upload.write_text("Hotel A private knowledge", encoding="utf-8")
 
-    created = create_backup(db_path, upload_root, archive)
+    created = create_backup(db_path, upload_root, archive, backup_key=TEST_BACKUP_KEY)
     assert created["files"] == 2
-    assert verify_backup(archive)["valid"] is True
+    assert verify_backup(archive, backup_key=TEST_BACKUP_KEY)["valid"] is True
 
     changed = property_store.get("hotel-a")
     changed.hotel_name = "Changed After Backup"
     property_store.upsert(changed)
     db_path.unlink()
     upload.unlink()
-    restore_backup(archive, db_path, upload_root, replace=True)
+    restore_backup(archive, db_path, upload_root, replace=True, backup_key=TEST_BACKUP_KEY)
 
     restored_properties = PropertyStore(db_path)
     restored_property = restored_properties.get("hotel-a")
@@ -111,18 +184,21 @@ def test_restore_validation_uses_separate_sqlite_target_and_preserves_source(tmp
     source_store = PropertyStore(source_db)
     source_store.upsert(PropertyRecord(property_id="restore-safe", hotel_name="Restore Safe"))
     archive = tmp_path / "backup" / "restore-safe.zip"
-    create_backup(source_db, source_uploads, archive)
+    create_backup(source_db, source_uploads, archive, backup_key=TEST_BACKUP_KEY)
     source_hash = hashlib.sha256(source_db.read_bytes()).hexdigest()
 
     restored_db = tmp_path / "validation-target" / "concierge.db"
     restored_uploads = tmp_path / "validation-target" / "uploads"
-    restore_backup(archive, restored_db, restored_uploads)
+    restore_backup(archive, restored_db, restored_uploads, backup_key=TEST_BACKUP_KEY)
 
     assert PropertyStore(restored_db).get("restore-safe").hotel_name == "Restore Safe"
     assert hashlib.sha256(source_db.read_bytes()).hexdigest() == source_hash
     assert source_store.get("restore-safe").hotel_name == "Restore Safe"
-    with zipfile.ZipFile(archive) as saved:
-        manifest = __import__("json").loads(saved.read("manifest.json"))
+    with backup._plaintext_backup_archive(
+        archive, backup_key=TEST_BACKUP_KEY, allow_legacy_unencrypted=False
+    ) as (plain_archive, _encrypted):
+        with zipfile.ZipFile(plain_archive) as saved:
+            manifest = __import__("json").loads(saved.read("manifest.json"))
     assert manifest["concierge"]["minimum_schema_revision"] <= manifest["concierge"]["schema_revision"]
     assert manifest["concierge"]["schema_revision"] <= manifest["concierge"]["maximum_schema_revision"]
     assert not any("secret" in key.casefold() or "key" in key.casefold() for key in manifest["concierge"])
@@ -134,7 +210,7 @@ def test_failed_replace_keeps_existing_sqlite_database_and_uploads(tmp_path: Pat
     source_uploads.mkdir(parents=True)
     PropertyStore(source_db).upsert(PropertyRecord(property_id="hotel-a", hotel_name="Backup Copy"))
     archive = tmp_path / "backup" / "restore-safe.zip"
-    create_backup(source_db, source_uploads, archive)
+    create_backup(source_db, source_uploads, archive, backup_key=TEST_BACKUP_KEY)
 
     target_db = tmp_path / "target" / "concierge.db"
     target_uploads = tmp_path / "target" / "uploads"
@@ -148,7 +224,7 @@ def test_failed_replace_keeps_existing_sqlite_database_and_uploads(tmp_path: Pat
 
     monkeypatch.setattr(backup.os, "replace", fail_replace)
     with pytest.raises(OSError, match="simulated atomic replacement failure"):
-        restore_backup(archive, target_db, target_uploads, replace=True)
+        restore_backup(archive, target_db, target_uploads, replace=True, backup_key=TEST_BACKUP_KEY)
 
     assert hashlib.sha256(target_db.read_bytes()).hexdigest() == original_hash
     assert PropertyStore(target_db).get("hotel-a").hotel_name == "Existing Copy"
@@ -173,7 +249,7 @@ def test_incomplete_backup_is_rejected_before_restore_targets_are_created(tmp_pa
     target_db = tmp_path / "restore-target" / "concierge.db"
     target_uploads = tmp_path / "restore-target" / "uploads"
     with pytest.raises(RuntimeError, match="unmanifested archive members"):
-        restore_backup(archive, target_db, target_uploads)
+        restore_backup(archive, target_db, target_uploads, allow_legacy_unencrypted=True)
 
     assert not target_db.exists()
     assert not target_uploads.exists()
@@ -198,15 +274,20 @@ def test_postgres_backup_archive_uses_secret_free_argv_and_restores_to_empty_tar
 
     monkeypatch.setattr(backup.subprocess, "run", fake_run)
     monkeypatch.setattr(backup, "_assert_empty_postgres_database", lambda _url: None)
-    made = create_backup(tmp_path / "unused.sqlite", upload_root, archive, database_url=database_url)
+    made = create_backup(
+        tmp_path / "unused.sqlite", upload_root, archive, database_url=database_url, backup_key=TEST_BACKUP_KEY
+    )
     assert made["files"] == 2
-    verified = verify_backup(archive, database_url=database_url)
+    verified = verify_backup(archive, database_url=database_url, backup_key=TEST_BACKUP_KEY)
     assert verified["valid"] is True
     assert verified["database_type"] == "postgresql"
-    with zipfile.ZipFile(archive) as saved:
-        manifest = __import__("json").loads(saved.read("manifest.json"))
-        assert manifest["database"] == "database.dump"
-        assert saved.read("database.dump") == b"custom-format-dump-test"
+    with backup._plaintext_backup_archive(
+        archive, backup_key=TEST_BACKUP_KEY, allow_legacy_unencrypted=False
+    ) as (plain_archive, _encrypted):
+        with zipfile.ZipFile(plain_archive) as saved:
+            manifest = __import__("json").loads(saved.read("manifest.json"))
+            assert manifest["database"] == "database.dump"
+            assert saved.read("database.dump") == b"custom-format-dump-test"
 
     restored_uploads = tmp_path / "restored-uploads"
     restore_backup(
@@ -214,6 +295,7 @@ def test_postgres_backup_archive_uses_secret_free_argv_and_restores_to_empty_tar
         tmp_path / "unused.sqlite",
         restored_uploads,
         database_url=database_url,
+        backup_key=TEST_BACKUP_KEY,
     )
     assert (restored_uploads / "source.txt").read_text(encoding="utf-8") == "verified source"
     restore_commands = [argv for argv in argv_seen if argv[0] == "pg_restore"]
@@ -305,7 +387,9 @@ def test_postgres_restore_refuses_a_nonempty_target_without_applying_dump(tmp_pa
         return subprocess.CompletedProcess(argv, 0, "", "")
 
     monkeypatch.setattr(backup.subprocess, "run", fake_run)
-    made = create_backup(tmp_path / "unused.sqlite", upload_root, archive, database_url=database_url)
+    made = create_backup(
+        tmp_path / "unused.sqlite", upload_root, archive, database_url=database_url, backup_key=TEST_BACKUP_KEY
+    )
     assert made["files"] == 1
     monkeypatch.setattr(
         backup,
@@ -318,6 +402,7 @@ def test_postgres_restore_refuses_a_nonempty_target_without_applying_dump(tmp_pa
             tmp_path / "unused.sqlite",
             tmp_path / "restored-uploads",
             database_url=database_url,
+            backup_key=TEST_BACKUP_KEY,
         )
     except RuntimeError as exc:
         assert "empty target database" in str(exc)

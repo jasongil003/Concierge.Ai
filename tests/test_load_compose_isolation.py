@@ -40,6 +40,7 @@ def test_base_and_load_compose_configuration_is_valid_and_network_isolated(tmp_p
                 "ADMIN_BOOTSTRAP_USERNAME=loadtest-admin",
                 "ADMIN_BOOTSTRAP_PASSWORD=LoadtestOnly-Admin-123!",
                 "CREDENTIAL_ENCRYPTION_SECRET=LoadtestOnly-Encryption-Secret-1234567890",
+                "CONCIERGE_BACKUP_ENCRYPTION_KEY=" + "cd" * 32,
                 "METRICS_TOKEN=LoadtestOnly-Metrics-Token-1234567890",
                 "CANONICAL_HOSTS=loadtest.example.test",
                 "PUBLIC_BASE_URL=https://loadtest.example.test",

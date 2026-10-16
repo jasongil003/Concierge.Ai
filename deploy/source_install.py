@@ -108,6 +108,10 @@ def _is_valid_encryption_secret(secret: str) -> bool:
     return len(secret.strip()) >= 32 and folded not in PLACEHOLDER_SECRETS and "replace-with" not in folded
 
 
+def _is_valid_backup_encryption_key(key: str) -> bool:
+    return re.fullmatch(r"[0-9a-fA-F]{64}", key.strip()) is not None
+
+
 def _valid_admin_bootstrap(username: str, password: str, app_environment: str = "development") -> bool:
     # The exact built-in credentials are intentionally valid in every
     # deployment mode. Other account passwords still use the normal policy.
@@ -182,6 +186,14 @@ def prepare_environment(root: Path) -> tuple[str, str, bool]:
     if not _is_valid_encryption_secret(secret):
         updates["CREDENTIAL_ENCRYPTION_SECRET"] = secrets.token_urlsafe(48)
         secret_status = "generated"
+
+    backup_key = values.get("CONCIERGE_BACKUP_ENCRYPTION_KEY", "").strip()
+    if not backup_key:
+        updates["CONCIERGE_BACKUP_ENCRYPTION_KEY"] = secrets.token_hex(32)
+    elif not _is_valid_backup_encryption_key(backup_key):
+        raise InstallerError(
+            "CONCIERGE_BACKUP_ENCRYPTION_KEY must be 64 hexadecimal characters. The configured value was preserved; replace it deliberately after checking existing backup recovery needs."
+        )
 
     username = values.get("ADMIN_BOOTSTRAP_USERNAME", "").strip()
     password = values.get("ADMIN_BOOTSTRAP_PASSWORD", "").strip()

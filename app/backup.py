@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from contextlib import closing
+from contextlib import closing, contextmanager
 import hashlib
 import json
 import os
@@ -17,6 +17,8 @@ import time
 import zipfile
 from urllib.parse import unquote
 
+from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from sqlalchemy.engine import make_url
 
 from .build_info import BUILD_IDENTITY
@@ -33,8 +35,106 @@ MANIFEST_MEMBER = "manifest.json"
 PG_TOOL_TIMEOUT_SECONDS = 1800
 MAX_ARCHIVE_MEMBER_BYTES = 16 * 1024 * 1024 * 1024
 MAX_ARCHIVE_TOTAL_BYTES = 32 * 1024 * 1024 * 1024
+MAX_ENCRYPTED_ARCHIVE_BYTES = MAX_ARCHIVE_TOTAL_BYTES + 64 * 1024 * 1024
+ENCRYPTED_BACKUP_MAGIC = b"CONCIERGE.AI.ENCRYPTED.BACKUP\x00V1\n"
+BACKUP_NONCE_BYTES = 12
+BACKUP_TAG_BYTES = 16
 SCHEMA_REVISION_RE = re.compile(r"^\d{8}_\d{4}$")
 BUILD_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+
+
+def _backup_key_bytes(value: str | bytes | bytearray | None) -> bytes:
+    if isinstance(value, (bytes, bytearray)):
+        key = bytes(value)
+        if len(key) == 32:
+            return key
+    elif isinstance(value, str) and re.fullmatch(r"[0-9a-fA-F]{64}", value.strip()):
+        return bytes.fromhex(value.strip())
+    raise RuntimeError(
+        "CONCIERGE_BACKUP_ENCRYPTION_KEY must be a separately escrowed 32-byte key encoded as 64 hexadecimal characters."
+    )
+
+
+def _encrypt_backup_archive(source: Path, destination: Path, key: bytes) -> None:
+    nonce = os.urandom(BACKUP_NONCE_BYTES)
+    header = ENCRYPTED_BACKUP_MAGIC + nonce
+    encryptor = Cipher(algorithms.AES(key), modes.GCM(nonce)).encryptor()
+    encryptor.authenticate_additional_data(header)
+    descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "wb") as encrypted, source.open("rb") as plaintext:
+        encrypted.write(header)
+        for block in iter(lambda: plaintext.read(1024 * 1024), b""):
+            encrypted.write(encryptor.update(block))
+        encrypted.write(encryptor.finalize())
+        encrypted.write(encryptor.tag)
+        encrypted.flush()
+        os.fsync(encrypted.fileno())
+
+
+def _decrypt_backup_archive(source: Path, destination: Path, key: bytes) -> None:
+    source_size = source.stat().st_size
+    header_size = len(ENCRYPTED_BACKUP_MAGIC) + BACKUP_NONCE_BYTES
+    if source_size > MAX_ENCRYPTED_ARCHIVE_BYTES or source_size < header_size + BACKUP_TAG_BYTES:
+        raise RuntimeError("Encrypted backup size is invalid or exceeds the configured limit.")
+    with source.open("rb") as encrypted:
+        header = encrypted.read(header_size)
+        if len(header) != header_size or not header.startswith(ENCRYPTED_BACKUP_MAGIC):
+            raise RuntimeError("Encrypted backup header is invalid.")
+        nonce = header[len(ENCRYPTED_BACKUP_MAGIC):]
+        encrypted.seek(-BACKUP_TAG_BYTES, os.SEEK_END)
+        tag = encrypted.read(BACKUP_TAG_BYTES)
+        ciphertext_bytes = source_size - header_size - BACKUP_TAG_BYTES
+        encrypted.seek(header_size)
+        decryptor = Cipher(algorithms.AES(key), modes.GCM(nonce, tag)).decryptor()
+        decryptor.authenticate_additional_data(header)
+        descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            with os.fdopen(descriptor, "wb") as plaintext:
+                remaining = ciphertext_bytes
+                while remaining:
+                    block = encrypted.read(min(1024 * 1024, remaining))
+                    if not block:
+                        raise RuntimeError("Encrypted backup is truncated.")
+                    remaining -= len(block)
+                    plaintext.write(decryptor.update(block))
+                plaintext.write(decryptor.finalize())
+                plaintext.flush()
+                os.fsync(plaintext.fileno())
+        except InvalidTag:
+            destination.unlink(missing_ok=True)
+            raise RuntimeError("Backup authentication failed; check the escrowed key and archive integrity.") from None
+        except Exception:
+            destination.unlink(missing_ok=True)
+            raise
+
+
+@contextmanager
+def _plaintext_backup_archive(
+    archive_path: Path,
+    *,
+    backup_key: str | bytes | bytearray | None,
+    allow_legacy_unencrypted: bool,
+):
+    archive_path = archive_path.resolve()
+    try:
+        with archive_path.open("rb") as source:
+            prefix = source.read(len(ENCRYPTED_BACKUP_MAGIC))
+    except OSError:
+        raise RuntimeError("Backup archive could not be opened.") from None
+    if prefix == ENCRYPTED_BACKUP_MAGIC:
+        key = _backup_key_bytes(backup_key)
+        with tempfile.TemporaryDirectory(prefix="concierge-decrypt-") as temporary:
+            plaintext = Path(temporary) / "backup.zip"
+            _decrypt_backup_archive(archive_path, plaintext, key)
+            yield plaintext, True
+        return
+    if not allow_legacy_unencrypted:
+        raise RuntimeError(
+            "Plaintext legacy backups are disabled. Use --allow-legacy-unencrypted only for a trusted existing archive."
+        )
+    if not zipfile.is_zipfile(archive_path):
+        raise RuntimeError("Backup archive is neither an encrypted Concierge backup nor a valid legacy ZIP.")
+    yield archive_path, False
 
 
 def _release_schema_range() -> tuple[str, str]:
@@ -203,17 +303,20 @@ def create_backup(
     destination: Path,
     *,
     database_url: str = "",
+    backup_key: str | bytes | bytearray | None = None,
 ) -> dict[str, object]:
     db_path = db_path.resolve()
     upload_root = upload_root.resolve()
     destination = destination.resolve()
+    key = _backup_key_bytes(backup_key)
     postgres = bool(database_url and _parse_database_url(database_url).get_backend_name() == "postgresql")
     if not postgres and not db_path.is_file():
         raise FileNotFoundError(f"Database not found: {db_path}")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="concierge-backup-") as temporary:
+    with tempfile.TemporaryDirectory(prefix=".concierge-backup-", dir=destination.parent) as temporary:
+        temporary_root = Path(temporary)
         database_member = POSTGRES_MEMBER if postgres else SQLITE_MEMBER
-        snapshot = Path(temporary) / database_member
+        snapshot = temporary_root / database_member
         if postgres:
             _pg_dump(database_url, snapshot)
         else:
@@ -223,46 +326,47 @@ def create_backup(
                 if result != "ok":
                     raise RuntimeError("SQLite backup integrity check failed.")
         members: dict[str, str] = {database_member: _digest_file(snapshot)}
-        temporary_archive = destination.with_suffix(destination.suffix + ".tmp")
-        try:
-            with zipfile.ZipFile(temporary_archive, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-                archive.write(snapshot, database_member)
-                if upload_root.is_dir():
-                    for path in sorted(item for item in upload_root.rglob("*") if item.is_file()):
-                        if path.is_symlink() or upload_root not in path.resolve().parents:
-                            raise RuntimeError("Backup upload tree contains an unsafe symbolic link.")
-                        member = "uploads/" + path.relative_to(upload_root).as_posix()
-                        members[member] = _digest_file(path)
-                        archive.write(path, member)
-                identity = BUILD_IDENTITY
-                minimum_schema_revision, maximum_schema_revision = _release_schema_range()
-                build_date = identity.get("build_date", "unknown")
-                if not isinstance(build_date, str) or not BUILD_DATE_RE.fullmatch(build_date):
-                    build_date = "unknown"
-                manifest = {
-                    "format_version": FORMAT_VERSION,
-                    "database_type": "postgresql" if postgres else "sqlite",
-                    "created_at": int(time.time()),
-                    "database": database_member,
-                    "files": members,
-                    "concierge": {
-                        "version": identity["version"],
-                        "commit": identity["commit"],
-                        "deployment_mode": identity["deployment_mode"],
-                        "schema_revision": CURRENT_SCHEMA_REVISION,
-                        "minimum_schema_revision": minimum_schema_revision,
-                        "maximum_schema_revision": maximum_schema_revision,
-                        "build_date": build_date,
-                    },
-                }
-                archive.writestr(MANIFEST_MEMBER, json.dumps(manifest, indent=2, sort_keys=True))
-            os.replace(temporary_archive, destination)
-        finally:
-            temporary_archive.unlink(missing_ok=True)
-    return {"path": str(destination), "files": len(members), "sha256": _digest_file(destination)}
+        plaintext_archive = temporary_root / "backup.zip"
+        with zipfile.ZipFile(plaintext_archive, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.write(snapshot, database_member)
+            if upload_root.is_dir():
+                for path in sorted(item for item in upload_root.rglob("*") if item.is_file()):
+                    if path.is_symlink() or upload_root not in path.resolve().parents:
+                        raise RuntimeError("Backup upload tree contains an unsafe symbolic link.")
+                    member = "uploads/" + path.relative_to(upload_root).as_posix()
+                    members[member] = _digest_file(path)
+                    archive.write(path, member)
+            identity = BUILD_IDENTITY
+            minimum_schema_revision, maximum_schema_revision = _release_schema_range()
+            build_date = identity.get("build_date", "unknown")
+            if not isinstance(build_date, str) or not BUILD_DATE_RE.fullmatch(build_date):
+                build_date = "unknown"
+            manifest = {
+                "format_version": FORMAT_VERSION,
+                "database_type": "postgresql" if postgres else "sqlite",
+                "created_at": int(time.time()),
+                "database": database_member,
+                "files": members,
+                "concierge": {
+                    "version": identity["version"],
+                    "commit": identity["commit"],
+                    "deployment_mode": identity["deployment_mode"],
+                    "schema_revision": CURRENT_SCHEMA_REVISION,
+                    "minimum_schema_revision": minimum_schema_revision,
+                    "maximum_schema_revision": maximum_schema_revision,
+                    "build_date": build_date,
+                },
+            }
+            archive.writestr(MANIFEST_MEMBER, json.dumps(manifest, indent=2, sort_keys=True))
+        if plaintext_archive.stat().st_size > MAX_ENCRYPTED_ARCHIVE_BYTES:
+            raise RuntimeError("Backup exceeds the configured encrypted archive size limit.")
+        encrypted_temporary = temporary_root / "backup.encrypted"
+        _encrypt_backup_archive(plaintext_archive, encrypted_temporary, key)
+        os.replace(encrypted_temporary, destination)
+    return {"path": str(destination), "files": len(members), "sha256": _digest_file(destination), "encrypted": True}
 
 
-def verify_backup(archive_path: Path, *, database_url: str = "") -> dict[str, object]:
+def _verify_plaintext_backup(archive_path: Path, *, database_url: str = "") -> dict[str, object]:
     archive_path = archive_path.resolve()
     with tempfile.TemporaryDirectory(prefix="concierge-verify-") as temporary:
         with zipfile.ZipFile(archive_path) as archive:
@@ -354,6 +458,22 @@ def verify_backup(archive_path: Path, *, database_url: str = "") -> dict[str, ob
     }
 
 
+def verify_backup(
+    archive_path: Path,
+    *,
+    database_url: str = "",
+    backup_key: str | bytes | bytearray | None = None,
+    allow_legacy_unencrypted: bool = False,
+) -> dict[str, object]:
+    with _plaintext_backup_archive(
+        archive_path,
+        backup_key=backup_key,
+        allow_legacy_unencrypted=allow_legacy_unencrypted,
+    ) as (plaintext_archive, encrypted):
+        result = _verify_plaintext_backup(plaintext_archive, database_url=database_url)
+    return {**result, "encrypted": encrypted}
+
+
 def _safe_restore_root(path: Path) -> Path:
     resolved = path.resolve()
     if resolved == Path(resolved.anchor) or resolved == Path.home().resolve():
@@ -368,80 +488,87 @@ def restore_backup(
     *,
     replace: bool = False,
     database_url: str = "",
+    backup_key: str | bytes | bytearray | None = None,
+    allow_legacy_unencrypted: bool = False,
 ) -> dict[str, object]:
-    verification = verify_backup(archive_path, database_url=database_url)
-    db_path = db_path.resolve()
-    upload_root = _safe_restore_root(upload_root)
-    postgres = verification["database_type"] == "postgresql"
-    if postgres and not database_url:
-        raise RuntimeError("DATABASE_URL is required for PostgreSQL restore.")
-    if not postgres and database_url and _parse_database_url(database_url).get_backend_name() == "postgresql":
-        raise RuntimeError("The archive contains SQLite data but DATABASE_URL selects PostgreSQL.")
-    if not postgres and (db_path.exists() or upload_root.exists()) and not replace:
-        raise FileExistsError("Restore targets already exist; pass replace=True after stopping the application.")
-    if postgres and upload_root.exists() and not replace:
-        raise FileExistsError("Restore upload target already exists; pass replace=True after stopping the application.")
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    upload_root.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="concierge-restore-", dir=upload_root.parent) as temporary:
-        stage = Path(temporary)
-        manifest_member = DATABASE_MEMBER
-        staged_uploads = stage / "uploads"
-        with zipfile.ZipFile(archive_path.resolve()) as archive:
-            manifest = json.loads(archive.read(MANIFEST_MEMBER))
-            manifest_member = manifest.get("database", DATABASE_MEMBER)
-            staged_db = stage / manifest_member
-            with archive.open(manifest_member) as source, staged_db.open("wb") as destination:
-                shutil.copyfileobj(source, destination, length=1024 * 1024)
-            for member in archive.namelist():
-                if not member.startswith("uploads/") or member.endswith("/"):
-                    continue
-                relative = Path(member).relative_to("uploads")
-                target = (staged_uploads / relative).resolve()
-                if staged_uploads.resolve() not in target.parents:
-                    raise RuntimeError("Backup contains an unsafe upload path.")
-                target.parent.mkdir(parents=True, exist_ok=True)
-                with archive.open(member) as source, target.open("wb") as destination:
+    with _plaintext_backup_archive(
+        archive_path,
+        backup_key=backup_key,
+        allow_legacy_unencrypted=allow_legacy_unencrypted,
+    ) as (plaintext_archive, encrypted):
+        verification = _verify_plaintext_backup(plaintext_archive, database_url=database_url)
+        db_path = db_path.resolve()
+        upload_root = _safe_restore_root(upload_root)
+        postgres = verification["database_type"] == "postgresql"
+        if postgres and not database_url:
+            raise RuntimeError("DATABASE_URL is required for PostgreSQL restore.")
+        if not postgres and database_url and _parse_database_url(database_url).get_backend_name() == "postgresql":
+            raise RuntimeError("The archive contains SQLite data but DATABASE_URL selects PostgreSQL.")
+        if not postgres and (db_path.exists() or upload_root.exists()) and not replace:
+            raise FileExistsError("Restore targets already exist; pass replace=True after stopping the application.")
+        if postgres and upload_root.exists() and not replace:
+            raise FileExistsError("Restore upload target already exists; pass replace=True after stopping the application.")
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        upload_root.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="concierge-restore-", dir=upload_root.parent) as temporary:
+            stage = Path(temporary)
+            manifest_member = DATABASE_MEMBER
+            staged_uploads = stage / "uploads"
+            with zipfile.ZipFile(plaintext_archive) as archive:
+                manifest = json.loads(archive.read(MANIFEST_MEMBER))
+                manifest_member = manifest.get("database", DATABASE_MEMBER)
+                staged_db = stage / manifest_member
+                with archive.open(manifest_member) as source, staged_db.open("wb") as destination:
                     shutil.copyfileobj(source, destination, length=1024 * 1024)
-        if postgres:
-            _assert_empty_postgres_database(database_url)
-            switches, environment = _postgres_environment(database_url)
-            database_name = _parse_database_url(database_url).database
-            if not database_name:
-                raise RuntimeError("DATABASE_URL must include a PostgreSQL database name for restore.")
-            try:
-                result = subprocess.run(
-                    [
-                        "pg_restore",
-                        "--exit-on-error",
-                        "--single-transaction",
-                        "--no-owner",
-                        "--no-acl",
-                        f"--dbname={unquote(database_name)}",
-                        str(staged_db),
-                    ]
-                    + switches,
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                    timeout=PG_TOOL_TIMEOUT_SECONDS,
-                    env=environment,
-                )
-            except FileNotFoundError as exc:
-                raise RuntimeError("PostgreSQL backup tools (pg_dump and pg_restore) are required on this host.") from exc
-            except subprocess.TimeoutExpired as exc:
-                raise RuntimeError("PostgreSQL restore exceeded its configured time limit.") from exc
-            if result.returncode:
-                raise RuntimeError(f"PostgreSQL restore failed with exit code {result.returncode}; the transaction was rolled back.")
-        else:
-            os.replace(staged_db, db_path)
-        if replace and upload_root.exists():
-            shutil.rmtree(upload_root)
-        if staged_uploads.exists():
-            shutil.move(str(staged_uploads), str(upload_root))
-        else:
-            upload_root.mkdir(parents=True, exist_ok=True)
-    return {**verification, "database": str(db_path), "uploads": str(upload_root)}
+                for member in archive.namelist():
+                    if not member.startswith("uploads/") or member.endswith("/"):
+                        continue
+                    relative = Path(member).relative_to("uploads")
+                    target = (staged_uploads / relative).resolve()
+                    if staged_uploads.resolve() not in target.parents:
+                        raise RuntimeError("Backup contains an unsafe upload path.")
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    with archive.open(member) as source, target.open("wb") as destination:
+                        shutil.copyfileobj(source, destination, length=1024 * 1024)
+            if postgres:
+                _assert_empty_postgres_database(database_url)
+                switches, environment = _postgres_environment(database_url)
+                database_name = _parse_database_url(database_url).database
+                if not database_name:
+                    raise RuntimeError("DATABASE_URL must include a PostgreSQL database name for restore.")
+                try:
+                    result = subprocess.run(
+                        [
+                            "pg_restore",
+                            "--exit-on-error",
+                            "--single-transaction",
+                            "--no-owner",
+                            "--no-acl",
+                            f"--dbname={unquote(database_name)}",
+                            str(staged_db),
+                        ]
+                        + switches,
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                        timeout=PG_TOOL_TIMEOUT_SECONDS,
+                        env=environment,
+                    )
+                except FileNotFoundError as exc:
+                    raise RuntimeError("PostgreSQL backup tools (pg_dump and pg_restore) are required on this host.") from exc
+                except subprocess.TimeoutExpired as exc:
+                    raise RuntimeError("PostgreSQL restore exceeded its configured time limit.") from exc
+                if result.returncode:
+                    raise RuntimeError(f"PostgreSQL restore failed with exit code {result.returncode}; the transaction was rolled back.")
+            else:
+                os.replace(staged_db, db_path)
+            if replace and upload_root.exists():
+                shutil.rmtree(upload_root)
+            if staged_uploads.exists():
+                shutil.move(str(staged_uploads), str(upload_root))
+            else:
+                upload_root.mkdir(parents=True, exist_ok=True)
+    return {**verification, "encrypted": encrypted, "database": str(db_path), "uploads": str(upload_root)}
 
 
 def main() -> None:
@@ -451,14 +578,27 @@ def main() -> None:
     create.add_argument("archive", type=Path)
     verify = subparsers.add_parser("verify")
     verify.add_argument("archive", type=Path)
+    verify.add_argument("--allow-legacy-unencrypted", action="store_true")
     restore = subparsers.add_parser("restore")
     restore.add_argument("archive", type=Path)
     restore.add_argument("--replace", action="store_true")
+    restore.add_argument("--allow-legacy-unencrypted", action="store_true")
     args = parser.parse_args()
     if args.command == "create":
-        result = create_backup(settings.db_path, settings.upload_root, args.archive, database_url=settings.database_url)
+        result = create_backup(
+            settings.db_path,
+            settings.upload_root,
+            args.archive,
+            database_url=settings.database_url,
+            backup_key=settings.backup_encryption_key,
+        )
     elif args.command == "verify":
-        result = verify_backup(args.archive, database_url=settings.database_url)
+        result = verify_backup(
+            args.archive,
+            database_url=settings.database_url,
+            backup_key=settings.backup_encryption_key,
+            allow_legacy_unencrypted=args.allow_legacy_unencrypted,
+        )
     else:
         result = restore_backup(
             args.archive,
@@ -466,6 +606,8 @@ def main() -> None:
             settings.upload_root,
             replace=args.replace,
             database_url=settings.database_url,
+            backup_key=settings.backup_encryption_key,
+            allow_legacy_unencrypted=args.allow_legacy_unencrypted,
         )
     print(json.dumps(result, sort_keys=True))
 

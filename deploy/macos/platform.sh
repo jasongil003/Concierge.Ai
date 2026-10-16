@@ -112,7 +112,7 @@ platform_record_manifest() {
 }
 
 platform_retention() {
-    find "$BACKUP_ROOT" -type f -name 'concierge-*.zip' -mtime +30 -delete
+    find "$BACKUP_ROOT" -type f \( -name 'concierge-*.zip.enc' -o -name 'concierge-*.zip' \) -mtime +30 -delete
     current=$(readlink "$APP_ROOT/current" 2>/dev/null || true)
     ls -1dt "$APP_ROOT"/releases/*/ 2>/dev/null | tail -n +4 | while IFS= read -r old_release; do
         old_release=${old_release%/}

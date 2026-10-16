@@ -161,16 +161,20 @@ rewrites a database automatically. Inspect recovery events at
 ## Backup
 
 Both systems call the same `app.backup` create and verify implementation and
-write the same ZIP format. Ubuntu schedules a daily systemd timer; macOS uses a
+write authenticated AES-256-GCM archives named `concierge-<timestamp>.zip.enc`.
+Ubuntu schedules a daily systemd timer; macOS uses a
 daily LaunchDaemon calendar interval. Backups older than 30 days are removed
 during maintenance. The installer also creates and verifies a backup before an
-application update. Backup files should be copied to a separate protected
-system as part of the hotel's disaster-recovery plan; the local copy alone is
-not an off-host backup. Provider credentials remain encrypted in the database.
-Keep `CREDENTIAL_ENCRYPTION_SECRET` in an independent, access-controlled
-password manager or secrets vault. The key is deliberately absent from the
-backup archive. A restore drill must recover both the backup and that key from
-their separate protected locations; never store the key beside the backup.
+application update. The database and uploads are encrypted as one archive;
+backup files should still be copied to a separate protected system as part of
+the hotel's disaster-recovery plan because local encryption is not off-host
+replication. The installer creates an independent
+`CONCIERGE_BACKUP_ENCRYPTION_KEY`; escrow it outside the appliance, separately
+from the backup. Provider credentials remain encrypted in the database and
+require the separately escrowed `CREDENTIAL_ENCRYPTION_SECRET` after restore.
+Neither key is included in the archive. A restore drill must recover the
+archive and both keys from their separate protected locations; never store a
+key beside the backup.
 
 Create and verify a backup on demand with:
 
