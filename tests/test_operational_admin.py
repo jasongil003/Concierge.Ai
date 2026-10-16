@@ -48,6 +48,17 @@ def test_conversation_retention_sessions_and_usage_are_property_scoped(tmp_path:
     assert usage["providers"][0]["model"] == "qwen"
 
 
+def test_location_report_rejects_intervals_over_93_days(admin_client):
+    end_at = int(time.time())
+    response = admin_client.post(
+        "/api/admin/properties/test-property/location/report",
+        json={"start_at": end_at - 94 * 86_400, "end_at": end_at, "filters": {}},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Location reports are limited to 93 days."
+
+
 def test_guest_activity_metrics_and_admin_status_follow_credential_expiry(tmp_path: Path):
     store = SessionStore(tmp_path / "guest-expiry.db", ttl_minutes=1)
     session = store.create("hotel-a", "guest-a")

@@ -1,5 +1,11 @@
 # Master feature acceptance matrix
 
+> **Current acceptance status (2026-10-16):** Use the [fresh ECC acceptance ledger](acceptance-ledger-2026-10-16.json). It records **213/384 core requirements locally verified (55.47%)**, with 70 implemented, 59 partial, 37 blocked, and 5 failed. The 30,000-user target is deferred and excluded. The detailed matrix below is the historical 2026-10-13 snapshot; its statuses and test counts are superseded by the fresh ledger.
+
+---
+
+## Historical audit snapshot (2026-10-13)
+
 Date: **2026-10-12–13 (Asia/Manila)** (audit began October 12, finalized October 13). Baseline: `41c0ea1a7937035db6078cbb944f1e94f2fbad63`. Audited HEAD at generation: `d2d09ba9028448d7e2a88320643b1aaafb9004af`. Final tested implementation commit: `ecfe3f42963896cd86a291450fa574a4c26b197f`; report commit is discoverable through Git history.
 
 Environment: Darwin arm64, CPython 3.11.16, isolated synthetic SQLite/TestClient and Chromium; separate Linux/Docker Python 3.12.14 PostgreSQL/Redis/runtime proof receipts. The full current backend run passed **1132**, skipped **18**, failed **0**; exact records are in [backend-final.xml](evidence/master-2026-10-12/backend-final.xml). Final functional+visual browser run: **283 PASS, 35 SKIPPED, 0 FAIL** ([playwright-final-candidate.log](evidence/browser-2026-10-12/playwright-final-candidate.log)). Earlier failures are retained in companion test/remediation reports; browser results below apply only where explicitly attached. Historical reports are context, not new execution.

@@ -2182,6 +2182,34 @@ async function loadNetworkAccess() {
   const guestDomain = guest.domain || "Not configured";
   const guestUrl = guest.url || "Not configured";
   const sslStatus = prettifyAccessStatus(guest.ssl_status);
+  const guestEntryPreview = $("guest-entry-preview");
+  const guestEntryQr = $("guest-entry-qr");
+  const guestEntryUrl = $("guest-entry-url");
+  const guestEntryStatus = $("guest-entry-status");
+  const configuredGuestUrl = typeof guest.url === "string" ? guest.url : "";
+  const hasHttpsGuestUrl = /^https:\/\/[^\s/?#]+\/?$/i.test(configuredGuestUrl);
+  const guestEntryReady = guest.enabled !== false && guest.https_required !== false && hasHttpsGuestUrl;
+  guestEntryPreview.hidden = !guestEntryReady;
+  guestEntryQr.hidden = !guestEntryReady;
+  guestEntryQr.onerror = () => {
+    guestEntryQr.hidden = true;
+    guestEntryStatus.textContent = "The QR code is unavailable. Check the saved HTTPS domain and your network access, then refresh.";
+  };
+  if (guestEntryReady) {
+    guestEntryUrl.href = configuredGuestUrl;
+    guestEntryUrl.textContent = configuredGuestUrl;
+    guestEntryQr.src = `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/guest-entry/qr.svg`;
+    guestEntryStatus.textContent = "Scan the code or copy this URL to print it or write it to an NFC tag.";
+  } else {
+    guestEntryUrl.removeAttribute("href");
+    guestEntryUrl.textContent = "";
+    guestEntryQr.removeAttribute("src");
+    guestEntryStatus.textContent = guest.enabled === false
+      ? "Enable Guest Access and save the settings to generate a QR code."
+      : guest.https_required === false
+        ? "Require HTTPS and save the settings before generating a QR code."
+        : "Set up and save an HTTPS Guest URL before generating a QR code.";
+  }
 
   $("management-status").textContent = managementStatus;
   $("management-enabled-status").textContent = management.enabled ? "Enabled" : "Disabled";
@@ -5868,6 +5896,8 @@ function geometryContains(g, x, y) {
 function renderMapInspector() {
   const item = state.selectedMapObject;
   const form = $("map-object-form"), empty = $("map-inspector-empty");
+  const wayfindingPanel = $("map-wayfinding-qr-panel");
+  if (wayfindingPanel) wayfindingPanel.hidden = true;
   if (!item) {
     form.hidden = true; empty.hidden = false; $("map-inspector-title").textContent = "Object details"; $("map-selection-badge").textContent = "Nothing selected"; $("map-inspector-meta").hidden = true;
     renderZoneTree(); return;
@@ -5906,6 +5936,28 @@ function renderMapInspector() {
   $("map-ap-identifier").disabled = readonly;
   $("map-node-type").value = item.node_type || "waypoint";
   $("map-node-type").disabled = readonly;
+  if (wayfindingPanel) {
+    const canGenerate = isNode && !item.isDraft && Boolean(item.node_id);
+    const nodeKey = canGenerate ? `${currentPropertyId()}:${item.node_id}` : "";
+    if (wayfindingPanel.dataset.nodeKey !== nodeKey) {
+      wayfindingPanel.dataset.nodeKey = nodeKey;
+      $("map-wayfinding-qr").hidden = true;
+      $("map-wayfinding-qr").removeAttribute("src");
+      $("map-wayfinding-url").hidden = true;
+      $("map-wayfinding-url").removeAttribute("href");
+      $("map-wayfinding-status").textContent = "Generate a QR code for this guest waypoint.";
+    }
+    wayfindingPanel.hidden = !canGenerate;
+    const isGuestVisible = item.guest_visible !== false && item.guest_visible !== 0;
+    const currentRevision = state.zones?.map_revision_state?.current;
+    const hasUnpublishedChanges = state.zones?.map_revision_state?.has_unpublished_changes;
+    const button = $("generate-wayfinding-qr");
+    button.disabled = !canGenerate || state.mapDirty || !isGuestVisible || !currentRevision || hasUnpublishedChanges;
+    if (state.mapDirty) $("map-wayfinding-status").textContent = "Save and publish map changes before generating a QR code.";
+    else if (!isGuestVisible) $("map-wayfinding-status").textContent = "Make this waypoint guest-visible and publish the map first.";
+    else if (!currentRevision || hasUnpublishedChanges) $("map-wayfinding-status").textContent = "Publish the current map revision before generating a QR code.";
+    else if (button.disabled) $("map-wayfinding-status").textContent = "Generate a QR code for this guest waypoint.";
+  }
   const zoneSelect = $("map-linked-zone");
   const selectedFloorZones = mapFloorZones();
   zoneSelect.replaceChildren(new Option("Select a zone", ""));
@@ -5942,6 +5994,53 @@ function renderMapInspector() {
   const [x, y] = item.geometry ? pointForGeometry(item.geometry) : [item.x, item.y];
   $("map-object-position").textContent = Number.isFinite(x) && Number.isFinite(y) ? `${Math.round(x)}, ${Math.round(y)}` : "—";
   renderZoneTree();
+}
+
+async function generateMapWayfindingQr() {
+  const item = state.selectedMapObject;
+  const button = $("generate-wayfinding-qr");
+  const image = $("map-wayfinding-qr");
+  const link = $("map-wayfinding-url");
+  const status = $("map-wayfinding-status");
+  if (!item || item.objectType !== "navigation_node" || item.isDraft || state.mapDirty || !item.node_id) {
+    status.textContent = "Save and publish a guest-visible waypoint before generating its QR code.";
+    return;
+  }
+  image.hidden = true;
+  image.removeAttribute("src");
+  link.hidden = true;
+  link.removeAttribute("href");
+  status.textContent = "Generating QR code…";
+  button.disabled = true;
+  try {
+    const base = `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/navigation/nodes/${encodeURIComponent(item.node_id)}`;
+    const result = await jsonFetch(`${base}/wayfinding-url`);
+    const guestUrl = new URL(result.url);
+    if (guestUrl.protocol !== "https:" || guestUrl.searchParams.get("start_node_id") !== item.node_id
+      || !/^[0-9a-f]{64}$/.test(guestUrl.searchParams.get("start_sig") || "")) {
+      throw new Error("The server returned an invalid guest wayfinding URL.");
+    }
+    const response = await fetch(`${base}/wayfinding-qr.svg`, { credentials: "same-origin" });
+    const svg = await response.text();
+    if (!response.ok) {
+      let detail = "QR code could not be generated.";
+      try { detail = JSON.parse(svg).detail || detail; } catch { /* keep a safe fallback */ }
+      throw new Error(detail);
+    }
+    if (svg.length > 64_000 || !/^\s*<svg\b[\s\S]*<\/svg>\s*$/.test(svg)) {
+      throw new Error("The server returned an invalid QR image.");
+    }
+    image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+    image.hidden = false;
+    link.href = guestUrl.href;
+    link.textContent = `Open guest wayfinding for ${String(result.label || item.label || "this waypoint").slice(0, 120)}`;
+    link.hidden = false;
+    status.textContent = "QR code ready. Scan it to open this published waypoint in the guest concierge.";
+  } catch (error) {
+    status.textContent = error.message || "QR code could not be generated.";
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function syncMapObjectType() {
@@ -6529,10 +6628,17 @@ async function loadLocationReport() {
     body: JSON.stringify({ start_at: start, end_at: end, filters: {} }),
   });
   $("location-report").innerHTML = `
-    <div class="compact-row"><strong>${report.total_visits} visits · ${report.unique_visits} unique devices</strong><span>Zone occupancy heatmap uses aggregate AP-associated zones.</span></div>
+    <div class="compact-row"><strong>${report.total_visits} visits · ${report.unique_visits} unique devices</strong><span>Zone metrics use consented access-point observations.</span></div>
     ${Object.entries(report.area_metrics).map(([zone, metric]) => `<div class="compact-row"><strong>${escapeHTML(zone)}</strong><span>${metric.total_visits} visits · ${metric.average_dwell_seconds}s avg dwell · ${metric.repeat_visits} repeat visits</span></div>`).join("")}
     ${report.movement_patterns.map((item) => `<div class="compact-row"><strong>${escapeHTML(item.source_zone_id)} -> ${escapeHTML(item.destination_zone_id)}</strong><span>${item.count} transitions · ${item.percentage}%</span></div>`).join("")}
   `;
+  const peakHours = report.peak_hours || [];
+  $("location-peak-hours").innerHTML = peakHours.length
+    ? peakHours.map((item) => {
+      const hour = String(Number(item.hour)).padStart(2, "0");
+      return `<div class="compact-row"><strong>${hour}:00 · ${Number(item.average_observed_devices).toFixed(1)} devices on average</strong><span>${item.sample_days} observed days · ${escapeHTML(report.timezone || "UTC")}</span></div>`;
+    }).join("")
+    : '<div class="compact-row"><span>No access-point observations were recorded for this period.</span></div>';
 }
 
 async function loadIntro() {
@@ -6827,14 +6933,24 @@ async function playIntroPreview() {
 let conversationLoadVersion = 0;
 let retentionDraftPropertyId = "";
 let retentionDraftDirty = false;
+let retentionDraftVersion = 0;
+let retentionContextVersion = 0;
+let retentionCanonicalPropertyId = "";
+let retentionCanonicalValue = null;
+
+function resetRetentionDraftForProperty(propertyId) {
+  if (retentionDraftPropertyId === propertyId) return;
+  retentionDraftPropertyId = propertyId;
+  retentionDraftDirty = false;
+  retentionContextVersion += 1;
+  retentionCanonicalPropertyId = "";
+  retentionCanonicalValue = null;
+}
 
 async function loadConversations() {
   const propertyId = currentPropertyId();
   const version = ++conversationLoadVersion;
-  if (retentionDraftPropertyId !== propertyId) {
-    retentionDraftPropertyId = propertyId;
-    retentionDraftDirty = false;
-  }
+  resetRetentionDraftForProperty(propertyId);
   const button = $("refresh-conversations");
   const originalLabel = button.textContent;
   button.disabled = true;
@@ -6844,7 +6960,15 @@ async function loadConversations() {
     if (version !== conversationLoadVersion || propertyId !== currentPropertyId()) return;
     state.conversations = Array.isArray(data.conversations) ? data.conversations : [];
     if (!retentionDraftDirty) {
-      $("conversation-retention-days").value = data.retention?.retention_days ?? 30;
+      const serverRetentionDays = data.retention?.retention_days ?? 30;
+      const hasUnconfirmedSave = retentionCanonicalPropertyId === propertyId;
+      if (!hasUnconfirmedSave || serverRetentionDays === retentionCanonicalValue) {
+        $("conversation-retention-days").value = serverRetentionDays;
+        if (hasUnconfirmedSave) {
+          retentionCanonicalPropertyId = "";
+          retentionCanonicalValue = null;
+        }
+      }
     }
     const selectedId = state.selectedConversation?.session_id;
     state.selectedConversation = selectedId ? state.conversations.find((item) => item.session_id === selectedId) || null : null;
@@ -6865,17 +6989,35 @@ async function saveConversationRetention() {
     throw new Error("Choose a retention period from 1 to 365 days.");
   }
   const propertyId = currentPropertyId();
+  resetRetentionDraftForProperty(propertyId);
+  const submittedDraftVersion = retentionDraftVersion;
+  const submittedContextVersion = retentionContextVersion;
   const button = $("save-conversation-retention");
   button.disabled = true;
   // Invalidate any GET started before the mutation, including the initial panel load.
   ++conversationLoadVersion;
   try {
     const saved = await jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}/conversations/retention`, { method: "PUT", body: JSON.stringify({ retention_days: retentionDays }) });
-    if (propertyId !== currentPropertyId()) return;
-    retentionDraftDirty = false;
-    $("conversation-retention-days").value = saved.retention_days;
-    await loadConversations();
-    showToast("Conversation retention updated.");
+    if (propertyId !== currentPropertyId() || retentionContextVersion !== submittedContextVersion) return;
+    retentionCanonicalPropertyId = propertyId;
+    retentionCanonicalValue = saved.retention_days;
+    const hasNewerDraft = retentionDraftVersion !== submittedDraftVersion;
+    if (!hasNewerDraft) {
+      retentionDraftDirty = false;
+      $("conversation-retention-days").value = saved.retention_days;
+    }
+    try {
+      await loadConversations();
+    } catch (error) {
+      showToast(`Retention was saved, but the inbox could not refresh: ${error.message}`, "error");
+      return;
+    }
+    if (propertyId !== currentPropertyId() || retentionContextVersion !== submittedContextVersion) return;
+    if (retentionDraftVersion !== submittedDraftVersion) {
+      showToast("Earlier retention changes were saved. Save your newer edit to apply it.");
+    } else {
+      showToast("Conversation retention updated.");
+    }
   } finally {
     button.disabled = false;
     const refresh = $("refresh-conversations");
@@ -9055,6 +9197,7 @@ function setup() {
   $("map-save-draft").addEventListener("click", () => saveMapDraft().catch((error) => showToast(error.message, "error")));
   $("map-preview-draft").addEventListener("click", () => previewMapDraft().catch((error) => showToast(error.message, "error")));
   $("map-publish-draft").addEventListener("click", () => publishMapDraft().catch((error) => showToast(error.message, "error")));
+  $("generate-wayfinding-qr").addEventListener("click", () => generateMapWayfindingQr());
   $("map-rollback-revision").addEventListener("change", renderMapPublicationState);
   $("map-rollback").addEventListener("click", () => restoreMapRevision().catch((error) => showToast(error.message, "error")));
   for (const button of document.querySelectorAll("[data-map-tool]")) {
@@ -9163,7 +9306,8 @@ function setup() {
   $("refresh-conversations").addEventListener("click", () => loadConversations().catch((error) => showToast(error.message, "error")));
   $("save-conversation-retention").addEventListener("click", () => saveConversationRetention().catch((error) => showToast(error.message, "error")));
   $("conversation-retention-days").addEventListener("input", () => {
-    retentionDraftPropertyId = currentPropertyId();
+    resetRetentionDraftForProperty(currentPropertyId());
+    retentionDraftVersion += 1;
     retentionDraftDirty = true;
   });
   $("conversation-search").addEventListener("input", renderConversations);
@@ -9323,6 +9467,16 @@ function setup() {
   $("management-network-input").addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); addManagementNetwork(); } });
   $("finalize-management-access").addEventListener("click", () => finalizeManagementAccess().catch((error) => showToast(error.message, "error")));
   $("save-guest-access").addEventListener("click", () => saveGuestAccess().catch((error) => showToast(error.message, "error")));
+  $("copy-guest-entry-url").addEventListener("click", async () => {
+    const guestUrl = $("guest-entry-url").href;
+    if (!guestUrl) return;
+    try {
+      await navigator.clipboard.writeText(guestUrl);
+      showToast("Guest URL copied.");
+    } catch {
+      showToast("Could not access the clipboard. Select the guest URL and copy it manually.", "error");
+    }
+  });
   $("verify-deployment").addEventListener("click", () => verifyDeployment().catch((error) => showToast(error.message, "error")));
   $("save-app-settings").addEventListener("click", () => saveApplicationSettings().catch((error) => showToast(error.message, "error")));
   $("save-smtp").addEventListener("click", () => saveSMTPSettings().catch((error) => showToast(error.message, "error")));

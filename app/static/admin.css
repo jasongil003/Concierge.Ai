@@ -570,6 +570,12 @@ input[type="color"] { padding: 3px; }
 .request-history-event strong { color: var(--dark); font-size: 10px; font-weight: 550; }
 .request-history-event time { flex: 0 0 auto; color: var(--muted); font-size: 9px; }
 .optional-label { margin-left: 4px; color: var(--muted); font-size: 9px; font-weight: 450; }
+.map-wayfinding-qr { display: grid; justify-items: start; gap: 8px; padding: 11px; border: 1px solid var(--line); border-radius: 6px; background: #fafafa; }
+.map-wayfinding-qr > strong { color: var(--dark); font-size: 10px; }
+.map-wayfinding-qr > p { margin: 0; }
+.map-wayfinding-qr > img { width: min(180px, 100%); padding: 8px; border: 1px solid var(--line); border-radius: 5px; background: #fff; }
+.map-wayfinding-qr > a { color: var(--dark); font-size: 10px; overflow-wrap: anywhere; }
+.map-wayfinding-qr > span { color: var(--mid); font-size: 10px; }
 .status-indicator { display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; background: #555; }
 .status-indicator.warn { background: #999; }
 
@@ -2786,6 +2792,9 @@ details:not([open]) > :not(summary) { display: none !important; }
 .network-access-fields { min-width: 0; margin: 0; padding: 0; border: 0; }
 .network-access-fields:disabled { opacity: .86; }
 #network-access .detail-list dd { overflow-wrap: anywhere; }
+.guest-entry-preview { display: grid; justify-items: start; gap: 10px; margin: 12px 0 16px; }
+.guest-entry-preview img { width: min(100%, 240px); aspect-ratio: 1; background: #fff; border: 1px solid var(--line); border-radius: 8px; }
+.guest-entry-preview a { overflow-wrap: anywhere; }
 
 #knowledge > .card + .card,
 #knowledge > .card + .two-col { margin-top: 14px; }

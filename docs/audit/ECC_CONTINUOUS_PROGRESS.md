@@ -53,3 +53,12 @@ Do not approve an external pilot or production release until the security, gover
 - The previous resolved PR #59 head `df971c7696277be28b478865e057744be752663b` had hosted CI run [#250](https://github.com/jasongil003/Concierge.Ai/actions/runs/38839977954): backend, PostgreSQL/Redis, Docker, dependency, static-security, and Linux/macOS deployment jobs passed; its current-worktree secret scan failed. Browser testing was still running at the last check. The refreshed head requires its own hosted checks.
 - PR #59 remains a draft. No secret finding was suppressed, and no branch was merged into `main`.
 - Refreshed-head focused validation: `.venv/bin/python -m pytest -q -rs tests/test_notification_delivery.py tests/test_admin_configuration_actions.py tests/test_guest_privacy_consent.py tests/test_personalization.py tests/test_places.py` — **104 passed**, 2 warnings. Compile and `git diff --check HEAD` are recorded after the final tree check.
+
+## Continuation — 2026-10-16 signed guest wayfinding QR
+
+| Workstream | Status | Evidence and remaining boundary |
+| --- | --- | --- |
+| Published waypoint QR entry and guest route origin | **YELLOW** | K-18 locally verified: signed property/node-bound HTTPS links, current published-map checks, property isolation, and route-origin handoff. Backend **6 passed**; admin QR **1 Chromium pass**; guest QR **2 desktop/mobile passes**. Physical QR printing/scanning and hotel map accuracy remain pending. |
+| Current source security scan | **YELLOW** | Gitleaks 8.24.3 no-git redacted worktree scan after the QR change: **0 findings**. Historical full-history secret scan and branch-protection checks remain release gates. |
+
+The guest browser flow filters the signed start parameters from gateway context and preserves the QR waypoint as the route origin across destination selection and a new chat. The feature tests use synthetic properties/maps; they do not establish physical-device, hotel-network, or production acceptance.

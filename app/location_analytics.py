@@ -3,8 +3,10 @@ import sqlite3
 import time
 import uuid
 from collections import Counter, defaultdict
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .database import connect_database
 
@@ -74,6 +76,12 @@ class LocationAnalyticsStore:
                     observed_at INTEGER NOT NULL,
                     metadata TEXT NOT NULL DEFAULT '{}'
                 );
+                CREATE INDEX IF NOT EXISTS idx_location_observations_property_time
+                    ON location_observations(property_id, observed_at);
+                CREATE INDEX IF NOT EXISTS idx_zone_visits_property_time
+                    ON zone_visits(property_id, entered_at);
+                CREATE INDEX IF NOT EXISTS idx_movement_transitions_property_time
+                    ON movement_transitions(property_id, occurred_at);
                 """
             )
 
@@ -208,7 +216,20 @@ class LocationAnalyticsStore:
             "occupancy_by_zone": dict(occupancy),
         }
 
-    def aggregate(self, property_id: str, start_at: int, end_at: int, filters: dict[str, Any] | None = None) -> dict[str, Any]:
+    def aggregate(
+        self,
+        property_id: str,
+        start_at: int,
+        end_at: int,
+        filters: dict[str, Any] | None = None,
+        timezone_name: str = "UTC",
+    ) -> dict[str, Any]:
+        if end_at < start_at:
+            raise ValueError("Report end must be at or after its start.")
+        try:
+            report_timezone = ZoneInfo(timezone_name)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError("Report timezone must be a valid IANA timezone.") from exc
         filters = filters or {}
         params: list[Any] = [property_id, start_at, end_at]
         where = "property_id=? AND entered_at>=? AND entered_at<=?"
@@ -225,6 +246,42 @@ class LocationAnalyticsStore:
                     (property_id, start_at, end_at),
                 )
             ]
+            observation_params: list[Any] = [property_id, start_at, end_at]
+            observation_where = "property_id=? AND observed_at>=? AND observed_at<=?"
+            if filters.get("zone_id"):
+                observation_where += " AND zone_id=?"
+                observation_params.append(filters["zone_id"])
+            # B608 rationale: predicates are fixed and zone_id is always bound.
+            observations = db.execute(
+                f"SELECT device_id, observed_at FROM location_observations WHERE {observation_where}",  # nosec B608
+                observation_params,
+            ).fetchall()
+        observed_devices_by_local_hour: dict[tuple[str, int], set[str]] = defaultdict(set)
+        for row in observations:
+            try:
+                local_time = datetime.fromtimestamp(int(row["observed_at"]), report_timezone)
+            except (OverflowError, OSError, ValueError) as exc:
+                raise ValueError("Observation timestamp is outside the supported reporting range.") from exc
+            observed_devices_by_local_hour[(local_time.date().isoformat(), local_time.hour)].add(str(row["device_id"]))
+        devices_by_hour: dict[int, list[int]] = defaultdict(list)
+        for (_, hour), devices in observed_devices_by_local_hour.items():
+            devices_by_hour[hour].append(len(devices))
+        hourly_observed_devices = [
+            {
+                "hour": hour,
+                "average_observed_devices": round(sum(counts) / len(counts), 2),
+                "sample_days": len(counts),
+            }
+            for hour, counts in sorted(devices_by_hour.items())
+        ]
+        peak_average = max(
+            (item["average_observed_devices"] for item in hourly_observed_devices),
+            default=0,
+        )
+        peak_hours = [
+            item for item in hourly_observed_devices
+            if peak_average > 0 and item["average_observed_devices"] == peak_average
+        ]
         by_zone: dict[str, dict[str, Any]] = defaultdict(lambda: {"visits": 0, "unique_devices": set(), "dwell": [], "peak_occupancy": 0})
         for visit in visits:
             zone = by_zone[visit["zone_id"]]
@@ -254,8 +311,11 @@ class LocationAnalyticsStore:
         ]
         return {
             "period": {"start_at": start_at, "end_at": end_at},
+            "timezone": timezone_name,
             "total_visits": len(visits),
             "unique_visits": len({row["device_id"] for row in visits}),
             "area_metrics": area_metrics,
             "movement_patterns": movement,
+            "hourly_observed_devices": hourly_observed_devices,
+            "peak_hours": peak_hours,
         }
