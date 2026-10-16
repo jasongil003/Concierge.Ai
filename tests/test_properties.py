@@ -20,7 +20,7 @@ from app.main import app
 from app.operations import OperationsStore
 from app.guardrails import GuestHostnameConflict
 from app.guest_experience import COMPONENT_REGISTRY
-from app.properties import PropertyRecord, PropertyStore, default_design_config, validate_design_config
+from app.properties import DesignRevisionConflict, PropertyRecord, PropertyStore, default_design_config, validate_design_config
 from app.zones import ZoneStore
 
 
@@ -832,6 +832,104 @@ def test_design_draft_publish_and_restore(tmp_path: Path):
 
     assert restored is not None
     assert restored.design_draft["theme"]["accent"] == "#123456"
+
+
+def test_clone_design_copies_published_config_into_target_draft_only(tmp_path: Path):
+    store = PropertyStore(tmp_path / "design-clone.db")
+    store.upsert(PropertyRecord(property_id="source-property", hotel_name="Source Property"))
+    store.upsert(PropertyRecord(
+        property_id="target-property",
+        hotel_name="Target Property",
+        app_settings={"deployment": {"guest_access_enabled": False}, "target_marker": "preserve"},
+        antlabs_config={"gateway_password": "target-only-secret"},
+    ))
+    source_config = default_design_config(hotel_name="Source Property")
+    source_config["welcome"]["headline"] = "Source published template"
+    home = next(page for page in source_config["pages"] if page["id"] == "home")
+    home["sections"].append({
+        "id": "source-image",
+        "type": "image",
+        "title": "Source image",
+        "enabled": True,
+        "order": len(home["sections"]),
+        "properties": {"url": "https://assets.example.test/source.webp", "alt": "Source property image"},
+    })
+    source_draft = store.save_design_draft("source-property", source_config)
+    source_published = store.publish_design("source-property", expected_revision=source_draft.design_revision)
+    target_before = store.get("target-property")
+    assert target_before is not None
+
+    target_after = store.clone_design_from(
+        "source-property",
+        "target-property",
+        expected_revision=target_before.design_revision,
+    )
+
+    assert target_after.design_draft == source_published.design_published
+    assert target_after.design_draft["pages"][0]["sections"][-1]["properties"]["url"] == "https://assets.example.test/source.webp"
+    assert target_after.design_published == target_before.design_published
+    assert target_after.design_versions == target_before.design_versions
+    assert target_after.app_settings == target_before.app_settings
+    assert target_after.antlabs_config == target_before.antlabs_config
+    assert target_after.design_revision == target_before.design_revision + 1
+    assert store.get("source-property").design_published == source_published.design_published
+
+    with pytest.raises(DesignRevisionConflict):
+        store.clone_design_from("source-property", "target-property", expected_revision=target_before.design_revision)
+    with pytest.raises(ValueError, match="different source"):
+        store.clone_design_from("target-property", "target-property")
+    with pytest.raises(KeyError):
+        store.clone_design_from("missing-property", "target-property")
+
+
+def test_design_clone_endpoint_creates_draft_without_copying_property_settings(
+    admin_client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    store = PropertyStore(tmp_path / "design-clone-api.db")
+    store.upsert(PropertyRecord(property_id="source-property", hotel_name="Source Property"))
+    store.upsert(PropertyRecord(
+        property_id="target-property",
+        hotel_name="Target Property",
+        app_settings={"deployment": {"guest_access_enabled": False}, "target_marker": "keep"},
+        antlabs_config={"gateway_password": "target-only-secret"},
+    ))
+    source_config = default_design_config(hotel_name="Source Property")
+    source_config["welcome"]["headline"] = "Copied only as draft"
+    source_draft = store.save_design_draft("source-property", source_config)
+    source_published = store.publish_design("source-property", expected_revision=source_draft.design_revision)
+    target_before = store.get("target-property")
+    assert target_before is not None
+    monkeypatch.setattr(main_module, "properties", store)
+
+    response = admin_client.post(
+        "/api/admin/properties/target-property/design/clone",
+        json={"source_property_id": "source-property", "expected_revision": target_before.design_revision},
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["source_property_id"] == "source-property"
+    assert payload["draft"] == source_published.design_published
+    target_after = store.get("target-property")
+    assert target_after is not None
+    assert target_after.design_published == target_before.design_published
+    assert target_after.app_settings == target_before.app_settings
+    assert target_after.antlabs_config == target_before.antlabs_config
+    assert target_after.design_revision == target_before.design_revision + 1
+
+    stale = admin_client.post(
+        "/api/admin/properties/target-property/design/clone",
+        json={"source_property_id": "source-property", "expected_revision": target_before.design_revision},
+    )
+    assert stale.status_code == 409
+    assert admin_client.post(
+        "/api/admin/properties/target-property/design/clone",
+        json={"source_property_id": "target-property"},
+    ).status_code == 422
+    assert admin_client.post(
+        "/api/admin/properties/target-property/design/clone",
+        json={"source_property_id": "missing-property"},
+    ).status_code == 404
 
 
 def test_design_validation_rejects_bad_theme(tmp_path: Path):

@@ -4270,7 +4270,15 @@ function bindBuilderEvents() {
   $("builder-undo-button")?.addEventListener("click", () => restoreBuilderSnapshot(state.builderHistory.pop(), "undo"));
   $("builder-redo-button")?.addEventListener("click", () => restoreBuilderSnapshot(state.builderRedo.pop(), "redo"));
   $("builder-focus-button")?.addEventListener("click", () => { const builder = document.querySelector(".experience-builder"); const active = builder.classList.toggle("is-focus-mode"); $("builder-focus-button").setAttribute("aria-pressed", String(active)); $("builder-focus-button").textContent = active ? "Exit focus" : "Focus mode"; });
-  $("builder-templates-button")?.addEventListener("click", () => { const menu = $("builder-template-menu"); const open = menu.hidden; menu.hidden = !open; $("builder-templates-button").setAttribute("aria-expanded", String(open)); });
+  $("builder-templates-button")?.addEventListener("click", () => {
+    const menu = $("builder-template-menu");
+    const open = menu.hidden;
+    menu.hidden = !open;
+    $("builder-templates-button").setAttribute("aria-expanded", String(open));
+    if (open) renderBuilderCloneSources();
+  });
+  $("builder-clone-source-property")?.addEventListener("change", renderBuilderCloneSources);
+  $("builder-clone-property-button")?.addEventListener("click", () => cloneBuilderDesign().catch((error) => showToast(error.message, "error")));
   $("builder-template-menu")?.addEventListener("click", (event) => { const button = event.target.closest("[data-builder-template]"); if (button) applyBuilderTemplate(button.dataset.builderTemplate); });
   $("builder-inspector")?.addEventListener("click", handleBuilderInspectorClick);
   document.querySelectorAll("[data-builder-tab]").forEach((button) => button.addEventListener("click", () => setBuilderInspectorTab(button.dataset.builderTab)));
@@ -5374,6 +5382,47 @@ async function loadDesign() {
   } catch {
     state.builderHospitality = null;
   }
+}
+
+function renderBuilderCloneSources() {
+  const select = $("builder-clone-source-property");
+  const button = $("builder-clone-property-button");
+  if (!select || !button) return;
+  const previous = select.value;
+  const sources = (state.properties || []).filter((item) => item.property_id !== currentPropertyId());
+  select.replaceChildren(new Option("Choose a property", ""));
+  for (const property of sources) {
+    select.append(new Option(property.hotel_name || property.property_id, property.property_id));
+  }
+  select.value = sources.some((item) => item.property_id === previous) ? previous : "";
+  button.disabled = !can("concierge.edit") || sources.length === 0 || !select.value;
+}
+
+async function cloneBuilderDesign() {
+  const select = $("builder-clone-source-property");
+  const sourcePropertyId = select?.value || "";
+  if (!sourcePropertyId) throw new Error("Choose a source property.");
+  if (!window.confirm("Replace this property’s current draft with the source property’s published design? This will not publish it or copy integrations, settings, or credentials.")) return;
+  const response = await jsonFetch(
+    `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/design/clone`,
+    {
+      method: "POST",
+      body: JSON.stringify({ source_property_id: sourcePropertyId, expected_revision: state.designRevision }),
+    },
+  );
+  state.designDraft = structuredClone(response.draft);
+  state.designRevision = Number(response.revision || state.designRevision + 1);
+  state.guestPages = structuredClone(state.designDraft.pages || []);
+  state.builderDirty = false;
+  state.builderHistory = [];
+  state.builderRedo = [];
+  fillDesignForm(state.designDraft);
+  renderBuilderPageOptions();
+  renderBuilder();
+  updatePreview();
+  if ($("builder-save-status")) $("builder-save-status").textContent = "Saved · cloned draft";
+  setPublishState("Cloned to draft");
+  showToast("Published design copied to this property’s draft. Review it before publishing.");
 }
 
 async function loadProperty() {

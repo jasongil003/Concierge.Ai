@@ -803,6 +803,31 @@ class PropertyStore:
         record.design_draft = validate_design_config(config)
         return self._write_design(record, expected_revision=record.design_revision, draft=True)
 
+    def clone_design_from(
+        self,
+        source_property_id: str,
+        target_property_id: str,
+        expected_revision: int | None = None,
+    ) -> PropertyRecord:
+        """Copy a property's published guest design into another property's draft.
+
+        Only the validated design document is cloned. Property settings, integrations,
+        credentials, target publication state, and revision history remain target-owned.
+        """
+        if source_property_id == target_property_id:
+            raise ValueError("Choose a different source property.")
+        source = self.get(source_property_id)
+        if source is None:
+            raise KeyError(source_property_id)
+        target = self.get(target_property_id)
+        if target is None:
+            raise KeyError(target_property_id)
+        return self.save_design_draft(
+            target_property_id,
+            source.design_published,
+            expected_revision=expected_revision,
+        )
+
     def publish_design(self, property_id: str, published_by: str = "local-admin", expected_revision: int | None = None) -> PropertyRecord:
         record = self.get(property_id)
         if record is None:

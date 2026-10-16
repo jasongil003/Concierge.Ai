@@ -843,6 +843,38 @@ def test_managed_knowledge_page_counts_only_role_visible_items(
     assert auth_client.get("/api/admin/properties/tenant-a/knowledge/managed?limit=0").status_code == 422
 
 
+def test_property_admin_cannot_clone_design_from_another_property(
+    auth_client: TestClient, auth_store: AdminAuthStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    properties = PropertyStore(tmp_path / "design-clone-scope.db")
+    properties.upsert(PropertyRecord(property_id="tenant-a", hotel_name="Test Tenant A"))
+    properties.upsert(PropertyRecord(property_id="tenant-b", hotel_name="Test Tenant B"))
+    monkeypatch.setattr(main_module, "properties", properties)
+    csrf = login(auth_client)
+    created = auth_client.post(
+        "/api/admin/users",
+        headers={"X-CSRF-Token": csrf},
+        json={
+            "username": "tenant.a.designer",
+            "display_name": "Tenant A Designer",
+            "password": "TenantDesignerPassword123!",
+            "property_id": "tenant-a",
+            "role_id": "role-property-administrator",
+            "status": "active",
+            "force_password_change": False,
+        },
+    )
+    assert created.status_code == 200, created.text
+    login(auth_client, "tenant.a.designer", "TenantDesignerPassword123!")
+
+    response = auth_client.post(
+        "/api/admin/properties/tenant-a/design/clone",
+        json={"source_property_id": "tenant-b"},
+    )
+
+    assert response.status_code == 403
+
+
 def test_property_role_cannot_cross_tenant(auth_store: AdminAuthStore, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(main_module, "admin_auth", auth_store)
     super_token, super_principal = auth_store.login("admin", ADMIN_PASSWORD, "10.0.0.1", "test")

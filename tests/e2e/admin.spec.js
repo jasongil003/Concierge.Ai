@@ -1353,6 +1353,62 @@ test("design actions require concierge.edit in the UI and on the server", async 
   }
 });
 
+test("builder copies another property's published design into the selected property's draft", async ({ page }) => {
+  test.skip(test.info().project.name !== "chromium", "Builder copy flow runs once in desktop Chromium.");
+  let initialDraft = null;
+  let cloneRequest = null;
+
+  await page.route("**/api/admin/properties", async (route) => {
+    const response = await route.fetch();
+    const payload = await response.json();
+    payload.properties ||= [];
+    if (!payload.properties.some((item) => item.property_id === "design-source")) {
+      payload.properties.push({ property_id: "design-source", hotel_name: "Source Property" });
+    }
+    await route.fulfill({
+      status: response.status(),
+      contentType: "application/json",
+      body: JSON.stringify(payload),
+    });
+  });
+  await page.route("**/api/admin/properties/*/design", async (route) => {
+    const response = await route.fetch();
+    const payload = await response.json();
+    initialDraft = payload.draft;
+    await route.fulfill({
+      status: response.status(),
+      contentType: "application/json",
+      body: JSON.stringify(payload),
+    });
+  });
+  await page.route("**/api/admin/properties/*/design/clone", async (route) => {
+    cloneRequest = route.request().postDataJSON();
+    const draft = structuredClone(initialDraft);
+    draft.welcome.headline = "Copied source design";
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        status: "draft_saved",
+        source_property_id: cloneRequest.source_property_id,
+        draft,
+        revision: Number(cloneRequest.expected_revision) + 1,
+      }),
+    });
+  });
+
+  await page.goto("/admin");
+  await openPanel(page, "Design");
+  await page.locator("#builder-templates-button").click();
+  await page.locator("#builder-clone-source-property").selectOption("design-source");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.locator("#builder-clone-property-button").click();
+
+  await expect(page.locator("#builder-save-status")).toHaveText("Saved · cloned draft");
+  await expect.poll(() => cloneRequest?.source_property_id).toBe("design-source");
+  expect(cloneRequest.expected_revision).toBeGreaterThan(0);
+});
+
 test("admin: visual builder renders guest sections and supports direct editing, history, templates, devices, and draft save", async ({ page, request }) => {
   test.skip(test.info().project.name !== "chromium", "Builder interaction workflow runs once in desktop Chromium.");
   const builderPageErrors = [];
