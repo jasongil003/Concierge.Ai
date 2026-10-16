@@ -120,4 +120,26 @@ The candidate adds signed, property-bound HTTPS QR links for published guest-vis
 
 Prior full local runs remain separate: backend **1,329 passed, 21 skipped, 5 failed** (the five installer tests could not bind because a pre-existing process held port 8080); nonvisual browser **351 passed, 39 skipped**; visual browser **4 passed**. No new full-suite run is claimed for this QR change.
 
-Draft [PR #63](https://github.com/jasongil003/Concierge.Ai/pull/63) is mergeable and remains open. Hosted run [#258](https://github.com/jasongil003/Concierge.Ai/actions/runs/38861282815) completed at corrected code head `79a33c5c4fdd9de55b8182d5ae6d1ce68f4d1693`: **9/10 jobs passed**. Backend passed **1,348 tests, 19 skipped**; browser passed **356 tests, 40 skipped**; PostgreSQL/Redis, Docker, Python/Node dependency, static-security, and Linux/macOS deployment checks passed. Full-history Gitleaks failed on three known historical findings; its PR-diff and current-worktree scans each reported no leaks. This report update changes only audit documentation and will trigger another candidate run. No merge or deployment was performed.
+Draft [PR #63](https://github.com/jasongil003/Concierge.Ai/pull/63) is mergeable and remains open. Hosted run [#258](https://github.com/jasongil003/Concierge.Ai/actions/runs/38861282815) completed at corrected code head `79a33c5c4fdd9de55b8182d5ae6d1ce68f4d1693`: **9/10 jobs passed**. Backend passed **1,348 tests, 19 skipped**; browser passed **356 tests, 40 skipped**; PostgreSQL/Redis, Docker, Python/Node dependency, static-security, and Linux/macOS deployment checks passed. Full-history Gitleaks failed on three known historical findings; its PR-diff and current-worktree scans each reported no leaks. No merge or deployment was performed.
+
+## 2026-10-16 PR #63 hosted candidate run #259
+
+| Check | Result | Scope / limit |
+| --- | --- | --- |
+| Backend workflow suite | **PASS:** 1,348 passed, 19 skipped | Hosted CI run [#259](https://github.com/jasongil003/Concierge.Ai/actions/runs/38862722596), head `4563d0064da1e306a67f173a8b729d99811aec7b`. |
+| Browser workflow suite | **PASS:** 356 passed, 40 skipped | Hosted CI run #259. Physical iOS/Android and hotel Wi-Fi acceptance remain open. |
+| PostgreSQL/Redis, Docker runtime, Python/Node dependency audits, static security, Linux/macOS deployment validation | **PASS** | Hosted CI run #259. These checks do not certify target-hotel installation or live integrations. |
+| PR-diff and current-worktree Gitleaks scans | **PASS:** no findings | Run #259. |
+| Forced-text full-history Gitleaks scan | **FAIL / RELEASE BLOCKER:** three known historical findings | Run #259. Values omitted; the credential issuer must confirm revocation before owner-authorized shared-history cleanup. |
+
+The run completed with 9/10 jobs passing. Draft PR #63 remains open and mergeable, but release acceptance is **RED**. Consent/location software is covered by `tests/test_guest_privacy_consent.py`; property/privacy-owner approval of retention and deletion policy, allowed notification audiences, and live hotel/provider acceptance remain outstanding.
+
+## 2026-10-16 local pagination change — commit `97369c6`
+
+| Check | Result | Scope / limit |
+| --- | --- | --- |
+| Backend/property-scope/privacy/notification regression set | **PASS:** 57 passed, 2 deprecation warnings | `tests/test_conversation_pagination.py`, `tests/test_restaurant_workflows.py`, `tests/test_guest_privacy_consent.py`, `tests/test_notification_delivery.py`, and `tests/test_high_rbac_boundaries.py`. Persistent workspace SQLite remained unchanged. |
+| Focused Playwright conversations | **PASS:** 3 passed | Chromium: server page navigation/counts, property-admin takeover/reply/resolve, and restaurant assignment. Temporary dependency links were removed after the run. |
+| JavaScript syntax and `git diff --check` | **PASS** | `app/static/admin.js`; candidate diff. |
+
+Commits `97369c6` and `adec402` provide pagination for the Conversations inbox only; C-30 remains **PARTIAL** until the other high-volume admin lists gain bounded pages and controls. Hosted run #259 predates these commits, so hosted validation of the pagination change is pending.

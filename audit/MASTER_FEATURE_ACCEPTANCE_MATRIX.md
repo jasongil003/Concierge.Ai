@@ -1,6 +1,6 @@
 # Master feature acceptance matrix
 
-> **Current acceptance status (2026-10-16):** Use the [fresh ECC acceptance ledger](acceptance-ledger-2026-10-16.json). It records **213/384 core requirements locally verified (55.47%)**, with 70 implemented, 59 partial, 37 blocked, and 5 failed. The 30,000-user target is deferred and excluded. The detailed matrix below is the historical 2026-10-13 snapshot; its statuses and test counts are superseded by the fresh ledger.
+> **Current acceptance status (2026-10-16):** Use the [fresh ECC acceptance ledger](acceptance-ledger-2026-10-16.json). It records **213/384 core requirements locally verified (55.47%)**, with 70 implemented, 56 partial, 41 blocked, and 4 failed. The 30,000-user target is deferred and excluded. The detailed matrix below is the historical 2026-10-13 snapshot; its statuses and test counts are superseded by the fresh ledger.
 
 ---
 

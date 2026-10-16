@@ -2,6 +2,12 @@
 
 Date: **2026-10-12–13 (Asia/Manila)** (audit began October 12, finalized October 13). Baseline `41c0ea1a7937035db6078cbb944f1e94f2fbad63`. Audited HEAD `d2d09ba9028448d7e2a88320643b1aaafb9004af`. Final tested implementation commit: `ecfe3f42963896cd86a291450fa574a4c26b197f`; reports are committed separately. Environment and actual commands/results match the [acceptance matrix](MASTER_FEATURE_ACCEPTANCE_MATRIX.md). Inventory work modifies only the two reports and machine-readable matrix.
 
+## Current status continuation — PR #63, 2026-10-16
+
+The rows below preserve the October 12–13 snapshot and are not a current inventory. Guest privacy consent, stay-bound location collection, checkout/withdrawal deletion, and notification opt-out were implemented through PR #61 and are regression-tested. The current acceptance ledger supersedes the historical gap statements: policy-dependent privacy rows are **BLOCKED** pending property data controller/privacy-owner approval of retention duration, deletion scope, guest-facing text and allowed audiences. The Conversations inbox now has bounded server pagination as a tested slice of C-30; pagination for other high-volume admin lists, whole-property template cloning, campaign lifecycle/audience selection, monetary AI cost, and an explicit Lottie product decision remain open. Signed waypoint QR is implemented in PR #63; physical scanning and hotel map accuracy remain blocked by device/hotel acceptance.
+
+Draft PR #63 is open. Hosted run [#259](https://github.com/jasongil003/Concierge.Ai/actions/runs/38862722596) passed 9/10 jobs, but predates pagination commits `97369c6` and `adec402`; the refreshed candidate run is pending. Run #259's forced-text full-history Gitleaks scan found three known historical findings. See [current release readiness](MASTER_RELEASE_READINESS.md) for the release decision and owner gates.
+
 The planned product is incomplete: **207/384 (53.91%)** original requirements meet their explicitly recorded local acceptance. Counts: IMPLEMENTED BUT UNVERIFIED=71, VERIFIED COMPLETE=207, PARTIALLY IMPLEMENTED=56, BLOCKED BY EXTERNAL DEPENDENCY=34, MISSING=16, BROKEN=0, DEFERRED BY PRODUCT DECISION=0. Local passing tests do not establish a working hotel network, live AI/PMS/notification integrations, platform installs, or 30,000-user capacity.
 
 ## Highest-priority product gaps and confirmed corrections

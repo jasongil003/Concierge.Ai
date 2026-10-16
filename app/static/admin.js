@@ -6931,6 +6931,11 @@ async function playIntroPreview() {
 
 // Protect unsaved retention drafts from stale inbox GET responses.
 let conversationLoadVersion = 0;
+let conversationPageOffset = 0;
+const conversationPageLimit = 50;
+let conversationTotal = 0;
+let conversationStatusCounts = {};
+let conversationPagePropertyId = "";
 let retentionDraftPropertyId = "";
 let retentionDraftDirty = false;
 let retentionDraftVersion = 0;
@@ -6949,6 +6954,11 @@ function resetRetentionDraftForProperty(propertyId) {
 
 async function loadConversations() {
   const propertyId = currentPropertyId();
+  if (conversationPagePropertyId !== propertyId) {
+    conversationPagePropertyId = propertyId;
+    conversationPageOffset = 0;
+    state.selectedConversation = null;
+  }
   const version = ++conversationLoadVersion;
   resetRetentionDraftForProperty(propertyId);
   const button = $("refresh-conversations");
@@ -6956,9 +6966,17 @@ async function loadConversations() {
   button.disabled = true;
   button.textContent = "Refreshing…";
   try {
-    const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}/conversations`);
+    const params = new URLSearchParams({
+      limit: String(conversationPageLimit),
+      offset: String(conversationPageOffset),
+      status: $("conversation-status-filter").value,
+    });
+    const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}/conversations?${params.toString()}`);
     if (version !== conversationLoadVersion || propertyId !== currentPropertyId()) return;
     state.conversations = Array.isArray(data.conversations) ? data.conversations : [];
+    conversationTotal = Number.isInteger(data.total) ? data.total : state.conversations.length;
+    conversationStatusCounts = data.status_counts && typeof data.status_counts === "object" ? data.status_counts : {};
+    conversationPageOffset = Number.isInteger(data.offset) ? data.offset : conversationPageOffset;
     if (!retentionDraftDirty) {
       const serverRetentionDays = data.retention?.retention_days ?? 30;
       const hasUnconfirmedSave = retentionCanonicalPropertyId === propertyId;
@@ -6971,7 +6989,8 @@ async function loadConversations() {
       }
     }
     const selectedId = state.selectedConversation?.session_id;
-    state.selectedConversation = selectedId ? state.conversations.find((item) => item.session_id === selectedId) || null : null;
+    const refreshedSelection = selectedId ? state.conversations.find((item) => item.session_id === selectedId) : null;
+    if (refreshedSelection) state.selectedConversation = refreshedSelection;
     $("conversation-last-refreshed").textContent = `Updated ${new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(new Date())}`;
     renderConversations();
     renderConversationMessages();
@@ -7044,8 +7063,7 @@ function conversationStateLabel(status) {
 }
 
 function renderConversationSummary() {
-  const counts = { all: state.conversations.length, waiting_for_staff: 0, assigned: 0, human_active: 0, ai_active: 0, resolved: 0 };
-  for (const item of state.conversations) counts[conversationStateKey(item)] += 1;
+  const counts = { all: Object.values(conversationStatusCounts).reduce((sum, value) => sum + Number(value || 0), 0), ...conversationStatusCounts };
   $("conversation-count-all").textContent = counts.all;
   $("conversation-count-waiting").textContent = counts.waiting_for_staff;
   $("conversation-count-assigned").textContent = counts.assigned;
@@ -7081,20 +7099,25 @@ function renderConversationEmptyState(list, message, detailText, actionLabel = "
 
 function renderConversations() {
   const query = $("conversation-search").value.trim().toLowerCase();
-  const status = $("conversation-status-filter").value;
   const list = $("conversation-list");
   const scrollTop = list.scrollTop;
   list.replaceChildren();
   renderConversationSummary();
   const matching = state.conversations.filter((item) => {
-    const statusMatches = !status || conversationStateKey(item) === status;
     const text = [item.session_id, item.client_id, item.restaurant_name, item.assigned_user_name, item.escalation_reason, ...(item.messages || []).map((message) => message.content)]
       .filter(Boolean).join(" ").toLowerCase();
-    return statusMatches && (!query || text.includes(query));
+    return !query || text.includes(query);
   });
-  $("conversation-result-count").textContent = query || status
-    ? `${matching.length} of ${state.conversations.length} conversations`
-    : `${matching.length} ${matching.length === 1 ? "conversation" : "conversations"}`;
+  const first = conversationTotal ? conversationPageOffset + 1 : 0;
+  const last = Math.min(conversationPageOffset + state.conversations.length, conversationTotal);
+  $("conversation-result-count").textContent = query
+    ? `${matching.length} matches on this page · ${conversationTotal} total`
+    : `${first}–${last} of ${conversationTotal} conversations`;
+  $("conversation-page-info").textContent = conversationTotal
+    ? `Page ${Math.floor(conversationPageOffset / conversationPageLimit) + 1} of ${Math.ceil(conversationTotal / conversationPageLimit)}`
+    : "No pages";
+  $("conversation-page-previous").disabled = conversationPageOffset === 0;
+  $("conversation-page-next").disabled = conversationPageOffset + conversationPageLimit >= conversationTotal;
   for (const conversation of matching) {
     const row = document.createElement("button");
     row.type = "button";
@@ -7129,13 +7152,13 @@ function renderConversations() {
   }
   list.scrollTop = scrollTop;
   if (!matching.length) {
-    const hasFilter = Boolean(query || status);
+    const hasFilter = Boolean(query || $("conversation-status-filter").value);
     renderConversationEmptyState(
       list,
       hasFilter ? "No conversations match these filters" : "No conversations yet",
-      hasFilter ? "Try a different status or search term." : "Guest staff requests will appear here when someone asks a restaurant team for help.",
+      hasFilter ? "Try another status or search this page. Clear filters to browse the full inbox." : "Guest staff requests will appear here when someone asks a restaurant team for help.",
       hasFilter ? "Clear filters" : can("concierge.view") ? "Open guest preview" : "",
-      hasFilter ? () => { $("conversation-search").value = ""; $("conversation-status-filter").value = ""; renderConversations(); }
+      hasFilter ? () => { $("conversation-search").value = ""; $("conversation-status-filter").value = ""; conversationPageOffset = 0; loadConversations().catch((error) => showToast(error.message, "error")); }
         : can("concierge.view") ? () => activatePanel("guest") : null,
     );
   }
@@ -7246,12 +7269,14 @@ async function setConversationState(status, humanTakeover) {
   if (!state.selectedConversation) return;
   const conversation = state.selectedConversation;
   const base = `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations/${encodeURIComponent(conversation.session_id)}`;
+  let updated;
   if (conversation.restaurant_id) {
     const action = status === "closed" ? "resolve" : humanTakeover ? "accept" : "return-to-ai";
-    await jsonFetch(`${base}/${action}`, { method: "POST" });
+    updated = await jsonFetch(`${base}/${action}`, { method: "POST" });
   } else {
-    await jsonFetch(base, { method: "PUT", body: JSON.stringify({ status, human_takeover: humanTakeover }) });
+    updated = await jsonFetch(base, { method: "PUT", body: JSON.stringify({ status, human_takeover: humanTakeover }) });
   }
+  state.selectedConversation = { ...conversation, ...updated };
   await loadConversations(); showToast("Conversation updated.");
 }
 
@@ -7282,7 +7307,8 @@ async function assignSelectedConversation() {
   const conversation = state.selectedConversation;
   const userId = $("conversation-staff-select").value;
   if (!conversation?.restaurant_id || !userId) throw new Error("Choose an assigned restaurant staff member.");
-  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations/${encodeURIComponent(conversation.session_id)}/assign`, { method: "POST", body: JSON.stringify({ user_id: userId }) });
+  const updated = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations/${encodeURIComponent(conversation.session_id)}/assign`, { method: "POST", body: JSON.stringify({ user_id: userId }) });
+  state.selectedConversation = { ...conversation, ...updated };
   await loadConversations(); showToast("Conversation assigned.");
 }
 
@@ -7293,7 +7319,17 @@ async function sendStaffResponse() {
   button.disabled = true;
   button.textContent = "Sending…";
   try {
-    await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations/${encodeURIComponent(state.selectedConversation.session_id)}/messages`, { method: "POST", body: JSON.stringify({ message }) });
+    const sent = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations/${encodeURIComponent(state.selectedConversation.session_id)}/messages`, { method: "POST", body: JSON.stringify({ message }) });
+    const conversation = state.selectedConversation;
+    const createdAt = Math.floor(Date.now() / 1000);
+    conversation.messages = [...(conversation.messages || []), {
+      message_id: sent.message_id,
+      role: "staff",
+      content: message,
+      created_at: createdAt,
+    }];
+    conversation.message_count = Number(conversation.message_count || 0) + 1;
+    conversation.last_message_at = createdAt;
     $("staff-response").value = "";
     await loadConversations();
     showToast("Staff response sent.");
@@ -9311,10 +9347,23 @@ function setup() {
     retentionDraftDirty = true;
   });
   $("conversation-search").addEventListener("input", renderConversations);
-  $("conversation-status-filter").addEventListener("change", renderConversations);
+  $("conversation-status-filter").addEventListener("change", () => {
+    conversationPageOffset = 0;
+    loadConversations().catch((error) => showToast(error.message, "error"));
+  });
   for (const card of document.querySelectorAll("[data-conversation-filter]")) card.addEventListener("click", () => {
     $("conversation-status-filter").value = card.dataset.conversationFilter;
-    renderConversations();
+    conversationPageOffset = 0;
+    loadConversations().catch((error) => showToast(error.message, "error"));
+  });
+  $("conversation-page-previous").addEventListener("click", () => {
+    conversationPageOffset = Math.max(0, conversationPageOffset - conversationPageLimit);
+    loadConversations().catch((error) => showToast(error.message, "error"));
+  });
+  $("conversation-page-next").addEventListener("click", () => {
+    if (conversationPageOffset + conversationPageLimit >= conversationTotal) return;
+    conversationPageOffset += conversationPageLimit;
+    loadConversations().catch((error) => showToast(error.message, "error"));
   });
   $("conversation-staff-select").addEventListener("change", () => {
     const selected = state.selectedConversation;
