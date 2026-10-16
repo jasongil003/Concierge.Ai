@@ -282,13 +282,16 @@ jobs:
         run: |
           admin_bootstrap_password="$(openssl rand -hex 16)A!"
           credential_encryption_secret="$(openssl rand -hex 32)"
+          backup_encryption_key="$(openssl rand -hex 32)"
           metrics_token="$(openssl rand -hex 32)"
           printf '::add-mask::%s\n' "$admin_bootstrap_password"
           printf '::add-mask::%s\n' "$credential_encryption_secret"
+          printf '::add-mask::%s\n' "$backup_encryption_key"
           printf '::add-mask::%s\n' "$metrics_token"
           {
             printf 'ADMIN_BOOTSTRAP_PASSWORD=%s\n' "$admin_bootstrap_password"
             printf 'CREDENTIAL_ENCRYPTION_SECRET=%s\n' "$credential_encryption_secret"
+            printf 'CONCIERGE_BACKUP_ENCRYPTION_KEY=%s\n' "$backup_encryption_key"
             printf 'METRICS_TOKEN=%s\n' "$metrics_token"
           } >> "$GITHUB_ENV"
       - name: Build production image
@@ -308,6 +311,7 @@ jobs:
             -e UPLOAD_ROOT=/state/uploads \
             -e ADMIN_BOOTSTRAP_PASSWORD \
             -e CREDENTIAL_ENCRYPTION_SECRET \
+            -e CONCIERGE_BACKUP_ENCRYPTION_KEY \
             -e METRICS_TOKEN \
             -e ADMIN_COOKIE_SECURE=true \
             -e ALLOW_BODY_PROPERTY_SELECTION=false \
@@ -346,7 +350,7 @@ jobs:
       - name: Create persistent volume and start container
         run: |
           docker volume create concierge-ci-state
-          docker run -d --name concierge-ci -p 8080:8080 --health-cmd="python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=4)\"" --health-interval=5s --health-retries=12 --health-start-period=5s -e APP_ENVIRONMENT=development -e ALLOW_DEMO_SETTINGS=true -e PROPERTY_ID=ci-property -e DB_PATH=/state/concierge.db -e UPLOAD_ROOT=/state/uploads -e ADMIN_BOOTSTRAP_PASSWORD -e CREDENTIAL_ENCRYPTION_SECRET -e ADMIN_COOKIE_SECURE=false -e ALLOW_BODY_PROPERTY_SELECTION=false -e ANTLABS_MODE=mock -e ENABLE_BACKGROUND_WORKERS=false -v concierge-ci-state:/state concierge-ai:ci
+          docker run -d --name concierge-ci -p 8080:8080 --health-cmd="python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=4)\"" --health-interval=5s --health-retries=12 --health-start-period=5s -e APP_ENVIRONMENT=development -e ALLOW_DEMO_SETTINGS=true -e PROPERTY_ID=ci-property -e DB_PATH=/state/concierge.db -e UPLOAD_ROOT=/state/uploads -e ADMIN_BOOTSTRAP_PASSWORD -e CREDENTIAL_ENCRYPTION_SECRET -e CONCIERGE_BACKUP_ENCRYPTION_KEY -e ADMIN_COOKIE_SECURE=false -e ALLOW_BODY_PROPERTY_SELECTION=false -e ANTLABS_MODE=mock -e ENABLE_BACKGROUND_WORKERS=false -v concierge-ci-state:/state concierge-ai:ci
       - name: Verify non-root, healthy runtime, and write workflows
         run: |
           app_uid="$(docker exec concierge-ci id -u)"
@@ -362,7 +366,7 @@ jobs:
       - name: Recreate container and verify volume persistence
         run: |
           docker rm -f concierge-ci
-          docker run -d --name concierge-ci -p 8080:8080 --health-cmd="python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=4)\"" --health-interval=5s --health-retries=12 --health-start-period=5s -e APP_ENVIRONMENT=development -e ALLOW_DEMO_SETTINGS=true -e PROPERTY_ID=ci-property -e DB_PATH=/state/concierge.db -e UPLOAD_ROOT=/state/uploads -e ADMIN_BOOTSTRAP_PASSWORD -e CREDENTIAL_ENCRYPTION_SECRET -e ADMIN_COOKIE_SECURE=false -e ALLOW_BODY_PROPERTY_SELECTION=false -e ANTLABS_MODE=mock -e ENABLE_BACKGROUND_WORKERS=false -v concierge-ci-state:/state concierge-ai:ci
+          docker run -d --name concierge-ci -p 8080:8080 --health-cmd="python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=4)\"" --health-interval=5s --health-retries=12 --health-start-period=5s -e APP_ENVIRONMENT=development -e ALLOW_DEMO_SETTINGS=true -e PROPERTY_ID=ci-property -e DB_PATH=/state/concierge.db -e UPLOAD_ROOT=/state/uploads -e ADMIN_BOOTSTRAP_PASSWORD -e CREDENTIAL_ENCRYPTION_SECRET -e CONCIERGE_BACKUP_ENCRYPTION_KEY -e ADMIN_COOKIE_SECURE=false -e ALLOW_BODY_PROPERTY_SELECTION=false -e ANTLABS_MODE=mock -e ENABLE_BACKGROUND_WORKERS=false -v concierge-ci-state:/state concierge-ai:ci
           for _ in $(seq 1 18); do
             test "$(docker inspect --format '{{.State.Health.Status}}' concierge-ci)" = healthy && break
             sleep 5
@@ -456,13 +460,16 @@ jobs:
         run: |
           admin_bootstrap_password="$(python -c 'import secrets; print(secrets.token_hex(24))')A!"
           credential_encryption_secret="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+          backup_encryption_key="$(python -c 'import secrets; print(secrets.token_hex(32))')"
           metrics_token="$(python -c 'import secrets; print(secrets.token_hex(32))')"
           printf '::add-mask::%s\n' "$admin_bootstrap_password"
           printf '::add-mask::%s\n' "$credential_encryption_secret"
+          printf '::add-mask::%s\n' "$backup_encryption_key"
           printf '::add-mask::%s\n' "$metrics_token"
           {
             printf 'ADMIN_BOOTSTRAP_PASSWORD=%s\n' "$admin_bootstrap_password"
             printf 'CREDENTIAL_ENCRYPTION_SECRET=%s\n' "$credential_encryption_secret"
+            printf 'CONCIERGE_BACKUP_ENCRYPTION_KEY=%s\n' "$backup_encryption_key"
             printf 'METRICS_TOKEN=%s\n' "$metrics_token"
           } >> "$GITHUB_ENV"
       - name: Validate production settings

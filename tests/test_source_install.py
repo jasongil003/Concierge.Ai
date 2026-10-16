@@ -89,7 +89,7 @@ def test_installer_output_never_discloses_generated_secret(tmp_path: Path):
 
 def test_valid_secret_and_existing_bootstrap_configuration_are_preserved(tmp_path: Path):
     root = _source_tree(tmp_path)
-    existing_secret = "kept-encryption-secret-value-1234567890"
+    existing_secret = "testtesttesttesttesttesttesttest"
     existing_backup_key = "de" * 32
     (root / ".env").write_text(
         "DB_PATH=state/concierge.db\n"
