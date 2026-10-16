@@ -28,7 +28,7 @@
 
 ## Unverified external and operational dependencies
 
-Real AI provider accounts and privacy terms, ANTlabs SG5/PMS/WLAN feeds, physical iPhone Safari/Android Chrome/captive browsers, screen readers, target-host install/reboot, off-host encrypted backup and key recovery, and production-scale load were not verified here. CI run [#246](https://github.com/jasongil003/Concierge.Ai/actions/runs/38835174052) is running on PR #61; dependency audits, static security, and Linux/macOS deployment passed, secret scan failed on its current-worktree step, and backend, browser, PostgreSQL/Redis, and Docker jobs were still running at last check. The branch-protection API returned 403; the accessible ruleset only rejects deletion and non-fast-forward updates. The unresolved credential finding and current secret-scan failure remain release blockers.
+Real AI provider accounts and privacy terms, ANTlabs SG5/PMS/WLAN feeds, physical iPhone Safari/Android Chrome/captive browsers, screen readers, target-host install/reboot, off-host encrypted backup and key recovery, and production-scale load were not verified here. CI run [#246](https://github.com/jasongil003/Concierge.Ai/actions/runs/38835174052) completed on PR #61: backend (1,321 passed, 19 skipped), browser (339 passed, 39 skipped), PostgreSQL/Redis, Docker, dependency audits, static security, and Linux/macOS deployment passed; secret scan failed at its redacted current-worktree step, and its later forced-text history step did not run. The branch-protection API returned 403; the accessible ruleset only rejects deletion and non-fast-forward updates. The unresolved credential finding and current secret-scan failure remain release blockers.
 
 ## Decision ownership
 
