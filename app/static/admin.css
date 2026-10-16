@@ -490,6 +490,9 @@ input[type="color"] { padding: 3px; }
 .session-record-group { display: grid; gap: 8px; }
 .session-record-group > h3 { margin: 0; color: var(--mid); font-size: 10px; font-weight: 750; text-transform: uppercase; letter-spacing: .06em; }
 .session-record-group-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 9px; }
+.session-record-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.session-record-pagination span { color: var(--mid); font-size: 10px; font-variant-numeric: tabular-nums; }
+.session-record-pagination button { min-height: 30px; padding: 5px 9px; font-size: 10px; }
 .session-record-card { display: grid; align-content: start; gap: 10px; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 7px; background: #fff; }
 .session-record-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .session-record-title { min-width: 0; }

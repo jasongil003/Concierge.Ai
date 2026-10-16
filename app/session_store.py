@@ -213,6 +213,10 @@ class SessionStore:
                 WHERE state='ai_active'"""
             )
             db.execute("CREATE INDEX IF NOT EXISTS idx_conversation_state_queue ON conversation_state(property_id,restaurant_id,state,assigned_user_id)")
+            db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_conversation_messages_session_provider "
+                "ON conversation_messages(property_id,session_id,provider)"
+            )
 
     @staticmethod
     def _ensure_session_column(db: sqlite3.Connection, name: str, definition: str) -> None:
@@ -231,6 +235,10 @@ class SessionStore:
             # B608 rationale: name and definition are checked against the fixed schema allowlist above.
             db.execute(f"ALTER TABLE sessions ADD COLUMN {name} {definition}")  # nosec B608
         db.execute("CREATE INDEX IF NOT EXISTS idx_sessions_guest_token ON sessions(guest_token_hash) WHERE guest_token_hash IS NOT NULL")
+        db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sessions_property_activity "
+            "ON sessions(property_id,last_seen_at DESC,session_id DESC)"
+        )
 
     @staticmethod
     def _ensure_column(db: sqlite3.Connection, table: str, name: str, definition: str) -> None:
@@ -856,6 +864,95 @@ class SessionStore:
             }
             for row in rows
         ]
+
+    def sessions_page(
+        self,
+        property_id: str,
+        *,
+        limit: int = 25,
+        offset: int = 0,
+        query: str = "",
+        status: str | None = None,
+    ) -> dict[str, Any]:
+        if not 1 <= int(limit) <= 100 or not 0 <= int(offset) <= 1_000_000:
+            raise ValueError("Invalid guest-session page bounds.")
+        limit, offset = int(limit), int(offset)
+        if status not in (None, "active", "expired"):
+            raise ValueError("Unsupported guest-session status filter.")
+        search = str(query or "").strip().casefold()[:120]
+        pattern = f"%{search}%" if search else ""
+        now = int(time.time())
+        status_params = (status, status, now, status, now)
+        search_params = (search, pattern, pattern, now, pattern, pattern, pattern, pattern, pattern)
+        with self._connect() as db:
+            total = int(db.execute(
+                """SELECT COUNT(*) FROM sessions s
+                LEFT JOIN conversation_state cs ON cs.session_id=s.session_id AND cs.property_id=s.property_id
+                WHERE s.property_id=?
+                  AND (? IS NULL OR (?='active' AND (s.guest_token_hash IS NOT NULL AND s.guest_token_expires_at>? AND s.guest_token_revoked_at IS NULL))
+                    OR (?='expired' AND NOT (s.guest_token_hash IS NOT NULL AND s.guest_token_expires_at>? AND s.guest_token_revoked_at IS NULL)))
+                  AND (?='' OR LOWER(s.session_id) LIKE ? OR LOWER(COALESCE(cs.status,'')) LIKE ?
+                    OR LOWER(CASE WHEN s.guest_token_hash IS NOT NULL AND s.guest_token_expires_at>? AND s.guest_token_revoked_at IS NULL
+                        THEN 'active' ELSE 'expired' END) LIKE ?
+                    OR LOWER(CAST(s.authenticated AS TEXT)) LIKE ?
+                    OR LOWER(CAST(s.created_at AS TEXT)) LIKE ? OR LOWER(CAST(s.last_seen_at AS TEXT)) LIKE ?
+                    OR EXISTS (SELECT 1 FROM conversation_messages search_m
+                        WHERE search_m.property_id=s.property_id AND search_m.session_id=s.session_id
+                          AND LOWER(COALESCE(search_m.provider,'')) LIKE ?))""",
+                (property_id, *status_params, *search_params),
+            ).fetchone()[0])
+            actual_offset = min(offset, max(total - 1, 0) // limit * limit)
+            rows = db.execute(
+                """WITH page_sessions AS (
+                    SELECT s.session_id,s.property_id,s.last_seen_at
+                    FROM sessions s
+                    LEFT JOIN conversation_state cs ON cs.session_id=s.session_id AND cs.property_id=s.property_id
+                    WHERE s.property_id=?
+                      AND (? IS NULL OR (?='active' AND (s.guest_token_hash IS NOT NULL AND s.guest_token_expires_at>? AND s.guest_token_revoked_at IS NULL))
+                        OR (?='expired' AND NOT (s.guest_token_hash IS NOT NULL AND s.guest_token_expires_at>? AND s.guest_token_revoked_at IS NULL)))
+                      AND (?='' OR LOWER(s.session_id) LIKE ? OR LOWER(COALESCE(cs.status,'')) LIKE ?
+                        OR LOWER(CASE WHEN s.guest_token_hash IS NOT NULL AND s.guest_token_expires_at>? AND s.guest_token_revoked_at IS NULL
+                            THEN 'active' ELSE 'expired' END) LIKE ?
+                        OR LOWER(CAST(s.authenticated AS TEXT)) LIKE ?
+                        OR LOWER(CAST(s.created_at AS TEXT)) LIKE ? OR LOWER(CAST(s.last_seen_at AS TEXT)) LIKE ?
+                        OR EXISTS (SELECT 1 FROM conversation_messages search_m
+                            WHERE search_m.property_id=s.property_id AND search_m.session_id=s.session_id
+                              AND LOWER(COALESCE(search_m.provider,'')) LIKE ?))
+                    ORDER BY s.last_seen_at DESC,s.session_id DESC LIMIT ? OFFSET ?
+                )
+                SELECT s.session_id,s.property_id,s.authenticated,s.created_at,s.last_seen_at,
+                CASE WHEN s.guest_token_hash IS NOT NULL AND s.guest_token_expires_at>? AND s.guest_token_revoked_at IS NULL
+                    THEN 'active' ELSE 'expired' END AS session_status,
+                COALESCE(cs.status,'open') AS interaction_status,
+                COALESCE(cs.human_takeover,0) AS human_takeover,
+                COUNT(m.message_id) AS message_count,
+                MAX(CASE WHEN m.role='assistant' THEN m.provider END) AS last_provider
+                FROM page_sessions p
+                JOIN sessions s ON s.session_id=p.session_id AND s.property_id=p.property_id
+                LEFT JOIN conversation_state cs ON cs.session_id=s.session_id AND cs.property_id=s.property_id
+                LEFT JOIN conversation_messages m ON m.session_id=s.session_id AND m.property_id=s.property_id
+                GROUP BY s.session_id
+                ORDER BY s.last_seen_at DESC,s.session_id DESC""",
+                (property_id, *status_params, *search_params, limit, actual_offset, now),
+            ).fetchall()
+        items = [
+            {**dict(row), "authenticated": bool(row["authenticated"]), "human_takeover": bool(row["human_takeover"])}
+            for row in rows
+        ]
+        return {"items": items, "total": total, "limit": limit, "offset": actual_offset}
+
+    def session_record_counts(self, property_id: str) -> dict[str, int]:
+        now = int(time.time())
+        with self._connect() as db:
+            row = db.execute(
+                """SELECT COUNT(*) AS total,
+                COUNT(CASE WHEN guest_token_hash IS NOT NULL AND guest_token_expires_at>?
+                    AND guest_token_revoked_at IS NULL THEN 1 END) AS active
+                FROM sessions WHERE property_id=?""",
+                (now, property_id),
+            ).fetchone()
+        total, active = int(row["total"]), int(row["active"])
+        return {"sessions": total, "active_sessions": active, "expired_sessions": total - active}
 
     def retention(self, property_id: str) -> dict[str, Any]:
         with self._connect() as db:
