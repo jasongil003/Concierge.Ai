@@ -157,3 +157,15 @@ Commits `97369c6` and `adec402` provide pagination for the Conversations inbox o
 | Focused onboarding and network-access browser checks | **PASS:** 3 passed, 1 skipped | Local Chromium and mobile Chrome emulation. These checks were run separately, so they do not resolve the three full-suite-only failures. |
 
 The browser mock correction is in the next candidate update. Keep release acceptance **RED** until the refreshed hosted full suite and external release gates are resolved.
+
+## 2026-10-16 PR #63 hosted run #261 — corrected full-suite acceptance
+
+| Check | Result | Scope / limit |
+| --- | --- | --- |
+| Backend workflow suite | **PASS:** 1,349 passed, 19 skipped | Hosted CI [run #261](https://github.com/jasongil003/Concierge.Ai/actions/runs/38868604334), head `7b31f7201ceaaa235bba74d054ba706f60291554`. |
+| Browser workflow suite | **PASS:** 357 passed, 41 skipped, 0 failed | Hosted CI run #261. The six retention-race scenarios now intercept the query-bearing paginated inbox URL. Physical iOS/Android and hotel Wi-Fi acceptance remain open. |
+| PostgreSQL/Redis, Docker runtime, Python/Node dependency audits, static security, Linux/macOS deployment validation | **PASS** | Hosted CI run #261. These checks do not certify target-hotel installation or live integrations. |
+| PR-diff and current-worktree Gitleaks scans | **PASS:** no findings | Hosted CI run #261. |
+| Forced-text full-history Gitleaks scan | **FAIL / RELEASE BLOCKER:** three known historical findings | Hosted CI run #261. Values omitted; issuer revocation and repository-owner-authorized history cleanup remain required. |
+
+Run #261 completed with **9/10 jobs passing**. The candidate was tested without merge or deployment. Release acceptance remains **RED** until the historical-secret, branch-protection, policy, live-integration and hotel-device gates are closed.

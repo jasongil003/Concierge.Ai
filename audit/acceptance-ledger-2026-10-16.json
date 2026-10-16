@@ -110,11 +110,11 @@
       "result": "9/10 jobs passed; secret-scan failed on three historical findings in audit/evidence/security-2026-10-12/recovery-harness-before.txt. No credential values are copied into this ledger."
     },
     "github_candidate_ci": {
-      "run_id": "38866073706",
-      "run_number": 260,
-      "head_commit": "46d6c1d2e3dbd6208c7aac3f80b80d2e4eb17013",
+      "run_id": "38868604334",
+      "run_number": 261,
+      "head_commit": "7b31f7201ceaaa235bba74d054ba706f60291554",
       "pull_request": "https://github.com/jasongil003/Concierge.Ai/pull/63",
-      "result": "COMPLETED — 8/10 jobs passed. Backend: 1,349 passed, 19 skipped. Browser: 342 passed, 41 skipped, 15 failed. Twelve failures were six retention-race tests whose mocks expected the old unpaginated URL; the route mock is corrected locally and all six pass. Three full-suite-only onboarding/network-access failures pass in focused local reruns but need full-suite confirmation. PostgreSQL/Redis, Docker, dependency audits, static security, and Linux/macOS deployment passed. PR-diff and current-worktree scans found no leaks. Forced-text history scan found three known historical findings; no credential values are reproduced."
+      "result": "COMPLETED — 9/10 jobs passed. Backend: 1,349 passed, 19 skipped. Browser: 357 passed, 41 skipped, 0 failed. PostgreSQL/Redis, Docker, dependency audits, static security, and Linux/macOS deployment passed. The PR-diff and current-worktree scans found no leaks. The forced-text full-history scan found three known historical findings; no credential values are reproduced."
     },
     "repository_release_controls": {
       "main_branch_protection": "DISABLED; GitHub integration denied branch-protection configuration access (HTTP 403).",
@@ -159,24 +159,25 @@
       "3c4e3bd",
       "101ed7d29ee31e63617943453cc3499b5a4ec4bd",
       "97369c6",
-      "adec402"
+      "adec402",
+      "7b31f7201ceaaa235bba74d054ba706f60291554"
     ],
-    "current_head_at_ledger_creation": "101ed7d29ee31e63617943453cc3499b5a4ec4bd",
+    "current_head_at_ledger_creation": "7b31f7201ceaaa235bba74d054ba706f60291554",
     "publication_state": {
       "git_push": "UNAVAILABLE — no GitHub username/token is configured for shell push.",
       "connector_fallback": "COMPLETE — the owner-authorized branch snapshot is published as an open draft PR.",
       "remote_main_changed": false,
       "remote_branch_created": true,
-      "tested_candidate_commit": "46d6c1d2e3dbd6208c7aac3f80b80d2e4eb17013",
+      "tested_candidate_commit": "7b31f7201ceaaa235bba74d054ba706f60291554",
       "pull_request_created": true,
       "pull_request_url": "https://github.com/jasongil003/Concierge.Ai/pull/63",
-      "hosted_branch_ci": "COMPLETED — run #260 (38866073706), 8/10 jobs passed; backend 1,349 passed / 19 skipped, browser 342 passed / 41 skipped / 15 failed. Twelve failures were outdated retention-route mocks, now fixed locally; three more full-suite-only failures passed focused reruns and need full-suite confirmation. PR-diff/current-worktree scans were clear; forced-text full-history Gitleaks found three known historical findings. Full hosted retest is pending.",
-      "implementation_candidate_commit": "adec4029ade9e49aa681d79586cf0a7847756eca"
+      "hosted_branch_ci": "COMPLETED — run #261 (38868604334), 9/10 jobs passed; backend 1,349 passed / 19 skipped, browser 357 passed / 41 skipped / 0 failed. PostgreSQL/Redis, Docker, dependency audits, static security, and Linux/macOS deployment passed. PR-diff/current-worktree scans were clear; forced-text full-history Gitleaks found three known historical findings.",
+      "implementation_candidate_commit": "7b31f7201ceaaa235bba74d054ba706f60291554"
     },
     "candidate_validation_state": {
-      "implementation_commit": "adec4029ade9e49aa681d79586cf0a7847756eca",
+      "implementation_commit": "7b31f7201ceaaa235bba74d054ba706f60291554",
       "local_focused_validation": "PASS — backend regression set 57/57; focused Chromium pagination flows 3/3; retention-race regressions 6/6 after updating the query-aware route mock; focused admin onboarding/network checks 3 passed, 1 skipped; JavaScript syntax and whitespace checks pass.",
-      "hosted_ci": "RUN #260 COMPLETED WITH FAILURES — backend and eight supporting jobs passed; browser had 15 failures. The route-mock correction and local reproductions are ready for the next hosted run."
+      "hosted_ci": "PASS — run #261 (38868604334): 9/10 jobs passed; backend 1,349 passed / 19 skipped; browser 357 passed / 41 skipped / 0 failed. The only failed job is full-history Gitleaks with three known historical findings."
     }
   },
   "requirements": [
