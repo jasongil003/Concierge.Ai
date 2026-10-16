@@ -381,7 +381,8 @@ def register_admin_configuration_actions(registry: ConfigurationActionRegistry, 
         return {"current": None, "proposed": params, "impact": "Creates a property facility visible to hotel operations."}
 
     def facility_create(ctx: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
-        return services["hospitality"].upsert_facility_profile(ctx.property_id, params)
+        save = services.get("upsert_facility_profile") or services["hospitality"].upsert_facility_profile
+        return save(ctx.property_id, params)
 
     register(ConfigurationAction(
         "facility.create", "Create a property facility profile.", "properties.edit",
@@ -407,7 +408,8 @@ def register_admin_configuration_actions(registry: ConfigurationActionRegistry, 
 
     def facility_update(ctx: ActionContext, params: dict[str, Any]) -> dict[str, Any]:
         current = params["_current"]
-        return services["hospitality"].upsert_facility_profile(ctx.property_id, {**current, **params["changes"], "facility_id": params["facility_id"]})
+        save = services.get("upsert_facility_profile") or services["hospitality"].upsert_facility_profile
+        return save(ctx.property_id, {**current, **params["changes"], "facility_id": params["facility_id"]})
 
     register(ConfigurationAction(
         "facility.update", "Update a facility profile in the selected property.", "properties.edit",

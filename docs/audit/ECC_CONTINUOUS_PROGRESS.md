@@ -45,3 +45,11 @@ Target remains a fully verified ECC release candidate by 2026-10-19. This report
 4. Hotel operations and recovery owners: validate routes, facility facts, delivery workflows, target-host installation, and encrypted off-host recovery in authorized staging.
 
 Do not approve an external pilot or production release until the security, governance, property-policy, and operational gates have evidence.
+
+## Continuation — 2026-10-16 (PR #59 refreshed against current main)
+
+- Current `main` advanced to `6c8694916fdf0fe5aaf7f059813ba14004ea5f7f` when PR #60 merged. PR #59 is being refreshed against that base; this merge preserves the facility notification implementation and the newer Places/privacy changes already on main.
+- The progress report conflict is resolved by retaining the latest main report and recording this continuation. The feature matrix notification row now describes the PR #59 facility notices while retaining its production-verification limits.
+- The previous resolved PR #59 head `df971c7696277be28b478865e057744be752663b` had hosted CI run [#250](https://github.com/jasongil003/Concierge.Ai/actions/runs/38839977954): backend, PostgreSQL/Redis, Docker, dependency, static-security, and Linux/macOS deployment jobs passed; its current-worktree secret scan failed. Browser testing was still running at the last check. The refreshed head requires its own hosted checks.
+- PR #59 remains a draft. No secret finding was suppressed, and no branch was merged into `main`.
+- Refreshed-head focused validation: `.venv/bin/python -m pytest -q -rs tests/test_notification_delivery.py tests/test_admin_configuration_actions.py tests/test_guest_privacy_consent.py tests/test_personalization.py tests/test_places.py` — **104 passed**, 2 warnings. Compile and `git diff --check HEAD` are recorded after the final tree check.
