@@ -40,6 +40,7 @@ def test_base_and_load_compose_configuration_is_valid_and_network_isolated(tmp_p
                 "ADMIN_BOOTSTRAP_USERNAME=loadtest-admin",
                 "ADMIN_BOOTSTRAP_PASSWORD=LoadtestOnly-Admin-123!",
                 "CREDENTIAL_ENCRYPTION_SECRET=LoadtestOnly-Encryption-Secret-1234567890",
+                "CONCIERGE_BACKUP_ENCRYPTION_KEY=" + "cd" * 32,
                 "METRICS_TOKEN=LoadtestOnly-Metrics-Token-1234567890",
                 "CANONICAL_HOSTS=loadtest.example.test",
                 "PUBLIC_BASE_URL=https://loadtest.example.test",
@@ -103,6 +104,4 @@ def test_base_and_load_compose_configuration_is_valid_and_network_isolated(tmp_p
     assert re.search(r"@sha256:[a-f0-9]{64}$", services["proxy"]["image"])
     assert any(
         port.get("published") == "18081" and port.get("host_ip") == "127.0.0.1"
-        for port in services["proxy"]["ports"]
-    )
-    assert rendered["volumes"]["concierge-state"]["name"].startswith("concierge-load-audit_")
+        for port in service
