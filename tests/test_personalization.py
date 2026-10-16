@@ -51,6 +51,37 @@ def test_temporary_preferences_expire_without_becoming_stay_preferences(tmp_path
     assert preferences and preferences[0]["persistence"] == "stay"
 
 
+def test_stay_preferences_survive_short_memory_deadline_until_checkout(tmp_path: Path, monkeypatch):
+    import app.guest_identity as identity_module
+    import app.personalization as personalization_module
+
+    db_path = tmp_path / "long-stay-personalization.db"
+    now = [1_000]
+    monkeypatch.setattr(identity_module, "_now", lambda: now[0])
+    monkeypatch.setattr(personalization_module, "_now", lambda: now[0])
+    identities = GuestIdentityStore(db_path)
+    store = PersonalizationStore(db_path)
+    device_id = identities.observe_device("long-memory-property", "02:00:00:00:00:81")
+    stay = identities.reconnect_or_create_stay(
+        "long-memory-property", device_id, concierge_session_id="long-memory-session", retention_days=1,
+    )
+    store.set_guest_state("long-memory-property", "long-memory-session", True, "stay")
+    store.save_preference(
+        "long-memory-property", "long-memory-session", "food", "Quiet vegetarian restaurant",
+        preference_key="food.dining", persistence="stay",
+    )
+
+    now[0] += 5 * 86_400
+    assert store.cleanup_expired() == 0
+    state = store.guest_state("long-memory-property", "long-memory-session")
+    assert state["enabled"] is True
+    assert [item["value"] for item in state["preferences"]] == ["Quiet vegetarian restaurant"]
+
+    identities.checkout("long-memory-property", stay["stay_id"])
+    assert store.cleanup_expired() == 1
+    assert store.guest_state("long-memory-property", "long-memory-session")["preferences"] == []
+
+
 def test_memory_commands_and_explicit_family_context(tmp_path):
     assert preference_commands("What do you remember about me?")[0] == "show"
     assert preference_commands("Don't remember that.")[0] == "forget_last"
