@@ -26,6 +26,7 @@ GUEST_INBOX_STATUSES = {"queued", "sent", "delivered", "read", "failed", "expire
 GUEST_INBOX_DISPATCH_STATUSES = {"queued", "sending", "retry_wait", "sent", "dead_letter", "expired"}
 MAX_GUEST_NOTIFICATION_ATTEMPTS = 10
 MAX_GUEST_NOTIFICATION_CLAIM_BATCH = 100
+MAX_SERVICE_REQUEST_ESCALATION_BATCH = 100
 
 
 class NotificationCampaignConflict(ValueError):
@@ -258,6 +259,18 @@ class HospitalityStore:
                     detail TEXT NOT NULL DEFAULT '{}',
                     created_at INTEGER NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS service_request_escalations (
+                    escalation_id TEXT PRIMARY KEY,
+                    property_id TEXT NOT NULL,
+                    request_id TEXT NOT NULL,
+                    target TEXT NOT NULL,
+                    due_at INTEGER NOT NULL,
+                    scheduled_at INTEGER NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'queued',
+                    UNIQUE(property_id, request_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_service_request_escalations_property
+                    ON service_request_escalations(property_id, scheduled_at DESC);
                 CREATE TABLE IF NOT EXISTS guest_feedback (
                     feedback_id TEXT PRIMARY KEY,
                     property_id TEXT NOT NULL,
@@ -1613,6 +1626,88 @@ class HospitalityStore:
         with self._connect() as db:
             rows = db.execute("SELECT * FROM service_request_history WHERE property_id=? AND request_id=? ORDER BY created_at,history_id", (property_id, request_id)).fetchall()
         return [{**dict(row), "detail": _load(row["detail"])} for row in rows]
+
+    def queue_overdue_service_request_escalations(
+        self,
+        *,
+        limit: int = MAX_SERVICE_REQUEST_ESCALATION_BATCH,
+        now: int | None = None,
+    ) -> int:
+        """Queue one durable in-app escalation for each overdue request with an enabled target."""
+        batch_size = max(1, min(MAX_SERVICE_REQUEST_ESCALATION_BATCH, int(limit)))
+        moment = int(now if now is not None else _now())
+        queued = 0
+        with self._connect() as db:
+            # Serialize SQLite workers and let PostgreSQL row updates serialize against status changes.
+            db.execute("BEGIN IMMEDIATE")
+            candidates = db.execute(
+                """SELECT r.request_id, r.property_id, r.due_at
+                FROM service_requests r
+                JOIN departments d
+                  ON d.property_id=r.property_id AND d.name=r.department
+                WHERE r.status NOT IN ('completed','cancelled')
+                  AND r.due_at IS NOT NULL AND r.due_at<=?
+                  AND d.enabled=1 AND TRIM(d.escalation_target)<>''
+                  AND NOT EXISTS (
+                    SELECT 1 FROM service_request_escalations e
+                    WHERE e.property_id=r.property_id AND e.request_id=r.request_id
+                  )
+                ORDER BY r.due_at, r.request_id
+                LIMIT ?""",
+                (moment, batch_size),
+            ).fetchall()
+            for candidate in candidates:
+                locked = db.execute(
+                    """UPDATE service_requests SET updated_at=updated_at
+                    WHERE property_id=? AND request_id=?
+                      AND status NOT IN ('completed','cancelled')
+                      AND due_at IS NOT NULL AND due_at<=?
+                      AND EXISTS (
+                        SELECT 1 FROM departments d
+                        WHERE d.property_id=service_requests.property_id
+                          AND d.name=service_requests.department
+                          AND d.enabled=1 AND TRIM(d.escalation_target)<>''
+                      )""",
+                    (candidate["property_id"], candidate["request_id"], moment),
+                )
+                if locked.rowcount != 1:
+                    continue
+                department = db.execute(
+                    """SELECT d.escalation_target FROM service_requests r
+                    JOIN departments d ON d.property_id=r.property_id AND d.name=r.department
+                    WHERE r.property_id=? AND r.request_id=? AND d.enabled=1
+                      AND TRIM(d.escalation_target)<>''""",
+                    (candidate["property_id"], candidate["request_id"]),
+                ).fetchone()
+                if not department:
+                    continue
+                result = db.execute(
+                    """INSERT INTO service_request_escalations
+                    (escalation_id,property_id,request_id,target,due_at,scheduled_at,status)
+                    VALUES (?,?,?,?,?,?, 'queued')
+                    ON CONFLICT(property_id,request_id) DO NOTHING""",
+                    (
+                        _id("esc"), candidate["property_id"], candidate["request_id"],
+                        department["escalation_target"], candidate["due_at"], moment,
+                    ),
+                )
+                if result.rowcount != 1:
+                    continue
+                detail = {
+                    "target": department["escalation_target"],
+                    "due_at": candidate["due_at"],
+                    "delivery_status": "queued",
+                }
+                self._record_request_history(
+                    db,
+                    candidate["property_id"],
+                    candidate["request_id"],
+                    "overdue_escalation_queued",
+                    detail,
+                    moment,
+                )
+                queued += 1
+        return queued
 
     def _record_request_history(self, db: sqlite3.Connection, property_id: str, request_id: str, action: str, detail: dict[str, Any], created_at: int) -> None:
         db.execute("INSERT INTO service_request_history VALUES (?,?,?,?,?,?)", (_id("hist"), property_id, request_id, action, _json(detail), created_at))
@@ -3172,8 +3267,20 @@ class HospitalityStore:
                 key: int(summary_values[key])
                 for key in ("open", "in_progress", "due_soon", "overdue", "completed_today")
             }
+            escalation_by_request: dict[str, dict[str, Any]] = {}
+            if rows:
+                request_ids = [str(row["request_id"]) for row in rows]
+                marks = ",".join("?" for _ in request_ids)
+                escalations = db.execute(
+                    f"SELECT request_id,target,due_at,scheduled_at,status FROM service_request_escalations WHERE property_id=? AND request_id IN ({marks})",  # nosec B608
+                    (property_id, *request_ids),
+                ).fetchall()
+                escalation_by_request = {str(row["request_id"]): dict(row) for row in escalations}
             return {
-                "service_requests": [self._service_dict(row) for row in rows],
+                "service_requests": [
+                    {**self._service_dict(row), "escalation": escalation_by_request.get(str(row["request_id"]))}
+                    for row in rows
+                ],
                 "total": total,
                 "all_total": all_total,
                 "limit": limit,

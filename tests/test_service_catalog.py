@@ -116,6 +116,79 @@ def test_admin_service_requests_are_filtered_and_paginated_across_the_property(a
     assert admin_client.get(f"/api/admin/properties/{property_id}/service-requests?status=made_up").status_code == 422
 
 
+def test_overdue_escalations_are_bounded_scoped_and_idempotent(tmp_path: Path):
+    store = HospitalityStore(tmp_path / "service-escalations.db")
+    store.upsert_department("hotel-a", {"name": "Housekeeping", "escalation_target": "Duty Manager"})
+    store.upsert_department("hotel-a", {"name": "Front Desk", "escalation_target": ""})
+    store.upsert_department("hotel-a", {"name": "Engineering", "escalation_target": "Chief Engineer", "enabled": False})
+    store.upsert_department("hotel-b", {"name": "Housekeeping", "escalation_target": "Hotel B Manager"})
+
+    eligible = store.create_service_request("hotel-a", {"department": "Housekeeping", "description": "Late towels"})
+    other_property = store.create_service_request("hotel-b", {"department": "Housekeeping", "description": "Late towels at B"})
+    no_target = store.create_service_request("hotel-a", {"department": "Front Desk", "description": "Unrouted"})
+    disabled = store.create_service_request("hotel-a", {"department": "Engineering", "description": "Disabled route"})
+    future = store.create_service_request("hotel-a", {"department": "Housekeeping", "description": "Not due yet"})
+    terminal = store.create_service_request("hotel-a", {"department": "Housekeeping", "description": "Already completed"})
+    now = max(item["created_at"] for item in (eligible, other_property, no_target, disabled, future, terminal)) + 600
+    with store._connect() as db:
+        for request, due_at in (
+            (eligible, now - 600),
+            (other_property, now - 500),
+            (no_target, now - 400),
+            (disabled, now - 300),
+            (future, now + 60),
+            (terminal, now - 100),
+        ):
+            db.execute("UPDATE service_requests SET due_at=? WHERE property_id=? AND request_id=?", (due_at, request["property_id"], request["request_id"]))
+    store.update_service_status("hotel-a", terminal["request_id"], "completed")
+
+    assert store.queue_overdue_service_request_escalations(limit=1, now=now) == 1
+    page_a = store.service_request_page("hotel-a", status="all")
+    by_id_a = {item["request_id"]: item for item in page_a["service_requests"]}
+    assert by_id_a[eligible["request_id"]]["escalation"] == {
+        "request_id": eligible["request_id"],
+        "target": "Duty Manager",
+        "due_at": now - 600,
+        "scheduled_at": now,
+        "status": "queued",
+    }
+    assert by_id_a[no_target["request_id"]]["escalation"] is None
+    assert by_id_a[disabled["request_id"]]["escalation"] is None
+    assert by_id_a[future["request_id"]]["escalation"] is None
+    assert by_id_a[terminal["request_id"]]["escalation"] is None
+    assert [event["action"] for event in store.request_history("hotel-a", eligible["request_id"])] == [
+        "created", "overdue_escalation_queued",
+    ]
+
+    assert store.queue_overdue_service_request_escalations(limit=10, now=now) == 1
+    page_b = store.service_request_page("hotel-b", status="all")
+    assert page_b["service_requests"][0]["request_id"] == other_property["request_id"]
+    assert page_b["service_requests"][0]["escalation"]["target"] == "Hotel B Manager"
+    assert store.queue_overdue_service_request_escalations(now=now) == 0
+
+
+def test_concurrent_overdue_escalation_workers_queue_one_event(tmp_path: Path):
+    store = HospitalityStore(tmp_path / "concurrent-service-escalations.db")
+    store.upsert_department("hotel-a", {"name": "Housekeeping", "escalation_target": "Duty Manager"})
+    request = store.create_service_request("hotel-a", {"department": "Housekeeping", "description": "One overdue request"})
+    now = request["created_at"] + 600
+    with store._connect() as db:
+        db.execute("UPDATE service_requests SET due_at=? WHERE property_id=? AND request_id=?", (now - 1, "hotel-a", request["request_id"]))
+    barrier = Barrier(8)
+
+    def schedule():
+        barrier.wait(timeout=5)
+        return store.queue_overdue_service_request_escalations(now=now)
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        results = list(executor.map(lambda _: schedule(), range(8)))
+
+    assert sum(results) == 1
+    assert [event["action"] for event in store.request_history("hotel-a", request["request_id"])] == [
+        "created", "overdue_escalation_queued",
+    ]
+
+
 def test_guest_service_request_is_idempotent(admin_client, tmp_path: Path, monkeypatch):
     hospitality = HospitalityStore(tmp_path / "idempotent-requests.db")
     monkeypatch.setattr(main_module, "hospitality", hospitality)

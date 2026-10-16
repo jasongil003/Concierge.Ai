@@ -2134,6 +2134,59 @@ test("requests panel: operational summary counts and filters use property-local 
   }
 });
 
+test("requests panel identifies queued overdue escalations and records their in-app history", async ({ page }) => {
+  const now = Math.floor(Date.now() / 1000);
+  const overdueRequest = {
+    request_id: "overdue-escalated",
+    status: "in_progress",
+    sla_state: "overdue",
+    request_type: "Towels",
+    room: "412",
+    department: "Housekeeping",
+    description: "The request is past its service target.",
+    due_at: now - 120,
+    sla_target_seconds: 1800,
+    created_at: now - 1920,
+    updated_at: now,
+    notes: [],
+    escalation: { target: "Duty Manager", due_at: now - 120, scheduled_at: now, status: "queued" },
+  };
+  await page.route("**/api/admin/properties/*/service-requests?*", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      service_requests: [overdueRequest],
+      total: 1,
+      all_total: 1,
+      limit: 50,
+      offset: 0,
+      summary: { open: 1, in_progress: 1, due_soon: 0, overdue: 1, completed_today: 0 },
+    }),
+  }));
+  await page.route("**/api/admin/properties/*/service-requests/overdue-escalated/history", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      history: [{
+        history_id: "history-escalation",
+        request_id: overdueRequest.request_id,
+        action: "overdue_escalation_queued",
+        detail: { target: "Duty Manager", due_at: now - 120, delivery_status: "queued" },
+        created_at: now,
+      }],
+    }),
+  }));
+
+  await page.goto("/admin");
+  await openPanel(page, "Guest Requests");
+  const card = page.locator(".service-request-card").filter({ hasText: overdueRequest.request_id });
+  await expect(card.locator(".request-escalation-badge")).toHaveText("Escalation queued");
+  await card.getByText("View activity history").click();
+  await expect(card.locator(".service-request-history-content")).toContainText(
+    "Overdue escalation queued for Duty Manager",
+  );
+});
+
 test("requests panel: pagination fetches bounded pages from the full queue", async ({ page }) => {
   const requests = Array.from({ length: 55 }, (_, index) => ({
     request_id: `request-${String(54 - index).padStart(3, "0")}`,
