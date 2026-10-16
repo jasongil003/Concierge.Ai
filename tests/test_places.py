@@ -132,6 +132,35 @@ def test_user_nearby_intent_examples_route_to_safe_category_queries(monkeypatch,
     assert calls[0]["json"]["textQuery"] == expected_query
 
 
+@pytest.mark.parametrize(
+    "message",
+    [
+        "I loved the theater performance last night.",
+        "The planetarium has a new show.",
+    ],
+)
+def test_words_containing_place_cues_do_not_trigger_nearby_search(monkeypatch, message):
+    _configure(monkeypatch)
+    calls = _install_client(monkeypatch, lambda *_args: _response({"places": []}))
+
+    assert places_module.GooglePlaces.should_search(message) is False
+    _results, status = asyncio.run(
+        places_module.GooglePlaces().search_with_status(message, 14.0, 121.0)
+    )
+
+    assert status == "not_applicable"
+    assert calls == []
+
+
+def test_mixed_dining_and_attraction_request_keeps_fixed_categories_and_both_permissions():
+    message = "Find restaurants and local attractions nearby."
+
+    assert places_module._category_query(message) == "restaurants, tourist attractions"
+    assert places_module.required_category_permissions(message) == {
+        "restaurant_search_enabled", "attractions_enabled",
+    }
+
+
 def test_provider_category_is_requested_and_returned_only_from_validated_fields(monkeypatch):
     _configure(monkeypatch)
     body = {
