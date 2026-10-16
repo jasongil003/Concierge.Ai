@@ -84,3 +84,9 @@ Executed commands and actual results: [test ledger](MASTER_TEST_RESULTS.md), [se
 ## 2026-10-16 recovery continuation
 
 Q-23 now has local software coverage for authenticated encryption of the complete SQLite/PostgreSQL backup archive. Focused backup/deployment/security checks passed **155 tests** with **2 skips** for unavailable systemd and PostgreSQL host tooling. The recovery key is independent from `CREDENTIAL_ENCRYPTION_SECRET`, excluded from the archive, and generated or preserved by installers. This does not close production recovery: off-host replication, separate escrow retrieval, existing plaintext archive conversion/expiry, and clean-target restore remain unverified. The overall verified acceptance count and release decision do not change; release remains **NO-GO** pending CI and the external gates above.
+
+## 2026-10-16 PR #63 hosted run #269 — backup candidate
+
+Candidate head `9cbfc34fdc50c7c0c8e9102ddce159ab89ddadb7` completed hosted CI [run #269](https://github.com/jasongil003/Concierge.Ai/actions/runs/38879632291) with **9/10 jobs passing**: backend **1,358 passed, 19 skipped**; browser **359 passed, 41 skipped, 0 failed**; PostgreSQL/Redis, Docker, dependency audits, static security, and Linux/macOS deployment passed. PR-diff/current-tree Gitleaks scans passed; the forced-text full-history scan found three retained historical findings, with values omitted.
+
+Release remains **NO-GO**. Issuer revocation and owner-authorized history cleanup are outstanding; main branch protection remains unavailable (HTTP 403). Q-23 remains **PARTIAL** because off-host replication, separate key retrieval, existing plaintext archive conversion/expiry, and a clean-target restore are unverified. Privacy-owner approval, live PMS/WLAN/provider acceptance, and hotel-device tests also remain open. The 30,000-user target remains deferred; no merge or deployment occurred. Verified acceptance totals remain unchanged.

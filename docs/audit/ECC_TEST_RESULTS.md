@@ -179,7 +179,7 @@ Run #261 completed with **9/10 jobs passing**. The candidate was tested without 
 | Direct SQLite page/summary smoke | **PASS** | Temporary database; stable limit/offset, open/completed-today counts and search. |
 | Bandit medium severity/confidence; Python/JavaScript syntax; `git diff --check` | **PASS** | No new threshold findings. Existing repository `nosec`/Bandit comment warnings remain. |
 | Local API/browser dependency setup | **LIMITED** | The developer virtualenv lacks declared `qrcode`; a temporary fail-closed import stub was used only to boot the app for request-only cases, and was not invoked. QR functionality is outside this test scope. |
-| Hosted CI | **PENDING** | Publication of this candidate is required before hosted acceptance can be assessed. |
+| Hosted CI | **PASS with release blocker** | Run #269 validates the published pagination candidate; see the run summary below. Historical-secret scanning remains a separate release blocker. |
 
 C-30 remains **PARTIAL** because only the Conversations inbox and Guest Requests queue are paginated; other high-volume admin lists remain open. Release remains **RED** pending hosted checks and external security, governance, property-policy, live-integration, and device gates.
 
@@ -189,7 +189,19 @@ C-30 remains **PARTIAL** because only the Conversations inbox and Guest Requests
 | --- | --- | --- |
 | Focused backup, source installer, Compose, production settings, deployment hardening, and security tests | **PASS:** 155 passed, 2 skipped | Includes encrypted SQLite create/verify/restore, tamper/wrong-key rejection before target creation, plaintext legacy opt-in, key generation/preservation, production configuration, and backup diagnostics. |
 | PostgreSQL backup integration | **SKIPPED** | `DATABASE_URL` and `PG_DUMP_AVAILABLE` were not configured on this host. Hosted CI must exercise PostgreSQL/Redis. |
-| Shell checks, Python compile, Bandit, full backend/browser CI | **PENDING** | Run against the published candidate. The test venv lacks `qrcode`; the focused request-only test run used a temporary import-only stub that raises if QR generation is called. |
+| Shell checks, Python compile, Bandit, full backend/browser CI | **PASS** | Run #269: backend 1,358 passed/19 skipped; browser 359 passed/41 skipped/0 failed; static security and Linux/macOS deployment passed. The test venv lacks `qrcode`; the focused request-only test run used a temporary import-only stub that raises if QR generation is called. |
 | Off-host restore and separate key recovery | **NOT RUN / BLOCKED** | Requires infrastructure/recovery owner, a separately controlled destination/key escrow, and a clean disposable target. |
 
 The 30,000-concurrent-user requirement remains intentionally deferred. Q-23 stays **PARTIAL** until the off-host rehearsal and key retrieval are completed; local encrypted backup behavior is not represented as live operational acceptance.
+
+## 2026-10-16 PR #63 hosted run #269 — final candidate head `9cbfc34`
+
+| Check | Result | Scope / limit |
+| --- | --- | --- |
+| Backend workflow suite | **PASS:** 1,358 passed, 19 skipped | Hosted CI [run #269](https://github.com/jasongil003/Concierge.Ai/actions/runs/38879632291), commit `9cbfc34fdc50c7c0c8e9102ddce159ab89ddadb7`. |
+| Browser workflow suite | **PASS:** 359 passed, 41 skipped, 0 failed | Hosted CI run #269. |
+| PostgreSQL/Redis, Docker runtime, Python/Node dependency audits, static security, Linux/macOS deployment validation | **PASS** | Hosted CI run #269. |
+| PR-diff and current-tree Gitleaks scans | **PASS:** no findings | The current tree scan is clean. One exact fingerprint covers a synthetic test fixture removed from the current tree. |
+| Forced-text full-history Gitleaks scan | **FAIL / RELEASE BLOCKER:** three historical findings | Values omitted. Credential issuer revocation and repository-owner-authorized shared-history cleanup remain outstanding. |
+
+Run #269 completed with **9/10 jobs passing**. The backup feature's external escrow, off-host restore, and clean-target recovery are still not operationally accepted. Q-23 remains **PARTIAL** and release acceptance remains **RED**; no merge or deployment occurred.

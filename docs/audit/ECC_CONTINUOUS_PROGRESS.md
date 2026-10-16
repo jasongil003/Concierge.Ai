@@ -99,7 +99,15 @@ Draft [PR #63](https://github.com/jasongil003/Concierge.Ai/pull/63) is mergeable
 
 | Workstream | Status | Evidence and remaining boundary |
 | --- | --- | --- |
-| Full database/upload archive encryption | **YELLOW** | AES-256-GCM authenticated streaming encryption now covers SQLite and PostgreSQL backup ZIP payloads. Installers generate/preserve an independent 32-byte key; production Compose requires it; legacy plaintext is opt-in only. Focused verification: **155 passed, 2 skipped**. Hosted CI is pending. |
+| Full database/upload archive encryption | **YELLOW** | AES-256-GCM authenticated streaming encryption now covers SQLite and PostgreSQL backup ZIP payloads. Installers generate/preserve an independent 32-byte key; production Compose requires it; legacy plaintext is opt-in only. Focused verification: **155 passed, 2 skipped**. Hosted run #269 passed backend, PostgreSQL/Redis, Docker, static security, dependency, and deployment jobs; the full-history secret scan remains a release blocker. |
 | Off-host backup recovery | **BLOCKED** | No authorized external destination, separate key-vault retrieval, or clean disposable target was available. Existing archives from older releases are not converted and remain legacy plaintext until aged out or explicitly migrated. Do not copy them off-host in plaintext. |
 
 The key is excluded from backup contents and hidden from the settings object's representation. Recovery owners must escrow both the backup key and the existing credential-encryption key in separate protected records and perform the documented synthetic-data rehearsal before operational acceptance. The broader acceptance denominator and verified count do not change: Q-23 remains **PARTIAL** and no live verification is claimed. The PR remains draft and release acceptance remains **RED** because of the historical-secret scan and other external release gates.
+
+## 2026-10-16 PR #63 hosted acceptance update — run #269
+
+- Candidate head `9cbfc34fdc50c7c0c8e9102ddce159ab89ddadb7` completed hosted CI with **9/10 jobs passing**. Backend: **1,358 passed, 19 skipped**; browser: **359 passed, 41 skipped, 0 failed**. PostgreSQL/Redis, Docker runtime, Python/Node dependency, static security, and Linux/macOS deployment jobs passed.
+- PR-diff and current-tree Gitleaks scans passed. Forced-text full-history scanning found **three historical findings**; values are omitted. Issuer revocation confirmation and owner-authorized history cleanup remain unverified.
+- The scan's exact exception covers only a synthetic fixture removed from the current tree; no general rule or path was suppressed.
+- Off-host backup replication, separate key retrieval, legacy archive conversion/expiry, and clean-target recovery remain blocked. Q-23 remains **PARTIAL**; verified acceptance totals are unchanged and release remains **RED**.
+- No merge or deployment occurred. The 30,000-concurrent-user target remains deferred.
