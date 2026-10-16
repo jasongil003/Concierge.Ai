@@ -136,7 +136,7 @@ def test_invalid_existing_backup_key_fails_without_rotating_it(tmp_path: Path):
     (root / ".env").write_text(
         "ADMIN_BOOTSTRAP_USERNAME=root\n"
         "ADMIN_BOOTSTRAP_PASSWORD=admin\n"
-        "CREDENTIAL_ENCRYPTION_SECRET=valid-existing-encryption-secret-123456\n"
+        "CREDENTIAL_ENCRYPTION_SECRET=testtesttesttesttesttesttesttest\n"
         "CONCIERGE_BACKUP_ENCRYPTION_KEY=not-a-backup-key\n",
         encoding="utf-8",
     )
