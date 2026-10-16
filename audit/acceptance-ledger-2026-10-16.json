@@ -37,10 +37,10 @@
     "live_verified_count": 0,
     "test_results": {
       "full_backend_local": {
-        "passed": 1383,
-        "skipped": 21,
+        "passed": 1384,
+        "skipped": 22,
         "failed": 0,
-        "scope": "Full local `pytest -q -rs` run against the PR candidate with J-06 and C-30 paging changes; 1,383 passed, 21 skipped, 0 failed. Skips require PostgreSQL/Redis services or Linux-only RLIMIT_AS / systemd-analyze support; 2 dependency deprecation warnings."
+        "scope": "Full local `pytest -q -rs` run against the campaign-history paging candidate; 1,384 passed, 22 skipped, 0 failed in 67.81s. Skips require PostgreSQL/Redis services or Linux-only RLIMIT_AS/systemd-analyze support; 2 dependency deprecation warnings. Persistent SQLite safety check reported the default database unchanged."
       },
       "focused_backend_after_remediation": {
         "passed": 19,
@@ -189,6 +189,17 @@
         "passed": 4,
         "failed": 0,
         "scope": "Chromium responsive matrix at 430x932, 390x844, 375x812, and 320x720 passed after waiting for the mobile sidebar to finish sliding offscreen before capturing screenshots."
+      },
+      "notification_campaign_history_backend_followup": {
+        "passed": 23,
+        "skipped": 1,
+        "failed": 0,
+        "scope": "Focused notification campaign, restaurant workflow, service-catalog, admin-auth privacy, and PostgreSQL campaign-page integration set; PostgreSQL integration skipped locally because DATABASE_URL is unavailable."
+      },
+      "notification_campaign_history_browser_followup": {
+        "passed": 4,
+        "failed": 0,
+        "scope": "tests/e2e/notification-campaigns.spec.js on Chromium and mobile Chrome, covering save/preview/publish plus paginated campaign history search."
       }
     },
     "github_base_ci": {
@@ -267,7 +278,7 @@
     },
     "candidate_validation_state": {
       "implementation_commit": "ca121bf909fe4718f42d2ee97053264f23fdccfd",
-      "local_focused_validation": "PASS — full backend 1,383 passed / 21 skipped / 0 failed; full nonvisual Chromium/mobile E2E 374 passed / 42 skipped / 0 failed; focused C-30 API/RBAC/knowledge suite 20 passed; focused pagination/upload/onboarding browser regressions 8 passed; responsive mobile evidence refresh 4 passed; visual snapshots 4 passed. Exact CI Bandit, JavaScript syntax, Python compilation, JSON validation, and whitespace checks passed. The first full browser run exposed four stale UI assertion/isolation failures; they were corrected before the green full rerun.",
+      "local_focused_validation": "PASS — refreshed full backend 1,384 passed / 22 skipped / 0 failed in 67.81s; focused campaign/restaurant/RBAC/privacy backend set 23 passed / 1 skipped; campaign browser suite 4 passed across Chromium and mobile Chrome. The full nonvisual Chromium/mobile browser run on the prior source tree passed 374 / 42 skipped / 0 failed; the changed campaign browser flow was rerun separately. Bandit, Python/JavaScript syntax, JSON validation, and whitespace checks passed.",
       "hosted_ci": "The published implementation head is ca121bf909fe4718f42d2ee97053264f23fdccfd. Run #280 completed 9/10 jobs successfully: backend 1,385 passed / 19 skipped; browser 374 passed / 42 skipped; PostgreSQL/Redis integration, Docker, dependency audits, static security, and Linux/macOS deployment passed. The only failed job is secret-scan: PR-range and --no-git scans passed, while the final full reachable-history scan reports three retained historical findings. Release acceptance remains RED."
     },
     "deferred_in_scope_requirement_ids": [
@@ -2455,9 +2466,9 @@
       "requirement_id": "C-30",
       "category": "ADMIN PORTAL",
       "expected_behavior": "Pagination: function correctly within the selected property and authorized identity; meet the behavior described in the master request.",
-      "current_implementation": "The property Conversations inbox and guest service-request queue support bounded server pages (maximum 100), stable ordering, property/restaurant-role or department-scoped totals, and previous/next controls. Conversation search remains scoped to the current page because message bodies are encrypted. The service-request queue searches and filters across the full authorized collection on the server. The audit log supports bounded filtered pages, stable ordering, scoped totals, offset clamping, and controls. Guest sessions, stay activity, guest-session links, pseudonymous devices, legacy knowledge entries/documents/FAQs, and managed uploaded sources now have bounded property-scoped pages, independent search/offsets where applicable, and complete result counts. Other high-volume admin collections have not all been individually inventoried for paging.",
-      "verified_functionality": "Conversation, service-request, and audit pagination have prior dedicated backend/browser evidence retained below. The added session/activity and knowledge/source API integration tests verify independently bounded pages, full counts, filtering, invalid bounds, and property isolation; the dedicated Playwright flows verify stay paging, uploaded-source display, empty-workspace setup, and knowledge paging on Chromium and mobile Chrome. Focused API/RBAC suite: 20 passed. Targeted regression browser suite: 8 passed across both projects. Full nonvisual browser suite: 374 passed, 42 skipped, 0 failed. The responsive evidence refresh also passed at four mobile widths. Full local backend suite: 1,383 passed, 21 skipped, 0 failed. Conversation search still cannot search encrypted message bodies across the entire conversation collection; it is limited to loaded session pages.",
-      "missing_functionality": "Conversation search covers loaded session pages only because message bodies are encrypted. Inventory remaining broad admin collections and page any that can grow without an operational bound. Preserve property and role/department scoping in any additional page APIs.",
+      "current_implementation": "The property Conversations inbox and guest service-request queue support bounded server pages (maximum 100), stable ordering, property/restaurant-role or department-scoped totals, and previous/next controls. Conversation search remains scoped to the current page because message bodies are encrypted. The service-request queue searches and filters across the full authorized collection on the server. The audit log supports bounded filtered pages, stable ordering, scoped totals, offset clamping, and controls. Guest sessions, stay activity, guest-session links, pseudonymous devices, legacy knowledge entries/documents/FAQs, and managed uploaded sources use bounded property-scoped pages with independent search/offsets where applicable and complete counts. Notification campaign history now has a searchable, property-scoped 25-item default page (maximum 100), stable ordering, full totals, and page-only engagement aggregation. The restaurant list endpoint now queries only property restaurants instead of materializing the unrelated hospitality overview. Other nested/admin collections still need a complete growth-bound inventory.",
+      "verified_functionality": "Conversation, service-request, audit, guest-record, and knowledge/source pagination have prior dedicated backend/browser evidence retained below. The campaign follow-up passes the full local backend suite (1,384 passed, 22 skipped, 0 failed), focused campaign/restaurant/RBAC/privacy set (23 passed, 1 PostgreSQL-service skip), and campaign browser suite (4 passed across Chromium and mobile Chrome). The campaign API tests verify literal wildcard search, stable pages, count totals, query bounds, property isolation, and page-only engagement; the restaurant workflow test ensures its endpoint does not call the broad hospitality overview. The full nonvisual browser suite on the prior source tree passed 374 passed, 42 skipped; the changed campaign browser flow was rerun separately. Conversation search remains page-scoped because message bodies are encrypted.",
+      "missing_functionality": "Conversation search covers loaded session pages only because message bodies are encrypted. Finish inventorying broad/nested admin collections that can grow (including restaurant staff/menus/promotions and any uncapped property/configuration collections), then page those without a firm operational bound while preserving property and role/department scope.",
       "evidence_test_reference": [
         "tests/test_conversation_pagination.py::test_conversation_inbox_pages_are_bounded_scoped_and_report_full_counts — PASS",
         "tests/test_restaurant_workflows.py::test_restaurant_manager_and_staff_are_limited_to_assigned_restaurants — paginated page/count remains role-scoped",
@@ -2482,7 +2493,13 @@
         "tests/e2e/session-pagination.spec.js::hotel knowledge entries use bounded pages on desktop and mobile — PASS [chromium, mobile-chrome]",
         "GET /api/admin/properties/{property_id}/sessions?limit={1..100}&offset={0..1000000}&q={text}&status={active|expired}",
         "GET /api/admin/properties/{property_id}/knowledge?entry_limit={1..100}&entry_offset={0..1000000}&document_limit={1..100}&document_offset={0..1000000}&faq_limit={1..100}&faq_offset={0..1000000}",
-        "GET /api/admin/properties/{property_id}/knowledge/managed?source_limit={1..100}&source_offset={0..1000000}"
+        "GET /api/admin/properties/{property_id}/knowledge/managed?source_limit={1..100}&source_offset={0..1000000}",
+        "tests/test_notification_campaigns.py::test_campaign_history_is_searchable_paginated_and_property_scoped — PASS",
+        "tests/test_notification_campaigns.py — page-only engagement count verified with the campaign page API",
+        "tests/e2e/notification-campaigns.spec.js::notification campaign history: search and page server results — PASS [chromium, mobile-chrome]",
+        "tests/test_restaurant_workflows.py::test_restaurant_manager_and_staff_are_limited_to_assigned_restaurants — PASS; restaurant list no longer calls hospitality.overview",
+        "GET /api/admin/properties/{property_id}/notification-campaigns?limit={1..100}&offset={0..1000000}&q={text}",
+        "GET /api/admin/properties/{property_id}/restaurants — reads only property restaurant rows"
       ],
       "severity": "Medium",
       "blocking_dependency": "None identified for the remaining local pagination work.",

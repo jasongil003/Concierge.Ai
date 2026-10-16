@@ -85,6 +85,13 @@ const state = {
   hotelAISubmitting: false,
   webhooks: { webhooks: [], deliveries: [] },
   notificationCampaigns: [],
+  notificationCampaignPageOffset: 0,
+  notificationCampaignPageLimit: 25,
+  notificationCampaignTotal: 0,
+  notificationCampaignLoadVersion: 0,
+  notificationCampaignPropertyId: "",
+  notificationCampaignFilterSignature: null,
+  notificationCampaignSearchTimer: null,
   selectedNotificationCampaignId: null,
   notificationCampaignPreview: null,
   deployment: null,
@@ -2241,13 +2248,25 @@ function renderNotificationCampaigns() {
   const root = $("notification-campaign-list");
   if (!root) return;
   root.replaceChildren();
+  const search = $("notification-campaign-search")?.value.trim() || "";
+  const total = state.notificationCampaignTotal || 0;
+  const offset = state.notificationCampaignPageOffset || 0;
+  const limit = state.notificationCampaignPageLimit || 25;
+  const count = $("notification-campaign-count");
+  if (count) count.textContent = total ? `Showing ${Math.min(offset + 1, total)}–${Math.min(offset + state.notificationCampaigns.length, total)} of ${total} campaigns` : (search ? "No matching campaigns" : "No campaigns yet");
+  const pageInfo = $("notification-campaign-page-info");
+  if (pageInfo) pageInfo.textContent = total ? `Page ${Math.floor(offset / limit) + 1} of ${Math.ceil(total / limit)}` : "No pages";
+  const previous = $("notification-campaign-page-previous");
+  const next = $("notification-campaign-page-next");
+  if (previous) previous.disabled = offset === 0 || !total;
+  if (next) next.disabled = offset + limit >= total;
   if (!state.notificationCampaigns.length) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
     const title = document.createElement("strong");
-    title.textContent = "No notification campaigns yet";
+    title.textContent = search ? "No campaigns match this search" : "No notification campaigns yet";
     const detail = document.createElement("p");
-    detail.textContent = "Saved drafts and published campaign counts for this property will appear here.";
+    detail.textContent = search ? "Try a different campaign name or message term." : "Saved drafts and published campaign counts for this property will appear here.";
     empty.append(title, detail);
     root.appendChild(empty);
     return;
@@ -2274,9 +2293,28 @@ function renderNotificationCampaigns() {
   }
 }
 
-async function loadNotificationCampaigns() {
-  const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/notification-campaigns`);
+async function loadNotificationCampaigns({ resetPage = false } = {}) {
+  const propertyId = currentPropertyId();
+  const query = $("notification-campaign-search")?.value.trim() || "";
+  if (resetPage || propertyId !== state.notificationCampaignPropertyId || query !== state.notificationCampaignFilterSignature) {
+    state.notificationCampaignPageOffset = 0;
+  }
+  state.notificationCampaignPropertyId = propertyId;
+  state.notificationCampaignFilterSignature = query;
+  const params = new URLSearchParams({
+    limit: String(state.notificationCampaignPageLimit),
+    offset: String(state.notificationCampaignPageOffset),
+  });
+  if (query) params.set("q", query);
+  const version = ++state.notificationCampaignLoadVersion;
+  const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}/notification-campaigns?${params.toString()}`);
+  if (version !== state.notificationCampaignLoadVersion || propertyId !== currentPropertyId()) return;
   state.notificationCampaigns = result.campaigns || [];
+  state.notificationCampaignTotal = Number(result.total || 0);
+  if (state.notificationCampaignPageOffset > 0 && state.notificationCampaignPageOffset >= state.notificationCampaignTotal) {
+    state.notificationCampaignPageOffset = Math.max(0, Math.floor((state.notificationCampaignTotal - 1) / state.notificationCampaignPageLimit) * state.notificationCampaignPageLimit);
+    return loadNotificationCampaigns();
+  }
   const selected = selectedNotificationCampaign();
   if (selected) setNotificationCampaignForm(selected);
   else renderNotificationCampaigns();
@@ -2297,8 +2335,9 @@ async function saveNotificationCampaign(event) {
     method: selected ? "PUT" : "POST", body: JSON.stringify(payload),
   });
   const campaign = result.campaign;
-  state.notificationCampaigns = [campaign, ...state.notificationCampaigns.filter((item) => item.campaign_id !== campaign.campaign_id)];
-  setNotificationCampaignForm(campaign);
+  state.selectedNotificationCampaignId = campaign.campaign_id;
+  $("notification-campaign-search").value = "";
+  await loadNotificationCampaigns({ resetPage: true });
   showToast("Campaign draft saved.");
 }
 
@@ -2323,8 +2362,8 @@ async function publishNotificationCampaign() {
   const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/notification-campaigns/${encodeURIComponent(campaign.campaign_id)}/publish`, {
     method: "POST", body: JSON.stringify({ expected_revision: campaign.revision }),
   });
-  state.notificationCampaigns = [result.campaign, ...state.notificationCampaigns.filter((item) => item.campaign_id !== campaign.campaign_id)];
-  setNotificationCampaignForm(result.campaign);
+  state.selectedNotificationCampaignId = result.campaign.campaign_id;
+  await loadNotificationCampaigns({ resetPage: true });
   $("notification-campaign-preview").textContent = `${result.queued} queued in-app · ${result.already_queued} already queued · ${result.suppressed_at_publish} suppressed after the final consent check.`;
   showToast(`Campaign queued for ${result.queued} eligible stay${result.queued === 1 ? "" : "s"}.`);
 }
@@ -9520,6 +9559,19 @@ function setup() {
   $("notification-campaign-form").addEventListener("submit", (event) => saveNotificationCampaign(event).catch((error) => showToast(error.message, "error")));
   $("notification-campaign-new").addEventListener("click", () => setNotificationCampaignForm());
   $("notification-campaign-refresh").addEventListener("click", () => loadNotificationCampaigns().catch((error) => showToast(error.message, "error")));
+  $("notification-campaign-search").addEventListener("input", () => {
+    clearTimeout(state.notificationCampaignSearchTimer);
+    state.notificationCampaignSearchTimer = setTimeout(() => loadNotificationCampaigns({ resetPage: true }).catch((error) => showToast(error.message, "error")), 250);
+  });
+  $("notification-campaign-page-previous").addEventListener("click", () => {
+    state.notificationCampaignPageOffset = Math.max(0, state.notificationCampaignPageOffset - state.notificationCampaignPageLimit);
+    loadNotificationCampaigns().catch((error) => showToast(error.message, "error"));
+  });
+  $("notification-campaign-page-next").addEventListener("click", () => {
+    if (state.notificationCampaignPageOffset + state.notificationCampaignPageLimit >= state.notificationCampaignTotal) return;
+    state.notificationCampaignPageOffset += state.notificationCampaignPageLimit;
+    loadNotificationCampaigns().catch((error) => showToast(error.message, "error"));
+  });
   $("notification-campaign-preview-button").addEventListener("click", () => previewNotificationCampaign().catch((error) => showToast(error.message, "error")));
   $("notification-campaign-publish").addEventListener("click", () => publishNotificationCampaign().catch((error) => showToast(error.message, "error")));
   $("notification-campaign-list").addEventListener("click", (event) => {

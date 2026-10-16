@@ -67,7 +67,15 @@ def test_restaurant_manager_and_staff_are_limited_to_assigned_restaurants(tmp_pa
         assert manager_login.status_code == 200
         manager_client.headers["X-CSRF-Token"] = manager_login.json()["user"]["csrf_token"]
 
-        restaurants = manager_client.get("/api/admin/properties/hotel-a/restaurants").json()["restaurants"]
+        with monkeypatch.context() as restaurant_list_scope:
+            restaurant_list_scope.setattr(
+                hospitality,
+                "overview",
+                lambda *_args, **_kwargs: pytest.fail("restaurant list must not materialize the full hospitality overview"),
+            )
+            restaurant_response = manager_client.get("/api/admin/properties/hotel-a/restaurants")
+        assert restaurant_response.status_code == 200, restaurant_response.text
+        restaurants = restaurant_response.json()["restaurants"]
         assert [item["restaurant_id"] for item in restaurants] == [grill["restaurant_id"]]
         assert "internal_notes" not in restaurants[0]
         overview = manager_client.get("/api/admin/properties/hotel-a/hospitality").json()

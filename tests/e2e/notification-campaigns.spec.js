@@ -44,7 +44,7 @@ test("notification campaigns: save, preview aggregate consent, and confirm in-ap
     const url = new URL(request.url());
     const path = url.pathname;
     if (request.method() === "GET" && path.endsWith("/notification-campaigns")) {
-      await route.fulfill({ json: { campaigns } });
+      await route.fulfill({ json: { campaigns, total: campaigns.length, limit: 25, offset: 0 } });
       return;
     }
     if (request.method() === "POST" && path.endsWith("/notification-campaigns")) {
@@ -96,4 +96,50 @@ test("notification campaigns: save, preview aggregate consent, and confirm in-ap
   await expect(page.locator("#notification-campaign-preview")).toContainText("2 queued in-app");
   await expect(page.locator("#notification-campaign-list")).toContainText("published");
   await expect(page.locator("#notification-campaign-list")).toContainText("2 queued");
+});
+
+test("notification campaign history: search and page server results", async ({ page }) => {
+  const allCampaigns = Array.from({ length: 26 }, (_, index) => ({
+    campaign_id: `campaign-${String(index + 1).padStart(2, "0")}`,
+    name: `Campaign ${String(index + 1).padStart(2, "0")}`,
+    title: `Verified update ${index + 1}`,
+    body: `Campaign body ${index + 1}`,
+    source_reference: `event-${index + 1}`,
+    status: "published",
+    revision: 1,
+    queued_count: 0,
+    suppressed_count: 0,
+    engagement: { read: 0 },
+  }));
+  const requestedOffsets = [];
+  await page.route("**/api/admin/properties/*/notification-campaigns**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (request.method() === "GET" && url.pathname.endsWith("/notification-campaigns")) {
+      const query = (url.searchParams.get("q") || "").toLocaleLowerCase();
+      const limit = Number(url.searchParams.get("limit") || 25);
+      const offset = Number(url.searchParams.get("offset") || 0);
+      requestedOffsets.push(offset);
+      const filtered = allCampaigns.filter((campaign) => `${campaign.name} ${campaign.title} ${campaign.body} ${campaign.source_reference}`.toLocaleLowerCase().includes(query));
+      await route.fulfill({ json: { campaigns: filtered.slice(offset, offset + limit), total: filtered.length, limit, offset } });
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.goto("/admin");
+  await openCampaignPanel(page);
+  await expect(page.locator("#notification-campaign-page-info")).toHaveText("Page 1 of 2");
+  await expect(page.locator("#notification-campaign-list")).toContainText("Campaign 01");
+  await page.locator("#notification-campaign-page-next").click();
+  await expect(page.locator("#notification-campaign-page-info")).toHaveText("Page 2 of 2");
+  await expect(page.locator("#notification-campaign-list")).toContainText("Campaign 26");
+  await page.locator("#notification-campaign-page-previous").click();
+  await expect(page.locator("#notification-campaign-page-info")).toHaveText("Page 1 of 2");
+
+  await page.locator("#notification-campaign-search").fill("Campaign 26");
+  await expect(page.locator("#notification-campaign-page-info")).toHaveText("Page 1 of 1");
+  await expect(page.locator("#notification-campaign-list")).toContainText("Campaign 26");
+  await expect(page.locator("#notification-campaign-list")).not.toContainText("Campaign 01");
+  await expect.poll(() => requestedOffsets.at(-1)).toBe(0);
 });

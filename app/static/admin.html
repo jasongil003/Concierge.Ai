@@ -407,8 +407,10 @@
             <p class="field-note" id="notification-campaign-preview" role="status" aria-live="polite">Save a draft to preview its aggregate audience.</p>
           </section>
           <section class="card" aria-labelledby="campaign-list-title">
-            <div class="card-heading"><div><span>PROPERTY CAMPAIGNS</span><h2 id="campaign-list-title">Campaign history</h2></div><button class="secondary" id="notification-campaign-refresh" type="button">Refresh</button></div>
+            <div class="card-heading"><div><span>PROPERTY CAMPAIGNS</span><h2 id="campaign-list-title">Campaign history</h2><p class="field-note" id="notification-campaign-count" aria-live="polite">Loading campaigns</p></div><button class="secondary" id="notification-campaign-refresh" type="button">Refresh</button></div>
+            <label for="notification-campaign-search">Search campaign history<input id="notification-campaign-search" type="search" maxlength="120" placeholder="Search campaign name or content"></label>
             <div id="notification-campaign-list" class="notification-campaign-list" aria-live="polite"><div class="empty-state"><strong>Loading campaigns</strong><p>Campaigns remain scoped to the selected property.</p></div></div>
+            <nav class="conversation-pagination" aria-label="Campaign history pages"><button class="secondary" id="notification-campaign-page-previous" type="button" disabled>Previous page</button><span id="notification-campaign-page-info" aria-live="polite">No pages</span><button class="secondary" id="notification-campaign-page-next" type="button" disabled>Next page</button></nav>
           </section>
         </div>
       </section>

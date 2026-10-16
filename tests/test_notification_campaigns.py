@@ -98,6 +98,50 @@ def test_campaign_preview_and_publish_only_queue_for_fully_consented_active_stay
     duplicate = admin_client.post(f"{campaign_path}/publish", json={"expected_revision": published.json()["campaign"]["revision"]})
     assert duplicate.status_code == 409
     assert len(main_module.hospitality.list_guest_inbox_notifications(property_id, eligible_stay["stay_id"])) == 1
+    history = admin_client.get(
+        f"/api/admin/properties/{property_id}/notification-campaigns",
+        params={"limit": 1, "offset": 0},
+    )
+    assert history.status_code == 200, history.text
+    assert history.json()["total"] == 1
+    assert history.json()["campaigns"][0]["engagement"]["queued"] == 1
+
+
+def test_campaign_history_is_searchable_paginated_and_property_scoped(admin_client):
+    property_id = f"campaign-page-{uuid.uuid4().hex[:12]}"
+    other_property_id = f"campaign-page-other-{uuid.uuid4().hex[:8]}"
+    main_module.properties.upsert(PropertyRecord(property_id=property_id, hotel_name="Campaign Page Test Hotel"))
+    main_module.properties.upsert(PropertyRecord(property_id=other_property_id, hotel_name="Other Campaign Page Hotel"))
+    campaigns = [
+        _create_campaign(admin_client, property_id, name="Morning Pool", title="Pool is 100%_ ready"),
+        _create_campaign(admin_client, property_id, name="Evening Dining", title="Pool is 1000X ready"),
+        _create_campaign(admin_client, property_id, name="Lobby Notice", body="Pool is 100%_ approved"),
+    ]
+    expected = sorted(campaigns, key=lambda campaign: (-campaign["updated_at"], campaign["campaign_id"]))
+    path = f"/api/admin/properties/{property_id}/notification-campaigns"
+
+    first = admin_client.get(path, params={"limit": 2, "offset": 0})
+    second = admin_client.get(path, params={"limit": 2, "offset": 2})
+    assert first.status_code == second.status_code == 200
+    assert first.json()["total"] == second.json()["total"] == 3
+    assert [item["campaign_id"] for item in first.json()["campaigns"]] == [item["campaign_id"] for item in expected[:2]]
+    assert [item["campaign_id"] for item in second.json()["campaigns"]] == [expected[2]["campaign_id"]]
+
+    filtered = admin_client.get(path, params={"q": "100%_", "limit": 1, "offset": 0})
+    assert filtered.status_code == 200, filtered.text
+    expected_filtered = [item for item in expected if "100%_" in f"{item['title']} {item['body']}"]
+    assert filtered.json()["total"] == 2
+    assert filtered.json()["campaigns"][0]["campaign_id"] == expected_filtered[0]["campaign_id"]
+    filtered_second = admin_client.get(path, params={"q": "100%_", "limit": 1, "offset": 1})
+    assert [item["campaign_id"] for item in filtered_second.json()["campaigns"]] == [expected_filtered[1]["campaign_id"]]
+
+    other = admin_client.get(f"/api/admin/properties/{other_property_id}/notification-campaigns")
+    assert other.status_code == 200
+    assert other.json()["total"] == 0
+    assert other.json()["campaigns"] == []
+    assert admin_client.get(path, params={"limit": 101}).status_code == 422
+    assert admin_client.get(path, params={"offset": 1_000_001}).status_code == 422
+    assert admin_client.get(path, params={"q": "x" * 121}).status_code == 422
 
 
 def test_campaign_draft_revision_is_compare_and_swap_and_property_scoped(admin_client):

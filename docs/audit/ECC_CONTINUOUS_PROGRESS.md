@@ -130,6 +130,12 @@ The key is excluded from backup contents and hidden from the settings object's r
 - The published PR #63 head at the start of this continuation was `616de318bf85b8504852e3b8f6d18cc80ef091e7`. Its hosted [run #276](https://github.com/jasongil003/Concierge.Ai/actions/runs/38908867509) passed 9/10 jobs; backend/browser, PostgreSQL/Redis, Docker, dependencies, static security, and both platform deployment validations passed. Full-history Gitleaks alone failed on three retained historical findings. Connector publication of the reviewed updated candidate and its hosted run are pending.
 - Release remains RED. The issuer and repository owner must complete revocation and authorized history cleanup; a repository administrator must require CI checks. Privacy policy, live hotel/provider/device validation, and off-host recovery remain open. No merge, deployment, or shared history rewrite occurred.
 
+## 2026-10-17 campaign-history pagination follow-up
+
+- Notification campaign history now uses property-scoped server search and stable bounded pages (25 by default, maximum 100), with total counts and engagement aggregation limited to the selected page. The restaurant list route now reads only restaurant records instead of materializing the full hospitality overview.
+- Full local backend rerun: **1,384 passed, 22 skipped, 0 failed** in 67.81s; the persistent SQLite safety check reported the default database unchanged. Focused campaign/restaurant/RBAC/privacy suite: **23 passed, 1 skipped** (PostgreSQL service unavailable locally). Campaign browser flow: **4 passed** across Chromium and mobile Chrome. The focused PostgreSQL search/engagement integration test is included for the hosted PostgreSQL job.
+- C-30 remains **PARTIAL**: encrypted-message collection-wide conversation search and inventory of remaining nested/unbounded collections (including restaurant staff, menus, and promotions) remain open. Release remains **RED** pending the documented credential, governance, live integration/device, and off-host recovery gates. No merge or deployment occurred.
+
 
 ## Hosted acceptance — PR #63 run #277
 
