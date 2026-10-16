@@ -3,7 +3,7 @@
 import sqlite3
 import time
 from pathlib import Path
-from .database import connect_database, table_columns
+from .database import connect_database, table_columns, table_exists
 
 
 CONSENT_CATEGORIES = (
@@ -55,11 +55,26 @@ class PrivacyConsentStore:
         current = int(time.time()) if now is None else int(now)
         values = dict(DEFAULT_CONSENTS)
         with self._connect() as db:
-            rows = db.execute(
-                """SELECT category,granted,stay_id FROM guest_privacy_consents
-                WHERE property_id=? AND session_id=? AND expires_at>?""",
-                (property_id, session_id, current),
-            ).fetchall()
+            if table_exists(db, "guest_sessions") and table_exists(db, "concierge_stays"):
+                rows = db.execute(
+                    """SELECT category,granted,stay_id FROM guest_privacy_consents c
+                    WHERE property_id=? AND session_id=?
+                      AND (expires_at>? OR EXISTS (
+                          SELECT 1 FROM guest_sessions gs
+                          JOIN concierge_stays s
+                            ON s.stay_id=gs.stay_id AND s.property_id=gs.property_id
+                          WHERE gs.property_id=c.property_id
+                            AND gs.concierge_session_id=c.session_id
+                            AND s.status='active'
+                      ))""",
+                    (property_id, session_id, current),
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    """SELECT category,granted,stay_id FROM guest_privacy_consents
+                    WHERE property_id=? AND session_id=? AND expires_at>?""",
+                    (property_id, session_id, current),
+                ).fetchall()
         for row in rows:
             if row["category"] in values:
                 if row["category"] == "location_services" and row["granted"] and row["stay_id"] != location_stay_id:
@@ -75,6 +90,7 @@ class PrivacyConsentStore:
         *,
         expires_at: int | None = None,
         location_stay_id: str | None = None,
+        linked_stay_id: str | None = None,
         now: int | None = None,
     ) -> dict[str, bool]:
         unknown = set(consents) - set(CONSENT_CATEGORIES)
@@ -89,6 +105,13 @@ class PrivacyConsentStore:
         if expiry <= current:
             raise ValueError("Privacy consent retention must be in the future.")
         with self._connect() as db:
+            active_stay_id = None
+            if linked_stay_id and table_exists(db, "concierge_stays"):
+                active_stay = db.execute(
+                    "SELECT stay_id FROM concierge_stays WHERE property_id=? AND stay_id=? AND status='active'",
+                    (property_id, linked_stay_id),
+                ).fetchone()
+                active_stay_id = str(active_stay["stay_id"]) if active_stay else None
             for category, granted in consents.items():
                 db.execute(
                     """INSERT INTO guest_privacy_consents
@@ -107,6 +130,30 @@ class PrivacyConsentStore:
                         expiry,
                     ),
                 )
+                if (
+                    not granted
+                    and category in {"proactive_notifications", "promotional_messages"}
+                    and active_stay_id
+                    and table_exists(db, "guest_sessions")
+                ):
+                    linked_sessions = db.execute(
+                        """SELECT DISTINCT concierge_session_id FROM guest_sessions
+                        WHERE property_id=? AND stay_id=? AND concierge_session_id IS NOT NULL""",
+                        (property_id, active_stay_id),
+                    ).fetchall()
+                    for linked_session in linked_sessions:
+                        linked_session_id = str(linked_session["concierge_session_id"])
+                        if linked_session_id == session_id:
+                            continue
+                        db.execute(
+                            """INSERT INTO guest_privacy_consents
+                            (property_id,session_id,category,granted,stay_id,updated_at,expires_at)
+                            VALUES(?,?,?,0,NULL,?,?)
+                            ON CONFLICT(property_id,session_id,category) DO UPDATE SET
+                            granted=0,stay_id=NULL,updated_at=excluded.updated_at,
+                            expires_at=excluded.expires_at""",
+                            (property_id, linked_session_id, category, current, expiry),
+                        )
         return self.get(property_id, session_id, now=current, location_stay_id=location_stay_id)
 
     def delete_sessions(self, property_id: str, session_ids: list[str]) -> int:
@@ -122,26 +169,36 @@ class PrivacyConsentStore:
     def cleanup_retention(self, now: int | None = None) -> int:
         current = int(time.time()) if now is None else int(now)
         with self._connect() as db:
+            if not (table_exists(db, "guest_sessions") and table_exists(db, "concierge_stays")):
+                return db.execute(
+                    "DELETE FROM guest_privacy_consents WHERE expires_at<=?", (current,)
+                ).rowcount
             cursor = db.execute(
                 """DELETE FROM guest_privacy_consents
-                WHERE expires_at<=?
+                WHERE (expires_at<=? AND NOT EXISTS (
+                       SELECT 1 FROM guest_sessions gs
+                       JOIN concierge_stays s
+                         ON s.stay_id=gs.stay_id AND s.property_id=gs.property_id
+                       WHERE gs.property_id=guest_privacy_consents.property_id
+                         AND gs.concierge_session_id=guest_privacy_consents.session_id
+                         AND s.status='active'
+                   ))
                    OR EXISTS (
                        SELECT 1 FROM guest_sessions gs
                        LEFT JOIN concierge_stays s
                          ON s.stay_id=gs.stay_id AND s.property_id=gs.property_id
                        WHERE gs.property_id=guest_privacy_consents.property_id
                          AND gs.concierge_session_id=guest_privacy_consents.session_id
-                         AND (s.stay_id IS NULL OR s.status!='active'
-                              OR (s.retention_until IS NOT NULL AND s.retention_until<=?))
+                         AND (s.stay_id IS NULL OR s.status!='active')
                    )
-                   OR EXISTS (
+                   OR (guest_privacy_consents.category='location_services'
+                       AND guest_privacy_consents.stay_id IS NOT NULL
+                       AND NOT EXISTS (
                        SELECT 1 FROM concierge_stays s
                        WHERE s.property_id=guest_privacy_consents.property_id
                          AND s.stay_id=guest_privacy_consents.stay_id
-                         AND guest_privacy_consents.category='location_services'
-                         AND (s.status!='active'
-                              OR (s.retention_until IS NOT NULL AND s.retention_until<=?))
-                   )""",
-                (current, current, current),
+                         AND s.status='active'
+                   ))""",
+                (current,),
             )
             return cursor.rowcount
