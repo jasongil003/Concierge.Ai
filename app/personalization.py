@@ -9,7 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .database import connect_database
+from .database import connect_database, table_exists
 
 
 DEFAULT_POLICY: dict[str, Any] = {
@@ -77,6 +77,18 @@ class PersonalizationStore:
 
     def _connect(self) -> sqlite3.Connection:
         return connect_database(self.path)
+
+    @staticmethod
+    def _has_active_stay(db: sqlite3.Connection, property_id: str, session_id: str) -> bool:
+        if not (table_exists(db, "guest_sessions") and table_exists(db, "concierge_stays")):
+            return False
+        return db.execute(
+            """SELECT 1 FROM guest_sessions gs
+            JOIN concierge_stays s ON s.stay_id=gs.stay_id AND s.property_id=gs.property_id
+            WHERE gs.property_id=? AND gs.concierge_session_id=? AND s.status='active'
+            LIMIT 1""",
+            (property_id, session_id),
+        ).fetchone() is not None
 
     def _init_db(self) -> None:
         with self._connect() as db:
@@ -174,6 +186,7 @@ class PersonalizationStore:
         default_enabled = False
         with self._connect() as db:
             row = db.execute("SELECT * FROM guest_personalization WHERE property_id=? AND session_id=?", (property_id, session_id)).fetchone()
+            active_stay = self._has_active_stay(db, property_id, session_id)
             if not row:
                 db.execute(
                     """INSERT INTO guest_personalization(property_id,session_id,enabled,level,created_at,updated_at,expires_at)
@@ -181,9 +194,19 @@ class PersonalizationStore:
                     (property_id, session_id, int(default_enabled), configured_level, now, now, expires_at),
                 )
                 row = db.execute("SELECT * FROM guest_personalization WHERE property_id=? AND session_id=?", (property_id, session_id)).fetchone()
-            elif int(row["expires_at"]) < now:
+            elif int(row["expires_at"]) < now and not active_stay:
                 db.execute("DELETE FROM guest_preferences WHERE property_id=? AND session_id=?", (property_id, session_id))
                 db.execute("UPDATE guest_personalization SET enabled=0,level='private',last_preference_key=NULL,updated_at=?,expires_at=? WHERE property_id=? AND session_id=?", (now, expires_at, property_id, session_id))
+                row = db.execute("SELECT * FROM guest_personalization WHERE property_id=? AND session_id=?", (property_id, session_id)).fetchone()
+            elif int(row["expires_at"]) < now:
+                # Stay-level memory is scoped to an active stay, not the short
+                # inactivity deadline used for guests without a linked stay.
+                db.execute(
+                    """DELETE FROM guest_preferences WHERE property_id=? AND session_id=?
+                       AND persistence NOT IN ('stay','profile') AND expires_at IS NOT NULL AND expires_at<?""",
+                    (property_id, session_id, now),
+                )
+                db.execute("UPDATE guest_personalization SET expires_at=?,updated_at=? WHERE property_id=? AND session_id=?", (expires_at, now, property_id, session_id))
                 row = db.execute("SELECT * FROM guest_personalization WHERE property_id=? AND session_id=?", (property_id, session_id)).fetchone()
             else:
                 db.execute("UPDATE guest_personalization SET expires_at=?,updated_at=? WHERE property_id=? AND session_id=?", (expires_at, now, property_id, session_id))
@@ -277,7 +300,22 @@ class PersonalizationStore:
     def list_preferences(self, property_id: str, session_id: str) -> list[dict[str, Any]]:
         now = _now()
         with self._connect() as db:
-            db.execute("DELETE FROM guest_preferences WHERE property_id=? AND session_id=? AND expires_at IS NOT NULL AND expires_at<?", (property_id, session_id, now))
+            if table_exists(db, "guest_sessions") and table_exists(db, "concierge_stays"):
+                db.execute(
+                    """DELETE FROM guest_preferences WHERE property_id=? AND session_id=?
+                       AND expires_at IS NOT NULL AND expires_at<?
+                       AND NOT (persistence IN ('stay','profile') AND EXISTS (
+                           SELECT 1 FROM guest_sessions gs
+                           JOIN concierge_stays s
+                             ON s.stay_id=gs.stay_id AND s.property_id=gs.property_id
+                           WHERE gs.property_id=guest_preferences.property_id
+                             AND gs.concierge_session_id=guest_preferences.session_id
+                             AND s.status='active'
+                       ))""",
+                    (property_id, session_id, now),
+                )
+            else:
+                db.execute("DELETE FROM guest_preferences WHERE property_id=? AND session_id=? AND expires_at IS NOT NULL AND expires_at<?", (property_id, session_id, now))
             rows = db.execute(
                 """SELECT preference_id,category,preference_key,value,source,confidence,persistence,created_at,updated_at,last_used
                 FROM guest_preferences WHERE property_id=? AND session_id=? ORDER BY category,value""",
@@ -394,10 +432,83 @@ class PersonalizationStore:
 
     def cleanup_expired(self) -> int:
         now = _now()
+        deleted_personalization = 0
         with self._connect() as db:
-            db.execute("DELETE FROM guest_preferences WHERE expires_at IS NOT NULL AND expires_at<?", (now,))
-            cursor = db.execute("DELETE FROM guest_personalization WHERE expires_at<?", (now,))
-            return int(cursor.rowcount)
+            if table_exists(db, "guest_sessions") and table_exists(db, "concierge_stays"):
+                checked_out_sessions = db.execute(
+                    """SELECT DISTINCT gs.property_id,gs.concierge_session_id
+                       FROM guest_sessions gs
+                       JOIN concierge_stays s
+                         ON s.stay_id=gs.stay_id AND s.property_id=gs.property_id
+                       WHERE gs.concierge_session_id IS NOT NULL AND s.status!='active'
+                         AND NOT EXISTS (
+                             SELECT 1 FROM guest_sessions active_gs
+                             JOIN concierge_stays active_s
+                               ON active_s.stay_id=active_gs.stay_id
+                              AND active_s.property_id=active_gs.property_id
+                             WHERE active_gs.property_id=gs.property_id
+                               AND active_gs.concierge_session_id=gs.concierge_session_id
+                               AND active_s.status='active'
+                         )"""
+                ).fetchall()
+                policy_by_property: dict[str, bool] = {}
+                for linked in checked_out_sessions:
+                    property_id = str(linked["property_id"])
+                    session_id = str(linked["concierge_session_id"])
+                    if property_id not in policy_by_property:
+                        row = db.execute(
+                            "SELECT policy_json FROM personalization_policy WHERE property_id=?",
+                            (property_id,),
+                        ).fetchone()
+                        try:
+                            saved_policy = json.loads(row["policy_json"]) if row else {}
+                        except (TypeError, json.JSONDecodeError):
+                            saved_policy = {}
+                        policy_by_property[property_id] = bool(
+                            saved_policy.get("delete_profile_at_checkout", DEFAULT_POLICY["delete_profile_at_checkout"])
+                        )
+                    if not policy_by_property[property_id]:
+                        continue
+                    db.execute(
+                        "DELETE FROM guest_preferences WHERE property_id=? AND session_id=?",
+                        (property_id, session_id),
+                    )
+                    cursor = db.execute(
+                        "DELETE FROM guest_personalization WHERE property_id=? AND session_id=?",
+                        (property_id, session_id),
+                    )
+                    deleted_personalization += max(0, int(cursor.rowcount or 0))
+                db.execute(
+                    """DELETE FROM guest_preferences
+                       WHERE expires_at IS NOT NULL AND expires_at<?
+                         AND NOT (persistence IN ('stay','profile') AND EXISTS (
+                             SELECT 1 FROM guest_sessions gs
+                             JOIN concierge_stays s
+                               ON s.stay_id=gs.stay_id AND s.property_id=gs.property_id
+                             WHERE gs.property_id=guest_preferences.property_id
+                               AND gs.concierge_session_id=guest_preferences.session_id
+                               AND s.status='active'
+                         ))""",
+                    (now,),
+                )
+                cursor = db.execute(
+                    """DELETE FROM guest_personalization
+                       WHERE expires_at<? AND NOT EXISTS (
+                           SELECT 1 FROM guest_sessions gs
+                           JOIN concierge_stays s
+                             ON s.stay_id=gs.stay_id AND s.property_id=gs.property_id
+                           WHERE gs.property_id=guest_personalization.property_id
+                             AND gs.concierge_session_id=guest_personalization.session_id
+                             AND s.status='active'
+                       )""",
+                    (now,),
+                )
+                deleted_personalization += max(0, int(cursor.rowcount or 0))
+            else:
+                db.execute("DELETE FROM guest_preferences WHERE expires_at IS NOT NULL AND expires_at<?", (now,))
+                cursor = db.execute("DELETE FROM guest_personalization WHERE expires_at<?", (now,))
+                deleted_personalization += max(0, int(cursor.rowcount or 0))
+            return deleted_personalization
 
 
 def extract_preferences(message: str) -> list[dict[str, Any]]:
