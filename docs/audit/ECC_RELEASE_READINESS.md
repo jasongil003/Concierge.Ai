@@ -1,7 +1,7 @@
 # ECC release readiness
 
 **Decision date:** 2026-10-16 (Asia/Manila)
-**Code baseline:** `main` at `7185e18df2ae3b8f100804b7c3618a3909a831b6`; guest lifecycle and notification fixes are on local branch `codex/guest-lifecycle-notifications-20261016`, pending commit and PR. All local changes use isolated synthetic data; no live hotel installation is claimed.
+**Code baseline:** `main` at `7185e18df2ae3b8f100804b7c3618a3909a831b6`; local tested commit `7031cf0eca6a076d5ab80d650be0d0e05874598d` is published in draft [PR #61](https://github.com/jasongil003/Concierge.Ai/pull/61) at remote head `03f07aa9cfbe2029943cdec013524a3e85b48889`. All local changes use isolated synthetic data; no live hotel installation is claimed.
 
 ## Four independent decisions
 
@@ -28,7 +28,7 @@
 
 ## Unverified external and operational dependencies
 
-Real AI provider accounts and privacy terms, ANTlabs SG5/PMS/WLAN feeds, physical iPhone Safari/Android Chrome/captive browsers, screen readers, target-host install/reboot, off-host encrypted backup and key recovery, and production-scale load were not verified here. CI run [#245](https://github.com/jasongil003/Concierge.Ai/actions/runs/38753064200) on PR #60 passed backend, browser, PostgreSQL/Redis, Docker, deployment, dependency-audit, and static-security jobs, while its secret-scan job failed. It predates the working branch and is not evidence for its changes. The branch-protection API returned 403; the accessible ruleset only rejects deletion and non-fast-forward updates. The unresolved historical credential and current secret-scan failure remain release blockers.
+Real AI provider accounts and privacy terms, ANTlabs SG5/PMS/WLAN feeds, physical iPhone Safari/Android Chrome/captive browsers, screen readers, target-host install/reboot, off-host encrypted backup and key recovery, and production-scale load were not verified here. CI run [#246](https://github.com/jasongil003/Concierge.Ai/actions/runs/38835174052) completed on PR #61: backend (1,321 passed, 19 skipped), browser (339 passed, 39 skipped), PostgreSQL/Redis, Docker, dependency audits, static security, and Linux/macOS deployment passed; secret scan failed at its redacted current-worktree step, and its later forced-text history step did not run. The branch-protection API returned 403; the accessible ruleset only rejects deletion and non-fast-forward updates. The unresolved credential finding and current secret-scan failure remain release blockers.
 
 ## Decision ownership
 
