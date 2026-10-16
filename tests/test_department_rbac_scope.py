@@ -105,6 +105,11 @@ def test_department_manager_is_scoped_to_its_department_on_request_operations(
         assert [item["service_id"] for item in catalog.json()["services"]] == [room_service["service_id"]]
         assert [item["department_id"] for item in catalog.json()["departments"]] == [housekeeping["department_id"]]
 
+        request_page = client.get("/api/admin/properties/hotel-a/service-requests?status=all")
+        assert request_page.status_code == 200, request_page.text
+        assert request_page.json()["all_total"] == 1
+        assert {item["request_id"] for item in request_page.json()["service_requests"]} == {hk_request["request_id"]}
+
         assert client.get(
             f"/api/admin/properties/hotel-a/service-requests/{fd_request['request_id']}/history"
         ).status_code == 403

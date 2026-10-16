@@ -4,7 +4,7 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .database import connect_database, enable_foreign_keys, table_columns, table_exists
@@ -2756,6 +2756,7 @@ class HospitalityStore:
         property_id: str,
         restaurant_ids: set[str] | None = None,
         department_id: str | None = None,
+        include_service_requests: bool = True,
     ) -> dict[str, Any]:
         with self._connect() as db:
             restaurants = [
@@ -2773,7 +2774,9 @@ class HospitalityStore:
                 item["restaurant_id"]: self.restaurant_menus(property_id, item["restaurant_id"])
                 for item in restaurants
             }
-            if department_id is None:
+            if not include_service_requests:
+                service_requests = []
+            elif department_id is None:
                 service_requests = db.execute(
                     "SELECT * FROM service_requests WHERE property_id=? ORDER BY created_at DESC",
                     (property_id,),
@@ -2807,6 +2810,127 @@ class HospitalityStore:
                 "departments": [self._department_dict(row) for row in db.execute("SELECT * FROM departments WHERE property_id=? ORDER BY name", (property_id,))],
                 "services": [self._service_catalog_dict(row) for row in db.execute("SELECT * FROM service_catalog WHERE property_id=? ORDER BY sort_order,name", (property_id,))],
                 "recommendations": [self._recommendation_dict(row) for row in db.execute("SELECT * FROM recommendations WHERE property_id=? ORDER BY name", (property_id,))],
+            }
+
+    def service_request_page(
+        self,
+        property_id: str,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        status: str = "open",
+        search: str = "",
+        department: str | None = None,
+        timezone_name: str = "UTC",
+    ) -> dict[str, Any]:
+        """Return a stable, filtered page of operational requests and property-wide counts."""
+        allowed_statuses = {"", "all", "open", "due_soon", "overdue", "completed_today", *SERVICE_STATUSES}
+        if status not in allowed_statuses:
+            raise ValueError("Unsupported service request status filter.")
+        if not 1 <= limit <= 100 or offset < 0:
+            raise ValueError("Invalid service request page bounds.")
+
+        now = _now()
+        try:
+            zone = ZoneInfo(timezone_name or "UTC")
+        except (TypeError, ValueError, ZoneInfoNotFoundError):
+            zone = ZoneInfo("UTC")
+        local_now = datetime.fromtimestamp(now, zone)
+        local_day_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+        local_day_end = (local_now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)).timestamp()
+
+        summary_sql = """SELECT
+            COUNT(CASE WHEN status NOT IN ('completed','cancelled') THEN 1 END) AS open,
+            COUNT(CASE WHEN status='in_progress' THEN 1 END) AS in_progress,
+            COUNT(CASE WHEN status NOT IN ('completed','cancelled') AND due_at IS NOT NULL AND due_at>=? AND due_at<=? THEN 1 END) AS due_soon,
+            COUNT(CASE WHEN status NOT IN ('completed','cancelled') AND due_at IS NOT NULL AND due_at<? THEN 1 END) AS overdue,
+            COUNT(CASE WHEN status='completed' AND completed_at>=? AND completed_at<? THEN 1 END) AS completed_today,
+            COUNT(*) AS total
+            FROM service_requests WHERE property_id=? AND (? IS NULL OR department=?)"""
+
+        clean_search = _clean(search, 120).casefold()
+        search_pattern = f"%{clean_search}%" if clean_search else ""
+        filtered_count_sql = """SELECT COUNT(*) FROM service_requests
+            WHERE property_id=? AND (? IS NULL OR department=?)
+            AND (
+                ? IN ('','all')
+                OR (?='open' AND status NOT IN ('completed','cancelled'))
+                OR (?='due_soon' AND status NOT IN ('completed','cancelled') AND due_at IS NOT NULL AND due_at>=? AND due_at<=?)
+                OR (?='overdue' AND status NOT IN ('completed','cancelled') AND due_at IS NOT NULL AND due_at<?)
+                OR (?='completed_today' AND status='completed' AND completed_at>=? AND completed_at<?)
+                OR (?='new' AND status='new')
+                OR (?='assigned' AND status='assigned')
+                OR (?='accepted' AND status='accepted')
+                OR (?='in_progress' AND status='in_progress')
+                OR (?='delivered' AND status='delivered')
+                OR (?='completed' AND status='completed')
+                OR (?='cancelled' AND status='cancelled')
+            )
+            AND (?='' OR (
+                LOWER(COALESCE(request_id,'')) LIKE LOWER(?)
+                OR LOWER(COALESCE(request_type,'')) LIKE LOWER(?)
+                OR LOWER(COALESCE(room,'')) LIKE LOWER(?)
+                OR LOWER(COALESCE(description,'')) LIKE LOWER(?)
+                OR LOWER(COALESCE(department,'')) LIKE LOWER(?)
+                OR LOWER(COALESCE(assigned_to,'')) LIKE LOWER(?)
+                OR LOWER(COALESCE(notes,'')) LIKE LOWER(?)
+            ))"""
+        filtered_page_sql = """SELECT * FROM service_requests
+            WHERE property_id=? AND (? IS NULL OR department=?)
+            AND (
+                ? IN ('','all')
+                OR (?='open' AND status NOT IN ('completed','cancelled'))
+                OR (?='due_soon' AND status NOT IN ('completed','cancelled') AND due_at IS NOT NULL AND due_at>=? AND due_at<=?)
+                OR (?='overdue' AND status NOT IN ('completed','cancelled') AND due_at IS NOT NULL AND due_at<?)
+                OR (?='completed_today' AND status='completed' AND completed_at>=? AND completed_at<?)
+                OR (?='new' AND status='new')
+                OR (?='assigned' AND status='assigned')
+                OR (?='accepted' AND status='accepted')
+                OR (?='in_progress' AND status='in_progress')
+                OR (?='delivered' AND status='delivered')
+                OR (?='completed' AND status='completed')
+                OR (?='cancelled' AND status='cancelled')
+            )
+            AND (?='' OR (
+                LOWER(COALESCE(request_id,'')) LIKE LOWER(?)
+                OR LOWER(COALESCE(request_type,'')) LIKE LOWER(?)
+                OR LOWER(COALESCE(room,'')) LIKE LOWER(?)
+                OR LOWER(COALESCE(description,'')) LIKE LOWER(?)
+                OR LOWER(COALESCE(department,'')) LIKE LOWER(?)
+                OR LOWER(COALESCE(assigned_to,'')) LIKE LOWER(?)
+                OR LOWER(COALESCE(notes,'')) LIKE LOWER(?)
+            ))
+            ORDER BY created_at DESC, request_id DESC LIMIT ? OFFSET ?"""
+        filter_values = (
+            property_id, department, department,
+            status, status, status, now, now + 300, status, now,
+            status, local_day_start, local_day_end,
+            status, status, status, status, status, status, status,
+            search_pattern, search_pattern, search_pattern, search_pattern,
+            search_pattern, search_pattern, search_pattern, search_pattern,
+        )
+
+        with self._connect() as db:
+            summary_row = db.execute(
+                summary_sql,
+                (now, now + 300, now, local_day_start, local_day_end, property_id, department, department),
+            ).fetchone()
+            total = int(db.execute(filtered_count_sql, filter_values).fetchone()[0])
+            summary_values = dict(summary_row)
+            all_total = int(summary_values["total"])
+            effective_offset = min(offset, max(((total - 1) // limit) * limit, 0))
+            rows = db.execute(filtered_page_sql, (*filter_values, limit, effective_offset)).fetchall()
+            summary = {
+                key: int(summary_values[key])
+                for key in ("open", "in_progress", "due_soon", "overdue", "completed_today")
+            }
+            return {
+                "service_requests": [self._service_dict(row) for row in rows],
+                "total": total,
+                "all_total": all_total,
+                "limit": limit,
+                "offset": effective_offset,
+                "summary": summary,
             }
 
     def guest_facilities(self, property_id: str) -> dict[str, Any]:

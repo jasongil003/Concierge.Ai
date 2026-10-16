@@ -65,11 +65,55 @@ def test_guest_confirmation_creates_trackable_request(admin_client, tmp_path: Pa
     assert request_record["sla_target_seconds"] == 1200
 
     overview = admin_client.get(f"/api/admin/properties/{property_id}/hospitality").json()
-    assert overview["service_requests"][0]["request_id"] == request_record["request_id"]
+    assert overview["service_requests"] == []
+    request_page = admin_client.get(f"/api/admin/properties/{property_id}/service-requests?status=all")
+    assert request_page.status_code == 200, request_page.text
+    assert request_page.json()["service_requests"][0]["request_id"] == request_record["request_id"]
     history = admin_client.get(
         f"/api/admin/properties/{property_id}/service-requests/{request_record['request_id']}/history"
     ).json()["history"]
     assert history[0]["action"] == "created"
+
+
+def test_admin_service_requests_are_filtered_and_paginated_across_the_property(admin_client, tmp_path: Path, monkeypatch):
+    hospitality = HospitalityStore(tmp_path / "paged-requests.db")
+    monkeypatch.setattr(main_module, "hospitality", hospitality)
+    property_id = admin_client.get("/api/admin/properties").json()["properties"][0]["property_id"]
+    created = []
+    for index in range(55):
+        created.append(hospitality.create_service_request(property_id, {
+            "description": "Unique Needle in the queue" if index == 0 else f"Routine request {index}",
+            "room": "Needle Room" if index == 0 else str(400 + index),
+            "department": "Housekeeping",
+        }))
+    completed = hospitality.update_service_status(property_id, created[-1]["request_id"], "completed")
+    hospitality.create_service_request("other-property", {"description": "Other property must stay hidden"})
+
+    first = admin_client.get(f"/api/admin/properties/{property_id}/service-requests?limit=10&offset=0&status=all")
+    second = admin_client.get(f"/api/admin/properties/{property_id}/service-requests?limit=10&offset=10&status=all")
+    assert first.status_code == second.status_code == 200
+    first_page, second_page = first.json(), second.json()
+    assert first_page["total"] == first_page["all_total"] == 55
+    assert len(first_page["service_requests"]) == len(second_page["service_requests"]) == 10
+    assert first_page["offset"] == 0 and second_page["offset"] == 10
+    expected = sorted(created, key=lambda item: (item["created_at"], item["request_id"]), reverse=True)
+    assert [item["request_id"] for item in first_page["service_requests"] + second_page["service_requests"]] == [item["request_id"] for item in expected[:20]]
+    assert not ({item["request_id"] for item in first_page["service_requests"]} & {item["request_id"] for item in second_page["service_requests"]})
+
+    searched = admin_client.get(f"/api/admin/properties/{property_id}/service-requests?status=all&q=unique%20needle")
+    assert searched.status_code == 200
+    assert searched.json()["total"] == 1
+    assert searched.json()["service_requests"][0]["request_id"] == created[0]["request_id"]
+
+    open_page = admin_client.get(f"/api/admin/properties/{property_id}/service-requests?status=open")
+    completed_today = admin_client.get(f"/api/admin/properties/{property_id}/service-requests?status=completed_today")
+    assert open_page.json()["total"] == 54
+    assert open_page.json()["summary"]["open"] == 54
+    assert completed_today.json()["total"] == 1
+    assert completed_today.json()["service_requests"][0]["request_id"] == completed["request_id"]
+    assert completed_today.json()["summary"]["completed_today"] == 1
+    assert admin_client.get(f"/api/admin/properties/{property_id}/service-requests?limit=101").status_code == 422
+    assert admin_client.get(f"/api/admin/properties/{property_id}/service-requests?status=made_up").status_code == 422
 
 
 def test_guest_service_request_is_idempotent(admin_client, tmp_path: Path, monkeypatch):

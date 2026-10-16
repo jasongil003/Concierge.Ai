@@ -72,6 +72,7 @@ def test_restaurant_manager_and_staff_are_limited_to_assigned_restaurants(tmp_pa
         assert "internal_notes" not in restaurants[0]
         overview = manager_client.get("/api/admin/properties/hotel-a/hospitality").json()
         assert [item["restaurant_id"] for item in overview["restaurants"]] == [grill["restaurant_id"]]
+        assert manager_client.get("/api/admin/properties/hotel-a/service-requests").status_code == 403
         inbox_page = manager_client.get("/api/admin/properties/hotel-a/conversations?limit=1&offset=0")
         assert inbox_page.status_code == 200, inbox_page.text
         inbox_payload = inbox_page.json()

@@ -26,7 +26,7 @@ from email.message import EmailMessage
 from urllib.parse import quote, urlparse, urlsplit
 
 import httpx
-from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
@@ -6015,7 +6015,7 @@ async def hospitality_overview(property_id: str, request: Request) -> dict[str, 
     all_restaurants = principal.can("properties.all") or principal.can("properties.edit")
     assigned_ids = None if all_restaurants else _assigned_restaurant_ids(principal, property_id)
     department_id = principal.department_id if principal.role_slug == "department-manager" else None
-    overview = hospitality.overview(property_id, assigned_ids, department_id)
+    overview = hospitality.overview(property_id, assigned_ids, department_id, include_service_requests=False)
     if department_id is not None:
         catalog = hospitality.catalog(property_id, department_id=department_id)
         return {
@@ -6038,6 +6038,35 @@ async def hospitality_overview(property_id: str, request: Request) -> dict[str, 
         overview.pop("service_requests", None)
         overview.pop("notification_rules", None)
     return overview
+
+
+@app.get("/api/admin/properties/{property_id}/service-requests")
+async def list_admin_service_requests(
+    property_id: str,
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=1_000_000),
+    status: str = Query(default="open", max_length=30),
+    q: str = Query(default="", max_length=120),
+) -> dict[str, Any]:
+    _require_property(property_id)
+    principal = _admin_principal(request)
+    if not principal.can("requests.view"):
+        raise HTTPException(status_code=403, detail="This account cannot view guest requests.")
+    department = _department_scope_name(principal, property_id)
+    property_record = properties.get(property_id)
+    try:
+        return hospitality.service_request_page(
+            property_id,
+            limit=limit,
+            offset=offset,
+            status=status,
+            search=q,
+            department=department,
+            timezone_name=property_record.timezone if property_record else "UTC",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.get("/api/admin/properties/{property_id}/service-catalog")

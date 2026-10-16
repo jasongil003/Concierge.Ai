@@ -86,3 +86,11 @@ Draft [PR #63](https://github.com/jasongil003/Concierge.Ai/pull/63) is mergeable
 - Hosted run [#261](https://github.com/jasongil003/Concierge.Ai/actions/runs/38868604334) completed with **9/10 jobs passing**: backend **1,349 passed, 19 skipped**; browser **357 passed, 41 skipped, 0 failed**; PostgreSQL/Redis, Docker, dependency audits, static security, and Linux/macOS deployment passed.
 - PR-diff and current-worktree Gitleaks scans were clear. The forced-text full-history scan again found three known historical findings; no credential values are copied here.
 - Release remains **RED**. Main branch protection is still unavailable to this integration (HTTP 403); privacy-owner approval, issuer-side credential revocation, authorized history cleanup, hotel/device acceptance, and live integrations remain external gates. No merge or deployment occurred.
+
+## 2026-10-16 Guest Requests pagination follow-up
+
+- The Guest Requests queue now uses `GET /api/admin/properties/{property_id}/service-requests` with stable server pages (50 by default, maximum 100), server-side status and text filters, property-local completed-today logic, and summary counts over the full authorized property or department scope. The general hospitality overview no longer transfers all service-request records.
+- `tests/test_service_catalog.py`, `tests/test_department_rbac_scope.py`, and `tests/test_restaurant_workflows.py`: **19 passed**. This covers paging across 55 records, no overlap across pages, stable tie ordering, cross-page search, status totals, property/department scoping, and denial without `requests.view`.
+- Guest Requests Chromium browser checks: **3 passed**, including page navigation and full-queue counts. Bandit at medium severity/confidence, JS/Python syntax, and `git diff --check` passed.
+- The developer virtualenv lacks the declared `qrcode` package. The local API/browser harness used a temporary import-only stub that raises if invoked; no test in this workstream exercises QR generation. The stub and all temporary dependencies/output were removed. Hosted CI for this candidate is pending.
+- C-30 remains **PARTIAL** because other high-volume admin lists have not been paginated. Release remains **RED** pending hosted checks and the documented owner/integration/device gates.
