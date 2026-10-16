@@ -642,6 +642,58 @@ class AdminAuthStore:
             rows = db.execute(query, params).fetchall()
         return [self._serialize_user(row) | {"restaurant_ids": self._restaurant_ids_for_user(row["user_id"])} for row in rows]
 
+    def list_users_page(
+        self,
+        principal: AdminPrincipal,
+        *,
+        search: str = "",
+        status: str = "",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        bounded_limit = max(1, min(int(limit), 100))
+        bounded_offset = max(0, min(int(offset), 1_000_000))
+        normalized_search = str(search or "").strip().lower()
+        normalized_status = str(status or "").strip().lower()
+        if len(normalized_search) > 120:
+            raise ValueError("User search must be 120 characters or fewer.")
+        if normalized_status not in {"", "active", "disabled", "locked"}:
+            raise ValueError("Choose a valid user status.")
+
+        clauses: list[str] = []
+        params: list[Any] = []
+        if not principal.can("properties.all"):
+            clauses.append("u.property_id = ?")
+            params.append(principal.property_id)
+        if normalized_search:
+            escaped_search = normalized_search.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+            search_pattern = f"%{escaped_search}%"
+            clauses.append("(LOWER(u.username) LIKE ? ESCAPE '!' OR LOWER(u.display_name) LIKE ? ESCAPE '!')")
+            params.extend((search_pattern, search_pattern))
+        if normalized_status:
+            clauses.append("u.status = ?")
+            params.append(normalized_status)
+        where = "WHERE " + " AND ".join(clauses) if clauses else ""
+        from_clause = "FROM admin_users u JOIN admin_roles r ON r.role_id = u.role_id"
+
+        with self._connect() as db:
+            total_row = db.execute(f"SELECT COUNT(*) AS total {from_clause} {where}", params).fetchone()
+            total = int(total_row["total"] if total_row else 0)
+            bounded_offset = min(bounded_offset, ((total - 1) // bounded_limit) * bounded_limit) if total else 0
+            rows = db.execute(
+                f"""
+                SELECT u.*, r.name AS role_name, r.slug AS role_slug,
+                       (SELECT COUNT(*) FROM admin_sessions s WHERE s.user_id = u.user_id
+                        AND s.revoked_at IS NULL AND s.expires_at > ?) AS active_sessions
+                {from_clause} {where}
+                ORDER BY u.created_at DESC, u.user_id DESC
+                LIMIT ? OFFSET ?
+                """,
+                [int(time.time()), *params, bounded_limit, bounded_offset],
+            ).fetchall()
+        users = [self._serialize_user(row) | {"restaurant_ids": self._restaurant_ids_for_user(row["user_id"])} for row in rows]
+        return {"users": users, "total": total, "limit": bounded_limit, "offset": bounded_offset}
+
     def get_user(self, user_id: str) -> dict[str, Any] | None:
         with self._connect() as db:
             row = db.execute(

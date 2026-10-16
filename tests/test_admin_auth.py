@@ -676,6 +676,70 @@ def test_user_custom_role_and_password_management(auth_client: TestClient):
     ).status_code == 200
 
 
+
+def test_admin_user_list_is_paginated_filtered_and_stable(auth_client: TestClient):
+    csrf = login(auth_client)
+    for index in range(5):
+        response = auth_client.post(
+            "/api/admin/users",
+            headers={"X-CSRF-Token": csrf},
+            json={
+                "username": f"page-user-{index}",
+                "display_name": f"Page User {index}",
+                "password": "PageUserPassword123!",
+                "property_id": "tenant-a",
+                "role_id": "role-property-administrator",
+                "status": "disabled" if index == 4 else "active",
+            },
+        )
+        assert response.status_code == 200, response.text
+
+    first = auth_client.get("/api/admin/users?limit=2&offset=0").json()
+    second = auth_client.get("/api/admin/users?limit=2&offset=2").json()
+    assert first["total"] == second["total"] == 6
+    assert len(first["users"]) == len(second["users"]) == 2
+    repeated_first = auth_client.get("/api/admin/users?limit=2&offset=0").json()
+    assert [user["id"] for user in repeated_first["users"]] == [user["id"] for user in first["users"]]
+    first_ids = {user["id"] for user in first["users"]}
+    second_ids = {user["id"] for user in second["users"]}
+    assert first_ids.isdisjoint(second_ids)
+
+    stale = auth_client.get("/api/admin/users?limit=2&offset=1000000").json()
+    assert stale["offset"] == 4
+    assert len(stale["users"]) == 2
+
+    filtered = auth_client.get("/api/admin/users?q=PAGE-USER-3&status=active").json()
+    assert filtered["total"] == 1
+    assert [user["username"] for user in filtered["users"]] == ["page-user-3"]
+    assert auth_client.get("/api/admin/users?status=unknown").status_code == 422
+    assert auth_client.get("/api/admin/users?limit=0").status_code == 422
+    assert auth_client.get("/api/admin/users?offset=-1").status_code == 422
+
+
+def test_paginated_admin_user_list_keeps_property_scope(auth_client: TestClient):
+    csrf = login(auth_client)
+    main_module.properties.upsert(PropertyRecord(property_id="tenant-b", hotel_name="Test Tenant B"))
+    for username, property_id in (("tenant-a-admin", "tenant-a"), ("tenant-b-admin", "tenant-b")):
+        response = auth_client.post(
+            "/api/admin/users",
+            headers={"X-CSRF-Token": csrf},
+            json={
+                "username": username,
+                "display_name": username,
+                "password": "PropertyAdminPassword123!",
+                "property_id": property_id,
+                "role_id": "role-property-administrator",
+                "status": "active",
+                "force_password_change": False,
+            },
+        )
+        assert response.status_code == 200, response.text
+
+    login(auth_client, "tenant-a-admin", "PropertyAdminPassword123!")
+    result = auth_client.get("/api/admin/users?limit=100").json()
+    assert result["total"] >= 1
+    assert {user["property_id"] for user in result["users"]} == {"tenant-a"}
+
 def test_property_role_cannot_cross_tenant(auth_store: AdminAuthStore, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(main_module, "admin_auth", auth_store)
     super_token, super_principal = auth_store.login("admin", ADMIN_PASSWORD, "10.0.0.1", "test")

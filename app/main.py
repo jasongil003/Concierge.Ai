@@ -2335,8 +2335,19 @@ async def delete_admin_role(role_id: str, request: Request) -> dict[str, str]:
 
 
 @app.get("/api/admin/users")
-async def list_admin_users(request: Request) -> dict[str, Any]:
-    return {"users": admin_auth.list_users(_admin_principal(request))}
+async def list_admin_users(
+    request: Request,
+    q: str = Query(default="", max_length=120),
+    status: str = Query(default="", max_length=20),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=1_000_000),
+) -> dict[str, Any]:
+    try:
+        return admin_auth.list_users_page(
+            _admin_principal(request), search=q, status=status, limit=limit, offset=offset
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.post("/api/admin/users")
