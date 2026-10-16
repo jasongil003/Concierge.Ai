@@ -82,6 +82,47 @@ def test_current_alembic_revision_and_bounded_connection_pool():
         assert dict(conflict_types) == {"created_at": "bigint", "created_at_us": "bigint"}
 
 
+def test_postgres_guest_stay_retention_is_checkout_scoped_and_atomic(tmp_path, monkeypatch):
+    _configure()
+    import app.guest_identity as identity_module
+    from app.guest_identity import GuestIdentityStore
+
+    monkeypatch.setattr(identity_module, "_now", lambda: 1_000)
+    first = GuestIdentityStore(tmp_path / "postgres-guest-retention.db")
+    second = GuestIdentityStore(tmp_path / "postgres-guest-retention.db")
+    property_a = f"pg-retention-a-{uuid.uuid4().hex[:10]}"
+    property_b = f"pg-retention-b-{uuid.uuid4().hex[:10]}"
+    raw_mac = "02:00:00:00:00:91"
+    device_a = first.observe_device(property_a, raw_mac)
+    device_b = first.observe_device(property_b, raw_mac)
+    stay_a = first.reconnect_or_create_stay(
+        property_a, device_a, concierge_session_id=f"pg-session-a-{uuid.uuid4().hex}", retention_days=0,
+    )
+    stay_b = first.reconnect_or_create_stay(
+        property_b, device_b, concierge_session_id=f"pg-session-b-{uuid.uuid4().hex}", retention_days=0,
+    )
+
+    assert stay_a["retention_until"] is None
+    with connect_database(tmp_path / "postgres-guest-retention.db") as db:
+        db.execute("UPDATE concierge_stays SET retention_until=999 WHERE property_id=? AND stay_id=?", (property_a, stay_a["stay_id"]))
+    assert first.cleanup_retention(property_id=property_a, now=1_000) == 0
+    assert first.list_stays(property_a)[0]["stay_id"] == stay_a["stay_id"]
+
+    first.checkout(property_a, stay_a["stay_id"])
+    barrier = threading.Barrier(2)
+
+    def cleanup(store):
+        barrier.wait()
+        return store.cleanup_retention(property_id=property_a, now=1_000)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(cleanup, (first, second)))
+
+    assert sorted(results) == [0, 1]
+    assert first.list_stays(property_a) == []
+    assert [row["stay_id"] for row in second.list_stays(property_b)] == [stay_b["stay_id"]]
+
+
 def test_postgres_schema_inspection_admin_creation_and_assignment_validation(tmp_path):
     _configure()
     from app.admin_auth import AdminAuthStore
