@@ -169,3 +169,16 @@ The browser mock correction is in the next candidate update. Keep release accept
 | Forced-text full-history Gitleaks scan | **FAIL / RELEASE BLOCKER:** three known historical findings | Hosted CI run #261. Values omitted; issuer revocation and repository-owner-authorized history cleanup remain required. |
 
 Run #261 completed with **9/10 jobs passing**. The candidate was tested without merge or deployment. Release acceptance remains **RED** until the historical-secret, branch-protection, policy, live-integration and hotel-device gates are closed.
+
+## 2026-10-16 Guest Requests pagination follow-up
+
+| Check | Result | Scope / limit |
+| --- | --- | --- |
+| Service-request API, property isolation, department scope, and read-permission regressions | **PASS:** 19 passed | Three focused test modules; 55-record paging, stable ordering, server-side search/status filtering, property-local completed-today, and role boundaries. |
+| Guest Requests browser flow | **PASS:** 3 passed | Chromium; queue refresh, summary/status filtering, and bounded next/previous navigation. |
+| Direct SQLite page/summary smoke | **PASS** | Temporary database; stable limit/offset, open/completed-today counts and search. |
+| Bandit medium severity/confidence; Python/JavaScript syntax; `git diff --check` | **PASS** | No new threshold findings. Existing repository `nosec`/Bandit comment warnings remain. |
+| Local API/browser dependency setup | **LIMITED** | The developer virtualenv lacks declared `qrcode`; a temporary fail-closed import stub was used only to boot the app for request-only cases, and was not invoked. QR functionality is outside this test scope. |
+| Hosted CI | **PENDING** | Publication of this candidate is required before hosted acceptance can be assessed. |
+
+C-30 remains **PARTIAL** because only the Conversations inbox and Guest Requests queue are paginated; other high-volume admin lists remain open. Release remains **RED** pending hosted checks and external security, governance, property-policy, live-integration, and device gates.

@@ -7583,16 +7583,17 @@ function serviceRequestCompletedToday(request, today = serviceRequestDateKey(Dat
     && serviceRequestDateKey(request.completed_at) === today;
 }
 
+let serviceRequestPageOffset = 0;
+const serviceRequestPageLimit = 50;
+let serviceRequestFilteredTotal = 0;
+let serviceRequestAllTotal = 0;
+let serviceRequestSummary = {};
+let serviceRequestLoadVersion = 0;
+let serviceRequestPagePropertyId = "";
+let serviceRequestSearchTimer = null;
+
 function renderServiceRequestSummary() {
-  const requests = state.serviceRequests || [];
-  const open = requests.filter(serviceRequestIsOpen);
-  const counts = {
-    open: open.length,
-    in_progress: open.filter((request) => request.status === "in_progress").length,
-    due_soon: open.filter((request) => request.sla_state === "warning").length,
-    overdue: open.filter((request) => request.sla_state === "overdue").length,
-    completed_today: requests.filter((request) => serviceRequestCompletedToday(request)).length,
-  };
+  const counts = serviceRequestSummary;
   for (const [key, count] of Object.entries(counts)) $(`request-count-${key}`).textContent = count;
   const activeFilter = $("service-request-status-filter").value || "all";
   for (const card of document.querySelectorAll("[data-request-filter]")) {
@@ -7631,30 +7632,29 @@ function renderServiceRequestHistory(request, container) {
 function renderServiceRequests() {
   const list = $("service-request-list");
   const requests = state.serviceRequests || [];
-  const filter = $("service-request-status-filter").value;
-  const query = $("service-request-search").value.trim().toLowerCase();
-  const today = serviceRequestDateKey(Date.now() / 1000);
   renderServiceRequestSummary();
-  const matching = requests.filter((request) => {
-    const matchesFilter = !filter
-      || filter === "all"
-      || (filter === "open" && serviceRequestIsOpen(request))
-      || (filter === "due_soon" && serviceRequestIsOpen(request) && request.sla_state === "warning")
-      || (filter === "overdue" && serviceRequestIsOpen(request) && request.sla_state === "overdue")
-      || (filter === "completed_today" && serviceRequestCompletedToday(request, today))
-      || request.status === filter;
-    const searchText = [request.request_id, request.request_type, request.room, request.description, request.department, request.assigned_to, ...(request.notes || []).map((note) => note.text)].join(" ").toLowerCase();
-    return matchesFilter && (!query || searchText.includes(query));
-  });
-  $("service-request-result-count").textContent = `${matching.length} ${matching.length === 1 ? "request" : "requests"}`;
+  const first = serviceRequestFilteredTotal ? serviceRequestPageOffset + 1 : 0;
+  const last = Math.min(serviceRequestPageOffset + requests.length, serviceRequestFilteredTotal);
+  const totalLabel = serviceRequestAllTotal !== serviceRequestFilteredTotal
+    ? ` · ${serviceRequestAllTotal} total`
+    : "";
+  $("service-request-result-count").textContent = serviceRequestFilteredTotal
+    ? `${first}–${last} of ${serviceRequestFilteredTotal} matching${totalLabel}`
+    : `0 matching${totalLabel}`;
+  const pageCount = Math.ceil(serviceRequestFilteredTotal / serviceRequestPageLimit);
+  $("service-request-page-info").textContent = pageCount
+    ? `Page ${Math.floor(serviceRequestPageOffset / serviceRequestPageLimit) + 1} of ${pageCount}`
+    : "No pages";
+  $("service-request-page-previous").disabled = serviceRequestPageOffset === 0 || !serviceRequestFilteredTotal;
+  $("service-request-page-next").disabled = serviceRequestPageOffset + serviceRequestPageLimit >= serviceRequestFilteredTotal;
   list.replaceChildren();
-  if (!matching.length) {
+  if (!requests.length) {
     const empty = document.createElement("div");
     empty.className = "request-queue-empty";
     const title = document.createElement("strong");
-    title.textContent = requests.length ? "No requests match these filters" : "No service requests yet";
+    title.textContent = serviceRequestAllTotal ? "No requests match these filters" : "No service requests yet";
     const message = document.createElement("span");
-    message.textContent = requests.length
+    message.textContent = serviceRequestAllTotal
       ? "Change the status filter or search term to see other requests."
       : "Guest-submitted and staff-created requests will appear here for assignment and follow-up.";
     empty.append(title, message);
@@ -7673,7 +7673,7 @@ function renderServiceRequests() {
     cell.append(make("span", "", label), make("strong", "", value || "Not set"));
     grid.appendChild(cell);
   };
-  for (const request of matching) {
+  for (const request of requests) {
     const card = make("article", "service-request-card");
     const header = make("header", "service-request-card-header");
     const title = make("div", "service-request-card-title");
@@ -7780,24 +7780,43 @@ function renderServiceRequests() {
   }
 }
 
-async function loadServiceRequests() {
+async function loadServiceRequests({ resetPage = false } = {}) {
+  const propertyId = currentPropertyId();
+  if (serviceRequestPagePropertyId !== propertyId) {
+    serviceRequestPagePropertyId = propertyId;
+    serviceRequestPageOffset = 0;
+  }
+  if (resetPage) serviceRequestPageOffset = 0;
+  const version = ++serviceRequestLoadVersion;
   const button = $("refresh-service-requests");
   const originalLabel = button?.textContent || "Refresh";
   if (button) { button.disabled = true; button.textContent = "Refreshing…"; }
   try {
     await loadServiceCatalog();
-    const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/hospitality`);
+    if (version !== serviceRequestLoadVersion || propertyId !== currentPropertyId()) return;
+    const params = new URLSearchParams({
+      limit: String(serviceRequestPageLimit),
+      offset: String(serviceRequestPageOffset),
+      status: $("service-request-status-filter").value || "all",
+      q: $("service-request-search").value.trim(),
+    });
+    const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}/service-requests?${params.toString()}`);
+    if (version !== serviceRequestLoadVersion || propertyId !== currentPropertyId()) return;
     state.serviceRequests = Array.isArray(data.service_requests) ? data.service_requests : [];
+    serviceRequestFilteredTotal = Number.isInteger(data.total) ? data.total : state.serviceRequests.length;
+    serviceRequestAllTotal = Number.isInteger(data.all_total) ? data.all_total : serviceRequestFilteredTotal;
+    serviceRequestPageOffset = Number.isInteger(data.offset) ? data.offset : serviceRequestPageOffset;
+    serviceRequestSummary = data.summary && typeof data.summary === "object" ? data.summary : {};
     renderServiceRequests();
     $("request-last-updated").textContent = `Updated ${new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(new Date())}`;
   } finally {
-    if (button) { button.disabled = false; button.textContent = originalLabel; }
+    if (version === serviceRequestLoadVersion && button) { button.disabled = false; button.textContent = originalLabel; }
   }
 }
 
 async function updateServiceRequest(requestId, payload) {
   await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/service-requests/${encodeURIComponent(requestId)}`, { method: "PUT", body: JSON.stringify(payload) });
-  await loadServiceRequests(); showToast("Service request details saved.");
+  await loadServiceRequests({ resetPage: true }); showToast("Service request details saved.");
 }
 
 function nextServiceStatus(status) {
@@ -7823,7 +7842,7 @@ async function createServiceRequest() {
   });
   $("service-description").value = "";
   updateCreateServiceRequestButton();
-  await loadServiceRequests();
+  await loadServiceRequests({ resetPage: true });
   showToast("Service request created.");
 }
 
@@ -7832,7 +7851,7 @@ async function updateServiceStatus(requestId, status) {
     method: "PUT",
     body: JSON.stringify({ status }),
   });
-  await loadServiceRequests();
+  await loadServiceRequests({ resetPage: true });
   showToast("Service request updated.");
 }
 
@@ -9329,11 +9348,23 @@ function setup() {
   $("service-description").addEventListener("input", updateCreateServiceRequestButton);
   $("service-sla").addEventListener("input", updateCreateServiceRequestButton);
   $("refresh-service-requests").addEventListener("click", () => loadServiceRequests().catch((error) => showToast(error.message, "error")));
-  $("service-request-search").addEventListener("input", renderServiceRequests);
-  $("service-request-status-filter").addEventListener("change", renderServiceRequests);
+  $("service-request-search").addEventListener("input", () => {
+    clearTimeout(serviceRequestSearchTimer);
+    serviceRequestSearchTimer = setTimeout(() => loadServiceRequests({ resetPage: true }).catch((error) => showToast(error.message, "error")), 250);
+  });
+  $("service-request-status-filter").addEventListener("change", () => loadServiceRequests({ resetPage: true }).catch((error) => showToast(error.message, "error")));
+  $("service-request-page-previous").addEventListener("click", () => {
+    serviceRequestPageOffset = Math.max(0, serviceRequestPageOffset - serviceRequestPageLimit);
+    loadServiceRequests().catch((error) => showToast(error.message, "error"));
+  });
+  $("service-request-page-next").addEventListener("click", () => {
+    if (serviceRequestPageOffset + serviceRequestPageLimit >= serviceRequestFilteredTotal) return;
+    serviceRequestPageOffset += serviceRequestPageLimit;
+    loadServiceRequests().catch((error) => showToast(error.message, "error"));
+  });
   for (const card of document.querySelectorAll("[data-request-filter]")) card.addEventListener("click", () => {
     $("service-request-status-filter").value = card.dataset.requestFilter === "all" ? "" : card.dataset.requestFilter;
-    renderServiceRequests();
+    loadServiceRequests({ resetPage: true }).catch((error) => showToast(error.message, "error"));
   });
   $("open-service-catalog").addEventListener("click", () => activatePanel("service-catalog"));
   $("save-department").addEventListener("click", () => saveDepartment().catch((error) => showToast(error.message, "error")));

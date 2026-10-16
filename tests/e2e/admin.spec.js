@@ -1991,11 +1991,26 @@ test("requests panel: operational summary counts and filters use property-local 
     { request_id: "done-today", status: "completed", sla_state: "completed", request_type: "Ice", room: "105", description: "Ice", completed_at: now, created_at: now, updated_at: now, notes: [] },
     { request_id: "done-before", status: "completed", sla_state: "completed", request_type: "Laundry", room: "106", description: "Laundry", completed_at: now - 172800, created_at: now - 172800, updated_at: now - 172800, notes: [] },
   ];
-  await page.route("**/api/admin/properties/*/hospitality", (route) => route.fulfill({
-    status: 200,
-    contentType: "application/json",
-    body: JSON.stringify({ service_requests: requests }),
-  }));
+  const summary = { open: 4, in_progress: 1, due_soon: 1, overdue: 1, completed_today: 1 };
+  await page.route("**/api/admin/properties/*/service-requests?*", (route) => {
+    const url = new URL(route.request().url());
+    const status = url.searchParams.get("status") || "all";
+    const filtered = requests.filter((item) => {
+      if (!status || status === "all") return true;
+      if (status === "open") return !["completed", "cancelled"].includes(item.status);
+      if (status === "due_soon") return item.sla_state === "warning";
+      if (status === "overdue") return item.sla_state === "overdue";
+      if (status === "completed_today") return item.request_id === "done-today";
+      return item.status === status;
+    });
+    const query = (url.searchParams.get("q") || "").toLowerCase();
+    const matching = query ? filtered.filter((item) => `${item.request_id} ${item.request_type} ${item.room} ${item.description}`.toLowerCase().includes(query)) : filtered;
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ service_requests: matching, total: matching.length, all_total: requests.length, limit: 50, offset: 0, summary }),
+    });
+  });
   await page.goto("/admin");
   await openPanel(page, "Guest Requests");
 
@@ -2007,9 +2022,54 @@ test("requests panel: operational summary counts and filters use property-local 
 
   for (const [filter, requestId] of [["in_progress", "progress-1"], ["due_soon", "soon-1"], ["overdue", "late-1"], ["completed_today", "done-today"]]) {
     await page.locator(`[data-request-filter="${filter}"]`).click();
-    await expect(page.locator("#service-request-result-count")).toHaveText("1 request");
+    await expect(page.locator("#service-request-result-count")).toContainText("1–1 of 1 matching");
     await expect(page.locator("#service-request-list")).toContainText(requestId);
   }
+});
+
+test("requests panel: pagination fetches bounded pages from the full queue", async ({ page }) => {
+  const requests = Array.from({ length: 55 }, (_, index) => ({
+    request_id: `request-${String(54 - index).padStart(3, "0")}`,
+    status: "new",
+    sla_state: "within_sla",
+    request_type: "Towels",
+    room: String(100 + index),
+    description: `Request ${index}`,
+    created_at: 1_800_000_000 - index,
+    updated_at: 1_800_000_000 - index,
+    notes: [],
+  }));
+  await page.route("**/api/admin/properties/*/service-requests?*", (route) => {
+    const url = new URL(route.request().url());
+    const limit = Number(url.searchParams.get("limit") || 50);
+    const offset = Number(url.searchParams.get("offset") || 0);
+    const query = (url.searchParams.get("q") || "").toLowerCase();
+    const filtered = requests.filter((item) => `${item.request_id} ${item.room} ${item.description}`.toLowerCase().includes(query));
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        service_requests: filtered.slice(offset, offset + limit),
+        total: filtered.length,
+        all_total: requests.length,
+        limit,
+        offset,
+        summary: { open: requests.length, in_progress: 0, due_soon: 0, overdue: 0, completed_today: 0 },
+      }),
+    });
+  });
+  await page.goto("/admin");
+  await openPanel(page, "Guest Requests");
+  await expect(page.locator("#service-request-result-count")).toContainText("1–50 of 55 matching");
+  await expect(page.locator("#service-request-list")).toContainText("request-054");
+  await expect(page.locator("#service-request-page-next")).toBeEnabled();
+  await page.locator("#service-request-page-next").click();
+  await expect(page.locator("#service-request-page-info")).toHaveText("Page 2 of 2");
+  await expect(page.locator("#service-request-result-count")).toContainText("51–55 of 55 matching");
+  await expect(page.locator("#service-request-list")).toContainText("request-000");
+  await expect(page.locator("#service-request-page-next")).toBeDisabled();
+  await page.locator("#service-request-page-previous").click();
+  await expect(page.locator("#service-request-page-info")).toHaveText("Page 1 of 2");
 });
 
 test("operations assistant formats evidence, completes the first reply, and keeps follow-up context", async ({ page }) => {

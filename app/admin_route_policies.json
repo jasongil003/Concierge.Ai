@@ -27,6 +27,10 @@
     "authentication": "required",
     "permission": "guest_sessions.view"
   },
+  "GET /api/admin/properties/{property_id}/service-requests": {
+    "authentication": "required",
+    "permission": "requests.view"
+  },
   "DELETE /api/admin/properties/{property_id}/departments/{department_id}": {
     "authentication": "required",
     "permission": "properties.edit"
