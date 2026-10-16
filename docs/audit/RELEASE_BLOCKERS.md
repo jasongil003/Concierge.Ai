@@ -1,7 +1,7 @@
 # Release blockers
 
 **Current `main` baseline:** `7185e18df2ae3b8f100804b7c3618a3909a831b6`
-**Current lifecycle implementation:** local branch `codex/guest-lifecycle-notifications-20261016`, commit and PR pending
+**Current lifecycle implementation:** local commit `7031cf0eca6a076d5ab80d650be0d0e05874598d`; published commit `03f07aa9cfbe2029943cdec013524a3e85b48889` in draft PR #61
 **Earlier audit code baseline:** `d5d006e89c38c0d901256d545679fee753175ef8`
 **Date:** 2026-10-16 (Asia/Manila)
 **Recommendation:** local synthetic demo only. Do not approve a hotel pilot or production rollout on this evidence.
@@ -16,8 +16,8 @@
 | P1 / request operations | Local proposal replay and concurrent idempotency are now verified (`tests/test_guest_personal_home.py`, `tests/test_service_catalog.py`); real staff fulfillment/delivery and SLAs remain unverified. | Validate staff queue permissions, delivery, acknowledgement, status transitions and property-approved SLA on an operational staging workflow. |
 | P1 / capacity | No production-like measurements for the requested 100 through 30,000 concurrent-user steps. | Run isolated progressive load and soak tests; record throughput, p50/p95/p99 latency, errors, CPU, memory, database/Redis load, provider quotas, and recovery at each step. Do not infer 30,000-user support from unit tests. |
 | P1 / recovery | No fresh native target-host install/upgrade/rollback/reboot or encrypted off-host backup/key recovery was performed. Prior isolated container receipts do not establish appliance reboot or off-host recovery. | Complete the clean-host Ubuntu and Apple Silicon acceptance runbooks, failure/reboot drills, and encrypted off-host restore/key recovery with synthetic data. |
-| P2 / governance | Current accessible ruleset `23912203` rejects deletion and non-fast-forward updates but does not require CI checks. The branch-protection API returned 403. CI run [#245](https://github.com/jasongil003/Concierge.Ai/actions/runs/38753064200) passed all reported checks except secret scan; it is on PR #60's head, not the current local branch. | Repository administrator configures required CI, secret-scan, and security checks through an authorized GitHub control plane and verifies them on a pull request. |
+| P2 / governance | Current accessible ruleset `23912203` rejects deletion and non-fast-forward updates but does not require CI checks. The branch-protection API returned 403. On PR #61, CI run [#246](https://github.com/jasongil003/Concierge.Ai/actions/runs/38835174052) completed: backend, browser, PostgreSQL/Redis, Docker, dependency audits, static security, and Linux/macOS deployment passed; the redacted current-worktree secret scan failed. | Repository administrator configures required CI, secret-scan, and security checks through an authorized GitHub control plane and verifies them on a pull request. |
 
 ## Current remote and evidence boundary
 
-GitHub connector metadata was refreshed on 2026-10-16. Open drafts #59 (facility-status notifications) and #60 (nearby Places permissions) remain unmerged; runs #240 and #245 failed in their secret-scan jobs while their backend, browser, PostgreSQL/Redis, deployment, Docker, and dependency/static-security jobs passed. The working branch changes are local and have not yet run on hosted CI. No gateway, customer data, production database, deployment configuration, or external provider was changed.
+GitHub connector metadata was refreshed on 2026-10-16. Drafts #59 (facility-status notifications) and #60 (nearby Places permissions) remain unmerged; runs #240 and #245 failed in their secret-scan jobs. Draft #61 carries the current lifecycle change; run #246 completed with secret scan failed and all other listed CI jobs passed. No gateway, customer data, production database, deployment configuration, or external provider was changed.

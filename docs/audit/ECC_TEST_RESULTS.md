@@ -92,16 +92,16 @@ Draft [PR #57](https://github.com/jasongil003/Concierge.Ai/pull/57) triggered [C
 
 ## 2026-10-16 guest lifecycle and notification change on `codex/guest-lifecycle-notifications-20261016`
 
-Base: fetched `main` `7185e18df2ae3b8f100804b7c3618a3909a831b6`. The code and audit updates are local and uncommitted; no hosted CI result exists for this branch yet.
+Base: fetched `main` `7185e18df2ae3b8f100804b7c3618a3909a831b6`. Local tested commit `7031cf0eca6a076d5ab80d650be0d0e05874598d` is published in draft [PR #61](https://github.com/jasongil003/Concierge.Ai/pull/61) at remote commit `03f07aa9cfbe2029943cdec013524a3e85b48889`. The full hosted run is [#246](https://github.com/jasongil003/Concierge.Ai/actions/runs/38835174052).
 
 | Check | Result | Scope / limit |
 | --- | --- | --- |
 | Focused lifecycle, consent, notification, and personalization tests | **PASS:** 48 passed, 2 warnings | Covers long stays, schema migration, checkout-based retention, reconnect, property isolation, concurrent cleanup, consent cascades, opt-out deletion/recovery, event suppression, DST, invalid timezone, and checkout preference purge. |
-| Full `.venv/bin/python -m pytest -q -rs` | **PASS:** 1,319 passed, 21 skipped, 2 warnings, 60.43 s | Local suite. PostgreSQL/Redis/backup and platform-dependent checks were skipped without their service/tooling. A PostgreSQL cleanup regression was added but is pending CI execution. Persistent SQLite safety check reported unchanged. |
+| Full `.venv/bin/python -m pytest -q -rs` | **PASS:** 1,319 passed, 21 skipped, 2 warnings, 60.43 s | Local suite. PostgreSQL/Redis/backup and platform-dependent checks were skipped without their service/tooling. The new PostgreSQL cleanup regression passed in hosted PostgreSQL/Redis integration on run #246. Persistent SQLite safety check reported unchanged. |
 | `npm run test:e2e -- --grep-invert @visual` | **PASS:** 339 passed, 39 skipped, 0 failed, 6.3 min | Desktop Chromium and mobile Chrome emulation; isolated local Playwright server and disposable test database. Existing project-specific and visual exclusions remain. Test-generated tracked screenshots/inventory were restored. |
 | `.venv/bin/python -m compileall -q app`, Bandit medium severity/confidence, `git diff --check` | **PASS** | Bandit exit 0 with existing `nosec` and comment warnings; no configured-threshold findings. |
-| `pip-audit -r requirements-dev.txt` | **NOT COMPLETED locally** | pip-audit failed while trying to upgrade temporary pip tooling in this restricted environment. No dependency files changed; hosted Python dependency audit passed on run #245 before this branch. |
+| `pip-audit -r requirements-dev.txt` | **NOT COMPLETED locally** | pip-audit failed while trying to upgrade temporary pip tooling in this restricted environment. No dependency files changed; hosted Python and Node dependency audits passed on run #246. |
 | Local Gitleaks | **NOT AVAILABLE** | The executable is not installed. Do not infer secret-scan success. |
-| Hosted CI | **NOT RUN on this branch** | Prior PR runs [#240](https://github.com/jasongil003/Concierge.Ai/actions/runs/38747435895) and [#245](https://github.com/jasongil003/Concierge.Ai/actions/runs/38753064200) passed backend, browser, PostgreSQL/Redis, Docker, deployment, dependency-audit, and static-security jobs, but failed `secret-scan`. These commits predate this change. |
+| Hosted CI #246 | **COMPLETED; all jobs passed except secret scan** | Backend passed (1,321 passed, 19 skipped), browser passed (339 passed, 39 skipped), PostgreSQL/Redis integration, Docker runtime, dependency audits, static security, and Linux/macOS deployment passed. Secret scan failed at its redacted current-worktree step; the later forced-text history step did not run. This is PR #61 head `03f07aa9cfbe2029943cdec013524a3e85b48889`. |
 
-The current branch does not contain dependency changes. No production data, gateway, provider account, or deployment configuration was accessed. Continue to treat the historical credential and missing required CI checks as open release blockers.
+The current branch does not contain dependency changes. No production data, gateway, provider account, or deployment configuration was accessed. Continue to treat the historical credential, failed current-worktree secret scan, and missing required CI checks as open release blockers.
