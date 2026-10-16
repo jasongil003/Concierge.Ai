@@ -91,4 +91,4 @@ def test_postgres_backup_restores_expected_records_to_clean_database(tmp_path: P
         with connect_database(tmp_path / "postgres-ignored.db") as connection:
             connection.execute("DELETE FROM properties WHERE property_id=?", (property_id,))
         with _connect(maintenance_url, autocommit=True) as connection:
-           
+            connection.execute(sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(target_database)))

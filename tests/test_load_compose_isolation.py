@@ -104,4 +104,6 @@ def test_base_and_load_compose_configuration_is_valid_and_network_isolated(tmp_p
     assert re.search(r"@sha256:[a-f0-9]{64}$", services["proxy"]["image"])
     assert any(
         port.get("published") == "18081" and port.get("host_ip") == "127.0.0.1"
-        for port in service
+        for port in services["proxy"]["ports"]
+    )
+    assert rendered["volumes"]["concierge-state"]["name"].startswith("concierge-load-audit_")

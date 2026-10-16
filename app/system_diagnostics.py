@@ -93,4 +93,50 @@ def provider_health(properties: list[object], store: object) -> dict[str, int | 
     summary: dict[str, int | str] = {"configured": 0, "healthy": 0, "unavailable": 0, "unknown": 0}
     for property_record in properties:
         property_id = getattr(property_record, "property_id", "")
-        if not isinstance(p
+        if not isinstance(property_id, str) or not property_id:
+            continue
+        try:
+            connections = store.list_connections(property_id)
+        except Exception:
+            summary["unknown"] = int(summary["unknown"]) + 1
+            continue
+        for connection in connections:
+            if not isinstance(connection, dict) or not connection.get("enabled"):
+                continue
+            status = connection.get("status")
+            if not isinstance(status, str):
+                status = ""
+            if status in {"not_configured", "local"}:
+                continue
+            summary["configured"] = int(summary["configured"]) + 1
+            if status in {"connected", "healthy", "ready"}:
+                summary["healthy"] = int(summary["healthy"]) + 1
+            elif status in {"failed", "error", "unavailable"}:
+                summary["unavailable"] = int(summary["unavailable"]) + 1
+            else:
+                summary["unknown"] = int(summary["unknown"]) + 1
+    if int(summary["unavailable"]):
+        summary["status"] = "degraded"
+    elif int(summary["unknown"]):
+        summary["status"] = "unknown"
+    elif int(summary["configured"]) == int(summary["healthy"]):
+        summary["status"] = "healthy"
+    else:
+        summary["status"] = "not_configured"
+    return summary
+
+
+def backup_directory(deployment_mode: str, *, configured: str = "") -> Path | None:
+    candidate = configured or os.getenv("CONCIERGE_BACKUP_DIR", "").strip()
+    if candidate:
+        return Path(candidate).expanduser()
+    if deployment_mode == "appliance":
+        if sys.platform == "darwin":
+            return Path("/Library/Application Support/Concierge.AI/Backups")
+        return Path("/var/backups/concierge")
+    return None
+
+
+def process_uptime(started_monotonic: float, now_monotonic: float | None = None) -> int:
+    now = time.monotonic() if now_monotonic is None else now_monotonic
+    return max(0, int(now - started_monotonic))

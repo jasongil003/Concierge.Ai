@@ -102,4 +102,34 @@ generate_config() {
     backup_encryption_key=$(openssl rand -hex 32)
     metrics_token=$(openssl rand -hex 32)
     umask 027
-    mkdir -p "$(dirna
+    mkdir -p "$(dirname "$config_path")"
+    {
+        printf "APP_ENVIRONMENT='production'\n"
+        printf "DB_PATH='%s/concierge.db'\n" "$state_path"
+        printf "UPLOAD_ROOT='%s/uploads'\n" "$state_path"
+        printf "CONCIERGE_BACKUP_DIR='%s'\n" "$backup_path"
+        printf "DATABASE_URL=''\nREDIS_URL=''\n"
+        printf "ADMIN_BOOTSTRAP_USERNAME='root'\nADMIN_BOOTSTRAP_PASSWORD='%s'\n" "$admin_bootstrap_password"
+        printf "METRICS_TOKEN='%s'\n" "$metrics_token"
+        printf "CANONICAL_HOSTS='%s'\nPUBLIC_BASE_URL='%s'\n" "$canonical_host" "$public_url"
+        printf "ADMIN_ALLOWED_CIDRS='%s,127.0.0.1/32,::1/128'\n" "$admin_cidrs"
+        printf "FORWARDED_ALLOW_IPS='%s'\n" "$forwarded_proxies"
+        printf "ADMIN_COOKIE_SECURE='true'\nAPP_DEBUG='false'\n"
+        printf "ALLOW_BODY_PROPERTY_SELECTION='false'\nALLOW_DEMO_SETTINGS='false'\n"
+        printf "ENABLE_BACKGROUND_WORKERS='true'\n"
+        printf "CREDENTIAL_ENCRYPTION_SECRET='%s'\n" "$credential_secret"
+        printf "CONCIERGE_BACKUP_ENCRYPTION_KEY='%s'\n" "$backup_encryption_key"
+        printf "AI_PROVIDER_MODE='auto'\nAI_DEFAULT_MODE='auto'\nLOCAL_AI_ENABLED='false'\nOLLAMA_BASE_URL='%s'\n" "$ollama_url"
+        printf "OLLAMA_MODEL='qwen3:8b'\nOLLAMA_THINK='false'\n"
+        printf "ANTLABS_MODE='browser_handoff'\nANTLABS_AUTH_URL='%s'\nANTLABS_AUTH_METHOD='POST'\n" "$antlabs_url"
+        printf "CONCIERGE_CONFIG_FILE='%s'\n" "$config_path"
+    } > "$config_path"
+    chmod 0640 "$config_path"
+    chown "root:${group_name}" "$config_path" 2>/dev/null || chown root:wheel "$config_path"
+    mkdir -p "$backup_path"
+    chmod 0700 "$backup_path"
+    if [ "$CONCIERGE_OS" = macos ]; then
+        chown root:_concierge "$backup_path"
+    fi
+    printf '\nThe initial administrator password was saved in the protected configuration and was not displayed.\n\n'
+}

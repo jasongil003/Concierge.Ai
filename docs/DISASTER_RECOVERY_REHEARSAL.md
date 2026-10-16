@@ -87,4 +87,27 @@ by the current repository audit.
    use it against the source appliance or a target with data that has not been
    backed up and independently approved for replacement. Restore validates
    the GCM authentication tag and archive manifest before applying the database
-   and uploads. Historical plaintext ZIPs are re
+   and uploads. Historical plaintext ZIPs are rejected unless
+   `--allow-legacy-unencrypted` is explicitly supplied for a trusted archive.
+4. Run `sudo concierge doctor`, then query `/health/live`, `/health/ready`, and
+   `/health/version`. Confirm the public version endpoint contains only
+   `status` and `version`. Sign in as Platform Admin and confirm
+   `/api/admin/system/diagnostics` is healthy and sanitized. Confirm the
+   restored property and a known non-sensitive record are present, upload files
+   open, and expected row/file counts match the source evidence.
+5. Through authenticated Platform Admin diagnostics, confirm restored provider
+   integrations report their expected configured or connected state. Do not
+   display, export, or record credential values. A controlled provider check
+   may use only an approved non-production endpoint and test credential.
+6. Verify the original source appliance remains unchanged and healthy. Confirm
+   the off-host archive checksum and separately escrowed keys remain
+   accessible to the recovery role. Remove disposable state using the approved
+   secure disposal process.
+
+## Rehearsal result
+
+Record PASS, FAIL, or NOT RUN for archive encryption, off-host transfer,
+checksum verification, independent key retrieval, clean-target restore,
+credential decryption validation, application startup, health checks,
+data/upload validation, source integrity, and cleanup. A local encrypted backup
+does not establish off-host recovery acceptance.
