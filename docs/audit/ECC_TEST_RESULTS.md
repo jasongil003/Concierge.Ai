@@ -92,7 +92,7 @@ Draft [PR #57](https://github.com/jasongil003/Concierge.Ai/pull/57) triggered [C
 
 ## 2026-10-16 guest lifecycle and notification change on `codex/guest-lifecycle-notifications-20261016`
 
-Base: fetched `main` `7185e18df2ae3b8f100804b7c3618a3909a831b6`. The code and audit updates are local and uncommitted; no hosted CI result exists for this branch yet.
+Base: fetched `main` `7185e18df2ae3b8f100804b7c3618a3909a831b6`. Local tested commit `7031cf0eca6a076d5ab80d650be0d0e05874598d` is published in draft [PR #61](https://github.com/jasongil003/Concierge.Ai/pull/61) at remote commit `03f07aa9cfbe2029943cdec013524a3e85b48889`. The full hosted run is [#246](https://github.com/jasongil003/Concierge.Ai/actions/runs/38835174052).
 
 | Check | Result | Scope / limit |
 | --- | --- | --- |
@@ -102,6 +102,6 @@ Base: fetched `main` `7185e18df2ae3b8f100804b7c3618a3909a831b6`. The code and au
 | `.venv/bin/python -m compileall -q app`, Bandit medium severity/confidence, `git diff --check` | **PASS** | Bandit exit 0 with existing `nosec` and comment warnings; no configured-threshold findings. |
 | `pip-audit -r requirements-dev.txt` | **NOT COMPLETED locally** | pip-audit failed while trying to upgrade temporary pip tooling in this restricted environment. No dependency files changed; hosted Python dependency audit passed on run #245 before this branch. |
 | Local Gitleaks | **NOT AVAILABLE** | The executable is not installed. Do not infer secret-scan success. |
-| Hosted CI | **NOT RUN on this branch** | Prior PR runs [#240](https://github.com/jasongil003/Concierge.Ai/actions/runs/38747435895) and [#245](https://github.com/jasongil003/Concierge.Ai/actions/runs/38753064200) passed backend, browser, PostgreSQL/Redis, Docker, deployment, dependency-audit, and static-security jobs, but failed `secret-scan`. These commits predate this change. |
+| Hosted CI #246 | **IN PROGRESS; secret scan FAILED** | Dependency audits, static-security, and Linux/macOS deployment passed. Secret scan failed at the redacted current-worktree scan. Backend, browser, PostgreSQL/Redis, and Docker jobs were still running at last check. This is current PR #61 head `03f07aa9cfbe2029943cdec013524a3e85b48889`. |
 
-The current branch does not contain dependency changes. No production data, gateway, provider account, or deployment configuration was accessed. Continue to treat the historical credential and missing required CI checks as open release blockers.
+The current branch does not contain dependency changes. No production data, gateway, provider account, or deployment configuration was accessed. Continue to treat the historical credential, failed current-worktree secret scan, and missing required CI checks as open release blockers.
