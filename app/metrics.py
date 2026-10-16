@@ -121,6 +121,11 @@ SERVICE_REQUESTS = Counter(
     ("result",),
     registry=REGISTRY,
 )
+SERVICE_REQUEST_ESCALATIONS = Counter(
+    "concierge_service_request_escalations_total",
+    "Overdue service requests queued for configured department escalation targets.",
+    registry=REGISTRY,
+)
 WORKER_FAILURES = Counter(
     "concierge_worker_failures_total",
     "Background worker failures.",

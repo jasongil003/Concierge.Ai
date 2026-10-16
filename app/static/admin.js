@@ -7836,6 +7836,7 @@ function renderServiceRequestHistory(request, container) {
     const detail = event.detail || {};
     if (event.action === "created") return "Request added to the queue";
     if (event.action === "status_changed") return `Status changed to ${serviceStatusLabel(detail.status)}`;
+    if (event.action === "overdue_escalation_queued") return `Overdue escalation queued for ${detail.target || "the configured department target"}`;
     const labels = { department: "Department", assigned_to: "Assigned to", priority: "Priority", note: "Note" };
     const changes = Object.entries(detail).map(([key, value]) => `${labels[key] || key.replaceAll("_", " ")}: ${value}`).filter(Boolean);
     return changes.length ? changes.join(" · ") : String(event.action || "Request updated").replaceAll("_", " ");
@@ -7912,6 +7913,11 @@ function renderServiceRequests() {
     const badges = make("div", "service-request-badges");
     badges.append(make("span", `request-status-badge status-${request.status}`, serviceStatusLabel(request.status)));
     badges.append(make("span", `request-sla-badge sla-${request.sla_state}`, serviceSlaLabel(request)));
+    if (request.escalation?.status === "queued") {
+      const escalation = make("span", "request-escalation-badge", "Escalation queued");
+      escalation.title = `Queued for ${request.escalation.target}`;
+      badges.append(escalation);
+    }
     header.append(title, badges);
     card.appendChild(header);
 

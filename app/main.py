@@ -300,6 +300,11 @@ async def lifespan(app: FastAPI):
                 metrics.WORKER_FAILURES.labels("guest_event_reminders").inc()
                 logger.error("Guest event reminder scheduling failed (%s)", exc.__class__.__name__)
             try:
+                await asyncio.to_thread(_queue_overdue_service_request_escalations)
+            except Exception as exc:
+                metrics.WORKER_FAILURES.labels("service_request_escalations").inc()
+                logger.error("Service request escalation scheduling failed (%s)", exc.__class__.__name__)
+            try:
                 await asyncio.to_thread(_dispatch_guest_inbox_notifications)
             except Exception as exc:
                 metrics.WORKER_FAILURES.labels("guest_notification_dispatch").inc()
@@ -6637,6 +6642,14 @@ def _queue_hotel_event_reminders(*, property_id: str | None = None, now: int | N
                     continue
                 queued_count += int(queued["created"])
     return queued_count
+
+
+def _queue_overdue_service_request_escalations(*, limit: int = 100, now: int | None = None) -> int:
+    """Persist bounded in-app escalation events; external delivery is not implied."""
+    queued = hospitality.queue_overdue_service_request_escalations(limit=limit, now=now)
+    if queued:
+        metrics.SERVICE_REQUEST_ESCALATIONS.inc(queued)
+    return queued
 
 
 def _upsert_facility_profile_with_guest_notice(
