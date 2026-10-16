@@ -111,3 +111,10 @@ The key is excluded from backup contents and hidden from the settings object's r
 - The scan's exact exception covers only a synthetic fixture removed from the current tree; no general rule or path was suppressed.
 - Off-host backup replication, separate key retrieval, legacy archive conversion/expiry, and clean-target recovery remain blocked. Q-23 remains **PARTIAL**; verified acceptance totals are unchanged and release remains **RED**.
 - No merge or deployment occurred. The 30,000-concurrent-user target remains deferred.
+
+## 2026-10-16 PR #63 hosted acceptance update — run #271
+
+- Code head `930e86def98ea8e0eb8f2ae2ed8c8bdb1ea1c734` completed hosted CI with **9/10 jobs passing**. Backend: **1,360 passed, 19 skipped**; browser: **361 passed, 41 skipped, 0 failed**.
+- The new admin audit-log pagination scenario passed on Chromium and mobile Chrome. The server returns filtered, property-scoped pages with stable ordering, bounded page sizes and offsets, total counts, and stale-offset clamping.
+- PostgreSQL/Redis, Docker runtime, dependency security, static security, and Linux/macOS deployment passed. Current-tree and PR-diff Gitleaks scans were clear; forced-text full-history scanning still reports three retained historical findings.
+- C-30 remains **PARTIAL** while other high-volume admin lists and collection-wide conversation search remain open. Release remains **RED**; Q-23 remains **PARTIAL**; no merge or deployment occurred. The 30,000-user target remains deferred.

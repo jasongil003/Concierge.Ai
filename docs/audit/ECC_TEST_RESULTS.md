@@ -205,3 +205,17 @@ The 30,000-concurrent-user requirement remains intentionally deferred. Q-23 stay
 | Forced-text full-history Gitleaks scan | **FAIL / RELEASE BLOCKER:** three historical findings | Values omitted. Credential issuer revocation and repository-owner-authorized shared-history cleanup remain outstanding. |
 
 Run #269 completed with **9/10 jobs passing**. The backup feature's external escrow, off-host restore, and clean-target recovery are still not operationally accepted. Q-23 remains **PARTIAL** and release acceptance remains **RED**; no merge or deployment occurred.
+
+## 2026-10-16 PR #63 hosted run #271 — admin audit pagination
+
+| Check | Result | Evidence / scope |
+| --- | --- | --- |
+| Focused audit API regression set | **PASS:** 3 passed | `tests/test_admin_auth.py -k audit`; covers stable bounded pages, stale-offset clamping, invalid bounds, and property-role scope. The local import harness supplied a qrcode stub that raises if QR generation is invoked. |
+| Admin audit page controls | **PASS** | `tests/e2e/admin.spec.js::audit log uses bounded server pages with working next and previous controls` passed in Chromium and mobile Chrome. |
+| Backend workflow suite | **PASS:** 1,360 passed, 19 skipped | Hosted CI [run #271](https://github.com/jasongil003/Concierge.Ai/actions/runs/38901494795), code head `930e86def98ea8e0eb8f2ae2ed8c8bdb1ea1c734`. |
+| Browser workflow suite | **PASS:** 361 passed, 41 skipped, 0 failed | Hosted CI run #271. |
+| PostgreSQL/Redis, Docker, dependency audits, static security, Linux/macOS deployment | **PASS** | Hosted CI run #271. |
+| PR-diff and current-tree Gitleaks scans | **PASS:** no findings | Hosted CI run #271. |
+| Forced-text full-history Gitleaks scan | **FAIL / RELEASE BLOCKER:** three retained historical findings | Values omitted. No new current-tree finding was reported. |
+
+Run #271 completed **9/10 jobs successfully**. C-30 remains **PARTIAL** because remaining high-volume admin lists and collection-wide conversation search are open. The PR remains draft and release acceptance remains **RED** pending historical-secret remediation and the documented branch-protection, policy, integration, recovery, and hotel-device gates; no merge or deployment occurred.
