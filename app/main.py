@@ -136,7 +136,14 @@ from .network_access import (
 )
 from .observability import DiagnosticContext, DiagnosticToolRegistry, ObservabilityStore, PERIODS, period_window
 from .outbound_http import OutboundRequestBroker, OutboundRequestError
-from .places import GooglePlaces, rank_places
+from .places import (
+    GooglePlaces,
+    contains_any_phrase,
+    has_activity_intent,
+    has_dining_intent,
+    rank_places,
+    required_category_permissions,
+)
 from .properties import AUTHENTICATION_RULES, DesignRevisionConflict, PropertyRecord, PropertyStore, default_design_config, validate_design_config
 from .guest_experience import COMPONENT_REGISTRY
 from .intelligent_ui import (
@@ -6940,9 +6947,8 @@ async def _chat_response(
                 except ValueError:
                     continue
     personalization_context = personalization.context_for(session.property_id, session.session_id, sanitized_message)
-    recommendation_text = sanitized_message.casefold()
-    dining_request = any(token in recommendation_text for token in ("restaurant", "eat", "hungry", "starving", "something to eat", "food", "dinner", "lunch", "breakfast", "cafe", "café"))
-    activity_request = any(token in recommendation_text for token in ("activity", "things to do", "plan", "attraction", "visit", "tour", "surprise", "do this", "do today", "afternoon", "free tonight", "hours free", "free before", "free for", "what should i do", "where can i go", "places to go", "near the hotel", "nearby", "around here"))
+    dining_request = has_dining_intent(sanitized_message)
+    activity_request = has_activity_intent(sanitized_message)
     dining_preferences = {"food", "dietary", "budget", "travel_party", "transportation", "accessibility"}
     activity_preferences = {"interests", "activities", "travel_party", "budget", "transportation", "accessibility", "activity_time", "trip_purpose"}
     uses_guest_recommendations = any(
@@ -7065,25 +7071,29 @@ async def _chat_response(
     allow_personalized_places = personalization_policy["enabled"] and personalization_policy["allow_internet_recommendations"]
     place_query = sanitized_message
     search_hints = personalization.search_hints(session.property_id, session.session_id, sanitized_message) if allow_personalized_places else ""
-    dining_search = any(token in sanitized_message.casefold() for token in ("restaurant", "eat", "hungry", "starving", "something to eat", "food", "dinner", "lunch", "breakfast", "cafe", "café"))
-    activity_search = any(token in sanitized_message.casefold() for token in ("activity", "things to do", "plan", "attraction", "visit", "tour", "surprise", "do this", "do today", "afternoon", "free tonight", "hours free", "free before", "free for", "what should i do", "where can i go", "places to go", "near the hotel", "nearby", "around here"))
+    dining_search = has_dining_intent(sanitized_message)
+    activity_search = has_activity_intent(sanitized_message)
     if search_hints and dining_search:
         place_query = f"{sanitized_message} {search_hints}"
     elif search_hints and activity_search:
         place_query = f"things to do near the hotel {search_hints}"
-    future_schedule_request = any(
-        token in sanitized_message.casefold()
-        for token in ("tonight", "tomorrow", "later", "this weekend", "next week", "saturday", "sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "free before", "hours free")
+    future_schedule_request = contains_any_phrase(
+        sanitized_message,
+        ("tonight", "tomorrow", "later", "this weekend", "next week", "saturday", "sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "free before", "hours free"),
     )
     prefer_open_now = not future_schedule_request
     nearby_status = "not_requested"
     nearby_request = places.should_search(place_query)
-    nearby_categories_enabled = any(policy[key] for key in ("restaurant_search_enabled", "attractions_enabled"))
+    required_nearby_permissions = required_category_permissions(place_query)
+    nearby_category_disabled = (
+        not any(policy[key] for key in ("restaurant_search_enabled", "attractions_enabled"))
+        or any(not policy[key] for key in required_nearby_permissions)
+    )
     if nearby_request and not policy["nearby_places_enabled"]:
         nearby_status = "disabled"
     elif nearby_request and not policy["internet_search_enabled"]:
         nearby_status = "disabled"
-    elif nearby_request and not nearby_categories_enabled:
+    elif nearby_request and nearby_category_disabled:
         nearby_status = "disabled"
     elif nearby_request and not privacy_consents.get(session.property_id, session.session_id)["external_data_processing"]:
         nearby_status = "consent_required"
