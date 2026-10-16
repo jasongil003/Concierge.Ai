@@ -352,6 +352,14 @@ class HospitalityStore:
                     touched_at INTEGER NOT NULL,
                     PRIMARY KEY(property_id,stay_id,category)
                 );
+                CREATE TABLE IF NOT EXISTS guest_notification_suppressions (
+                    property_id TEXT NOT NULL,
+                    stay_id TEXT NOT NULL,
+                    event_id TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    suppressed_at INTEGER NOT NULL,
+                    PRIMARY KEY(property_id,stay_id,event_id)
+                );
                 CREATE TABLE IF NOT EXISTS guest_journey_events (
                     journey_event_id TEXT PRIMARY KEY,
                     property_id TEXT NOT NULL,
@@ -1821,6 +1829,18 @@ class HospitalityStore:
             raise ValueError("Notification schedule must be a valid timestamp.")
 
         with self._connect() as db:
+            suppressed = db.execute(
+                """SELECT 1 FROM guest_notification_suppressions
+                   WHERE property_id=? AND stay_id=? AND event_id=?""",
+                (property_id, stay_id, event_id),
+            ).fetchone()
+            if suppressed:
+                return {
+                    "notification_id": "", "property_id": property_id,
+                    "stay_id": stay_id, "event_id": event_id, "category": category,
+                    "title": "", "body": "", "status": "expired", "created": False,
+                    "suppressed": True,
+                }
             existing = db.execute(
                 """SELECT * FROM guest_inbox_notifications
                    WHERE property_id=? AND stay_id=? AND event_id=?""",
@@ -2282,6 +2302,10 @@ class HospitalityStore:
                 "DELETE FROM guest_notification_frequency_locks WHERE property_id=? AND stay_id=?",
                 (property_id, stay_id),
             )
+            db.execute(
+                "DELETE FROM guest_notification_suppressions WHERE property_id=? AND stay_id=?",
+                (property_id, stay_id),
+            )
             return deleted
 
     def purge_guest_inbox_category(self, property_id: str, stay_id: str, category: str) -> int:
@@ -2291,10 +2315,26 @@ class HospitalityStore:
         if category not in NOTIFICATION_CATEGORIES:
             raise ValueError("Invalid notification category.")
         with self._connect() as db:
+            self._suppress_guest_inbox_events(db, property_id, stay_id, category, _now())
             return db.execute(
                 "DELETE FROM guest_inbox_notifications WHERE property_id=? AND stay_id=? AND category=?",
                 (property_id, stay_id, category),
             ).rowcount
+
+    @staticmethod
+    def _suppress_guest_inbox_events(db, property_id: str, stay_id: str, category: str, moment: int) -> None:
+        event_ids = db.execute(
+            """SELECT event_id FROM guest_inbox_notifications
+               WHERE property_id=? AND stay_id=? AND category=?""",
+            (property_id, stay_id, category),
+        ).fetchall()
+        for row in event_ids:
+            db.execute(
+                """INSERT INTO guest_notification_suppressions
+                   (property_id,stay_id,event_id,category,suppressed_at)
+                   VALUES(?,?,?,?,?) ON CONFLICT(property_id,stay_id,event_id) DO NOTHING""",
+                (property_id, stay_id, row["event_id"], category, moment),
+            )
 
     def cleanup_guest_inbox_retention(self, *, now: int | None = None, retention_days: int = 7) -> int:
         """Delete checked-out inbox data and aged expired messages.
@@ -2321,20 +2361,73 @@ class HospitalityStore:
                        SELECT 1 FROM concierge_stays s
                        WHERE s.property_id=guest_inbox_notifications.property_id
                          AND s.stay_id=guest_inbox_notifications.stay_id
-                         AND (s.status!='active' OR (s.retention_until IS NOT NULL AND s.retention_until<=?))
+                         AND s.status!='active'
                    )
                    OR (status='expired' AND expired_at IS NOT NULL AND expired_at<=?)""",
-                (moment, cutoff),
+                (cutoff,),
             ).rowcount
+            if table_exists(db, "guest_privacy_consents") and table_exists(db, "guest_sessions"):
+                optional_groups = db.execute(
+                    """SELECT DISTINCT n.property_id,n.stay_id,n.category
+                       FROM guest_inbox_notifications n
+                       JOIN concierge_stays s
+                         ON s.property_id=n.property_id AND s.stay_id=n.stay_id
+                       WHERE s.status='active' AND n.category IN ('experience','promotional')"""
+                ).fetchall()
+                for group in optional_groups:
+                    property_id = str(group["property_id"])
+                    stay_id = str(group["stay_id"])
+                    category = str(group["category"])
+                    consent_name = "proactive_notifications" if category == "experience" else "promotional_messages"
+                    preference = db.execute(
+                        """SELECT enabled FROM guest_notification_preferences
+                           WHERE property_id=? AND stay_id=? AND category=?""",
+                        (property_id, stay_id, category),
+                    ).fetchone()
+                    enabled = (
+                        bool(preference["enabled"])
+                        if preference
+                        else GUEST_NOTIFICATION_DEFAULT_PREFERENCES[category]
+                    )
+                    linked_sessions = db.execute(
+                        """SELECT DISTINCT concierge_session_id FROM guest_sessions
+                           WHERE property_id=? AND stay_id=? AND concierge_session_id IS NOT NULL""",
+                        (property_id, stay_id),
+                    ).fetchall()
+                    session_ids = [str(row["concierge_session_id"]) for row in linked_sessions]
+                    if session_ids:
+                        placeholders = ",".join("?" for _ in session_ids)
+                        consent_rows = db.execute(
+                            f"""SELECT granted FROM guest_privacy_consents
+                                WHERE property_id=? AND category=? AND session_id IN ({placeholders})""",  # nosec B608 - only placeholder tokens are generated.
+                            (property_id, consent_name, *session_ids),
+                        ).fetchall()
+                    else:
+                        consent_rows = []
+                    if enabled and any(bool(row["granted"]) for row in consent_rows):
+                        continue
+                    self._suppress_guest_inbox_events(db, property_id, stay_id, category, moment)
+                    deleted += db.execute(
+                        "DELETE FROM guest_inbox_notifications WHERE property_id=? AND stay_id=? AND category=?",
+                        (property_id, stay_id, category),
+                    ).rowcount
             for table in ("guest_notification_preferences", "guest_notification_frequency_locks"):
                 db.execute(
                     f"""DELETE FROM {table} WHERE EXISTS (
                         SELECT 1 FROM concierge_stays s
                         WHERE s.property_id={table}.property_id AND s.stay_id={table}.stay_id
-                          AND (s.status!='active' OR (s.retention_until IS NOT NULL AND s.retention_until<=?))
+                          AND s.status!='active'
                     )""",  # nosec B608 - table names are the fixed tuple above.
-                    (moment,),
+                    (),
                 )
+            db.execute(
+                """DELETE FROM guest_notification_suppressions WHERE NOT EXISTS (
+                       SELECT 1 FROM concierge_stays s
+                       WHERE s.property_id=guest_notification_suppressions.property_id
+                         AND s.stay_id=guest_notification_suppressions.stay_id
+                         AND s.status='active'
+                   )"""
+            )
             return deleted
 
     def _transition_guest_inbox_notification(

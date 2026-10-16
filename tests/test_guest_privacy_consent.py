@@ -2,6 +2,8 @@ import sqlite3
 import asyncio
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 from pathlib import Path
 
 import app.main as main_module
@@ -249,10 +251,191 @@ def test_consent_and_location_retention_cleanup(tmp_path: Path):
     with sqlite3.connect(db_path) as db:
         db.execute("UPDATE concierge_stays SET retention_until=100 WHERE property_id=? AND stay_id=?", (property_id, stay["stay_id"]))
 
+    assert consents.cleanup_retention(now=101) == 0
+    assert analytics.cleanup_retention(now=101) == 0
+    assert consents.get(
+        property_id, session_id, now=101, location_stay_id=stay["stay_id"],
+    )["location_services"] is True
+    identities.checkout(property_id, stay["stay_id"])
     assert consents.cleanup_retention(now=101) >= 1
     assert analytics.cleanup_retention(now=101) >= 1
     assert consents.get(property_id, session_id, now=101)["location_services"] is False
     assert analytics.live(property_id)["currently_detected"] == 0
+
+
+def test_active_stay_survives_five_day_retention_and_reconnect(tmp_path: Path, monkeypatch):
+    import app.guest_identity as identity_module
+
+    db_path = tmp_path / "long-active-stay.db"
+    identities = GuestIdentityStore(db_path)
+    start = 1_000
+    monkeypatch.setattr(identity_module, "_now", lambda: start)
+    device_id = identities.observe_device("long-stay-property", "02:00:00:00:00:71")
+    first = identities.reconnect_or_create_stay(
+        "long-stay-property", device_id, concierge_session_id="long-stay-session-a", retention_days=1,
+    )
+
+    # Simulate a database from before the lifecycle migration, where active
+    # rows incorrectly carried a post-checkout deadline from check-in.
+    with sqlite3.connect(db_path) as db:
+        db.execute("UPDATE concierge_stays SET retention_until=? WHERE stay_id=?", (start + 1, first["stay_id"]))
+        db.execute("ALTER TABLE concierge_stays DROP COLUMN retention_days")
+    identities = GuestIdentityStore(db_path)
+
+    after_five_days = start + 5 * 86_400
+    monkeypatch.setattr(identity_module, "_now", lambda: after_five_days)
+    assert identities.cleanup_retention(now=after_five_days) == 0
+    second = identities.reconnect_or_create_stay(
+        "long-stay-property", device_id, concierge_session_id="long-stay-session-b", retention_days=1,
+    )
+
+    assert second["stay_id"] == first["stay_id"]
+    assert second["status"] == "active"
+    assert second["retention_until"] is None
+    assert {row["concierge_session_id"] for row in identities.list_guest_sessions("long-stay-property")} == {
+        "long-stay-session-a", "long-stay-session-b",
+    }
+
+
+def test_checkout_starts_retention_and_repeat_checkout_does_not_extend_it(tmp_path: Path, monkeypatch):
+    import app.guest_identity as identity_module
+
+    identities = GuestIdentityStore(tmp_path / "early-checkout.db")
+    monkeypatch.setattr(identity_module, "_now", lambda: 100)
+    device_id = identities.observe_device("checkout-property", "02:00:00:00:00:72")
+    stay = identities.reconnect_or_create_stay(
+        "checkout-property", device_id, concierge_session_id="checkout-session", retention_days=2,
+    )
+
+    checkout_at = 1_000
+    monkeypatch.setattr(identity_module, "_now", lambda: checkout_at)
+    checked_out = identities.checkout("checkout-property", stay["stay_id"])
+    assert checked_out["retention_until"] == checkout_at + 2 * 86_400
+    first_checkout_time = checked_out["checked_out_at"]
+
+    monkeypatch.setattr(identity_module, "_now", lambda: checkout_at + 3_600)
+    repeated = identities.checkout("checkout-property", stay["stay_id"])
+    assert repeated["retention_until"] == checked_out["retention_until"]
+    assert repeated["checked_out_at"] == first_checkout_time
+    assert identities.cleanup_retention(now=checkout_at + 2 * 86_400 - 1) == 0
+    assert identities.cleanup_retention(now=checkout_at + 2 * 86_400) == 1
+    assert identities.cleanup_retention(now=checkout_at + 2 * 86_400) == 0
+
+
+def test_session_reconnect_uses_server_retention_policy_not_client_value(admin_client):
+    property_id = _create_property()
+    original = main_module.settings.guest_data_retention_days
+    object.__setattr__(main_module.settings, "guest_data_retention_days", 5)
+    try:
+        response = admin_client.post(
+            f"/api/admin/properties/{property_id}/sessions/reconnect",
+            json={"raw_mac": "02:00:00:00:00:76", "retention_days": 0},
+        )
+        assert response.status_code == 200, response.text
+        stay = response.json()["stay"]
+        assert stay["retention_days"] == 5
+        assert stay["retention_until"] is None
+    finally:
+        object.__setattr__(main_module.settings, "guest_data_retention_days", original)
+
+
+def test_concurrent_retention_cleanup_is_idempotent_and_property_scoped(tmp_path: Path, monkeypatch):
+    import app.guest_identity as identity_module
+
+    db_path = tmp_path / "concurrent-retention.db"
+    first_store = GuestIdentityStore(db_path)
+    second_store = GuestIdentityStore(db_path)
+    monkeypatch.setattr(identity_module, "_now", lambda: 100)
+    shared_mac = "02:00:00:00:00:73"
+    device_a = first_store.observe_device("cleanup-property-a", shared_mac)
+    device_b = first_store.observe_device("cleanup-property-b", shared_mac)
+    stay_a = first_store.reconnect_or_create_stay(
+        "cleanup-property-a", device_a, concierge_session_id="cleanup-session-a", retention_days=0,
+    )
+    stay_b = first_store.reconnect_or_create_stay(
+        "cleanup-property-b", device_b, concierge_session_id="cleanup-session-b", retention_days=0,
+    )
+    first_store.checkout("cleanup-property-a", stay_a["stay_id"])
+    first_store.checkout("cleanup-property-b", stay_b["stay_id"])
+    with sqlite3.connect(db_path) as db:
+        db.execute(
+            "INSERT INTO guest_sessions VALUES(?,?,?,?,?,?,?,?)",
+            ("orphan-session", "cleanup-property-a", "missing-stay", "orphan-concierge", None, None, 100, 100),
+        )
+
+    barrier = Barrier(2)
+
+    def cleanup(store):
+        barrier.wait()
+        return store.cleanup_retention(property_id="cleanup-property-a", now=100)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(cleanup, (first_store, second_store)))
+
+    assert sorted(results) == [0, 1]
+    assert first_store.list_stays("cleanup-property-a") == []
+    assert [row["stay_id"] for row in first_store.list_stays("cleanup-property-b")] == [stay_b["stay_id"]]
+    with sqlite3.connect(db_path) as db:
+        assert db.execute(
+            "SELECT COUNT(*) FROM guest_sessions WHERE property_id='cleanup-property-a'"
+        ).fetchone()[0] == 0
+        assert db.execute(
+            "SELECT COUNT(*) FROM device_identities WHERE property_id='cleanup-property-a'"
+        ).fetchone()[0] == 0
+        assert db.execute(
+            "SELECT COUNT(*) FROM device_identities WHERE property_id='cleanup-property-b'"
+        ).fetchone()[0] == 1
+    assert first_store.cleanup_retention(property_id="cleanup-property-a", now=100) == 0
+
+
+def test_expired_optional_consent_is_retained_for_active_stay_then_removed_on_checkout(tmp_path: Path):
+    db_path = tmp_path / "active-consent-retention.db"
+    identities = GuestIdentityStore(db_path)
+    consents = PrivacyConsentStore(db_path)
+    property_id = "active-consent-property"
+    session_id = "active-consent-session"
+    device_id = identities.observe_device(property_id, "02:00:00:00:00:74")
+    stay = identities.reconnect_or_create_stay(property_id, device_id, concierge_session_id=session_id)
+    consents.set(
+        property_id, session_id, {"proactive_notifications": True},
+        expires_at=101, linked_stay_id=stay["stay_id"], now=100,
+    )
+
+    assert consents.cleanup_retention(now=200) == 0
+    assert consents.get(property_id, session_id, now=200)["proactive_notifications"] is True
+
+    identities.checkout(property_id, stay["stay_id"])
+    assert consents.cleanup_retention(now=200) == 1
+    assert consents.get(property_id, session_id, now=200)["proactive_notifications"] is False
+
+
+def test_optional_consent_withdrawal_cascades_across_linked_sessions(admin_client):
+    property_id = _create_property()
+    session_a = _new_guest(admin_client, property_id)
+    session_b = _new_guest(admin_client, property_id)
+    main_module.store.mark_authenticated(session_a)
+    main_module.store.mark_authenticated(session_b)
+    device_id = main_module.guest_identities.observe_device(property_id, "02:00:00:00:00:75")
+    stay = main_module.guest_identities.reconnect_or_create_stay(
+        property_id, device_id, concierge_session_id=session_a,
+    )
+    second_link = main_module.guest_identities.reconnect_or_create_stay(
+        property_id, device_id, concierge_session_id=session_b,
+    )
+    assert second_link["stay_id"] == stay["stay_id"]
+
+    for session_id in (session_a, session_b):
+        response = admin_client.put("/api/guest/privacy", json={
+            "session_id": session_id, "consents": {"proactive_notifications": True},
+        })
+        assert response.status_code == 200, response.text
+
+    withdrawn = admin_client.put("/api/guest/privacy", json={
+        "session_id": session_a, "consents": {"proactive_notifications": False},
+    })
+    assert withdrawn.status_code == 200, withdrawn.text
+    assert main_module.privacy_consents.get(property_id, session_a)["proactive_notifications"] is False
+    assert main_module.privacy_consents.get(property_id, session_b)["proactive_notifications"] is False
 
 
 def test_periodic_retention_cleans_expired_data_without_app_restart(tmp_path: Path, monkeypatch):
@@ -268,6 +451,7 @@ def test_periodic_retention_cleans_expired_data_without_app_restart(tmp_path: Pa
     consents.set(property_id, session_id, {"location_services": True},
                  expires_at=101, location_stay_id=stay["stay_id"], now=100)
     analytics.record_observation(property_id, device_id, "zone", "ap", stay_id=stay["stay_id"], observed_at=100)
+    identities.checkout(property_id, stay["stay_id"])
     with sqlite3.connect(db_path) as db:
         db.execute("UPDATE concierge_stays SET retention_until=101 WHERE stay_id=?", (stay["stay_id"],))
     monkeypatch.setattr(main_module, "privacy_consents", consents)
