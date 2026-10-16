@@ -7,7 +7,7 @@
     "target_branch": "main",
     "remediation_branch": "codex/final-remediation-20261016",
     "starting_commit": "96d832afe70781575e9e00a862d9c746dfcddd2d",
-    "implementation_commit": "5d32823930583c700d4b9b309025a7d1af7cc861",
+    "implementation_commit": "ca121bf909fe4718f42d2ee97053264f23fdccfd",
     "github_main_at_start": "96d832afe70781575e9e00a862d9c746dfcddd2d",
     "source_matrix": "audit/master-feature-acceptance.json (2026-10-13 audit snapshot; superseded for current status by this ledger)",
     "core_denominator": 384,
@@ -101,8 +101,8 @@
       "bandit": "PASS — exact CI command at medium severity/confidence; zero medium/high findings after replacing SQL-fragment interpolation with static SQL and bound parameters. Existing parser and nosec warnings remain.",
       "pip_audit": "PASS — final requirements-dev manifest, including qrcode==8.2; no known vulnerabilities found.",
       "npm_audit": "PASS — zero high-level vulnerabilities on the unchanged base package manifests",
-      "current_worktree_gitleaks": "Local Gitleaks binary unavailable. Hosted run #279 on the previously published J-06 head confirms its PR-range scan and --no-git current-worktree scan pass. The combined CI shell step then fails on its final full reachable-history --all --text scan, which finds three retained historical findings; the current C-30 working-tree changes await the next hosted run.",
-      "git_diff_check_and_js_syntax": "PASS — `git diff --check`, `node --check app/static/admin.js`, Python compilation, and acceptance-ledger JSON validation on the J-06 candidate.",
+      "current_worktree_gitleaks": "Hosted run #280 on the published C-30 implementation head confirms the PR-range and --no-git current-worktree scans pass. The final --all --text reachable-history scan reports three retained historical findings and fails the secret-scan job. The run otherwise validates the published implementation: backend 1,385 passed / 19 skipped; browser 374 passed / 42 skipped; PostgreSQL/Redis integration passed.",
+      "git_diff_check_and_js_syntax": "PASS on the C-30 implementation tree: git diff --check, JavaScript syntax, Python compilation, and acceptance-ledger JSON validation.",
       "focused_map_schema_regressions": "PASS — 2 hosted failing map-response regressions pass locally after adding and validating starting_node_id in MapViewBlock.",
       "conversation_pagination_backend": {
         "passed": 57,
@@ -249,7 +249,8 @@
       "7b31f7201ceaaa235bba74d054ba706f60291554",
       "616de318bf85b8504852e3b8f6d18cc80ef091e7",
       "b9825a678b21d2d82b2fcbf3529e706811fe137c",
-      "5d32823930583c700d4b9b309025a7d1af7cc861"
+      "5d32823930583c700d4b9b309025a7d1af7cc861",
+      "ca121bf909fe4718f42d2ee97053264f23fdccfd"
     ],
     "current_head_at_ledger_creation": "5d32823930583c700d4b9b309025a7d1af7cc861",
     "publication_state": {
@@ -257,20 +258,22 @@
       "connector_fallback": "COMPLETE — user-authorized connector publication updated the existing draft PR.",
       "remote_main_changed": false,
       "remote_branch_created": true,
-      "current_published_head": "5d32823930583c700d4b9b309025a7d1af7cc861",
       "pull_request_created": true,
       "pull_request_url": "https://github.com/jasongil003/Concierge.Ai/pull/63",
-      "hosted_branch_ci": "Run #279 completed on the published J-06 head: 9/10 jobs succeeded; the only failed job is secret-scan due to three retained findings in the explicit full reachable-history scan. The PR-range and --no-git current-worktree scans passed. Local C-30 paging changes are not part of this run.",
-      "implementation_candidate_commit": "5d32823930583c700d4b9b309025a7d1af7cc861"
+      "hosted_branch_ci": "Run #280 validated published implementation head ca121bf909fe4718f42d2ee97053264f23fdccfd and completed 9/10 jobs successfully. Backend-tests: 1,385 passed / 19 skipped; browser-tests: 374 passed / 42 skipped; PostgreSQL/Redis integration, Docker runtime, dependency security, Python dependency security, static security, and Linux/macOS deployment validation passed. Secret-scan's PR-range and --no-git worktree scans passed; its final --all --text reachable-history scan reported three retained historical findings.",
+      "implementation_candidate_commit": "ca121bf909fe4718f42d2ee97053264f23fdccfd",
+      "published_implementation_head": "ca121bf909fe4718f42d2ee97053264f23fdccfd",
+      "latest_hosted_ci_run": "https://github.com/jasongil003/Concierge.Ai/actions/runs/38927991699"
     },
     "candidate_validation_state": {
-      "implementation_commit": "5d32823930583c700d4b9b309025a7d1af7cc861",
+      "implementation_commit": "ca121bf909fe4718f42d2ee97053264f23fdccfd",
       "local_focused_validation": "PASS — full backend 1,383 passed / 21 skipped / 0 failed; full nonvisual Chromium/mobile E2E 374 passed / 42 skipped / 0 failed; focused C-30 API/RBAC/knowledge suite 20 passed; focused pagination/upload/onboarding browser regressions 8 passed; responsive mobile evidence refresh 4 passed; visual snapshots 4 passed. Exact CI Bandit, JavaScript syntax, Python compilation, JSON validation, and whitespace checks passed. The first full browser run exposed four stale UI assertion/isolation failures; they were corrected before the green full rerun.",
-      "hosted_ci": "The last published head is 5d32823930583c700d4b9b309025a7d1af7cc861; run #279 completed 9/10 jobs with only the reachable-history secret scan failing. The local C-30 paging patch remains unpublished and requires a fresh hosted run."
+      "hosted_ci": "The published implementation head is ca121bf909fe4718f42d2ee97053264f23fdccfd. Run #280 completed 9/10 jobs successfully: backend 1,385 passed / 19 skipped; browser 374 passed / 42 skipped; PostgreSQL/Redis integration, Docker, dependency audits, static security, and Linux/macOS deployment passed. The only failed job is secret-scan: PR-range and --no-git scans passed, while the final full reachable-history scan reports three retained historical findings. Release acceptance remains RED."
     },
     "deferred_in_scope_requirement_ids": [
       "H-05"
-    ]
+    ],
+    "publication_updated_date": "2026-10-17"
   },
   "requirements": [
     {
