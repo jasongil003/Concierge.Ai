@@ -145,6 +145,7 @@ def test_production_configuration_path_validation_is_unchanged(monkeypatch: pyte
         admin_bootstrap_username="hotel-admin",
         admin_bootstrap_password="ProductionOnly-Admin-123!",
         credential_encryption_secret="p" * 48,
+        backup_encryption_key="b" * 64,
         admin_cookie_secure=True,
         antlabs_mode="browser_handoff",
         antlabs_auth_url="https://gateway.example.test/login/main.ant?c=proc",
