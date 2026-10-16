@@ -97,6 +97,13 @@
       "run_id": "38843201718",
       "result": "9/10 jobs passed; secret-scan failed on three historical findings in audit/evidence/security-2026-10-12/recovery-harness-before.txt. No credential values are copied into this ledger."
     },
+    "github_candidate_ci": {
+      "run_id": "38860889268",
+      "run_number": 256,
+      "head_commit": "84147f29673f9e19239148e33bc099f8280a6631",
+      "pull_request": "https://github.com/jasongil003/Concierge.Ai/pull/63",
+      "result": "QUEUED at the initial draft PR head; a documentation-only head update is being prepared and will trigger the current candidate checks."
+    },
     "repository_release_controls": {
       "main_branch_protection": "DISABLED; GitHub integration denied branch-protection configuration access (HTTP 403).",
       "historical_secret_cleanup": "Prepared and validated only in a disposable mirror; issuer-side revocation confirmation and owner authorization for shared-history rewrite remain outstanding."
@@ -131,12 +138,6 @@
         "status": "BLOCKED",
         "owner": "Hotel/PMS and external provider owners",
         "action": "Provide authorized credentials/contracts and run live provider, checkout, WLAN, and outbound-notification checks."
-      },
-      {
-        "id": "GITHUB-PUBLISH",
-        "status": "IN_PROGRESS",
-        "owner": "Authorized repository maintainer",
-        "action": "Publish the approved branch snapshot through the GitHub connector, open a draft PR, and inspect hosted checks."
       }
     ],
     "release_recommendation": "RED — RELEASE BLOCKED. Historical credential revocation/history cleanup and required branch protection remain unresolved, and several requirements remain partial, failed, or externally blocked.",
@@ -148,11 +149,13 @@
     "current_head_at_ledger_creation": "3c4e3bdbf24a3b5d06c4db3448a48bb944fec6f8",
     "publication_state": {
       "git_push": "UNAVAILABLE — no GitHub username/token is configured for shell push.",
-      "connector_fallback": "APPROVED BY REPOSITORY OWNER — connector publication of codex/final-remediation-20261016 to jasongil003/Concierge.Ai is authorized; branch and draft PR creation are pending.",
+      "connector_fallback": "COMPLETE — the owner-authorized branch snapshot is published as an open draft PR.",
       "remote_main_changed": false,
-      "remote_branch_created": false,
-      "pull_request_created": false,
-      "hosted_branch_ci": "NOT RUN — approved branch publication is in progress."
+      "remote_branch_created": true,
+      "remote_branch_commit": "84147f29673f9e19239148e33bc099f8280a6631",
+      "pull_request_created": true,
+      "pull_request_url": "https://github.com/jasongil003/Concierge.Ai/pull/63",
+      "hosted_branch_ci": "QUEUED — initial PR run #256 (38860889268); documentation-only head update is expected to trigger current candidate checks."
     }
   },
   "requirements": [

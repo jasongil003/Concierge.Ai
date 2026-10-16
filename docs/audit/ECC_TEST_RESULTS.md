@@ -119,3 +119,5 @@ The candidate adds signed, property-bound HTTPS QR links for published guest-vis
 | Gitleaks 8.24.3 current worktree | **PASS: 0 findings** | No-git redacted scan. Full-history hosted secret scan remains a release gate. |
 
 Prior full local runs remain separate: backend **1,329 passed, 21 skipped, 5 failed** (the five installer tests could not bind because a pre-existing process held port 8080); nonvisual browser **351 passed, 39 skipped**; visual browser **4 passed**. No new full-suite run is claimed for this QR change.
+
+Draft [PR #63](https://github.com/jasongil003/Concierge.Ai/pull/63) was created from the authorized branch snapshot. Initial hosted CI run [#256](https://github.com/jasongil003/Concierge.Ai/actions/runs/38860889268) was queued at remote head `84147f29673f9e19239148e33bc099f8280a6631`; this follow-up changes only audit documentation and will trigger the current-head checks. No merge or deployment was performed.
