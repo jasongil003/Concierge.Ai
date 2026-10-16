@@ -62,3 +62,5 @@ Do not approve an external pilot or production release until the security, gover
 | Current source security scan | **YELLOW** | Gitleaks 8.24.3 no-git redacted worktree scan after the QR change: **0 findings**. Historical full-history secret scan and branch-protection checks remain release gates. |
 
 The guest browser flow filters the signed start parameters from gateway context and preserves the QR waypoint as the route origin across destination selection and a new chat. The feature tests use synthetic properties/maps; they do not establish physical-device, hotel-network, or production acceptance.
+
+Draft [PR #63](https://github.com/jasongil003/Concierge.Ai/pull/63) publishes the branch snapshot at remote commit `84147f29673f9e19239148e33bc099f8280a6631`. Initial hosted CI run #256 was queued; this documentation continuation will trigger checks on the current head. The PR is mergeable but remains draft, and release recommendation remains RED.

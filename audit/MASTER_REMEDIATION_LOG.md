@@ -14,7 +14,7 @@ Starting from current `main` at `96d832afe70781575e9e00a862d9c746dfcddd2d`; sour
 
 Full local validation did not pass cleanly: backend **1329 pass, 21 skip, 5 fail**; the five installer failures could not bind because a pre-existing local process held port 8080. The full nonvisual browser suite passed **351**, skipped **39**; visual checks passed **4**. See [the current release assessment](MASTER_RELEASE_READINESS.md) and [fresh ledger](acceptance-ledger-2026-10-16.json) for complete results and open release gates.
 
-The repository owner explicitly approved connector publication of `codex/final-remediation-20261016` to `jasongil003/Concierge.Ai`. Shell Git push is unavailable, so the approved connector upload and draft PR are in progress. At this snapshot no remote branch, pull request, or hosted branch run exists; `main` is unchanged. The earlier rejected attempt left a few unreachable blob objects, but no branch ref or commit. Do not merge until release gates and hosted checks are resolved.
+The repository owner approved connector publication of `codex/final-remediation-20261016` to `jasongil003/Concierge.Ai`; the branch snapshot is published as draft [PR #63](https://github.com/jasongil003/Concierge.Ai/pull/63), remote commit `84147f2`. Initial hosted run #256 queued, and the follow-up documentation commit will trigger current candidate checks. `main` is unchanged. The earlier rejected attempt left a few unreachable blob objects, but no unrelated branch ref or commit. Do not merge until release gates and hosted checks are resolved.
 
 The rows below preserve the historical 2026-10-12–13 remediation record.
 
