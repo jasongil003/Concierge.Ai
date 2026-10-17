@@ -18,6 +18,7 @@ const state = {
   builderDevice: "desktop",
   builderLayoutTemplateId: "",
   builderPaletteId: "custom",
+  builderHeadingFontFamily: "Playfair Display",
   builderPageId: "home",
   builderInspectorTab: "content",
   builderLibraryTab: "components",
@@ -3407,6 +3408,7 @@ function hydrateDesign(design) {
   state.designRevision = Number(design.revision || 1);
   state.builderLayoutTemplateId = state.designDraft.theme?.layoutTemplateId || "";
   state.builderPaletteId = state.designDraft.theme?.paletteId || "custom";
+  state.builderHeadingFontFamily = state.designDraft.typography?.headingFontFamily || "Playfair Display";
   state.builderRegistry = design.component_registry || {};
   state.guestPages = structuredClone(state.designDraft.pages || []);
   if (!state.guestPages.some((page) => page.id === "home")) {
@@ -3944,18 +3946,38 @@ function renderBuilderCanvas() {
   const tokens = window.ConciergeTheme.apply(canvas, design);
   canvas.style.setProperty("--builder-page-bg", tokens.background);
   canvas.style.setProperty("--builder-page-surface", tokens.surface);
+  canvas.style.setProperty("--builder-page-surface-elevated", tokens.surfaceElevated);
   canvas.style.setProperty("--builder-page-ink", tokens.bodyColor);
   canvas.style.setProperty("--builder-page-heading", tokens.headingColor);
   canvas.style.setProperty("--builder-page-muted", tokens.textSecondary);
   canvas.style.setProperty("--builder-page-accent", tokens.accent);
+  canvas.style.setProperty("--builder-page-accent-foreground", tokens.accentForeground);
   canvas.style.setProperty("--builder-page-primary", tokens.primaryColor);
   canvas.style.setProperty("--builder-page-secondary", tokens.secondaryColor);
   canvas.style.setProperty("--builder-page-button-text", tokens.buttonText);
+  canvas.style.setProperty("--builder-page-secondary-button-text", tokens.secondaryButtonText);
   canvas.style.setProperty("--builder-page-border", tokens.border);
   canvas.style.setProperty("--builder-page-hover", tokens.hoverColor);
+  canvas.style.setProperty("--builder-page-secondary-hover", tokens.secondaryHoverColor);
   canvas.style.setProperty("--builder-page-focus", tokens.focusColor);
+  canvas.style.setProperty("--builder-page-icon", tokens.iconColor);
+  canvas.style.setProperty("--builder-page-nav", tokens.navBackground);
+  canvas.style.setProperty("--builder-page-nav-text", tokens.navText);
+  canvas.style.setProperty("--builder-page-nav-active", tokens.navActiveBackground);
+  canvas.style.setProperty("--builder-page-nav-active-text", tokens.navActiveText);
+  canvas.style.setProperty("--builder-page-menu", tokens.menuBackground);
+  canvas.style.setProperty("--builder-page-card", tokens.cardBackground);
+  canvas.style.setProperty("--builder-page-input", tokens.inputBackground);
+  canvas.style.setProperty("--builder-page-input-text", tokens.inputText);
+  canvas.style.setProperty("--builder-page-user-bubble", tokens.userMessageBackground);
+  canvas.style.setProperty("--builder-page-user-bubble-text", tokens.userMessageText);
+  canvas.style.setProperty("--builder-page-assistant-bubble", tokens.assistantMessageBackground);
+  canvas.style.setProperty("--builder-page-assistant-text", tokens.assistantMessageText);
+  canvas.style.setProperty("--builder-page-input-border", tokens.inputBorder);
+  canvas.style.setProperty("--builder-page-input-placeholder", tokens.inputPlaceholder);
   canvas.style.setProperty("--builder-page-shadow", tokens.shadow === "none" ? "none" : tokens.shadow === "strong" ? "0 14px 38px rgba(25,25,25,.16)" : "0 7px 24px rgba(25,25,25,.07)");
   canvas.style.setProperty("--builder-page-font", previewFontStack(tokens.fontFamily));
+  canvas.style.setProperty("--builder-page-heading-font", previewFontStack(tokens.headingFontFamily));
   canvas.style.setProperty("--builder-page-font-size", `${tokens.baseFontSize}px`);
   canvas.style.setProperty("--builder-page-radius", `${tokens.radius}px`);
   canvas.style.setProperty("--builder-content-width", `${tokens.contentWidth}px`);
@@ -5078,6 +5100,7 @@ function fillDesignForm(config) {
   const themeTokens = window.ConciergeTheme.normalize(config);
   state.builderLayoutTemplateId = themeTokens.layoutTemplateId;
   state.builderPaletteId = themeTokens.paletteId || "custom";
+  state.builderHeadingFontFamily = themeTokens.headingFontFamily;
   document.querySelectorAll("[data-design-preset]").forEach((button) => {
     const selected = button.dataset.designPreset === state.builderPaletteId;
     button.classList.toggle("selected", selected);
@@ -5107,6 +5130,7 @@ function fillDesignForm(config) {
   $("user-message-input").value = normalizeColor(config.theme?.userMessageBackground || "#f0ede7");
   $("button-color-input").value = normalizeColor(themeTokens.primaryColor);
   $("button-text-color-input").value = normalizeColor(themeTokens.buttonText);
+  $("secondary-button-text-input").value = normalizeColor(themeTokens.secondaryButtonText);
   $("border-color-input").value = normalizeColor(themeTokens.border);
   $("hover-color-input").value = normalizeColor(themeTokens.hoverColor);
   $("focus-color-input").value = normalizeColor(themeTokens.focusColor);
@@ -5161,6 +5185,7 @@ function designPayload() {
     primaryColor: $("button-color-input").value,
     secondaryColor: $("secondary-color-input").value,
     buttonText: $("button-text-color-input").value,
+    secondaryButtonText: $("secondary-button-text-input").value,
     accentText: $("button-text-color-input").value,
     border: $("border-color-input").value,
     hoverColor: $("hover-color-input").value,
@@ -5179,6 +5204,7 @@ function designPayload() {
   base.typography = {
     ...(base.typography || {}),
     fontFamily: $("font-input").value,
+    headingFontFamily: state.builderHeadingFontFamily || "Playfair Display",
     baseFontSize: Number($("base-font-size-input").value || 15),
   };
   base.layout = {
@@ -5434,6 +5460,41 @@ function updatePreview() {
 
 const designPresets = window.ConciergeTheme.PRESETS;
 
+function renderPaletteOptions() {
+  const container = $("builder-palette-options");
+  if (!container) return;
+  container.replaceChildren();
+  for (const [paletteId, palette] of Object.entries(designPresets)) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "builder-palette-card";
+    button.dataset.designPreset = paletteId;
+    button.setAttribute("aria-pressed", "false");
+
+    const title = document.createElement("strong");
+    title.className = "builder-palette-name";
+    title.textContent = palette.name;
+    const description = document.createElement("span");
+    description.className = "builder-palette-description";
+    description.textContent = palette.description;
+    const swatches = document.createElement("span");
+    swatches.className = "builder-palette-swatches";
+    swatches.setAttribute("aria-hidden", "true");
+    const swatchNames = ["Background", "Primary", "Secondary", "Accent", "Text"];
+    palette.swatches.forEach((color, index) => {
+      const swatch = document.createElement("span");
+      swatch.className = "builder-palette-swatch";
+      swatch.style.setProperty("--palette-swatch-color", color);
+      swatch.title = `${swatchNames[index]} ${color}`;
+      swatches.appendChild(swatch);
+    });
+    button.append(title, description, swatches);
+    container.appendChild(button);
+  }
+}
+
+renderPaletteOptions();
+
 function applyDesignPreset(presetName, { record = true, notify = true } = {}) {
   const preset = designPresets[presetName];
   if (!preset) return;
@@ -5449,6 +5510,7 @@ function applyDesignPreset(presetName, { record = true, notify = true } = {}) {
     "user-message-input": preset.userMessageBackground,
     "button-color-input": preset.primaryColor,
     "button-text-color-input": preset.buttonText,
+    "secondary-button-text-input": preset.secondaryButtonText,
     "border-color-input": preset.border,
     "hover-color-input": preset.hoverColor,
     "focus-color-input": preset.focusColor,
@@ -5466,6 +5528,7 @@ function applyDesignPreset(presetName, { record = true, notify = true } = {}) {
   for (const [id, value] of Object.entries(values)) $(id).value = String(value);
   state.designAccentText = preset.buttonText;
   state.builderPaletteId = presetName;
+  state.builderHeadingFontFamily = preset.headingFontFamily;
   document.querySelectorAll("[data-design-preset]").forEach((button) => {
     const selected = button.dataset.designPreset === presetName;
     button.classList.toggle("selected", selected);
@@ -5476,18 +5539,19 @@ function applyDesignPreset(presetName, { record = true, notify = true } = {}) {
 }
 
 function markBuilderThemeCustom() {
-  state.builderPaletteId = "custom";
   document.querySelectorAll("[data-design-preset]").forEach((button) => {
-    button.classList.remove("selected");
-    button.setAttribute("aria-pressed", "false");
+    const selected = button.dataset.designPreset === state.builderPaletteId;
+    button.classList.toggle("selected", selected);
+    button.setAttribute("aria-pressed", String(selected));
   });
 }
 
 function restoreBuilderThemeDefaults() {
-  const palette = window.ConciergeTheme.TEMPLATE_PALETTES[state.builderLayoutTemplateId]
-    || (state.builderPaletteId !== "custom" ? state.builderPaletteId : "modern-elegance");
+  const palette = designPresets[state.builderPaletteId]
+    ? state.builderPaletteId
+    : (window.ConciergeTheme.TEMPLATE_PALETTES[state.builderLayoutTemplateId] || "champagne-onyx");
   applyDesignPreset(palette);
-  showToast("The selected layout’s default theme was restored to the draft.");
+  showToast("The selected palette defaults were restored to the draft.");
 }
 
 function setDesignInspector(panelName) {
@@ -9694,7 +9758,7 @@ function setup() {
   ];
   const themeInputs = new Set([
     "background-input", "surface-input", "heading-color-input", "text-color-input", "secondary-text-color-input", "accent-input",
-    "secondary-color-input", "user-message-input", "button-color-input", "button-text-color-input", "border-color-input", "hover-color-input",
+    "secondary-color-input", "user-message-input", "button-color-input", "button-text-color-input", "secondary-button-text-input", "border-color-input", "hover-color-input",
     "focus-color-input", "composer-background-input", "theme-shadow-input", "font-input", "base-font-size-input", "density-input",
     "content-width-input", "message-width-input", "composer-width-input", "message-spacing-input", "radius-input",
   ]);
@@ -9747,10 +9811,6 @@ function setup() {
     if (!state.designDraft) return;
     const before = builderSnapshot();
     fillDesignForm(state.designDraft);
-    document.querySelectorAll("[data-design-preset]").forEach((button) => {
-      button.classList.remove("selected");
-      button.setAttribute("aria-pressed", "false");
-    });
     builderRecordChange(before);
     updatePreview();
     showToast("Page settings reset to the saved draft.");

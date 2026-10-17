@@ -1554,24 +1554,24 @@ test("admin: layout templates apply complete themes, preserve custom draft color
     await page.locator("#builder-templates-button").click();
     await page.locator('[data-builder-template="luxury"]').click();
     const luxuryTokens = await canvasTokens();
-    expect(luxuryTokens["--builder-page-bg"]).toBe("#f5f4f0");
-    expect(luxuryTokens["--builder-page-primary"]).toBe("#304239");
-    expect(luxuryTokens["--builder-page-border"]).toBe("#dedbd2");
+    expect(luxuryTokens["--builder-page-bg"]).toBe("#f7f3e9");
+    expect(luxuryTokens["--builder-page-primary"]).toBe("#102f29");
+    expect(luxuryTokens["--builder-page-border"]).toBe("#d8d1c2");
 
     await page.locator("#builder-templates-button").click();
     await page.locator('[data-builder-template="business"]').click();
     const businessTokens = await canvasTokens();
-    expect(businessTokens["--builder-page-bg"]).toBe("#ececec");
+    expect(businessTokens["--builder-page-bg"]).toBe("#edf2f8");
     expect(businessTokens["--builder-page-bg"]).not.toBe(luxuryTokens["--builder-page-bg"]);
-    expect(businessTokens["--builder-page-primary"]).toBe("#111111");
-    expect(businessTokens["--builder-page-secondary"]).toBe("#e1e1e1");
-    expect(businessTokens["--builder-page-border"]).toBe("#b8b8b8");
-    expect(businessTokens["--builder-page-radius"]).toBe("5px");
+    expect(businessTokens["--builder-page-primary"]).toBe("#101c32");
+    expect(businessTokens["--builder-page-secondary"]).toBe("#20375a");
+    expect(businessTokens["--builder-page-border"]).toBe("#cdd6e2");
+    expect(businessTokens["--builder-page-radius"]).toBe("12px");
 
     await page.locator("#builder-templates-button").click();
     await page.locator("#builder-preserve-theme-input").check();
     await page.locator('[data-builder-template="resort"]').click();
-    expect(await canvasTokens()).toMatchObject({ "--builder-page-bg": "#ececec", "--builder-page-primary": "#111111" });
+    expect(await canvasTokens()).toMatchObject({ "--builder-page-bg": "#edf2f8", "--builder-page-primary": "#101c32" });
     await page.locator("#builder-templates-button").click();
     await page.locator("#builder-preserve-theme-input").uncheck();
     await page.locator('[data-builder-template="business"]').click();
@@ -1580,9 +1580,9 @@ test("admin: layout templates apply complete themes, preserve custom draft color
       await page.locator(`[data-builder-device="${device}"]`).click();
       await expect(page.locator(`[data-builder-device="${device}"]`)).toHaveAttribute("aria-pressed", "true");
       expect(await canvasTokens()).toMatchObject({
-        "--builder-page-bg": "#ececec",
-        "--builder-page-primary": "#111111",
-        "--builder-page-border": "#b8b8b8",
+        "--builder-page-bg": "#edf2f8",
+        "--builder-page-primary": "#101c32",
+        "--builder-page-border": "#cdd6e2",
       });
     }
 
@@ -1594,7 +1594,7 @@ test("admin: layout templates apply complete themes, preserve custom draft color
     await page.locator("#builder-save-button").click();
     await expect(page.getByText("Draft saved.")).toBeVisible();
     const saved = await request.get(`/api/admin/properties/${propertyId}/design`).then((response) => response.json());
-    expect(saved.draft.theme).toMatchObject({ paletteId: "custom", layoutTemplateId: "business", primaryColor: "#123456", buttonColor: "#123456" });
+    expect(saved.draft.theme).toMatchObject({ paletteId: "midnight-sapphire", layoutTemplateId: "business", primaryColor: "#123456", buttonColor: "#123456" });
     expect(saved.published).toEqual(initial.published);
 
     await page.goto("/admin");
@@ -1619,7 +1619,7 @@ test("admin: layout templates apply complete themes, preserve custom draft color
       property_id: propertyId,
       name: "Published Theme Property",
       concierge_name: "Concierge",
-      theme: { primary_color: "#111111", secondary_color: "#e1e1e1", background: "#ececec" },
+      theme: { primary_color: "#123456", secondary_color: "#20375A", background: "#EDF2F8" },
       design: published.published,
       authentication: { enabled: false, enabled_types: [] },
       languages: ["en"],
@@ -1647,7 +1647,7 @@ test("admin: layout templates apply complete themes, preserve custom draft color
           heading: style.getPropertyValue("--heading-color").trim(),
         };
       });
-      expect(guestTokens).toEqual({ background: "#ececec", primary: "#123456", border: "#b8b8b8", heading: "#111111" });
+      expect(guestTokens).toEqual({ background: "#edf2f8", primary: "#123456", border: "#cdd6e2", heading: "#101c32" });
       expect(await page.locator("body").evaluate((element) => element.scrollWidth)).toBeLessThanOrEqual(width + 1);
       if (width === 375 || width === 1366) await page.screenshot({ path: testInfo.outputPath(`published-theme-${width}.png`), fullPage: true });
     }
@@ -1659,7 +1659,7 @@ test("admin: layout templates apply complete themes, preserve custom draft color
     await openPanel(page, "Design");
     await page.locator("#builder-templates-button").click();
     await page.locator("#reset-theme-template").click();
-    await expect.poll(async () => (await canvasTokens())["--builder-page-primary"]).toBe("#111111");
+    await expect.poll(async () => (await canvasTokens())["--builder-page-primary"]).toBe("#101c32");
   } finally {
     const deletedOther = await request.delete(`/api/admin/properties/${otherPropertyId}`, { headers: csrfHeaders(request) });
     if (!deletedOther.ok() && deletedOther.status() !== 404) expect(deletedOther.ok(), await deletedOther.text()).toBeTruthy();
@@ -1689,6 +1689,157 @@ test("admin: layout templates apply complete themes, preserve custom draft color
     expect(republished.ok(), await republished.text()).toBeTruthy();
     const resetDraft = await saveAtLatestRevision(initial.draft);
     expect(resetDraft.ok(), await resetDraft.text()).toBeTruthy();
+  }
+});
+
+test("admin: five premium palettes persist and render accessibly on published desktop and mobile guest pages", async ({ page, request }, testInfo) => {
+  test.skip(test.info().project.name !== "chromium", "Premium palette screenshots are captured once in desktop Chromium.");
+  test.setTimeout(240_000);
+  const propertyId = await getFirstPropertyId(request);
+  const initialResponse = await request.get(`/api/admin/properties/${propertyId}/design`);
+  expect(initialResponse.ok()).toBeTruthy();
+  const initial = await initialResponse.json();
+  const palettes = {
+    "royal-emerald-gold": { name: "Royal Emerald & Gold", background: "#F7F3E9", primary: "#102F29", secondary: "#1D5145", accent: "#C5A46D", text: "#263D37", font: "Playfair Display" },
+    "midnight-sapphire": { name: "Midnight Sapphire", background: "#EDF2F8", primary: "#101C32", secondary: "#20375A", accent: "#D7B98B", text: "#101C32", font: "Manrope" },
+    "champagne-onyx": { name: "Champagne & Onyx", background: "#F5F0E7", primary: "#1D1C1A", secondary: "#39342F", accent: "#B99A70", text: "#1D1C1A", font: "Playfair Display" },
+    "pearl-sage": { name: "Pearl & Sage", background: "#FAF8F3", primary: "#29483C", secondary: "#779487", accent: "#D4B99B", text: "#29483C", font: "Playfair Display" },
+    "obsidian-copper": { name: "Obsidian & Copper", background: "#F3F0EA", primary: "#16191D", secondary: "#2A3037", accent: "#BA805D", text: "#16191D", font: "Manrope" },
+  };
+  const getContrast = (first, second) => {
+    const luminance = (color) => {
+      const values = [1, 3, 5].map((offset) => parseInt(color.slice(offset, offset + 2), 16) / 255).map((value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+      return 0.2126 * values[0] + 0.7152 * values[1] + 0.0722 * values[2];
+    };
+    const [lighter, darker] = [luminance(first), luminance(second)].sort((a, b) => b - a);
+    return (lighter + 0.05) / (darker + 0.05);
+  };
+  let previousPublished = initial.published;
+  let guestProfile;
+  let guestProfileServed = false;
+  page.on("dialog", (dialog) => dialog.accept());
+
+  const saveAtLatestRevision = async (config) => {
+    let result;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const latest = await request.get(`/api/admin/properties/${propertyId}/design`).then((response) => response.json());
+      result = await request.put(`/api/admin/properties/${propertyId}/design/draft`, {
+        headers: csrfHeaders(request),
+        data: { config, expected_revision: latest.revision },
+      });
+      if (result.ok() || result.status() !== 409) return result;
+    }
+    return result;
+  };
+
+  try {
+    await page.goto("/admin");
+    await openPanel(page, "Design");
+    const canvas = page.locator("#builder-canvas");
+    const paletteCards = page.locator("[data-design-preset]");
+    await page.locator("#builder-templates-button").click();
+    await expect(paletteCards).toHaveCount(5);
+    const indexHtml = await request.get("/static/index.html").then((response) => response.text());
+    const guestRoot = new URL("/", page.url()).toString();
+    await page.route(guestRoot, (route) => route.fulfill({ status: 200, contentType: "text/html", body: indexHtml }));
+    await page.route("**/api/hotel**", (route) => {
+      guestProfileServed = true;
+      return route.fulfill({ json: guestProfile });
+    });
+    await page.route("**/api/guest/intro**", (route) => route.fulfill({ json: { mode: "none", first_visit_only: true, allow_skip: true } }));
+    await page.route("**/api/session/start", (route) => route.fulfill({ json: { session_id: "premium-palette-session", property_id: propertyId } }));
+    await page.route("**/api/guest/home**", (route) => route.fulfill({ json: { greeting: "Welcome", stay: { status: "unverified" }, cards: [], quick_actions: [], suggested_prompts: [], inventory: {} } }));
+
+    for (const [paletteId, palette] of Object.entries(palettes)) {
+      const card = page.locator(`[data-design-preset="${paletteId}"]`);
+      await expect(card).toContainText(palette.name);
+      await expect(card.locator(".builder-palette-description")).not.toBeEmpty();
+      const swatches = await card.locator(".builder-palette-swatch").evaluateAll((elements) => elements.map((element) => element.style.getPropertyValue("--palette-swatch-color").toUpperCase()));
+      expect(swatches).toEqual([palette.background, palette.primary, palette.secondary, palette.accent, palette.text]);
+      await card.click();
+      const previewTokens = await canvas.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return Object.fromEntries(["--builder-page-bg", "--builder-page-primary", "--builder-page-secondary", "--builder-page-accent", "--builder-page-ink", "--builder-page-button-text", "--builder-page-secondary-button-text"].map((name) => [name, style.getPropertyValue(name).trim().toUpperCase()]));
+      });
+      expect(previewTokens).toMatchObject({
+        "--builder-page-bg": palette.background,
+        "--builder-page-primary": palette.primary,
+        "--builder-page-secondary": palette.secondary,
+        "--builder-page-accent": palette.accent,
+        "--builder-page-ink": palette.text,
+      });
+      expect(card).toHaveAttribute("aria-pressed", "true");
+
+      await page.locator("#builder-save-button").click();
+      await expect(page.getByText("Draft saved.")).toBeVisible();
+      const saved = await request.get(`/api/admin/properties/${propertyId}/design`).then((response) => response.json());
+      expect(saved.draft.theme).toMatchObject({ paletteId, background: palette.background.toLowerCase(), primaryColor: palette.primary.toLowerCase(), secondaryColor: palette.secondary.toLowerCase(), accent: palette.accent.toLowerCase(), bodyColor: palette.text.toLowerCase() });
+      expect(saved.draft.typography.headingFontFamily).toBe(palette.font);
+      expect(saved.published).toEqual(previousPublished);
+
+      await page.locator("#builder-publish-button").click();
+      await expect(page.getByText(/Published guest chat v\d+\./)).toBeVisible();
+      const publishedState = await request.get(`/api/admin/properties/${propertyId}/design`).then((response) => response.json());
+      previousPublished = publishedState.published;
+      expect(previousPublished.theme.paletteId).toBe(paletteId);
+      expect(previousPublished.typography.headingFontFamily).toBe(palette.font);
+
+      guestProfile = {
+        property_id: propertyId,
+        name: "Published Palette Property",
+        concierge_name: "Concierge",
+        theme: { primary_color: palette.primary, secondary_color: palette.secondary, background: palette.background },
+        design: previousPublished,
+        authentication: { enabled: false, enabled_types: [] },
+        languages: ["en"],
+        guest_modules: [],
+        quick_actions: [],
+        application: { default_language: "en" },
+      };
+      guestProfileServed = false;
+      await page.goto("/");
+      await expect(page.locator(".concierge-shell")).toBeVisible();
+      expect(guestProfileServed).toBeTruthy();
+      await expect.poll(() => page.locator("html").evaluate((element) => getComputedStyle(element).getPropertyValue("--primary-color").trim().toUpperCase())).toBe(palette.primary);
+      await expect.poll(() => page.locator("html").evaluate((element) => getComputedStyle(element).getPropertyValue("--heading-font-family"))).toContain(palette.font);
+      for (const [width, label] of [[1366, "desktop"], [375, "mobile"]]) {
+        await page.setViewportSize({ width, height: 950 });
+        const guestTokens = await page.locator("html").evaluate((element) => {
+          const style = getComputedStyle(element);
+          return Object.fromEntries(["--background", "--primary-color", "--secondary-color", "--accent", "--body-color", "--button-text", "--secondary-button-text", "--focus-color"].map((name) => [name, style.getPropertyValue(name).trim().toUpperCase()]));
+        });
+        expect(guestTokens).toMatchObject({
+          "--background": palette.background,
+          "--primary-color": palette.primary,
+          "--secondary-color": palette.secondary,
+          "--accent": palette.accent,
+          "--body-color": palette.text,
+        });
+        expect(getContrast(guestTokens["--body-color"], guestTokens["--background"])).toBeGreaterThanOrEqual(4.5);
+        expect(getContrast(guestTokens["--button-text"], guestTokens["--primary-color"])).toBeGreaterThanOrEqual(4.5);
+        expect(getContrast(guestTokens["--secondary-button-text"], guestTokens["--secondary-color"])).toBeGreaterThanOrEqual(4.5);
+        expect(getContrast(guestTokens["--focus-color"], guestTokens["--background"])).toBeGreaterThanOrEqual(3);
+        expect(await page.locator("body").evaluate((element) => element.scrollWidth)).toBeLessThanOrEqual(width + 1);
+        expect(await page.locator(".send-button").evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(`rgb(${parseInt(palette.primary.slice(1, 3), 16)}, ${parseInt(palette.primary.slice(3, 5), 16)}, ${parseInt(palette.primary.slice(5, 7), 16)})`);
+        expect(await page.locator(".home-hero h1").evaluate((element) => getComputedStyle(element).fontFamily)).toContain(palette.font);
+        await page.screenshot({ path: testInfo.outputPath(`palette-${paletteId}-${label}.png`), fullPage: true });
+      }
+      await page.goto("/admin");
+      await openPanel(page, "Design");
+      await page.locator("#builder-templates-button").click();
+      await expect(page.locator(`[data-design-preset="${paletteId}"]`)).toHaveAttribute("aria-pressed", "true");
+    }
+  } finally {
+    const restorePublishedDraft = await saveAtLatestRevision(initial.published);
+    expect(restorePublishedDraft.ok(), await restorePublishedDraft.text()).toBeTruthy();
+    const latest = await request.get(`/api/admin/properties/${propertyId}/design`).then((response) => response.json());
+    const republished = await request.post(`/api/admin/properties/${propertyId}/design/publish`, {
+      headers: csrfHeaders(request),
+      data: { expected_revision: latest.revision },
+    });
+    expect(republished.ok(), await republished.text()).toBeTruthy();
+    const restoreDraft = await saveAtLatestRevision(initial.draft);
+    expect(restoreDraft.ok(), await restoreDraft.text()).toBeTruthy();
   }
 });
 

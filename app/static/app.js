@@ -2782,6 +2782,9 @@ function applyDesignTokens(design) {
   root.style.setProperty("--body-weight", typography.bodyWeight || 400);
   root.style.setProperty("--letter-spacing", (typography.letterSpacing || 0) + "em");
   root.style.setProperty("--font-family", fontStack(themeTokens.fontFamily));
+  root.style.setProperty("--body-font-family", fontStack(themeTokens.fontFamily));
+  root.style.setProperty("--heading-font-family", fontStack(themeTokens.headingFontFamily));
+  root.style.setProperty("--serif-display", fontStack(themeTokens.headingFontFamily));
   root.style.setProperty("--guest-radius", `${themeTokens.radius}px`);
   root.style.setProperty("--guest-card-radius", `${design.card?.radius ?? themeTokens.radius}px`);
   const shadow = design.card?.shadow || themeTokens.shadow;

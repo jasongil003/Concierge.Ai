@@ -57,6 +57,7 @@ HEX_FIELDS = {
     "headingColor",
     "bodyColor",
     "buttonText",
+    "secondaryButtonText",
     "hoverColor",
     "focusColor",
 }
@@ -148,6 +149,7 @@ def default_design_config(
             "headingColor": "#1c1c1c",
             "bodyColor": "#1c1c1c",
             "buttonText": "#1c1c1c",
+            "secondaryButtonText": "#1c1c1c",
             "hoverColor": "#9a7136",
             "focusColor": "#80602f",
             "shadow": "subtle",
@@ -165,6 +167,7 @@ def default_design_config(
         },
         "typography": {
             "fontFamily": "Geist",
+            "headingFontFamily": "Playfair Display",
             "baseFontSize": 15,
             "headingWeight": 600,
             "bodyWeight": 400,
@@ -225,8 +228,8 @@ def validate_design_config(config: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Unsupported guest experience configuration field.")
     nested_fields = {
         "branding": {"hotelName", "conciergeName", "logoUrl", "logoDisplay", "conciergeAvatarUrl", "faviconUrl"},
-        "theme": {"font", "background", "surface", "textPrimary", "textSecondary", "accent", "accentText", "border", "userMessageBackground", "userMessageText", "assistantText", "composerBackground", "buttonColor", "primaryColor", "secondaryColor", "headingColor", "bodyColor", "buttonText", "hoverColor", "focusColor", "shadow", "paletteId", "layoutTemplateId", "radius", "density", "backgroundImageUrl", "backgroundOverlay"},
-        "typography": {"fontFamily", "baseFontSize", "headingWeight", "bodyWeight", "letterSpacing"},
+        "theme": {"font", "background", "surface", "textPrimary", "textSecondary", "accent", "accentText", "border", "userMessageBackground", "userMessageText", "assistantText", "composerBackground", "buttonColor", "primaryColor", "secondaryColor", "headingColor", "bodyColor", "buttonText", "secondaryButtonText", "hoverColor", "focusColor", "shadow", "paletteId", "layoutTemplateId", "radius", "density", "backgroundImageUrl", "backgroundOverlay"},
+        "typography": {"fontFamily", "headingFontFamily", "baseFontSize", "headingWeight", "bodyWeight", "letterSpacing"},
         "layout": {"contentWidth", "messageWidth", "messageSpacing", "composerWidth", "composerPosition", "suggestionLayout"},
         "header": {"enabled", "showLogo", "showHotelName", "showConciergeName", "subtitle", "sticky", "background", "border"},
         "welcome": {"greeting", "headline", "description"},
@@ -286,13 +289,17 @@ def validate_design_config(config: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Unsupported font family.")
     theme["font"] = font
     typography["fontFamily"] = font
+    heading_font = typography.get("headingFontFamily") or "Playfair Display"
+    if heading_font not in SAFE_FONTS:
+        raise ValueError("Unsupported heading font family.")
+    typography["headingFontFamily"] = heading_font
 
     for field in HEX_FIELDS:
         value = theme.get(field)
         if not isinstance(value, str) or not _is_hex(value):
             raise ValueError(f"Invalid color value for {field}.")
 
-    if theme.get("paletteId") not in {"custom", "elegant", "minimal", "soft-gray", "high-contrast", "graphite", "ocean", "botanical", "rose", "coral", "modern-elegance"}:
+    if theme.get("paletteId") not in {"custom", "elegant", "minimal", "soft-gray", "high-contrast", "graphite", "ocean", "botanical", "rose", "coral", "modern-elegance", "royal-emerald-gold", "midnight-sapphire", "champagne-onyx", "pearl-sage", "obsidian-copper"}:
         raise ValueError("Invalid theme palette.")
     if theme.get("layoutTemplateId") not in {"", "luxury", "elegant", "minimal", "business", "resort", "restaurant", "blank"}:
         raise ValueError("Invalid layout template.")

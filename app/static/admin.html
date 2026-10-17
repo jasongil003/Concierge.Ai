@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Concierge.Ai Platform</title>
-  <link rel="stylesheet" href="/static/admin.css?v=101">
+  <link rel="stylesheet" href="/static/admin.css?v=102">
 </head>
 <body>
   <div class="platform-shell" id="platform-shell">
@@ -175,9 +175,7 @@
             <section class="builder-template-group" aria-label="Page layouts"><div><strong>Page layouts</strong><small>Selecting a layout applies its default theme. Property content stays in place.</small></div><div class="builder-template-options">
               <button type="button" data-builder-template="luxury">Luxury</button><button type="button" data-builder-template="elegant">Elegant</button><button type="button" data-builder-template="minimal">Minimal</button><button type="button" data-builder-template="business">Business</button><button type="button" data-builder-template="resort">Resort</button><button type="button" data-builder-template="restaurant">Restaurant Focused</button><button type="button" data-builder-template="blank">Blank</button>
             </div><label class="builder-preserve-theme"><input id="builder-preserve-theme-input" type="checkbox"> Keep my current theme when changing layouts</label></section>
-            <section class="builder-template-group" aria-label="Theme palettes"><div><strong>Theme palettes</strong><small>Set the page-wide colors and typography in this draft.</small></div><div class="builder-template-options">
-              <button type="button" data-design-preset="elegant">Elegant</button><button type="button" data-design-preset="minimal">Minimal</button><button type="button" data-design-preset="soft-gray">Soft gray</button><button type="button" data-design-preset="high-contrast">High contrast</button><button type="button" data-design-preset="graphite">Graphite</button><button type="button" data-design-preset="ocean">Ocean</button><button type="button" data-design-preset="botanical">Botanical</button><button type="button" data-design-preset="rose">Rose</button><button type="button" data-design-preset="coral">Coral</button><button type="button" data-design-preset="modern-elegance">Modern Elegance</button>
-            </div><div class="builder-template-reset-actions"><button class="builder-template-reset" id="reset-theme-template" type="button">Restore layout theme defaults</button><button class="builder-template-reset" id="reset-design-template" type="button">Reset page settings to saved draft</button></div></section>
+            <section class="builder-template-group" aria-label="Theme palettes"><div><strong>Theme palettes</strong><small>Five curated palettes. Select one to preview it, then tailor its colors for this property.</small></div><div class="builder-palette-options" id="builder-palette-options" role="group" aria-label="Curated color palettes"></div><div class="builder-template-reset-actions"><button class="builder-template-reset" id="reset-theme-template" type="button">Reset to Palette Defaults</button><button class="builder-template-reset" id="reset-design-template" type="button">Reset page settings to saved draft</button></div></section>
             <section class="builder-template-group" aria-label="Property design templates">
               <div><strong>Copy published design</strong><small>Use another property’s published guest design as this property’s draft. Property settings, integrations, and credentials stay separate.</small></div>
               <label for="builder-clone-source-property">Source property<select id="builder-clone-source-property"><option value="">Choose a property</option></select></label>
@@ -245,7 +243,8 @@
                     <label>Secondary button<input id="secondary-color-input" type="color" value="#ffffff"></label>
                     <label>Guest bubble<input id="user-message-input" type="color" value="#eeeeee"></label>
                     <label>Action button<input id="button-color-input" type="color" value="#18181b"></label>
-                    <label>Button text<input id="button-text-color-input" type="color" value="#ffffff"></label>
+                    <label>Primary button text<input id="button-text-color-input" type="color" value="#ffffff"></label>
+                    <label>Secondary button text<input id="secondary-button-text-input" type="color" value="#ffffff"></label>
                     <label>Border<input id="border-color-input" type="color" value="#e8e3da"></label>
                     <label>Hover state<input id="hover-color-input" type="color" value="#9a7136"></label>
                     <label>Focus state<input id="focus-color-input" type="color" value="#80602f"></label>
@@ -1340,7 +1339,7 @@
     </footer>
   </aside>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="/static/guest-theme.js?v=1"></script>
-  <script src="/static/admin.js?v=88"></script>
+  <script src="/static/guest-theme.js?v=2"></script>
+  <script src="/static/admin.js?v=89"></script>
 </body>
 </html>

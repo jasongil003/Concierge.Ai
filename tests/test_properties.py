@@ -390,10 +390,19 @@ def test_guest_home_design_welcome_copy_has_a_generic_default_and_bounded_descri
 
 def test_design_theme_tokens_are_safe_and_legacy_colors_migrate():
     defaults = default_design_config()["theme"]
-    for field in ("primaryColor", "secondaryColor", "headingColor", "bodyColor", "buttonText", "hoverColor", "focusColor"):
+    for field in ("primaryColor", "secondaryColor", "headingColor", "bodyColor", "buttonText", "secondaryButtonText", "hoverColor", "focusColor"):
         assert isinstance(defaults[field], str) and defaults[field].startswith("#") and len(defaults[field]) == 7
     assert defaults["paletteId"] == "custom"
     assert defaults["shadow"] == "subtle"
+    assert default_design_config()["typography"]["headingFontFamily"] == "Playfair Display"
+
+    curated = validate_design_config({
+        "theme": {"paletteId": "royal-emerald-gold", "secondaryButtonText": "#14221b"},
+        "typography": {"headingFontFamily": "Playfair Display"},
+    })
+    assert curated["theme"]["paletteId"] == "royal-emerald-gold"
+    assert curated["theme"]["secondaryButtonText"] == "#14221b"
+    assert curated["typography"]["headingFontFamily"] == "Playfair Display"
 
     legacy_config = validate_design_config({"theme": {
         "font": "Playfair Display",
@@ -428,6 +437,8 @@ def test_design_theme_tokens_are_safe_and_legacy_colors_migrate():
 
     with pytest.raises(ValueError, match="theme palette"):
         validate_design_config({"theme": {"paletteId": "not-a-palette"}})
+    with pytest.raises(ValueError, match="heading font family"):
+        validate_design_config({"typography": {"headingFontFamily": "Comic Sans"}})
     with pytest.raises(ValueError, match="theme shadow"):
         validate_design_config({"theme": {"shadow": "huge"}})
 
