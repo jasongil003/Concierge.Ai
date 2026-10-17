@@ -3448,6 +3448,8 @@ html[data-chat-header-design="soft"] .conversation-card-header { border-bottom-c
 html[data-chat-header-design="minimal"] .conversation-card-header { border-bottom-color: var(--chat-input-border); background: var(--chat-window-bg); }
 .chat-window-controls { display: inline-flex; flex: 0 0 auto; gap: 5px; }
 .chat-window-controls button { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid color-mix(in srgb, var(--chat-header-text) 24%, transparent); border-radius: 9px; color: var(--chat-header-text); background: color-mix(in srgb, var(--chat-header-text) 9%, transparent); font-size: 18px; }
+.chat-launcher[hidden],
+.chat-window-controls button[hidden] { display: none !important; }
 .chat-window-controls button:hover { background: color-mix(in srgb, var(--chat-header-text) 17%, transparent); }
 .chat-window-controls button:focus-visible,
 .chat-launcher:focus-visible { outline: 3px solid var(--chat-focus); outline-offset: 3px; }

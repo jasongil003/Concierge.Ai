@@ -2010,6 +2010,12 @@ test("admin: AI Chat Designer switches presets, persists per-property drafts, pu
     expect(fullscreenBounds.height).toBe(812);
     await page.locator("#chat-minimize-button").click();
     await expect(page.locator("#chat-launcher")).toBeVisible();
+    await page.evaluate((design) => {
+      const chat = window.ConciergeTheme.applyChat(document.documentElement, { ...design, chat: { ...design.chat, displayMode: "embedded" } });
+      document.querySelector("#chat-launcher").hidden = chat.displayMode !== "floating";
+    }, published);
+    await expect(page.locator("#chat-launcher")).toBeHidden();
+    expect(await page.locator("#chat-launcher").evaluate((element) => getComputedStyle(element).display)).toBe("none");
   } finally {
     const restorePublishedDraft = await saveAtLatestRevision(initial.published);
     expect(restorePublishedDraft.ok(), await restorePublishedDraft.text()).toBeTruthy();
