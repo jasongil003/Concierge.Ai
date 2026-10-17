@@ -443,6 +443,62 @@ def test_design_theme_tokens_are_safe_and_legacy_colors_migrate():
         validate_design_config({"theme": {"shadow": "huge"}})
 
 
+def test_chat_designer_config_is_sanitized_property_scoped_and_draft_published(tmp_path: Path):
+    defaults = default_design_config()
+    assert defaults["chat"]["inheritLandingTheme"] is True
+    assert defaults["chat"]["displayMode"] == "embedded"
+
+    configured = validate_design_config({"chat": {
+        "presetId": "midnight",
+        "paletteId": "midnight",
+        "inheritLandingTheme": False,
+        "displayMode": "floating",
+        "assistantName": "Maya",
+        "welcomeMessage": "Welcome to the hotel.",
+        "suggestedPrompts": ["Explore dining", "Find the spa"],
+        "width": 500,
+        "height": 780,
+        "tokens": {"headerBackground": "#101316", "guestBubbleBackground": "#303944"},
+    }})["chat"]
+    assert configured["presetId"] == "midnight"
+    assert configured["displayMode"] == "floating"
+    assert configured["assistantName"] == "Maya"
+    assert configured["suggestedPrompts"] == ["Explore dining", "Find the spa"]
+    assert configured["tokens"]["headerBackground"] == "#101316"
+
+    store = PropertyStore(tmp_path / "chat-design.db")
+    store.upsert(PropertyRecord(property_id="chat-property-a", hotel_name="Property A"))
+    store.upsert(PropertyRecord(property_id="chat-property-b", hotel_name="Property B"))
+    before_a = store.get("chat-property-a")
+    before_b = store.get("chat-property-b")
+    assert before_a is not None and before_b is not None
+    draft = copy.deepcopy(before_a.design_draft)
+    draft["chat"].update(configured)
+    store.save_design_draft("chat-property-a", draft)
+    saved_a = store.get("chat-property-a")
+    saved_b = store.get("chat-property-b")
+    assert saved_a is not None and saved_b is not None
+    assert saved_a.design_draft["chat"]["assistantName"] == "Maya"
+    assert saved_a.design_published["chat"] == before_a.design_published["chat"]
+    assert saved_b.design_draft["chat"] == before_b.design_draft["chat"]
+
+    store.publish_design("chat-property-a")
+    published_a = store.get("chat-property-a")
+    published_b = store.get("chat-property-b")
+    assert published_a is not None and published_b is not None
+    assert published_a.design_published["chat"]["displayMode"] == "floating"
+    assert published_b.design_published["chat"] == before_b.design_published["chat"]
+
+    assert len(validate_design_config({"chat": {"assistantName": "x" * 61}})["chat"]["assistantName"]) == 60
+    invalid_cases = (
+        {"displayMode": "popup"},
+        {"tokens": {"headerBackground": "javascript:alert(1)"}},
+    )
+    for invalid in invalid_cases:
+        with pytest.raises(ValueError):
+            validate_design_config({"chat": invalid})
+
+
 def test_guest_home_quick_action_descriptions_are_property_configured_and_bounded():
     configured = validate_design_config({"suggestions": [{
         "label": "Explore dining",

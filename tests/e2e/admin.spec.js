@@ -1843,6 +1843,187 @@ test("admin: five premium palettes persist and render accessibly on published de
   }
 });
 
+test("admin: AI Chat Designer switches presets, persists per-property drafts, publishes, and renders responsively", async ({ page, request }, testInfo) => {
+  test.skip(test.info().project.name !== "chromium", "Chat Designer screenshots are captured once in desktop Chromium.");
+  test.setTimeout(240_000);
+  const propertyId = await getFirstPropertyId(request);
+  const initialResponse = await request.get(`/api/admin/properties/${propertyId}/design`);
+  expect(initialResponse.ok()).toBeTruthy();
+  const initial = await initialResponse.json();
+  const properties = (await request.get("/api/admin/properties").then((response) => response.json())).properties;
+  const otherProperty = properties.find((property) => property.property_id !== propertyId);
+  const otherBefore = otherProperty
+    ? await request.get(`/api/admin/properties/${otherProperty.property_id}/design`).then((response) => response.json())
+    : null;
+  const styles = {
+    luxury: { name: "Luxury Chat", header: "#102F29" },
+    chatgpt: { name: "ChatGPT Inspired", header: "#FFFFFF" },
+    boutique: { name: "Boutique Chat", header: "#FFFEFB" },
+    midnight: { name: "Midnight Chat", header: "#101316" },
+  };
+  let published = initial.published;
+  let guestProfile;
+  const saveAtLatestRevision = async (config) => {
+    let result;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const latest = await request.get(`/api/admin/properties/${propertyId}/design`).then((response) => response.json());
+      result = await request.put(`/api/admin/properties/${propertyId}/design/draft`, {
+        headers: csrfHeaders(request),
+        data: { config, expected_revision: latest.revision },
+      });
+      if (result.ok() || result.status() !== 409) return result;
+    }
+    return result;
+  };
+  page.on("dialog", (dialog) => dialog.accept());
+  try {
+    await page.goto("/admin");
+    await openPanel(page, "Design");
+    await openDesignGroup(page, "chat");
+    const cards = page.locator("#chat-preset-options [data-chat-style]");
+    await expect(cards).toHaveCount(4);
+    await expect(page.locator("#chat-preset-options .chat-preset-swatches i")).toHaveCount(20);
+    await page.locator("#chat-inherit-theme-input").uncheck();
+    await page.setViewportSize({ width: 1404, height: 1200 });
+    for (const [styleId, style] of Object.entries(styles)) {
+      const card = page.locator(`#chat-preset-options [data-chat-style="${styleId}"]`);
+      await expect(card).toContainText(style.name);
+      await expect(card.locator("small")).not.toBeEmpty();
+      await card.click();
+      await expect(card).toHaveAttribute("aria-pressed", "true");
+      const tokens = await page.locator("#builder-canvas").evaluate((element) => {
+        const computed = getComputedStyle(element);
+        return Object.fromEntries(["--chat-header-bg", "--chat-guest-bg", "--chat-assistant-bg", "--chat-input-bg", "--chat-send-bg"].map((name) => [name, computed.getPropertyValue(name).trim().toUpperCase()]));
+      });
+      expect(tokens["--chat-header-bg"]).toBe(style.header);
+      expect(tokens["--chat-guest-bg"]).not.toBe("");
+      expect(tokens["--chat-assistant-bg"]).not.toBe("");
+      const swatches = await card.locator(".chat-preset-swatches i").count();
+      expect(swatches).toBe(5);
+      await page.locator("[data-builder-device=desktop]").click();
+      await page.locator(".builder-chat-preview-window").screenshot({ path: testInfo.outputPath(`chat-${styleId}-desktop.png`) });
+      await page.locator("[data-builder-device=mobile]").click();
+      await expect(page.locator("#builder-canvas")).toHaveAttribute("data-device", "mobile");
+      await page.locator(".builder-chat-preview-window").screenshot({ path: testInfo.outputPath(`chat-${styleId}-mobile.png`) });
+    }
+
+    await page.locator("#chat-display-mode-input").selectOption("fullscreen");
+    await expect(page.locator("#builder-canvas")).toHaveAttribute("data-chat-mode", "fullscreen");
+    await expect(page.locator(".builder-chat-preview")).toHaveClass(/is-fullscreen/);
+    await page.locator("#chat-display-mode-input").selectOption("floating");
+    await page.locator("#chat-assistant-name-input").fill("Maya");
+    await page.locator("#chat-welcome-input").fill("Welcome to your stay. How can I help?");
+    await page.locator("#chat-prompts-input").fill("Explore dining\nFind the spa");
+    await page.locator("#chat-timestamps-input").check();
+    await page.locator("#chat-token-sendBackground").evaluate((element) => {
+      element.value = "#123456";
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+      element.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await page.locator("[data-builder-device=desktop]").click();
+    const desktopPreview = page.locator(".builder-chat-preview");
+    await expect(desktopPreview).toHaveAttribute("data-chat-style", "midnight");
+    await page.locator("#builder-save-button").click();
+    await expect(page.getByText("Draft saved.")).toBeVisible();
+    const saved = await request.get(`/api/admin/properties/${propertyId}/design`).then((response) => response.json());
+    expect(saved.draft.chat).toMatchObject({
+      presetId: "midnight", paletteId: "midnight", inheritLandingTheme: false, displayMode: "floating",
+      assistantName: "Maya", welcomeMessage: "Welcome to your stay. How can I help?", suggestedPrompts: ["Explore dining", "Find the spa"], showTimestamps: true,
+    });
+    expect(saved.draft.chat.tokens.sendBackground.toLowerCase()).toBe("#123456");
+    expect(saved.published).toEqual(initial.published);
+    if (otherBefore) {
+      const otherAfterDraft = await request.get(`/api/admin/properties/${otherProperty.property_id}/design`).then((response) => response.json());
+      expect(otherAfterDraft.draft).toEqual(otherBefore.draft);
+      expect(otherAfterDraft.published).toEqual(otherBefore.published);
+    }
+
+    await page.locator("#builder-publish-button").click();
+    await expect(page.getByText(/Published guest chat v\d+\./)).toBeVisible();
+    const publishedState = await request.get(`/api/admin/properties/${propertyId}/design`).then((response) => response.json());
+    published = publishedState.published;
+    expect(published.chat).toMatchObject({ displayMode: "floating", assistantName: "Maya", tokens: { sendBackground: "#123456" } });
+
+    const indexHtml = await request.get("/static/index.html").then((response) => response.text());
+    const guestRoot = new URL("/", page.url()).toString();
+    await page.route(guestRoot, (route) => route.fulfill({ status: 200, contentType: "text/html", body: indexHtml }));
+    guestProfile = {
+      property_id: propertyId,
+      name: "Chat Designer QA Property",
+      concierge_name: "Concierge",
+      design: published,
+      authentication: { enabled: false, enabled_types: [] },
+      languages: ["en"],
+      guest_modules: [],
+      quick_actions: [],
+      application: { default_language: "en" },
+    };
+    await page.route("**/api/hotel**", (route) => route.fulfill({ json: guestProfile }));
+    await page.route("**/api/guest/intro**", (route) => route.fulfill({ json: { mode: "none", first_visit_only: true, allow_skip: true } }));
+    await page.route("**/api/session/start", (route) => route.fulfill({ json: { session_id: "chat-designer-session", property_id: propertyId } }));
+    await page.route("**/api/session/resume", (route) => route.fulfill({ json: { session_id: "chat-designer-session", property_id: propertyId } }));
+    await page.route("**/api/guest/home**", (route) => route.fulfill({ json: { greeting: "Welcome", stay: { status: "unverified" }, cards: [], quick_actions: [], suggested_prompts: [], inventory: {} } }));
+    await page.route("**/api/guest/personalization**", (route) => route.fulfill({ json: { enabled: false, preferences: [] } }));
+    await page.goto("/");
+    await expect(page.locator("#chat-launcher")).toBeVisible();
+    await expect.poll(() => page.locator("html").getAttribute("data-chat-mode")).toBe("floating");
+    await expect.poll(() => page.locator("#chat-assistant-name").textContent()).toBe("Maya");
+    const publishedTokens = await page.locator("html").evaluate((element) => {
+      const style = getComputedStyle(element);
+      return Object.fromEntries(["--chat-send-bg", "--chat-guest-bg", "--chat-assistant-bg", "--chat-input-bg"].map((name) => [name, style.getPropertyValue(name).trim().toUpperCase()]));
+    });
+    expect(publishedTokens["--chat-send-bg"]).toBe("#123456");
+    await page.locator("#chat-launcher").click();
+    await expect(page.locator("body")).toHaveClass(/chat-floating-open/);
+    await expect(page.locator("#concierge-view")).toBeVisible();
+    const welcomeContrast = await page.locator("#concierge-view").evaluate((element) => {
+      const background = getComputedStyle(document.documentElement).getPropertyValue("--chat-window-bg").trim();
+      const heading = getComputedStyle(element.querySelector(".welcome-state h1")).color;
+      const subtitle = getComputedStyle(element.querySelector(".welcome-subtitle")).color;
+      const input = element.querySelector(".composer textarea");
+      const inputStyle = getComputedStyle(input);
+      const composerBackground = getComputedStyle(element.querySelector(".composer")).backgroundColor;
+      const rgbToHex = (value) => `#${value.match(/\d+/g).slice(0, 3).map((channel) => Number(channel).toString(16).padStart(2, "0")).join("")}`;
+      return {
+        heading: window.ConciergeTheme.contrastRatio(rgbToHex(heading), background),
+        subtitle: window.ConciergeTheme.contrastRatio(rgbToHex(subtitle), background),
+        inputBackground: inputStyle.backgroundColor,
+        composerBackground: rgbToHex(composerBackground),
+        inputToken: getComputedStyle(document.documentElement).getPropertyValue("--chat-input-bg").trim().toLowerCase(),
+      };
+    });
+    expect(welcomeContrast.heading).toBeGreaterThanOrEqual(4.5);
+    expect(welcomeContrast.subtitle).toBeGreaterThanOrEqual(4.5);
+    expect(welcomeContrast.inputBackground).toBe("rgba(0, 0, 0, 0)");
+    expect(welcomeContrast.composerBackground).toBe(welcomeContrast.inputToken);
+    await page.locator("#concierge-view").screenshot({ path: testInfo.outputPath("chat-published-floating-desktop.png") });
+    await page.setViewportSize({ width: 375, height: 812 });
+    await expect(page.locator("#concierge-view")).toBeVisible();
+    expect(await page.locator("body").evaluate((element) => element.scrollWidth)).toBeLessThanOrEqual(376);
+    await page.locator("#concierge-view").screenshot({ path: testInfo.outputPath("chat-published-floating-mobile.png") });
+    await page.locator("#chat-expand-button").click();
+    await expect(page.locator("body")).toHaveClass(/chat-fullscreen-open/);
+    const fullscreenBounds = await page.locator("#concierge-view").boundingBox();
+    expect(fullscreenBounds.x).toBe(0);
+    expect(fullscreenBounds.y).toBe(0);
+    expect(fullscreenBounds.width).toBe(375);
+    expect(fullscreenBounds.height).toBe(812);
+    await page.locator("#chat-minimize-button").click();
+    await expect(page.locator("#chat-launcher")).toBeVisible();
+  } finally {
+    const restorePublishedDraft = await saveAtLatestRevision(initial.published);
+    expect(restorePublishedDraft.ok(), await restorePublishedDraft.text()).toBeTruthy();
+    const latest = await request.get(`/api/admin/properties/${propertyId}/design`).then((response) => response.json());
+    const republished = await request.post(`/api/admin/properties/${propertyId}/design/publish`, {
+      headers: csrfHeaders(request),
+      data: { expected_revision: latest.revision },
+    });
+    expect(republished.ok(), await republished.text()).toBeTruthy();
+    const restoreDraft = await saveAtLatestRevision(initial.draft);
+    expect(restoreDraft.ok(), await restoreDraft.text()).toBeTruthy();
+  }
+});
+
 test("admin: builder visual evidence covers devices, inspector tabs, image upload, and drag reorder", async ({ page, request }, testInfo) => {
   test.skip(test.info().project.name !== "chromium", "Builder screenshot evidence is captured once in desktop Chromium.");
   test.setTimeout(120_000);

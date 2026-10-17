@@ -213,6 +213,30 @@ def default_design_config(
             "avatarVisibility": False,
             "timestampVisibility": False,
         },
+        "chat": {
+            "presetId": "luxury",
+            "paletteId": "luxury",
+            "inheritLandingTheme": True,
+            "displayMode": "embedded",
+            "headerDesign": "solid",
+            "launcherIcon": "concierge",
+            "sendButtonIcon": "send",
+            "assistantName": "Concierge",
+            "avatarUrl": "",
+            "welcomeMessage": "",
+            "suggestedPrompts": [],
+            "showTimestamps": False,
+            "showTypingIndicator": True,
+            "showMinimizeControl": True,
+            "showExpandControl": True,
+            "allowFullscreenToggle": True,
+            "position": "bottom-right",
+            "width": 420,
+            "height": 620,
+            "radius": 18,
+            "shadow": "subtle",
+            "tokens": {},
+        },
         "suggestions": suggestions,
         "pages": default_guest_pages(),
         "navigation": default_navigation(),
@@ -235,6 +259,7 @@ def validate_design_config(config: dict[str, Any]) -> dict[str, Any]:
         "welcome": {"greeting", "headline", "description"},
         "composer": {"enabled", "placeholder", "attachments", "voice", "border", "radius", "background", "sendButtonStyle", "position"},
         "messages": {"userStyle", "assistantStyle", "radius", "messageSpacing", "avatarVisibility", "timestampVisibility"},
+        "chat": {"presetId", "paletteId", "inheritLandingTheme", "displayMode", "headerDesign", "launcherIcon", "sendButtonIcon", "assistantName", "avatarUrl", "welcomeMessage", "suggestedPrompts", "showTimestamps", "showTypingIndicator", "showMinimizeControl", "showExpandControl", "allowFullscreenToggle", "position", "width", "height", "radius", "shadow", "tokens"},
     }
     for section, value in config.items():
         if section in nested_fields:
@@ -271,6 +296,50 @@ def validate_design_config(config: dict[str, Any]) -> dict[str, Any]:
     composer = merged["composer"]
     messages = merged["messages"]
     branding = merged["branding"]
+    chat = merged["chat"]
+
+    if chat.get("presetId") not in {"luxury", "chatgpt", "boutique", "midnight"}:
+        raise ValueError("Invalid chat style preset.")
+    if chat.get("paletteId") not in {"luxury", "chatgpt", "boutique", "midnight"}:
+        raise ValueError("Invalid independent chat palette.")
+    if chat.get("displayMode") not in {"floating", "fullscreen", "embedded"}:
+        raise ValueError("Invalid chat display mode.")
+    if chat.get("headerDesign") not in {"solid", "soft", "minimal"}:
+        raise ValueError("Invalid chat header design.")
+    if chat.get("launcherIcon") not in {"concierge", "message", "sparkle"}:
+        raise ValueError("Invalid chat launcher icon.")
+    if chat.get("sendButtonIcon") not in {"send", "arrow"}:
+        raise ValueError("Invalid chat send button icon.")
+    if chat.get("position") not in {"bottom-right", "bottom-left"}:
+        raise ValueError("Invalid chat window position.")
+    if chat.get("shadow") not in {"none", "subtle", "strong"}:
+        raise ValueError("Invalid chat window shadow.")
+    for field in ("inheritLandingTheme", "showTimestamps", "showTypingIndicator", "showMinimizeControl", "showExpandControl", "allowFullscreenToggle"):
+        if not isinstance(chat.get(field), bool):
+            raise ValueError(f"Invalid chat setting for {field}.")
+    chat["assistantName"] = str(chat.get("assistantName") or "Concierge").strip()[:60] or "Concierge"
+    chat["welcomeMessage"] = str(chat.get("welcomeMessage") or "").strip()[:240]
+    avatar_url = chat.get("avatarUrl", "")
+    if not isinstance(avatar_url, str) or len(avatar_url) > 700000:
+        raise ValueError("Invalid chat avatar URL.")
+    if avatar_url and not is_safe_image_url(avatar_url):
+        raise ValueError("Chat avatar must use HTTPS, a same-origin path, or a supported image upload.")
+    chat["avatarUrl"] = avatar_url
+    prompts = chat.get("suggestedPrompts", [])
+    if not isinstance(prompts, list):
+        raise ValueError("Chat suggested prompts must be a list.")
+    chat["suggestedPrompts"] = [str(item).strip()[:80] for item in prompts if str(item).strip()][:4]
+    chat["width"] = _bounded_int(chat.get("width"), 320, 560, "chat window width")
+    chat["height"] = _bounded_int(chat.get("height"), 360, 900, "chat window height")
+    chat["radius"] = _bounded_int(chat.get("radius"), 8, 32, "chat window radius")
+    chat_tokens = chat.get("tokens", {})
+    chat_token_fields = {"background", "surface", "headerBackground", "headerText", "launcherBackground", "launcherText", "guestBubbleBackground", "guestBubbleText", "assistantBubbleBackground", "assistantBubbleText", "inputBackground", "inputText", "inputBorder", "sendBackground", "sendText", "focusColor"}
+    if not isinstance(chat_tokens, dict) or set(chat_tokens) - chat_token_fields:
+        raise ValueError("Unsupported chat theme token.")
+    for field, value in chat_tokens.items():
+        if not isinstance(value, str) or not _is_hex(value):
+            raise ValueError(f"Invalid chat theme color for {field}.")
+    chat["tokens"] = chat_tokens
 
     for field in ("logoUrl", "conciergeAvatarUrl", "faviconUrl"):
         image_url = branding.get(field, "")

@@ -257,6 +257,57 @@
                   <label class="range-field">Image tint <span><input id="background-overlay-input" type="range" min="0" max="70" step="5"><output id="background-overlay-value">0%</output></span></label>
                 </div>
               </details>
+              <details class="design-inspector-section chat-designer-section" id="inspector-chat" data-inspector-panel="chat">
+                <summary><span><strong>AI Chat Designer</strong><small>Conversation appearance, behavior, and responsive preview</small></span><span class="inspector-chevron">⌄</span></summary>
+                <div class="design-inspector-fields chat-designer-fields">
+                  <p class="field-note">Configure the guest chat independently. The preview uses sample messages and never calls an AI provider.</p>
+                  <input type="hidden" id="chat-style-selection" value="luxury">
+                  <div class="chat-preset-grid" id="chat-preset-options" role="group" aria-label="Chat style presets"></div>
+                  <label>Chat display mode<select id="chat-display-mode-input"><option value="embedded">Embedded in guest page</option><option value="floating">Floating chat with launcher</option><option value="fullscreen">Full-screen assistant</option></select></label>
+                  <label class="chat-inherit-toggle"><input id="chat-inherit-theme-input" type="checkbox"> Inherit Landing Page Theme</label>
+                  <label id="chat-palette-field">Independent chat palette<select id="chat-palette-input"><option value="luxury">Luxury Chat</option><option value="chatgpt">ChatGPT Inspired</option><option value="boutique">Boutique Chat</option><option value="midnight">Midnight Chat</option></select></label>
+                  <div class="chat-color-grid" id="chat-color-controls">
+                    <label>Chat background<input id="chat-token-background" type="color"></label>
+                    <label>Elevated surface<input id="chat-token-surface" type="color"></label>
+                    <label>Header background<input id="chat-token-headerBackground" type="color"></label>
+                    <label>Header text<input id="chat-token-headerText" type="color"></label>
+                    <label>Launcher background<input id="chat-token-launcherBackground" type="color"></label>
+                    <label>Launcher icon color<input id="chat-token-launcherText" type="color"></label>
+                    <label>Guest message bubble<input id="chat-token-guestBubbleBackground" type="color"></label>
+                    <label>Guest message text<input id="chat-token-guestBubbleText" type="color"></label>
+                    <label>Assistant message bubble<input id="chat-token-assistantBubbleBackground" type="color"></label>
+                    <label>Assistant message text<input id="chat-token-assistantBubbleText" type="color"></label>
+                    <label>Input background<input id="chat-token-inputBackground" type="color"></label>
+                    <label>Input text<input id="chat-token-inputText" type="color"></label>
+                    <label>Input border<input id="chat-token-inputBorder" type="color"></label>
+                    <label>Send button background<input id="chat-token-sendBackground" type="color"></label>
+                    <label>Send button text<input id="chat-token-sendText" type="color"></label>
+                    <label>Focus ring<input id="chat-token-focusColor" type="color"></label>
+                  </div>
+                  <div class="inspector-field-grid">
+                    <label>Header style<select id="chat-header-design-input"><option value="solid">Solid</option><option value="soft">Soft surface</option><option value="minimal">Minimal</option></select></label>
+                    <label>Assistant name<input id="chat-assistant-name-input" maxlength="60"></label>
+                    <label>Avatar image URL<input id="chat-avatar-url-input" type="url" placeholder="https://…"></label>
+                    <label>Launcher icon<select id="chat-launcher-icon-input"><option value="concierge">Concierge mark</option><option value="message">Message bubble</option><option value="sparkle">Sparkle</option></select></label>
+                    <label>Send icon<select id="chat-send-icon-input"><option value="send">Send</option><option value="arrow">Arrow</option></select></label>
+                    <label>Window position<select id="chat-position-input"><option value="bottom-right">Bottom right</option><option value="bottom-left">Bottom left</option></select></label>
+                    <label>Window width<input id="chat-width-input" type="number" min="320" max="560" step="10"></label>
+                    <label>Window height<input id="chat-height-input" type="number" min="360" max="900" step="10"></label>
+                    <label>Corner radius<input id="chat-radius-input" type="number" min="8" max="32" step="1"></label>
+                    <label>Shadow<select id="chat-shadow-input"><option value="none">None</option><option value="subtle">Subtle</option><option value="strong">Strong</option></select></label>
+                  </div>
+                  <label>Welcome message<textarea id="chat-welcome-input" rows="2" maxlength="240" placeholder="Welcome. How may we help with your stay?"></textarea></label>
+                  <label>Suggested chat prompts<textarea id="chat-prompts-input" rows="4" maxlength="340" placeholder="Explore dining&#10;Find hotel amenities&#10;Request fresh towels"></textarea></label>
+                  <div class="inspector-toggle-list chat-feature-toggles">
+                    <label><input id="chat-timestamps-input" type="checkbox"> Show message timestamps</label>
+                    <label><input id="chat-typing-input" type="checkbox"> Show typing indicator</label>
+                    <label><input id="chat-minimize-input" type="checkbox"> Show minimize control</label>
+                    <label><input id="chat-expand-input" type="checkbox"> Show expand control</label>
+                    <label><input id="chat-fullscreen-toggle-input" type="checkbox"> Allow full-screen toggle</label>
+                  </div>
+                  <button class="secondary" id="chat-reset-defaults" type="button">Reset Chat Styling to Defaults</button>
+                </div>
+              </details>
               <details class="design-inspector-section" id="inspector-layout" data-inspector-panel="layout">
                 <summary><span><strong>Typography &amp; layout</strong><small>Type scale, spacing, and message style</small></span><span class="inspector-chevron">⌄</span></summary>
                 <div class="design-inspector-fields">
@@ -1339,7 +1390,7 @@
     </footer>
   </aside>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="/static/guest-theme.js?v=2"></script>
-  <script src="/static/admin.js?v=89"></script>
+  <script src="/static/guest-theme.js?v=3"></script>
+  <script src="/static/admin.js?v=90"></script>
 </body>
 </html>
