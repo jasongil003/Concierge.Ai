@@ -2054,7 +2054,7 @@ test("admin: empty guest page offers a clear, draft-safe starting point", async 
     const emptyState = canvas.locator(".builder-empty-canvas");
     await expect(emptyState).toBeVisible();
     await expect(emptyState.getByRole("heading", { name: "Start building your Home page" })).toBeVisible();
-    await expect(emptyState).toContainText("changes stay in draft until you publish");
+    await expect(emptyState).toContainText("guests see changes only after you publish");
     await expect(canvas.locator(".builder-chat-preview-toolbar small")).toContainText(/separate from page sections/i);
 
     await page.locator('[data-builder-device="mobile"]').click();
@@ -2069,6 +2069,9 @@ test("admin: empty guest page offers a clear, draft-safe starting point", async 
     await emptyState.getByRole("button", { name: "Add a hero section" }).click();
     await expect(canvas.locator('.builder-canvas-section[data-builder-section^="hero-"]')).toHaveCount(1);
     await expect(page.locator("#builder-layer-count")).toHaveText("1");
+    const afterEditing = await request.get(`/api/admin/properties/${propertyId}/design`).then((response) => response.json());
+    expect(afterEditing.draft.pages.find((item) => item.id === "home").sections).toEqual([]);
+    expect(afterEditing.published).toEqual(initial.published);
   } finally {
     const latestResponse = await request.get(`/api/admin/properties/${propertyId}/design`);
     const latest = await latestResponse.json();

@@ -3598,7 +3598,7 @@ function createBuilderEmptyState(page) {
 
   const description = document.createElement("p");
   description.className = "builder-empty-description";
-  description.textContent = "This page has no sections yet. Start with a ready-made layout or add a hero section. Your changes stay in draft until you publish.";
+  description.textContent = "This page has no sections yet. Start with a ready-made layout or add a hero section. Save your work as a draft; guests see changes only after you publish.";
 
   empty.append(mark, eyebrow, title, description);
 
