@@ -3559,7 +3559,7 @@ function renderBuilderLibrary() {
 function builderAddSection(type, beforeId = null) {
   const page = builderPage();
   const definition = state.builderRegistry[type];
-  if (!page || !definition || page.sections.length >= 60) return;
+  if (!can("concierge.edit") || !page || !definition || page.sections.length >= 60) return;
   builderRecordChange();
   const properties = structuredClone(definition.defaults);
   if (type === "quick_actions") delete properties.items;
@@ -3575,6 +3575,56 @@ function builderAddSection(type, beforeId = null) {
   state.builderSelection = null;
   normalizeBuilderOrder();
   renderBuilder();
+}
+
+function createBuilderEmptyState(page) {
+  const pageName = String(page.name || "guest").replace(/\s+page$/i, "");
+  const empty = document.createElement("section");
+  empty.className = "builder-empty-canvas";
+  empty.setAttribute("aria-labelledby", "builder-empty-title");
+
+  const mark = document.createElement("span");
+  mark.className = "builder-empty-mark";
+  mark.setAttribute("aria-hidden", "true");
+  mark.textContent = "✦";
+
+  const eyebrow = document.createElement("p");
+  eyebrow.className = "builder-empty-eyebrow";
+  eyebrow.textContent = "YOUR GUEST PAGE";
+
+  const title = document.createElement("h2");
+  title.id = "builder-empty-title";
+  title.textContent = `Start building your ${pageName} page`;
+
+  const description = document.createElement("p");
+  description.className = "builder-empty-description";
+  description.textContent = "This page has no sections yet. Start with a ready-made layout or add a hero section. Your changes stay in draft until you publish.";
+
+  empty.append(mark, eyebrow, title, description);
+
+  if (can("concierge.edit")) {
+    const actions = document.createElement("div");
+    actions.className = "builder-empty-actions";
+    const layout = document.createElement("button");
+    layout.type = "button";
+    layout.className = "builder-empty-action builder-empty-action-secondary";
+    layout.dataset.builderEmptyAction = "templates";
+    layout.textContent = "Choose a page layout";
+    const hero = document.createElement("button");
+    hero.type = "button";
+    hero.className = "builder-empty-action builder-empty-action-primary";
+    hero.dataset.builderEmptyAction = "hero";
+    hero.textContent = "Add a hero section";
+    actions.append(layout, hero);
+    empty.appendChild(actions);
+  } else {
+    const note = document.createElement("p");
+    note.className = "builder-empty-description";
+    note.textContent = "Ask a property administrator to add page sections.";
+    empty.appendChild(note);
+  }
+
+  return empty;
 }
 
 function builderSectionAction(sectionId, action) {
@@ -3992,8 +4042,7 @@ function renderBuilderCanvas() {
   const pageShell = document.createElement("div"); pageShell.className = "builder-guest-page";
   const pageBody = document.createElement("div"); pageBody.className = "builder-guest-content";
   if (!sections.length) {
-    const empty = document.createElement("div"); empty.className = "builder-empty-canvas";
-    empty.textContent = `Your ${page.name || "page"} is empty. Drag a component here or click one in the library.`; pageBody.appendChild(empty);
+    pageBody.appendChild(createBuilderEmptyState(page));
   }
   for (const [index, section] of sections.entries()) pageBody.appendChild(createBuilderSectionWrapper(section, index, design));
   pageShell.appendChild(pageBody);
@@ -4009,7 +4058,7 @@ function createBuilderChatPreview(chat) {
   preview.dataset.chatStyle = chat.presetId;
   preview.dataset.device = state.builderDevice;
   const toolbar = document.createElement("div"); toolbar.className = "builder-chat-preview-toolbar";
-  const heading = document.createElement("div"); heading.innerHTML = "<strong>AI chat preview</strong><small>Mock conversation · No AI request is sent</small>";
+  const heading = document.createElement("div"); heading.innerHTML = "<strong>AI chat preview</strong><small>Separate from page sections · Mock only, no AI request</small>";
   const mode = document.createElement("span"); mode.className = "builder-chat-mode-badge"; mode.textContent = ({ embedded: "Embedded", floating: "Floating", fullscreen: "Full screen" })[chat.displayMode];
   toolbar.append(heading, mode);
   const window = document.createElement("div"); window.className = "builder-chat-preview-window";
@@ -4613,6 +4662,16 @@ function bindBuilderEvents() {
   document.querySelectorAll("[data-builder-tab]").forEach((button) => button.addEventListener("click", () => setBuilderInspectorTab(button.dataset.builderTab)));
   bindBuilderDragAndDrop();
   $("builder-canvas")?.addEventListener("click", (event) => {
+    const emptyAction = event.target.closest("[data-builder-empty-action]");
+    if (emptyAction) {
+      if (!can("concierge.edit")) return;
+      if (emptyAction.dataset.builderEmptyAction === "hero") { builderAddSection("hero"); return; }
+      if (emptyAction.dataset.builderEmptyAction === "templates") {
+        $("builder-templates-button")?.click();
+        requestAnimationFrame(() => $("builder-template-menu")?.querySelector("[data-builder-template]")?.focus());
+        return;
+      }
+    }
     const previewToggle = event.target.closest("[data-chat-preview-toggle]");
     if (previewToggle) { const preview = previewToggle.closest("[data-chat-preview]"); if (previewToggle.dataset.chatPreviewToggle === "minimize") preview.classList.toggle("is-minimized"); else preview.classList.toggle("is-expanded"); return; }
     const chatPrompt = event.target.closest("[data-chat-prompt]");

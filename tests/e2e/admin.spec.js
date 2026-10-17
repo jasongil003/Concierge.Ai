@@ -2030,6 +2030,56 @@ test("admin: AI Chat Designer switches presets, persists per-property drafts, pu
   }
 });
 
+test("admin: empty guest page offers a clear, draft-safe starting point", async ({ page, request }, testInfo) => {
+  test.skip(test.info().project.name !== "chromium", "Builder empty-state interaction is verified once in Chromium.");
+  const propertyId = await getFirstPropertyId(request);
+  const initialResponse = await request.get(`/api/admin/properties/${propertyId}/design`);
+  expect(initialResponse.ok()).toBeTruthy();
+  const initial = await initialResponse.json();
+  const emptyDraft = structuredClone(initial.draft);
+  const home = emptyDraft.pages.find((item) => item.id === "home");
+  expect(home).toBeTruthy();
+  home.sections = [];
+  const seeded = await request.put(`/api/admin/properties/${propertyId}/design/draft`, {
+    headers: csrfHeaders(request),
+    data: { config: emptyDraft, expected_revision: initial.revision },
+  });
+  expect(seeded.ok(), await seeded.text()).toBeTruthy();
+
+  try {
+    await page.setViewportSize({ width: 1404, height: 954 });
+    await page.goto("/admin");
+    await openPanel(page, "Design");
+    const canvas = page.locator("#builder-canvas");
+    const emptyState = canvas.locator(".builder-empty-canvas");
+    await expect(emptyState).toBeVisible();
+    await expect(emptyState.getByRole("heading", { name: "Start building your Home page" })).toBeVisible();
+    await expect(emptyState).toContainText("changes stay in draft until you publish");
+    await expect(canvas.locator(".builder-chat-preview-toolbar small")).toContainText(/separate from page sections/i);
+
+    await page.locator('[data-builder-device="mobile"]').click();
+    await expect(emptyState.getByRole("button", { name: "Choose a page layout" })).toBeVisible();
+    await expect(emptyState.getByRole("button", { name: "Add a hero section" })).toBeVisible();
+    await canvas.screenshot({ path: testInfo.outputPath("builder-empty-mobile.png") });
+
+    await emptyState.getByRole("button", { name: "Choose a page layout" }).click();
+    await expect(page.locator("#builder-template-menu")).toBeVisible();
+    await expect(page.locator("#builder-templates-button")).toHaveAttribute("aria-expanded", "true");
+    await page.locator("#builder-templates-button").click();
+    await emptyState.getByRole("button", { name: "Add a hero section" }).click();
+    await expect(canvas.locator('.builder-canvas-section[data-builder-section^="hero-"]')).toHaveCount(1);
+    await expect(page.locator("#builder-layer-count")).toHaveText("1");
+  } finally {
+    const latestResponse = await request.get(`/api/admin/properties/${propertyId}/design`);
+    const latest = await latestResponse.json();
+    const restore = await request.put(`/api/admin/properties/${propertyId}/design/draft`, {
+      headers: csrfHeaders(request),
+      data: { config: initial.draft, expected_revision: latest.revision },
+    });
+    expect(restore.ok(), await restore.text()).toBeTruthy();
+  }
+});
+
 test("admin: builder visual evidence covers devices, inspector tabs, image upload, and drag reorder", async ({ page, request }, testInfo) => {
   test.skip(test.info().project.name !== "chromium", "Builder screenshot evidence is captured once in desktop Chromium.");
   test.setTimeout(120_000);
