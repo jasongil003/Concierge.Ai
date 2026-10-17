@@ -5,6 +5,7 @@ umask 077
 
 SENSITIVE_PATH="audit/evidence/security-2026-10-12/recovery-harness-before.txt"
 EXPECTED_REPO="jasongil003/Concierge.Ai"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 
 usage() {
   printf 'Usage: %s <local-repository-path> <new-output-directory>\n' "$0" >&2
@@ -36,29 +37,18 @@ if [[ "$source_repo" == "/" || "$target" == "$source_repo" || "$target" == "$sou
   echo "Output must be outside the source checkout; refusing." >&2
   exit 1
 fi
-git -C "$source_repo" rev-parse --is-inside-work-tree >/dev/null ||
-  { echo "Source is not a Git worktree" >&2; exit 1; }
+git -C "$source_repo" rev-parse --git-dir >/dev/null ||
+  { echo "Source is not a Git repository" >&2; exit 1; }
+[[ "$(git -C "$source_repo" rev-parse --is-shallow-repository)" == false ]] ||
+  { echo "Shallow source cannot establish commit preservation; refusing." >&2; exit 1; }
 remote_url="$(git -C "$source_repo" config --get remote.origin.url || true)"
 case "$remote_url" in
   *github.com:jasongil003/Concierge.Ai|*github.com:jasongil003/Concierge.Ai.git|*github.com/jasongil003/Concierge.Ai|*github.com/jasongil003/Concierge.Ai.git) ;;
   *) echo "Unexpected source remote (expected $EXPECTED_REPO); refusing." >&2; exit 1 ;;
 esac
 
-# A fresh full clone should have matching local and origin-tracking tips for
-# every branch that exists in both namespaces. Refuse ambiguous snapshots
-# before cloning, since filter-repo can discard one side of a collision.
-while IFS= read -r local_ref; do
-  branch="${local_ref#refs/heads/}"
-  remote_ref="refs/remotes/origin/$branch"
-  if git -C "$source_repo" show-ref --verify --quiet "$remote_ref"; then
-    local_tip="$(git -C "$source_repo" rev-parse --verify "$local_ref^{commit}")"
-    remote_tip="$(git -C "$source_repo" rev-parse --verify "$remote_ref^{commit}")"
-    if [[ "$local_tip" != "$remote_tip" ]]; then
-      printf 'Local and origin-tracking refs disagree for %s; refresh/reconcile the source clone and retry.\n' "$branch" >&2
-      exit 1
-    fi
-  fi
-done < <(git -C "$source_repo" for-each-ref --format='%(refname)' refs/heads)
+# Preflight must pass before any clone, ref deletion, or filtering.
+python3 "$script_dir/history_preservation.py" preflight "$source_repo"
 
 target_created=1
 cleanup_target_on_failure() {
@@ -75,6 +65,7 @@ trap cleanup_target_on_failure EXIT
 
 echo "Creating a separate full mirror, including local refs. Source remains untouched."
 git clone --mirror --no-local "$source_repo" "$target"
+python3 "$script_dir/history_preservation.py" snapshot "$target" "$target/source-inventory.json"
 source_ref_manifest="$target/source-ref-manifest.tsv"
 source_commit_manifest="$target/source-ref-commits.tsv"
 : > "$source_ref_manifest"
@@ -99,142 +90,23 @@ while read -r ref kind symref; do
       printf '%s\t%s\n' "$ref" "$commit" >> "$source_commit_manifest"
     done
   elif [[ "$kind" == tree && "$ref" == refs/codex/turn-diffs/* ]]; then
-    git -C "$target" update-ref -d "$ref"
+    tip="$(git -C "$target" rev-parse --verify "$ref")"
+    printf '%s\t%s\tlocal-tree-ref-omitted-from-disposable-mirror\n' "$ref" "$tip" >> "$target/ref-exceptions.tsv"
+    git -C "$target" update-ref -d "$ref" "$tip"
   else
     echo "Unexpected non-commit mirror ref; refusing." >&2
     exit 1
   fi
 done < <(git -C "$target" for-each-ref --format='%(refname) %(objecttype) %(symref)')
 echo "Removing the known credential-bearing evidence path from all mirrored history."
-git -C "$target" filter-repo --force --path "$SENSITIVE_PATH" --invert-paths
+git -C "$target" filter-repo --force --path "$SENSITIVE_PATH" --invert-paths --prune-empty never --prune-degenerate never
 
-# Validate every snapshotted ref against filter-repo's maps, then compare each
-# rewritten ref's commit count with the unique surviving mapped commits from
-# that ref. Path-only commits may map to null or collapse onto a mapped parent;
-# any other unexplained loss fails closed.
-python3 - "$target" "$source_ref_manifest" "$source_commit_manifest" <<'PY'
-from pathlib import Path
-import re
-import subprocess
-import sys
-
-repo = Path(sys.argv[1])
-ref_manifest = Path(sys.argv[2])
-commit_manifest = Path(sys.argv[3])
-metadata = repo / "filter-repo"
-null_sha = "0" * 40
-sha_pattern = re.compile(r"^[0-9a-f]{40}$")
-
-
-def fail(message: str) -> None:
-    raise SystemExit(f"FAILED: {message}. Do not publish this mirror.")
-
-
-def git(*arguments: str) -> str:
-    result = subprocess.run(
-        ["git", "-C", str(repo), *arguments],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode:
-        fail(f"git {' '.join(arguments)} could not be verified")
-    return result.stdout.strip()
-
-
-def read_map(path: Path, expected_header: list[str], row_size: int) -> list[list[str]]:
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        fail(f"missing filter-repo map {path.name}")
-    if not lines or lines[0].split() != expected_header:
-        fail(f"unexpected {path.name} header")
-    rows = []
-    for line in lines[1:]:
-        fields = line.split()
-        if len(fields) != row_size:
-            fail(f"malformed {path.name} row")
-        rows.append(fields)
-    return rows
-
-
-commit_map = {}
-for old, new in read_map(metadata / "commit-map", ["old", "new"], 2):
-    if not sha_pattern.fullmatch(old) or not sha_pattern.fullmatch(new):
-        fail("invalid hash in commit-map")
-    commit_map[old] = new
-
-ref_map = {}
-for old, new, ref in read_map(metadata / "ref-map", ["old", "new", "ref"], 3):
-    if not sha_pattern.fullmatch(old) or not sha_pattern.fullmatch(new):
-        fail("invalid hash in ref-map")
-    ref_map[ref] = (old, new)
-
-source_refs = []
-for line in ref_manifest.read_text(encoding="utf-8").splitlines():
-    fields = line.split("\t")
-    if len(fields) != 5:
-        fail("malformed source ref manifest")
-    ref, object_type, old_tip, old_commit_tip, old_count = fields
-    if not sha_pattern.fullmatch(old_tip) or not sha_pattern.fullmatch(old_commit_tip):
-        fail(f"invalid source hash for {ref}")
-    try:
-        old_count_value = int(old_count)
-    except ValueError:
-        fail(f"invalid source commit count for {ref}")
-    source_refs.append((ref, object_type, old_tip, old_commit_tip, old_count_value))
-
-commits_by_ref = {}
-for line in commit_manifest.read_text(encoding="utf-8").splitlines():
-    fields = line.split("\t")
-    if len(fields) != 2 or not sha_pattern.fullmatch(fields[1]):
-        fail("malformed source commit manifest")
-    commits_by_ref.setdefault(fields[0], []).append(fields[1])
-
-for ref, _object_type, old_tip, old_commit_tip, old_count in source_refs:
-    mapped_ref = ref_map.get(ref)
-    if mapped_ref is None:
-        fail(f"ref-map omitted source ref {ref}")
-    mapped_old_tip, mapped_new_tip = mapped_ref
-    if mapped_old_tip != old_tip:
-        fail(f"ref-map source tip does not match {ref}")
-    if mapped_new_tip == null_sha:
-        fail(f"filter-repo removed source ref {ref}")
-
-    actual_tip = git("rev-parse", "--verify", ref)
-    if actual_tip != mapped_new_tip:
-        fail(f"rewritten ref tip does not match ref-map for {ref}")
-
-    mapped_commit_tip = commit_map.get(old_commit_tip)
-    if mapped_commit_tip in (None, null_sha):
-        fail(f"commit-map removed the source commit tip for {ref}")
-    actual_commit_tip = git("rev-parse", "--verify", f"{ref}^{{commit}}")
-    if actual_commit_tip != mapped_commit_tip:
-        fail(f"rewritten commit tip does not match commit-map for {ref}")
-
-    mapped_history = set()
-    source_history = commits_by_ref.get(ref, [])
-    if len(source_history) != old_count:
-        fail(f"source commit count changed while recording {ref}")
-    for old_commit in source_history:
-        new_commit = commit_map.get(old_commit)
-        if new_commit is None:
-            fail(f"commit-map omitted a source commit reachable from {ref}")
-        if new_commit != null_sha:
-            mapped_history.add(new_commit)
-    rewritten_count = int(git("rev-list", "--count", ref))
-    if rewritten_count != len(mapped_history):
-        fail(
-            f"per-ref commit count mismatch for {ref}: source={old_count}, "
-            f"mapped-survivors={len(mapped_history)}, rewritten={rewritten_count}"
-        )
-    print(
-        f"PASS: {ref} tip preserved through ref-map; commits source={old_count}, "
-        f"mapped survivors={len(mapped_history)}, rewritten={rewritten_count}"
-    )
-
-print(f"PASS: ref-map and per-ref commit preservation verified for {len(source_refs)} refs.")
-PY
+# Keep newly empty commits and merges. Verify tips, reachable commit sets,
+# counts and parent topology. Any removal/collapse requires individual owner
+# review and fails this preparation; count reductions are never auto-approved.
+python3 "$script_dir/history_preservation.py" verify "$target" "$source_ref_manifest" "$source_commit_manifest" \
+  > "$target/preservation-report.txt"
+cat "$target/preservation-report.txt"
 
 set +e
 git -C "$target" rev-list --objects --all | grep -F " $SENSITIVE_PATH" >/dev/null

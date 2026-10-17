@@ -7,13 +7,19 @@ import argparse
 import os
 import pwd
 import signal
-import socket
 import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+if __package__:
+    from .common.port_probe import PORT_PROBE_TIMEOUT, PortProbeError, port_in_use as _probe_port
+    from .common.runtime_environment import application_environment
+else:
+    from common.port_probe import PORT_PROBE_TIMEOUT, PortProbeError, port_in_use as _probe_port
+    from common.runtime_environment import application_environment
 
 
 SERVICE_NAME = "concierge-ai.service"
@@ -262,8 +268,6 @@ def _fallback_running(root: Path) -> int | None:
 
 
 def _fallback_start(root: Path) -> None:
-    import subprocess
-
     if _fallback_running(root):
         return
     log_dir = root / "logs"
@@ -288,7 +292,7 @@ def _fallback_start(root: Path) -> None:
             stdout=log_file,
             stderr=subprocess.STDOUT,
             start_new_session=True,
-            env={**os.environ, "PYTHONUNBUFFERED": "1", "CONCIERGE_DEPLOYMENT_MODE": "source"},
+            env={**application_environment(), "PYTHONUNBUFFERED": "1", "CONCIERGE_DEPLOYMENT_MODE": "source"},
         )
     _pid_file(root).write_text(f"{process.pid}\n", encoding="ascii")
     os.chmod(_pid_file(root), 0o600)
@@ -447,17 +451,10 @@ def wait_for_health(base_url: str = BASE_URL, timeout: int = 120) -> tuple[bool,
 
 
 def port_in_use(host: str = "127.0.0.1", port: int = 8080) -> bool:
-    candidates = [(socket.AF_INET, host)]
-    if host == "127.0.0.1":
-        candidates.append((socket.AF_INET6, "::1"))
-    for family, address in candidates:
-        try:
-            with socket.socket(family, socket.SOCK_STREAM) as sock:
-                if sock.connect_ex((address, port)) == 0:
-                    return True
-        except OSError:
-            continue
-    return False
+    try:
+        return _probe_port(host, port)
+    except PortProbeError as exc:
+        raise ServiceError(str(exc)) from None
 
 
 def _listening_pids(port: int = 8080) -> list[str]:

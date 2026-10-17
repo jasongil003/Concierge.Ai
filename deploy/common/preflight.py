@@ -4,10 +4,14 @@
 from __future__ import annotations
 
 import argparse
-import socket
 import subprocess
 import sys
 import time
+
+if __package__:
+    from .port_probe import PortProbeError, port_in_use
+else:
+    from port_probe import PortProbeError, port_in_use
 
 
 def _run(command: list[str], timeout: float = 2) -> subprocess.CompletedProcess[str] | None:
@@ -46,16 +50,11 @@ def _docker_on_port(port: int, expected_project: str) -> tuple[bool, bool]:
 
 
 def _listener(port: int) -> bool:
-    for host in ("127.0.0.1", "::1"):
-        family = socket.AF_INET6 if ":" in host else socket.AF_INET
-        try:
-            with socket.socket(family, socket.SOCK_STREAM) as probe:
-                probe.settimeout(0.2)
-                if probe.connect_ex((host, port)) == 0:
-                    return True
-        except OSError:
-            continue
-    return False
+    try:
+        return port_in_use(port=port)
+    except PortProbeError:
+        # Unknown socket state must block deployment just like an occupied port.
+        return True
 
 
 def wait_for_port_free(port: int, timeout: float = 45.0) -> bool:

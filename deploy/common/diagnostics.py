@@ -94,7 +94,7 @@ def read_config(path: Path | None) -> dict[str, str]:
         key = match.group(1)
         values[key] = ("configured" if value else "") if key in api_key_names | secret_presence_names else value
     for key in allowed:
-        if key in os.environ:
+        if key in os.environ and key not in values:
             values[key] = ("configured" if os.environ[key] else "") if key in api_key_names | secret_presence_names else os.environ[key]
     return values
 

@@ -178,10 +178,17 @@ def _postgres_environment(database_url: str) -> tuple[list[str], dict[str, str]]
     parsed = _parse_database_url(database_url)
     if parsed.get_backend_name() != "postgresql":
         raise ValueError("PostgreSQL backup requires a PostgreSQL DATABASE_URL.")
-    # pg_dump/pg_restore need PATH for executable lookup and only the libpq
-    # settings derived from this database URL. Inheriting the application's
-    # full environment would expose unrelated host credentials to the child.
+    # Preserve explicit password-file, TLS and service authentication without
+    # copying unrelated application credentials or host connection defaults.
     environment = {"PATH": os.environ.get("PATH", os.defpath)}
+    for name in (
+        "LANG", "LC_ALL", "LC_CTYPE", "SYSTEMROOT", "WINDIR",
+        "PGPASSFILE", "PGSERVICEFILE", "PGSSLMODE", "PGSSLROOTCERT",
+        "PGSSLCERT", "PGSSLKEY", "PGSSLCRL", "PGSSLCRLDIR",
+        "PGGSSENCMODE", "PGKRBSRVNAME", "KRB5CCNAME", "KRB5_CONFIG",
+    ):
+        if name in os.environ:
+            environment[name] = os.environ[name]
     if parsed.host:
         environment["PGHOST"] = parsed.host
     if parsed.port:
@@ -202,6 +209,12 @@ def _postgres_environment(database_url: str) -> tuple[list[str], dict[str, str]]
         "sslkey": "PGSSLKEY",
         "application_name": "PGAPPNAME",
         "connect_timeout": "PGCONNECT_TIMEOUT",
+        "passfile": "PGPASSFILE",
+        "service": "PGSERVICE",
+        "sslcrl": "PGSSLCRL",
+        "sslcrldir": "PGSSLCRLDIR",
+        "gssencmode": "PGGSSENCMODE",
+        "krbsrvname": "PGKRBSRVNAME",
     }.items():
         if query.get(query_name):
             environment[environment_name] = str(query[query_name])
@@ -219,10 +232,10 @@ def _run_postgres_tool(arguments: list[str], database_url: str, *, timeout: int 
             timeout=timeout,
             env=environment,
         )
-    except FileNotFoundError as exc:
-        raise RuntimeError("PostgreSQL backup tools (pg_dump and pg_restore) are required on this host.") from exc
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError("PostgreSQL backup operation exceeded its configured time limit.") from exc
+    except FileNotFoundError:
+        raise RuntimeError("PostgreSQL backup tools (pg_dump and pg_restore) are required on this host.") from None
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("PostgreSQL backup operation exceeded its configured time limit.") from None
     if result.returncode:
         # pg_dump/pg_restore may echo connection details; never forward their output.
         raise RuntimeError(f"PostgreSQL backup tool failed with exit code {result.returncode}.")
@@ -257,6 +270,7 @@ def _assert_empty_postgres_database(database_url: str) -> None:
             connect_options["dbname"] = unquote(parsed.database)
         for query_name in (
             "sslmode", "sslrootcert", "sslcert", "sslkey", "application_name",
+            "passfile", "service", "sslcrl", "sslcrldir", "gssencmode", "krbsrvname",
         ):
             if parsed.query.get(query_name):
                 connect_options[query_name] = str(parsed.query[query_name])
@@ -280,22 +294,10 @@ def _assert_empty_postgres_database(database_url: str) -> None:
 
 
 def _pg_dump(database_url: str, destination: Path) -> None:
-    switches, environment = _postgres_environment(database_url)
-    try:
-        result = subprocess.run(
-            ["pg_dump", "--format=custom", "--no-owner", "--no-acl", "--file", str(destination)] + switches,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=PG_TOOL_TIMEOUT_SECONDS,
-            env=environment,
-        )
-    except FileNotFoundError as exc:
-        raise RuntimeError("PostgreSQL backup tools (pg_dump and pg_restore) are required on this host.") from exc
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError("PostgreSQL backup operation exceeded its configured time limit.") from exc
-    if result.returncode:
-        raise RuntimeError(f"PostgreSQL backup tool failed with exit code {result.returncode}.")
+    _run_postgres_tool(
+        ["pg_dump", "--format=custom", "--no-owner", "--no-acl", "--file", str(destination)],
+        database_url,
+    )
     if not destination.is_file() or destination.stat().st_size == 0:
         raise RuntimeError("pg_dump did not create a valid backup file.")
 
@@ -557,10 +559,10 @@ def restore_backup(
                         timeout=PG_TOOL_TIMEOUT_SECONDS,
                         env=environment,
                     )
-                except FileNotFoundError as exc:
-                    raise RuntimeError("PostgreSQL backup tools (pg_dump and pg_restore) are required on this host.") from exc
-                except subprocess.TimeoutExpired as exc:
-                    raise RuntimeError("PostgreSQL restore exceeded its configured time limit.") from exc
+                except FileNotFoundError:
+                    raise RuntimeError("PostgreSQL backup tools (pg_dump and pg_restore) are required on this host.") from None
+                except subprocess.TimeoutExpired:
+                    raise RuntimeError("PostgreSQL restore exceeded its configured time limit.") from None
                 if result.returncode:
                     raise RuntimeError(f"PostgreSQL restore failed with exit code {result.returncode}; the transaction was rolled back.")
             else:

@@ -54,6 +54,10 @@ def captured_recovery_environments(monkeypatch):
             host_sensitive_names.isdisjoint(environment)
             for environment in (*launches, *integrations, *migrations)
         ),
+        "checkout_dotenv_disabled": all(
+            environment.get("PYTHON_DOTENV_DISABLED") == "1"
+            for environment in (*launches, *integrations, *migrations)
+        ),
     }
 
 
@@ -71,3 +75,4 @@ def test_pytest_bootstrap_and_rate_limits_are_isolated_from_recovery_runtime(cap
 
 def test_recovery_children_do_not_receive_host_credentials(captured_recovery_environments):
     assert captured_recovery_environments["host_sensitive_environment_excluded"]
+    assert captured_recovery_environments["checkout_dotenv_disabled"]

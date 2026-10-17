@@ -28,6 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def _build_environment(temporary: str) -> dict[str, str]:
     """Return only the environment needed by the disposable loopback app."""
     temporary_root = Path(temporary)
+    state_root = temporary_root / "state"
     return {
         "PATH": os.environ.get("PATH", os.defpath),
         "HOME": temporary,
@@ -36,9 +37,11 @@ def _build_environment(temporary: str) -> dict[str, str]:
         "TMP": temporary,
         "APP_ENVIRONMENT": "test",
         "CONCIERGE_TESTING": "1",
-        "STATE_DIRECTORY": temporary,
-        "DB_PATH": str(temporary_root / "test.db"),
-        "UPLOAD_ROOT": str(temporary_root / "uploads"),
+        # The subprocess runs from the checkout: do not load its private .env.
+        "PYTHON_DOTENV_DISABLED": "1",
+        "STATE_DIRECTORY": str(state_root),
+        "DB_PATH": str(state_root / "test.db"),
+        "UPLOAD_ROOT": str(state_root / "uploads"),
         "DATABASE_URL": "",
         "REDIS_URL": "",
         "PROPERTY_ID": "synthetic-http",
@@ -69,11 +72,13 @@ def main():
             port = listener.getsockname()[1]
         environment = _build_environment(temporary)
         base_url = f"http://127.0.0.1:{port}"
-        subprocess.run([
+        bootstrap = subprocess.run([
             sys.executable, "-c",
             "from app.config import settings; from app.properties import PropertyStore, PropertyRecord; "
             "PropertyStore(settings.db_path).upsert(PropertyRecord(property_id='synthetic-http', hotel_name='Synthetic HTTP Hotel'))",
-        ], cwd=ROOT, env=environment, check=True, capture_output=True)
+        ], cwd=ROOT, env=environment, check=False, capture_output=True, timeout=30)
+        if bootstrap.returncode:
+            raise RuntimeError("Disposable HTTP sample initialization failed; subprocess output withheld.")
         with (Path(temporary) / "server.log").open("w") as log:
             server = subprocess.Popen([
                 sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1",

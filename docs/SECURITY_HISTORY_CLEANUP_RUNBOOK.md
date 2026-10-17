@@ -1,265 +1,241 @@
 # Credential and Git history remediation runbook
 
-Prepared from the verified audit facts dated 2026-10-17. This document does not authorize a history rewrite or a push. The preparation script is local-only and never pushes.
+Prepared 2026-10-17. These instructions do not grant authorization. **Do not run any clone/ref mutation, commit, rewrite, deletion or publication below until the owner expressly approves that operation.** Never execute this procedure in the live checkout. The preparation tool never pushes. Its actual interface remains two positional arguments; the fingerprint tool also takes two positional arguments.
 
-## Verified facts and assumptions
+## Credential gate and private evidence
 
-- The exposed credential is the Browser Use credential named `BROWSER_USE_ACCESS_VERIFYING_IDENTITY`. Its value must not be copied into this runbook, a ticket, a command transcript, or a commit.
-- The leaked value is in the historical evidence file `audit/evidence/security-2026-10-12/recovery-harness-before.txt`. The full audit found it in one blob reachable from the repository's refs.
-- The fixed recovery harness uses an explicit environment. The two additional subprocess environment leaks are covered by the code changes in this remediation: the HTTP sample and PostgreSQL backup tools.
-- The existing ten `.gitleaksignore` entries were reviewed as synthetic. Preserve those entries only through the provided exact-fingerprint remap. Do not add exceptions for this real finding or change Gitleaks.
-- The commands below assume the canonical remote is `https://github.com/jasongil003/Concierge.Ai.git`, `main` is the primary branch, and GitHub-pushable refs to publish are branches and tags. Review any other advertised user-managed ref before the window.
-- GitHub pull refs are platform-managed. A successful branch push does not prove they stopped resolving old commits; the final check below tests both their advertised tips and their reachable commit histories.
+The owner reported “Revoked; private evidence available” in this chat. This is owner confirmation, not independent provider verification. Keep the private ticket reference, provider account/workspace, non-secret key identity, owner, revocation timestamp/timezone, provider confirmation, rejected-authentication result, replacement/deployment checks and log review in a restricted incident ticket/vault. Do not put that evidence or any credential value in this public repository.
 
-## 1. Owner checklist: revoke and record the credential
+1. Identify `BROWSER_USE_ACCESS_VERIFYING_IDENTITY` by account scope and non-secret metadata. The application identifier alone does not establish which Browser Use product issued it. In the owning provider account, confirm the exact credential type before using the corresponding official management procedure.
+2. Use [Browser Use Cloud account settings](https://cloud.browser-use.com/settings) for Cloud API keys. [Browser Use's official Cloud documentation](https://github.com/browser-use/browser-use/blob/main/CLOUD.md) identifies its web app as the API-key management surface. For a different identity credential, obtain the issuer's procedure; do not assume Cloud API-key authentication applies.
+3. Confirm revocation with the issuer and a controlled authentication rejection in a private session, without putting the old value in argv, output or saved shell history. Never send it to a different endpoint to test it.
+4. Replace only required credentials, update authorized deployments/private stores securely, restart affected consumers, and verify them. Check that no application depends on the old credential. Inspect available access logs from 2026-10-13 through revocation for unexplained activity.
+5. Independently review private confirmation before permitting any history rewrite. Record only the non-secret ticket reference in a future public closeout if appropriate.
 
-1. Sign in to the Browser Use Cloud account that owns the key. Open [Browser Use Cloud API key settings](https://cloud.browser-use.com/settings?tab=api-keys), identify the key by its owner, label, creation time, and intended use, and revoke that key. Browser Use documents the account settings as the place to manage API keys and the `X-Browser-Use-API-Key` authentication header in its [API reference](https://docs.browser-use.com/cloud/api-reference).
-2. Record the revocation time in UTC and the provider confirmation or audit-event ID. If the key remains in use, create a replacement after revocation, update only the required secret stores, and redeploy/restart the affected consumers. Do not reuse the exposed value.
-3. Review Browser Use account activity from the earliest exposure through revocation for unrecognized use. Preserve provider log exports in a private incident record.
-4. Record evidence in the organization's private incident/ticketing system, not in this public repository while its history is contaminated. Record: credential name, account/workspace, key label or non-secret identifier, revocation request/confirmation ID, UTC time, actor, activity-review result, dependent secret stores updated, and deployment verification. Attach only a redacted screenshot or provider event with the credential value and any usable prefix removed. Never record the full value.
-5. Mark the credential-revocation gate complete only after the issuer confirms revocation. Do not publish rewritten refs before then.
+## Safety, expected results and stop conditions
 
-## 2. Code remediation included in this change
+Before maintenance: notify collaborators, establish a write freeze/window, inspect branch/tag protection, coordinate CI and deployment checkouts, and approve an explicit branch/tag publication inventory. No collaborator messages have been sent by this agent. Retain an access-controlled, offline source snapshot until recovery is complete; it remains contaminated. Never attach it to a public issue or artifact.
 
-- `scripts/master_audit_http_sample.py` now supplies the disposable app only `PATH`, temporary directories, explicit test/database settings, and generated test credentials. `tests/test_master_audit_http_sample.py` sets a synthetic host-secret sentinel and checks it is absent from every child environment.
-- `app/backup.py` now supplies PostgreSQL tools only `PATH` plus libpq settings parsed from the requested database URL. `tests/test_backup_restore.py` checks a synthetic host-secret sentinel is not inherited.
-- `scripts/prepare_secret_history_cleanup.sh` rejects mismatched local/origin-tracking branch tips before cloning. After filtering, it checks each snapshotted commit/tag ref against `filter-repo/ref-map`, checks its peeled commit tip against `commit-map`, and compares per-ref commit counts with the unique surviving mapped commits. It retains local `refs/codex/turn-diffs/*` tree-ref removal and the reachable-path check.
+Stop on divergent local/origin tips, shallow sources, unsupported object refs, changed remote snapshots, missing mappings, missing/extra refs, changed mapped tips/types/parent relationships, commit-set differences, any removed/collapsed commit, nonzero scanner exits, unexpected fingerprint counts, or unexpected staged files. Do not weaken checks to continue.
 
-The code and test changes are prepared in the workspace but have not been committed. Get owner approval before creating a commit or PR, because that changes Git history. Do not include `audit/FULL_SECRET_LEAK_INVESTIGATION_2026-10-17.md` or any report/diff containing the credential in a commit.
+The tool retains empty commits and degenerate merges (`--prune-empty never --prune-degenerate never`). This avoids automatically treating path-only commit loss as acceptable. Every count reduction fails and needs individual owner review of each old/mapped commit, parents and path-only effects, followed by a separately reviewed procedure. Identical counts alone are insufficient: reachable sets and parent topology must also match.
 
-## 3. Owner-approved maintenance-window sequence
+Rollback means stopping publication, preserving private maps/inventories, correcting the disposable preparation and rebuilding from the frozen source. Do not restore contaminated public history as a routine rollback. After publication, application rollback must use sanitized commits and verified backups. Re-signing annotated tags/commits, if required, changes objects and requires another explicit approval/mapping review.
 
-Proceed only after the owner explicitly approves the history rewrite and force-push window, the credential issuer confirms revocation, collaborators are notified, and the code remediation above is present in the approved remote branch. Freeze repository writes for the duration. The steps below create a fresh full clone and a separate rewritten mirror.
+## 1. Approved source snapshot and read-only remote baseline
 
-### 3.1 Fresh full clone and expected remote snapshot
-
-Run in Bash from a secure admin workstation. This creates private temporary files containing ref names and commit IDs; it does not copy secret values.
+Run in Bash on a secure workstation **after explicit approval for Git operations**. `TOOLS` must point to the reviewed checkout containing this patch, including `scripts/history_preservation.py`; the source mirror need not already contain these tools. Do not use unreviewed historical tool versions.
 
 ```bash
 set -euo pipefail
 umask 077
-
+TOOLS='/absolute/path/to/reviewed/Concierge.Ai'
 REMOTE_URL='https://github.com/jasongil003/Concierge.Ai.git'
-CLEANUP_WORKDIR="$(mktemp -d /private/tmp/concierge-history-cleanup.XXXXXX)"
-chmod 700 "$CLEANUP_WORKDIR"
-SOURCE="$CLEANUP_WORKDIR/source"
+CLEANUP_WORKDIR="$(mktemp -d /tmp/concierge-history-cleanup.XXXXXX)"
+SOURCE="$CLEANUP_WORKDIR/source.git"
 MIRROR="$CLEANUP_WORKDIR/sanitized.git"
-REWRITE="$CLEANUP_WORKDIR/rewritten-main"
+REWRITE="$CLEANUP_WORKDIR/rewritten"
 EXPECTED_REMOTE="$CLEANUP_WORKDIR/expected-remote.tsv"
 REMOTE_NOW="$CLEANUP_WORKDIR/remote-now.tsv"
 EXPECTED_AFTER="$CLEANUP_WORKDIR/expected-after.tsv"
 
-git clone --no-single-branch "$REMOTE_URL" "$SOURCE"
-git -C "$SOURCE" fetch --prune origin \
-  '+refs/heads/*:refs/remotes/origin/*' \
-  '+refs/tags/*:refs/tags/*'
-test "$(git -C "$SOURCE" rev-parse --is-shallow-repository)" = false
-
+# Save all advertised branches, tags (including peeled tags) and PR refs privately.
+git -C "$TOOLS" ls-remote origin 'refs/heads/*' 'refs/tags/*' 'refs/pull/*' \
+  > "$CLEANUP_WORKDIR/before-all-refs.tsv"
 git ls-remote --refs "$REMOTE_URL" 'refs/heads/*' 'refs/tags/*' \
   | LC_ALL=C sort -k2,2 > "$EXPECTED_REMOTE"
-```
-
-The preparation script fails closed if a local branch and its same-name `origin` tracking ref have different tips. A mismatch means the source clone is not an unambiguous snapshot: stop, discard it, fetch a fresh clone, and investigate before retrying.
-
-### 3.2 Prepare the sanitized mirror and a disposable `main` checkout
-
-```bash
-bash "$SOURCE/scripts/prepare_secret_history_cleanup.sh" "$SOURCE" "$MIRROR"
-git --git-dir="$MIRROR" worktree add "$REWRITE" main
-```
-
-Apply this exact `.gitattributes` cleanup in the disposable rewritten checkout. Keep the evidence-wide whitespace rule; remove only the stale path-specific `-diff` rule and its comment:
-
-```diff
- # Preserve captured terminal/browser evidence bytes, including emitted trailing spaces.
- audit/evidence/** -whitespace
--# Keep the original sensitive transcript path non-diffable; the readable,
--# redacted copy lives beside it and remains covered by the current-tree scan.
--audit/evidence/security-2026-10-12/recovery-harness-before.txt -diff
-```
-
-Then remap only the existing reviewed synthetic fingerprints, using the helper from the fresh source clone:
-
-```bash
-python3 "$SOURCE/scripts/remap_approved_gitleaks_fingerprints.py" \
-  "$MIRROR/filter-repo/commit-map" "$REWRITE/.gitleaksignore"
-```
-
-The verified expected result for this repository is `10 remapped, 0 unreachable, 0 unchanged`. Stop for review if the counts differ. Review the rewritten checkout status and ensure only `.gitattributes` and `.gitleaksignore` changed:
-
-```bash
-git -C "$REWRITE" status --short
-git -C "$REWRITE" diff --check
-git -C "$REWRITE" diff -- .gitattributes .gitleaksignore
-```
-
-Commit those two reviewed files on the disposable rewritten `main` branch:
-
-```bash
-git -C "$REWRITE" add .gitattributes .gitleaksignore
-git -C "$REWRITE" commit -m 'security: finalize sanitized history scan configuration'
-```
-
-### 3.3 Run both pinned Gitleaks scans
-
-Use Gitleaks 8.24.3, matching CI. Both scans must exit successfully with zero findings. Do not change scanner configuration or add ignore entries to get a passing result.
-
-```bash
-gitleaks version
-gitleaks detect --no-git --source "$REWRITE" --redact --no-banner
-gitleaks detect --source "$REWRITE" --redact --no-banner \
-  --log-opts='--all --text'
-```
-
-Stop on any finding or non-zero exit. The second command deliberately scans full history with text diffs, matching the explicit CI history scan. The `--text` option must remain in CI.
-
-### 3.4 Recheck the remote snapshot, then publish with per-ref expected-SHA leases
-
-First confirm that every branch/tag still has the exact expected pre-rewrite SHA. Any difference means a write happened during the freeze; stop and rebuild the rewrite from a fresh snapshot.
-
-```bash
+git clone --mirror "$REMOTE_URL" "$SOURCE"
+test "$(git -C "$SOURCE" rev-parse --is-shallow-repository)" = false
+git -C "$SOURCE" for-each-ref --format='%(objectname)%09%(refname)' refs/heads refs/tags \
+  | LC_ALL=C sort -k2,2 > "$CLEANUP_WORKDIR/source-branches-tags.tsv"
+diff -u "$EXPECTED_REMOTE" "$CLEANUP_WORKDIR/source-branches-tags.tsv"
+python3 "$TOOLS/scripts/history_preservation.py" preflight "$SOURCE"
+python3 "$TOOLS/scripts/history_preservation.py" snapshot "$SOURCE" \
+  "$CLEANUP_WORKDIR/source-inventory.json"
 git ls-remote --refs "$REMOTE_URL" 'refs/heads/*' 'refs/tags/*' \
   | LC_ALL=C sort -k2,2 > "$REMOTE_NOW"
 diff -u "$EXPECTED_REMOTE" "$REMOTE_NOW"
 ```
 
-Build explicit refspecs for only the snapshotted branches and tags. Every destination gets its captured expected SHA as a lease. The dry run must succeed before the actual atomic push.
+Expected: full mirror; no divergent same-name tips; remote baseline unchanged. Compare every source branch/tag object ID against `expected-remote.tsv` as well. A mirror may contain PR refs; those must be validated offline but are never publishable destinations. Preserve the source mirror offline and do not fetch into it during preparation.
+
+## 2. Hardened preparation, then disposable rewritten checkout
 
 ```bash
+bash "$TOOLS/scripts/prepare_secret_history_cleanup.sh" "$SOURCE" "$MIRROR"
+cat "$MIRROR/preservation-report.txt"
+test -s "$MIRROR/filter-repo/ref-map"
+test -s "$MIRROR/filter-repo/commit-map"
+git clone --no-local "$MIRROR" "$REWRITE"
+git -C "$REWRITE" switch main
+```
+
+Expected: `source-inventory.json` (full refs/types/tips/counts/parents/symbolic relationships), `source-ref-manifest.tsv`, `source-ref-commits.tsv`, filter maps and a sanitized preservation report. Optional `ref-exceptions.tsv` names only local tree snapshots omitted from the disposable mirror with expected-OID deletion safeguards. Unknown non-commit refs fail. Origin tracking names map explicitly to local branch names; preflight prevents either competing tip being silently discarded. Each intended destination must exist and its mapped commit set and parent topology must match. Removed-path verification must pass. An incomplete output mirror is removed on failure; preserve the original isolated source and capture only sanitized failure messages privately.
+
+No real rewrite was performed while preparing this patch. Unit fixtures validate failure modes without creating commits or refs. Run the entire gate against actual filter maps after approval; earlier offline results do not certify this changed tool.
+
+## 3. Remap exactly the ten approved synthetic fingerprints
+
+```bash
+python3 "$TOOLS/scripts/remap_approved_gitleaks_fingerprints.py" \
+  "$MIRROR/filter-repo/commit-map" "$REWRITE/.gitleaksignore" \
+  > "$CLEANUP_WORKDIR/fingerprint-remap.txt"
+cat "$CLEANUP_WORKDIR/fingerprint-remap.txt"
+python3 - "$CLEANUP_WORKDIR/fingerprint-remap.txt" "$REWRITE/.gitleaksignore" <<'PY'
+from pathlib import Path
+import re, sys
+report = Path(sys.argv[1]).read_text()
+assert '10 remapped, 0 unreachable, 0 unchanged.' in report, 'Unexpected remap totals; STOP'
+rows = [line for line in Path(sys.argv[2]).read_text().splitlines() if re.fullmatch(r'[0-9a-f]{40}:.+', line)]
+assert len(rows) == 10, 'Expected exactly ten approved fingerprints; STOP'
+PY
+git -C "$REWRITE" diff --check
+git -C "$REWRITE" diff -- .gitleaksignore
+```
+
+Stop if any fingerprint suffix changed, a new exception appeared, or totals differ. Do not remove or expand the approved list. Do not remove `.gitattributes -diff` yet: the owner requires that cleanup only after approved publication and reachability verification.
+
+## 4. Both history scan modes and current source
+
+Use Gitleaks **8.24.3**, pinned in `.github/workflows/ci.yml`. Do not copy private `.env`, state or local logs into this clean checkout. Preserve the explicit text scan unchanged.
+
+```bash
+cd "$REWRITE"
+gitleaks version
+gitleaks detect --no-git --source . --redact --no-banner
+gitleaks detect --source . --redact --no-banner --log-opts="--all --text"
+# Default Git diff interpretation, over all sanitized refs, including mirrored PR refs.
+gitleaks detect --source "$MIRROR" --redact --no-banner \
+  --gitleaks-ignore-path "$REWRITE/.gitleaksignore" --log-opts='--all'
+gitleaks detect --source "$MIRROR" --redact --no-banner \
+  --gitleaks-ignore-path "$REWRITE/.gitleaksignore" --log-opts='--all --text'
+```
+
+Expected: zero findings and zero exit status in each. Default-diff success alone cannot clear the incident while `-diff` remains.
+
+The configured Action is pinned to `e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e` (v3). Its [actual scan implementation](https://github.com/gitleaks/gitleaks-action/blob/e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e/src/gitleaks.js) adds event-specific ranges, not `--no-git`. Reproduce that Action's argument set for the actual proposed event separately:
+
+```bash
+# Set SCAN_BASE and SCAN_HEAD to the reviewed actual event's commit IDs.
+# For push when the Action resolves identical base/head:
+gitleaks detect --redact -v --exit-code=2 --report-format=sarif \
+  --report-path="$CLEANUP_WORKDIR/default-action.sarif" --log-level=debug \
+  --log-opts=-1
+# For PRs or pushes with differing base/head, run this alternative:
+gitleaks detect --redact -v --exit-code=2 --report-format=sarif \
+  --report-path="$CLEANUP_WORKDIR/default-action.sarif" --log-level=debug \
+  --log-opts="--no-merges --first-parent ${SCAN_BASE}^..${SCAN_HEAD}"
+```
+
+Choose the event's applicable command; do not invent the base/head IDs or claim an offline scan reproduced a future GitHub event. Keep redacted SARIF private. If a force-push event refers to an old object absent locally, stop and inspect the event/Action behavior; never bypass the explicit full-history scan.
+
+## 5. Separately approved remap commit
+
+Only after the scans pass and the owner separately authorizes this commit:
+
+```bash
+git -C "$REWRITE" status --short
+# Expected sole edit: .gitleaksignore
+git -C "$REWRITE" add -- .gitleaksignore
+git -C "$REWRITE" diff --cached --check
+git -C "$REWRITE" diff --cached -- .gitleaksignore
+git -C "$REWRITE" commit -m 'security: remap approved synthetic fingerprints after history cleanup'
+```
+
+This new `main` tip is a documented addition after preservation validation. Record its parent and new OID, verify its parent equals the mapped source main tip, and verify its only changed path is `.gitleaksignore`. Do not pretend this new tip still equals filter-repo's original ref-map entry. The mirror and checkout are separate: synchronize only the approved `main` destination into the mirror and record the resulting OID under separate authorization:
+
+```bash
+git -C "$REWRITE" push origin 'refs/heads/main:refs/heads/main'
+```
+
+Here `origin` is the private sanitized mirror, not GitHub. Verify it before executing. Repeat all scans from step 4 and the applicable default Action command after this commit. Each branch must use its remapped approved configuration when CI runs there; prepare separately reviewed per-branch commits as needed, document each parent/OID and rerun scans. Do not publish branches whose ignore file still uses old SHAs and then declare their CI verified.
+
+## 6. Lease-protected, explicit publication
+
+Get separate owner approval for the exact branch/tag list. The following selects every inventoried branch/tag only if that is the approved list. An owner-approved subset must be prepared explicitly and justified; non-published contaminated refs prevent full incident closeout.
+
+```bash
+git ls-remote --refs "$REMOTE_URL" 'refs/heads/*' 'refs/tags/*' \
+  | LC_ALL=C sort -k2,2 > "$REMOTE_NOW"
+diff -u "$EXPECTED_REMOTE" "$REMOTE_NOW"
 declare -a LEASE_ARGS=()
 declare -a REFSPECS=()
 : > "$EXPECTED_AFTER"
-
 while IFS=$'\t' read -r EXPECTED_SHA REF; do
-  case "$REF" in
-    refs/heads/*)
-      SOURCE_REF="$REF"
-      if ! git --git-dir="$MIRROR" show-ref --verify --quiet "$SOURCE_REF"; then
-        SOURCE_REF="refs/remotes/origin/${REF#refs/heads/}"
-      fi
-      ;;
-    refs/tags/*)
-      SOURCE_REF="$REF"
-      ;;
-    *)
-      echo "Unexpected ref in expected remote snapshot: $REF" >&2
-      exit 1
-      ;;
-  esac
-
-  git --git-dir="$MIRROR" show-ref --verify --quiet "$SOURCE_REF"
-  NEW_SHA="$(git --git-dir="$MIRROR" rev-parse --verify "$SOURCE_REF")"
+  case "$REF" in refs/heads/*|refs/tags/*) ;; *) exit 1 ;; esac
+  git -C "$MIRROR" show-ref --verify --quiet "$REF"
+  NEW_SHA="$(git -C "$MIRROR" rev-parse --verify "$REF")"
   LEASE_ARGS+=("--force-with-lease=$REF:$EXPECTED_SHA")
-  REFSPECS+=("$SOURCE_REF:$REF")
+  REFSPECS+=("$REF:$REF")
   printf '%s\t%s\n' "$NEW_SHA" "$REF" >> "$EXPECTED_AFTER"
 done < "$EXPECTED_REMOTE"
-
 LC_ALL=C sort -k2,2 -o "$EXPECTED_AFTER" "$EXPECTED_AFTER"
-git --git-dir="$MIRROR" push --dry-run --atomic \
+git -C "$MIRROR" push --dry-run --atomic \
   "${LEASE_ARGS[@]}" "$REMOTE_URL" "${REFSPECS[@]}"
-```
-
-After explicit owner go-ahead at the maintenance window, run the same command without `--dry-run`:
-
-```bash
-git --git-dir="$MIRROR" push --atomic \
+# STOP for explicit owner publication approval of the dry-run and all OIDs.
+git -C "$MIRROR" push --atomic \
   "${LEASE_ARGS[@]}" "$REMOTE_URL" "${REFSPECS[@]}"
-```
-
-Verify every published branch and tag equals its rewritten tip:
-
-```bash
 git ls-remote --refs "$REMOTE_URL" 'refs/heads/*' 'refs/tags/*' \
   | LC_ALL=C sort -k2,2 > "$REMOTE_NOW"
 diff -u "$EXPECTED_AFTER" "$REMOTE_NOW"
 ```
 
-The commands intentionally do not use `git push --mirror`, `--force`, or an unscoped force push. If the atomic push or a lease rejects, stop and inspect the changed refs; do not retry with weaker safeguards.
+Each lease uses its captured prepublication old object ID. Recheck the full remote snapshot immediately before publishing; any change requires stopping and rebuilding. Never use blind mirror publication, unchecked force, unconditional tag overwrite, or deletion of protected/GitHub-managed refs. If atomic publication is unsupported or protections reject it, stop for an explicitly reviewed alternative.
 
-### 3.5 Verify GitHub pull refs no longer expose pre-rewrite commits
-
-Save all pre-rewrite commit IDs from the filter map, query the exact advertised pull refs, then fetch their head and merge histories into a temporary local namespace for an ancestry check:
+## 7. GitHub PR refs and caches
 
 ```bash
-OLD_COMMITS="$CLEANUP_WORKDIR/pre-rewrite-commits.txt"
-PULL_REFS="$CLEANUP_WORKDIR/pull-refs.tsv"
-awk 'NR > 1 { print $1 }' "$MIRROR/filter-repo/commit-map" \
-  | LC_ALL=C sort -u > "$OLD_COMMITS"
-
-git ls-remote "$REMOTE_URL" 'refs/pull/*' > "$PULL_REFS"
-if [[ -s "$PULL_REFS" ]]; then
-  git --git-dir="$MIRROR" fetch --no-tags "$REMOTE_URL" \
-    '+refs/pull/*/head:refs/audit/pull/*/head' \
-    '+refs/pull/*/merge:refs/audit/pull/*/merge'
-fi
-
-python3 - "$MIRROR" "$OLD_COMMITS" "$PULL_REFS" <<'PY'
+git ls-remote "$REMOTE_URL" 'refs/pull/*' > "$CLEANUP_WORKDIR/pull-refs-after.tsv"
+git -C "$MIRROR" fetch --no-tags "$REMOTE_URL" \
+  '+refs/pull/*/head:refs/audit/pull/*/head' \
+  '+refs/pull/*/merge:refs/audit/pull/*/merge'
+COMPROMISED_BLOB="$(git -C "$SOURCE" rev-parse --verify \
+  '0b0ff26af9e2cb175888bf88ae2e4abca95fd2c9:audit/evidence/security-2026-10-12/recovery-harness-before.txt')"
+python3 - "$MIRROR" "$MIRROR/filter-repo/commit-map" "$COMPROMISED_BLOB" <<'PY'
 from pathlib import Path
-import subprocess
-import sys
-
-repo, old_commits_path, pull_refs_path = sys.argv[1:]
-old_commits = set(Path(old_commits_path).read_text(encoding="utf-8").splitlines())
-pull_refs = Path(pull_refs_path).read_text(encoding="utf-8").splitlines()
-old_tips = {
-    line.split()[0]
-    for line in pull_refs
-    if line.split() and line.split()[0] in old_commits
-}
-if old_tips:
-    raise SystemExit(f"FAIL: {len(old_tips)} pull-ref tip(s) still equal pre-rewrite commits")
-
-refs = subprocess.run(
-    ["git", f"--git-dir={repo}", "for-each-ref", "--format=%(refname)", "refs/audit/pull"],
-    check=True, capture_output=True, text=True,
-).stdout.splitlines()
+import subprocess, sys
+repo, mapping, compromised_blob = sys.argv[1:]
+# Unchanged old==new commits are legitimate shared ancestry. Only replaced or
+# removed old commits are contaminated-history candidates.
+old = {a for a, b in (line.split() for line in Path(mapping).read_text().splitlines()[1:]) if a != b}
+def git(*args):
+    return subprocess.check_output(['git', '-C', repo, *args], text=True).splitlines()
+refs = git('for-each-ref', '--format=%(refname)', 'refs/audit/pull')
 for ref in refs:
-    reachable = set(subprocess.run(
-        ["git", f"--git-dir={repo}", "rev-list", ref],
-        check=True, capture_output=True, text=True,
-    ).stdout.splitlines())
-    old_reachable = old_commits & reachable
-    if old_reachable:
-        raise SystemExit(f"FAIL: pull ref {ref} reaches {len(old_reachable)} pre-rewrite commit(s)")
-print(f"PASS: {len(refs)} fetched pull ref(s) reach no pre-rewrite commits")
+    retained = old.intersection(git('rev-list', ref))
+    assert not retained, f'STOP: {ref} reaches {len(retained)} replaced/removed source commits'
+    objects = {line.split()[0] for line in git('rev-list', '--objects', ref)}
+    assert compromised_blob not in objects, f'STOP: {ref} reaches the compromised blob'
+print(f'PASS: {len(refs)} PR histories reach no replaced/removed source commits')
 PY
 ```
 
-If this check fails, record the affected pull-ref names and coordinate with the repository owner and GitHub Support. Do not claim cleanup complete while a PR ref still reaches a pre-rewrite commit.
+Compare PR inventories before/after. A tip change is not proof of non-reachability. Also verify absence of the known compromised blob by object ID across each fetched PR's reachable objects without displaying file contents. Even a clean reachable set does not prove GitHub cached objects are purged. Follow [GitHub's sensitive-data-removal procedure](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository), including Support where applicable. Support decides eligibility; it does not guarantee removal for a credential already mitigated by rotation. Never manipulate GitHub-managed PR refs directly.
 
-## 4. Collaborator and local-reference cleanup
+## 8. Attribute cleanup and collaborators, after verified publication
 
-Have each collaborator make a new clone after publication. Keep any old clone offline for reference, and do not push its branches or merge its old history into the rewritten repository. Reapply only reviewed, uncommitted work by cherry-picking or patching it onto a new branch created from the rewritten `main`.
+Only after intended sanitized refs are published, the known blob is unreachable through them, and the owner approves a further commit: remove only the stale `-diff` line and associated comment for `audit/evidence/security-2026-10-12/recovery-harness-before.txt` from `.gitattributes`. Retain the evidence whitespace rule. Rerun both scanner modes and publish this ordinary reviewed cleanup separately. No replacement exclusion is permitted.
+
+Require collaborators to re-clone, refresh CI/deployment checkouts, and prevent stale clones pushing old history. Reapply only reviewed changes to sanitized branches; never merge contaminated ancestry. Preserve recovery backups privately. No irreversible GC until all recovery and verification gates are complete.
+
+## 9. Local tree refs: separate explicit deletion approval
+
+A read-only inventory on 2026-10-17 found **21** local review tree refs (the earlier report had 19); one reaches the known compromised blob. Snapshot counts may grow as Codex captures work. Re-inventory at maintenance time. The private inventory is `/tmp/concierge-local-tree-refs.json` for this session; it includes types/OIDs/path flags, no contents. No local ref was deleted.
+
+Before any deletion, compare with remote advertised refs and establish the snapshots were never published. Do not infer this merely from their namespace. Then, only with separate owner approval:
 
 ```bash
-git clone --no-single-branch "$REMOTE_URL" /path/to/new/Concierge.Ai
-git -C /path/to/new/Concierge.Ai switch main
-git -C /path/to/new/Concierge.Ai status --short
+git -C "$TOOLS" for-each-ref --format='%(refname) %(objectname)' \
+  refs/codex/turn-diffs > "$CLEANUP_WORKDIR/local-tree-refs-before.tsv"
+# Review every row, object type, reachability, and never-published evidence first.
+while read -r REF EXPECTED_OID; do
+  case "$REF" in refs/codex/turn-diffs/*) ;; *) exit 1 ;; esac
+  git -C "$TOOLS" update-ref -d "$REF" "$EXPECTED_OID"
+done < "$CLEANUP_WORKDIR/local-tree-refs-before.tsv"
 ```
 
-In each existing local checkout that will be retained, remove only the never-pushed Codex tree refs. This is a local ref deletion; it does not contact or modify GitHub:
+Verify no remaining local ref reaches the compromised blob, by object IDs and tree traversal only. Keep snapshots out of publication. Do not run GC as part of the loop.
 
-```bash
-while IFS= read -r REF; do
-  git -C /path/to/existing/Concierge.Ai update-ref -d "$REF"
-done < <(git -C /path/to/existing/Concierge.Ai \
-  for-each-ref --format='%(refname)' refs/codex/turn-diffs)
-```
+## Final milestone ledger
 
-The stale `.gitattributes -diff` line is removed in the rewritten checkout before the clean scans and publication, as shown above. Keep the explicit CI `--all --text` scan and all ten reviewed synthetic ignore entries; the remap helper must not introduce new entries.
-
-## 5. Completion checklist
-
-- [ ] Browser Use confirms the exposed key is revoked; private revocation evidence is recorded without the key value.
-- [ ] Dependent secret stores were rotated where needed and affected workloads restarted.
-- [ ] A fresh, non-shallow clone was used; the hardened prepare script passed its branch-tip preflight and ref-map/per-ref preservation gate.
-- [ ] The evidence path is absent from all reachable mirror objects by path verification.
-- [ ] The remap result matches the reviewed ten synthetic fingerprints; no real finding was ignored.
-- [ ] Both Gitleaks 8.24.3 scans returned zero findings, including the full-history `--all --text` scan.
-- [ ] `.gitattributes` no longer hides the removed path from diffs; CI still includes `--text`.
-- [ ] The owner approved the maintenance window; publication used explicit expected-SHA leases and an atomic push.
-- [ ] Published branches and tags match their rewritten tips; every advertised/fetched `refs/pull/*` ref reaches no pre-rewrite commit.
-- [ ] Collaborators recloned; old clones cannot push stale refs; local `refs/codex/turn-diffs/*` refs were removed where appropriate.
-- [ ] All CI jobs, especially secret-scan, pass on the rewritten repository.
-
-Do not mark the incident closed if any box remains unchecked. Do not rewrite shared history or force-push outside explicit owner authorization.
+Use PASS, FAIL, BLOCKED or NOT VERIFIED individually for: source isolation, historical incident, owner revocation confirmation, independent revocation evidence, preparation tooling, real ref/commit preservation, ten-fingerprint remap, default Action scan, explicit text scan, publication, GitHub branches/tags, PR reachability/caches, attribute cleanup, local ref cleanup, collaborator recovery and CI. Incident closure requires evidence for every applicable gate; source tests alone cannot close the historical incident.

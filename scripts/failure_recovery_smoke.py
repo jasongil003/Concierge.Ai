@@ -162,6 +162,7 @@ def main() -> None:
             "TEMP": str(temporary_root),
             "TMP": str(temporary_root),
             "APP_ENVIRONMENT": "development",
+            "PYTHON_DOTENV_DISABLED": "1",
             "PROPERTY_ID": "recovery-test",
             "ADMIN_BOOTSTRAP_USERNAME": "admin",
             "ADMIN_BOOTSTRAP_PASSWORD": password,

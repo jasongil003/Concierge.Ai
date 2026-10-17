@@ -508,6 +508,9 @@ def test_start_without_an_installed_optional_service_uses_fallback(
 
 def test_port_occupancy_and_install_exit_codes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     class OccupiedSocket:
+        def settimeout(self, timeout):
+            assert timeout == source_service.PORT_PROBE_TIMEOUT
+
         def __enter__(self):
             return self
 
@@ -517,7 +520,8 @@ def test_port_occupancy_and_install_exit_codes(tmp_path: Path, monkeypatch: pyte
         def connect_ex(self, _address):
             return 0
 
-    monkeypatch.setattr(source_service.socket, "socket", lambda *_args: OccupiedSocket())
+    from deploy.common import port_probe
+    monkeypatch.setattr(port_probe.socket, "socket", lambda *_args: OccupiedSocket())
     assert source_service.port_in_use() is True
 
     root = _source_tree(tmp_path)

@@ -7,12 +7,13 @@ from types import SimpleNamespace
 from scripts import master_audit_http_sample as http_sample
 
 
-def test_http_sample_children_do_not_receive_host_credentials(monkeypatch):
+def test_http_sample_children_do_not_receive_host_credentials(monkeypatch, capsys):
     child_environments = []
 
     class FakeServer:
         def __init__(self):
             self.returncode = None
+            self.pid = 123
 
         def poll(self):
             return self.returncode
@@ -44,9 +45,23 @@ def test_http_sample_children_do_not_receive_host_credentials(monkeypatch):
     monkeypatch.setattr(http_sample.psutil, "Process", lambda pid: FakeProcess())
     monkeypatch.setattr(http_sample, "request", lambda *args: (1.0, 200))
     monkeypatch.setattr(http_sample.time, "sleep", lambda *args: None)
+    class FakeListener:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def bind(self, _address):
+            pass
+
+        def getsockname(self):
+            return ("127.0.0.1", 12345)
+
+    monkeypatch.setattr(http_sample.socket, "socket", lambda: FakeListener())
     monkeypatch.setenv(
         "CONCIERGE_SYNTHETIC_HOST_SECRET_SENTINEL",
-        "synthetic-host-secret-for-isolation-test",
+        "DO_NOT_PROPAGATE_SENTINEL",
     )
 
     host_sensitive_names = {
@@ -65,3 +80,16 @@ def test_http_sample_children_do_not_receive_host_credentials(monkeypatch):
         "CONCIERGE_SYNTHETIC_HOST_SECRET_SENTINEL" not in environment
         for environment in child_environments
     )
+    assert all(environment["PATH"] and environment["DB_PATH"] for environment in child_environments)
+    assert all(environment["PYTHON_DOTENV_DISABLED"] == "1" for environment in child_environments)
+    captured = capsys.readouterr()
+    assert "DO_NOT_PROPAGATE_SENTINEL" not in captured.out + captured.err
+
+
+def test_http_environment_works_without_optional_host_settings(monkeypatch, tmp_path):
+    monkeypatch.delenv("PATH", raising=False)
+    environment = http_sample._build_environment(str(tmp_path))
+    assert environment["PATH"] == os.defpath
+    assert environment["HOME"] == str(tmp_path)
+    assert environment["STATE_DIRECTORY"] != environment["TMPDIR"]
+    assert environment["DATABASE_URL"] == ""

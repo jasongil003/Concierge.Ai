@@ -17,6 +17,11 @@ from typing import Callable
 
 from dotenv import dotenv_values
 
+if __package__:
+    from .common.runtime_environment import application_environment
+else:
+    from common.runtime_environment import application_environment
+
 
 PLACEHOLDER_SECRETS = {
     "",
@@ -245,8 +250,7 @@ def initialize_application(root: Path, python: Path, runner: Callable = subproce
         upload_root = root / upload_root
     upload_root.mkdir(parents=True, exist_ok=True)
 
-    child_env = os.environ.copy()
-    child_env.update(values)
+    child_env = application_environment(values)
     database_url = values.get("DATABASE_URL", "").strip()
     before_admin = _sqlite_admin_count(root, values) > 0
     if database_url:
@@ -333,8 +337,7 @@ def validate_configuration(root: Path, python: Path, runner: Callable = subproce
     password = values.get("ADMIN_BOOTSTRAP_PASSWORD", "admin").strip()
     if not _valid_admin_bootstrap(username, password, values.get("APP_ENVIRONMENT", "development")):
         raise InstallerError("Administrator bootstrap configuration is invalid.")
-    child_env = os.environ.copy()
-    child_env.update(values)
+    child_env = application_environment(values)
     runner(
         [
             str(python), "-c",
