@@ -1,17 +1,17 @@
 # Exact historical fingerprints for fake test credentials and the empty API
 # key variable in .env.example. These entries do not suppress new findings.
-1ccd746cd27f808c6f546f63c322ebb47a0bee5d:tests/test_ai_providers.py:generic-api-key:40
-d164e12336270069d3b15272143f92bbf8fdc5f7:tests/test_ai_providers.py:generic-api-key:24
-98298e18a0c4b1af24b97bf8d80becd2d240676c:.env.example:generic-api-key:33
-e92b41859c85be293e02e678ad20280f63f67a0d:.github/workflows/ci.yml:generic-api-key:345
-e92b41859c85be293e02e678ad20280f63f67a0d:.github/workflows/ci.yml:generic-api-key:346
-6f283f0cd433e557203805f7de643ca19f084ce4:.github/workflows/ci.yml:generic-api-key:345
-6f283f0cd433e557203805f7de643ca19f084ce4:.github/workflows/ci.yml:generic-api-key:346
+7018ef430c7d46a77f1e0f3409b7ed24e57969d5:tests/test_ai_providers.py:generic-api-key:40
+89fb4069f0ce26c1f474834a8ef5cc6ea29207c6:tests/test_ai_providers.py:generic-api-key:24
+2fb851745da833128f6ee2da50ec73dd8e306e8f:.env.example:generic-api-key:33
+fd1901871b3df4da7473a2ba9e5947aad2482422:.github/workflows/ci.yml:generic-api-key:345
+fd1901871b3df4da7473a2ba9e5947aad2482422:.github/workflows/ci.yml:generic-api-key:346
+3fddbe61cf92c21a94b17029278a2411d88facaa:.github/workflows/ci.yml:generic-api-key:345
+3fddbe61cf92c21a94b17029278a2411d88facaa:.github/workflows/ci.yml:generic-api-key:346
 # Exact fingerprint for a synthetic installer-test value removed from the current tree.
-d4d936e8f1788926c2b035b1700927e39ba3b9fe:tests/test_source_install.py:generic-api-key:139
+947c7b79bd3c99ea5597989ce3964f18bde599bf:tests/test_source_install.py:generic-api-key:139
 # Exact historical fingerprint for a synthetic performance-only credential;
 # the current harness generates it at runtime instead of storing a literal.
-6fd9d2309f28137a2ab3823ca99794656998b5d8:scripts/phase4_performance_sample.py:generic-api-key:50
+c41de4591322b9d52b1ad7727a2b904d207c1302:scripts/phase4_performance_sample.py:generic-api-key:50
 # Exact fingerprint for the former single-line list of empty local-demo API
 # environment assignments; current source uses `unset` instead.
-87747f6a6167f56a64764228e9148d5d848ea0f4:scripts/local-demo.sh:generic-api-key:75
+69f9d54b01e4c34f6a6fa46742ff67c4676ab47e:scripts/local-demo.sh:generic-api-key:75
