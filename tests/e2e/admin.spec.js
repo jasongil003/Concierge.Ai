@@ -2056,6 +2056,8 @@ test("admin: empty guest page offers a clear, draft-safe starting point", async 
     await expect(emptyState.getByRole("heading", { name: "Start building your Home page" })).toBeVisible();
     await expect(emptyState).toContainText("guests see changes only after you publish");
     await expect(canvas.locator(".builder-chat-preview-toolbar small")).toContainText(/separate from page sections/i);
+    await expect(canvas.locator(".builder-chat-preview-window")).toBeVisible();
+    await expect(canvas.locator(".builder-chat-message")).toHaveCount(3);
 
     await page.locator('[data-builder-device="mobile"]').click();
     await expect(emptyState.getByRole("button", { name: "Choose a page layout" })).toBeVisible();
