@@ -78,6 +78,11 @@ source_commit_manifest="$target/source-ref-commits.tsv"
 while read -r ref kind symref; do
   if [[ -n "$symref" ]]; then
     continue
+  elif [[ "$ref" == refs/remotes/origin/HEAD ]]; then
+    # Mirror clones materialize origin/HEAD as a plain commit alias of the
+    # default branch rather than a symref. It is not a distinct published ref.
+    printf '%s\t%s\tdefault-branch-alias-omitted\n' "$ref" "$(git -C "$target" rev-parse --verify "$ref")" >> "$target/ref-exceptions.tsv"
+    continue
   elif [[ "$kind" == commit || "$kind" == tag ]]; then
     tip="$(git -C "$target" rev-parse --verify "$ref")"
     if ! peeled_tip="$(git -C "$target" rev-parse --verify "$ref^{commit}" 2>/dev/null)"; then

@@ -51,7 +51,11 @@ def snapshot(repo, output):
         fields = line.split()
         ref, oid, kind = fields[:3]
         row = {"ref": ref, "oid": oid, "type": kind, "symref": fields[3] if len(fields) > 3 else ""}
-        if kind in {"commit", "tag"}:
+        if ref == "refs/remotes/origin/HEAD":
+            # Mirror clones materialize origin/HEAD as a plain commit alias of
+            # the default branch rather than a symref. It is not published.
+            row["exception"] = "default-branch alias; verify via the default branch destination"
+        elif kind in {"commit", "tag"}:
             tip = git_read(repo, "rev-parse", ref + "^{commit}")
             row["tip"] = tip
             row["commits"] = git_read(repo, "rev-list", "--parents", tip).splitlines()
@@ -142,7 +146,11 @@ def verify(repo, ref_manifest, commit_manifest):
         commits_by_ref.setdefault(fields[0], []).append(fields[1])
 
     inventory = json.loads((repo / "source-inventory.json").read_text(encoding="utf-8"))
-    intended = {row["ref"] for row in inventory if not row.get("symref") and row["type"] in {"commit", "tag"}}
+    intended = {
+        row["ref"]
+        for row in inventory
+        if not row.get("symref") and not row.get("exception") and row["type"] in {"commit", "tag"}
+    }
     if intended != {row[0] for row in source_refs} or len(intended) != len(source_refs):
         fail("source manifest omitted or duplicated an intended inventory ref")
     expected_destinations = {destination_ref(ref) for ref in intended}
