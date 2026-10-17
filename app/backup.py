@@ -178,7 +178,10 @@ def _postgres_environment(database_url: str) -> tuple[list[str], dict[str, str]]
     parsed = _parse_database_url(database_url)
     if parsed.get_backend_name() != "postgresql":
         raise ValueError("PostgreSQL backup requires a PostgreSQL DATABASE_URL.")
-    environment = os.environ.copy()
+    # pg_dump/pg_restore need PATH for executable lookup and only the libpq
+    # settings derived from this database URL. Inheriting the application's
+    # full environment would expose unrelated host credentials to the child.
+    environment = {"PATH": os.environ.get("PATH", os.defpath)}
     if parsed.host:
         environment["PGHOST"] = parsed.host
     if parsed.port:

@@ -25,6 +25,30 @@ import psutil
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _build_environment(temporary: str) -> dict[str, str]:
+    """Return only the environment needed by the disposable loopback app."""
+    temporary_root = Path(temporary)
+    return {
+        "PATH": os.environ.get("PATH", os.defpath),
+        "HOME": temporary,
+        "TMPDIR": temporary,
+        "TEMP": temporary,
+        "TMP": temporary,
+        "APP_ENVIRONMENT": "test",
+        "CONCIERGE_TESTING": "1",
+        "STATE_DIRECTORY": temporary,
+        "DB_PATH": str(temporary_root / "test.db"),
+        "UPLOAD_ROOT": str(temporary_root / "uploads"),
+        "DATABASE_URL": "",
+        "REDIS_URL": "",
+        "PROPERTY_ID": "synthetic-http",
+        "ENABLE_BACKGROUND_WORKERS": "false",
+        "LOCAL_AI_ENABLED": "false",
+        "ADMIN_BOOTSTRAP_PASSWORD": secrets.token_urlsafe(32) + "A!",
+        "CREDENTIAL_ENCRYPTION_SECRET": secrets.token_urlsafe(48),
+    }
+
+
 def request(base_url, index):
     started = time.perf_counter()
     try:
@@ -43,16 +67,7 @@ def main():
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
             port = listener.getsockname()[1]
-        environment = {
-            **os.environ,
-            "APP_ENVIRONMENT": "test", "CONCIERGE_TESTING": "1",
-            "STATE_DIRECTORY": temporary, "DB_PATH": str(Path(temporary) / "test.db"),
-            "UPLOAD_ROOT": str(Path(temporary) / "uploads"),
-            "DATABASE_URL": "", "REDIS_URL": "", "PROPERTY_ID": "synthetic-http",
-            "ENABLE_BACKGROUND_WORKERS": "false", "LOCAL_AI_ENABLED": "false",
-            "ADMIN_BOOTSTRAP_PASSWORD": secrets.token_urlsafe(32) + "A!",
-            "CREDENTIAL_ENCRYPTION_SECRET": secrets.token_urlsafe(48),
-        }
+        environment = _build_environment(temporary)
         base_url = f"http://127.0.0.1:{port}"
         subprocess.run([
             sys.executable, "-c",

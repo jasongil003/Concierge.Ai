@@ -263,6 +263,10 @@ def test_postgres_backup_archive_uses_secret_free_argv_and_restores_to_empty_tar
     archive = tmp_path / "postgres-backup.zip"
     argv_seen = []
     env_seen = []
+    monkeypatch.setenv(
+        "CONCIERGE_SYNTHETIC_HOST_SECRET_SENTINEL",
+        "synthetic-host-secret-for-isolation-test",
+    )
 
     def fake_run(argv, *, env, **_kwargs):
         argv_seen.append(list(argv))
@@ -304,6 +308,7 @@ def test_postgres_backup_archive_uses_secret_free_argv_and_restores_to_empty_tar
     assert sum("--exit-on-error" in argv for argv in restore_commands) == 1
     assert all("unit@test" not in " ".join(argv) for argv in argv_seen)
     assert all(env["PGPASSWORD"] == "unit@test" for env in env_seen)
+    assert all("CONCIERGE_SYNTHETIC_HOST_SECRET_SENTINEL" not in env for env in env_seen)
 
 
 def test_failed_postgres_connection_never_echoes_dsn_or_password(monkeypatch, capsys):
