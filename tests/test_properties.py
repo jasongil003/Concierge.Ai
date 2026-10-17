@@ -388,6 +388,50 @@ def test_guest_home_design_welcome_copy_has_a_generic_default_and_bounded_descri
     assert len(configured["welcome"]["description"]) == 280
 
 
+def test_design_theme_tokens_are_safe_and_legacy_colors_migrate():
+    defaults = default_design_config()["theme"]
+    for field in ("primaryColor", "secondaryColor", "headingColor", "bodyColor", "buttonText", "hoverColor", "focusColor"):
+        assert isinstance(defaults[field], str) and defaults[field].startswith("#") and len(defaults[field]) == 7
+    assert defaults["paletteId"] == "custom"
+    assert defaults["shadow"] == "subtle"
+
+    legacy_config = validate_design_config({"theme": {
+        "font": "Playfair Display",
+        "background": "#abcdef",
+        "surface": "#ffffff",
+        "textPrimary": "#123456",
+        "accent": "#654321",
+        "accentText": "#ffffff",
+        "buttonColor": "#234567",
+    }})
+    legacy = legacy_config["theme"]
+    assert legacy["primaryColor"] == "#234567"
+    assert legacy["headingColor"] == "#123456"
+    assert legacy["bodyColor"] == "#123456"
+    assert legacy["buttonText"] == "#ffffff"
+    assert legacy["hoverColor"] == "#654321"
+    assert legacy["focusColor"] == "#654321"
+    assert legacy_config["typography"]["fontFamily"] == "Playfair Display"
+
+    custom = validate_design_config({"theme": {
+        "paletteId": "custom",
+        "layoutTemplateId": "business",
+        "primaryColor": "#123456",
+        "secondaryColor": "#abcdef",
+        "headingColor": "#222222",
+        "buttonText": "#ffffff",
+        "shadow": "strong",
+    }})["theme"]
+    assert custom["primaryColor"] == "#123456"
+    assert custom["layoutTemplateId"] == "business"
+    assert custom["shadow"] == "strong"
+
+    with pytest.raises(ValueError, match="theme palette"):
+        validate_design_config({"theme": {"paletteId": "not-a-palette"}})
+    with pytest.raises(ValueError, match="theme shadow"):
+        validate_design_config({"theme": {"shadow": "huge"}})
+
+
 def test_guest_home_quick_action_descriptions_are_property_configured_and_bounded():
     configured = validate_design_config({"suggestions": [{
         "label": "Explore dining",

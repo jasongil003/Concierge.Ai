@@ -2763,43 +2763,34 @@ function applyDesignTokens(design) {
   const composer = design.composer || {};
 
   const root = document.documentElement;
-  root.style.setProperty("--background", theme.background || "#faf8f4");
+  const themeTokens = window.ConciergeTheme.apply(root, design);
   const backgroundImageUrl = safeGuestUrl(theme.backgroundImageUrl, { allowDataImage: true });
   const cssBackgroundImage = backgroundImageUrl
     ? `url("${backgroundImageUrl.replaceAll("\\", "%5C").replaceAll('"', "%22").replaceAll(")", "%29")}")`
     : "none";
   root.style.setProperty("--background-image", cssBackgroundImage);
   root.style.setProperty("--background-overlay", (theme.backgroundOverlay || 0) / 100);
-  root.style.setProperty("--surface", theme.surface || "#ffffff");
-  root.style.setProperty("--surface-elevated", composer.background || theme.composerBackground || "#ffffff");
-  root.style.setProperty("--text-primary", theme.textPrimary || "#1c1c1c");
-  root.style.setProperty("--text-secondary", theme.textSecondary || "#6e6a64");
-  root.style.setProperty("--accent", theme.accent || "#b38a4a");
-  root.style.setProperty("--button-color", theme.buttonColor || theme.accent || "#b38a4a");
-  root.style.setProperty("--accent-text", theme.accentText || "#1c1c1c");
-  root.style.setProperty("--border", theme.border || "#e8e3da");
-  root.style.setProperty("--user-message-bg", theme.userMessageBackground || "#f0ede7");
-  root.style.setProperty("--user-message-text", theme.userMessageText || "#1c1c1c");
-  root.style.setProperty("--assistant-text", theme.assistantText || theme.textPrimary || "#1c1c1c");
-  root.style.setProperty("--column-width", (layout.contentWidth || 840) + "px");
-  root.style.setProperty("--composer-max", (layout.composerWidth || 720) + "px");
-  root.style.setProperty("--message-width", (layout.messageWidth || 680) + "px");
-  root.style.setProperty("--message-spacing", (messages.messageSpacing || layout.messageSpacing || 24) + "px");
+  root.style.setProperty("--background-overlay-percent", `${theme.backgroundOverlay || 0}%`);
+  root.style.setProperty("--column-width", themeTokens.contentWidth + "px");
+  root.style.setProperty("--composer-max", themeTokens.composerWidth + "px");
+  root.style.setProperty("--message-width", themeTokens.messageWidth + "px");
+  root.style.setProperty("--message-spacing", (messages.messageSpacing || layout.messageSpacing || themeTokens.messageSpacing) + "px");
   root.style.setProperty("--message-radius", (messages.radius || theme.radius || 18) + "px");
   root.style.setProperty("--composer-radius", (composer.radius || 24) + "px");
-  root.style.setProperty("--base-font-size", (typography.baseFontSize || 15) + "px");
+  root.style.setProperty("--base-font-size", themeTokens.baseFontSize + "px");
   root.style.setProperty("--heading-weight", typography.headingWeight || 600);
   root.style.setProperty("--body-weight", typography.bodyWeight || 400);
   root.style.setProperty("--letter-spacing", (typography.letterSpacing || 0) + "em");
-  root.style.setProperty("--font-family", fontStack(typography.fontFamily || theme.font || "Geist"));
-  root.style.setProperty("--guest-radius", `${theme.radius ?? 14}px`);
-  root.style.setProperty("--guest-card-radius", `${design.card?.radius ?? theme.radius ?? 14}px`);
-  root.style.setProperty("--guest-shadow", design.card?.shadow === "none" ? "none" : design.card?.shadow === "strong" ? "0 14px 38px rgba(25, 25, 25, .14)" : "0 7px 24px rgba(25, 25, 25, .07)");
-  root.style.setProperty("--guest-density", theme.density === "compact" ? ".78" : "1");
+  root.style.setProperty("--font-family", fontStack(themeTokens.fontFamily));
+  root.style.setProperty("--guest-radius", `${themeTokens.radius}px`);
+  root.style.setProperty("--guest-card-radius", `${design.card?.radius ?? themeTokens.radius}px`);
+  const shadow = design.card?.shadow || themeTokens.shadow;
+  root.style.setProperty("--guest-shadow", shadow === "none" ? "none" : shadow === "strong" ? "0 14px 38px rgba(25, 25, 25, .16)" : "0 7px 24px rgba(25, 25, 25, .07)");
+  root.style.setProperty("--guest-density", themeTokens.density === "compact" ? ".78" : "1");
 
   document.body.dataset.userMessageStyle = messages.userStyle || "bubble";
   document.body.dataset.assistantMessageStyle = messages.assistantStyle || "minimal";
-  document.body.dataset.density = theme.density || "comfortable";
+  document.body.dataset.density = themeTokens.density;
   document.body.dataset.suggestionLayout = layout.suggestionLayout || "stack";
   document.body.classList.toggle("header-hidden", header.enabled === false);
   const logoDisplay = design.branding?.logoDisplay || "mark_name";

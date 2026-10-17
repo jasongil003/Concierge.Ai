@@ -16,6 +16,8 @@ const state = {
   builderSelection: null,
   builderCollapsedLayers: new Set(),
   builderDevice: "desktop",
+  builderLayoutTemplateId: "",
+  builderPaletteId: "custom",
   builderPageId: "home",
   builderInspectorTab: "content",
   builderLibraryTab: "components",
@@ -3403,6 +3405,8 @@ function hydrateDesign(design) {
   state.designDraft = structuredClone(design.draft);
   state.designPublished = structuredClone(design.published);
   state.designRevision = Number(design.revision || 1);
+  state.builderLayoutTemplateId = state.designDraft.theme?.layoutTemplateId || "";
+  state.builderPaletteId = state.designDraft.theme?.paletteId || "custom";
   state.builderRegistry = design.component_registry || {};
   state.guestPages = structuredClone(state.designDraft.pages || []);
   if (!state.guestPages.some((page) => page.id === "home")) {
@@ -3937,15 +3941,24 @@ function renderBuilderCanvas() {
   canvas.replaceChildren();
   canvas.dataset.device = state.builderDevice;
   const design = designPayload();
-  canvas.style.setProperty("--builder-page-bg", design.theme?.background || "#faf8f4");
-  canvas.style.setProperty("--builder-page-surface", design.theme?.surface || "#ffffff");
-  canvas.style.setProperty("--builder-page-ink", design.theme?.textPrimary || "#1c1c1c");
-  canvas.style.setProperty("--builder-page-muted", design.theme?.textSecondary || "#6e6a64");
-  canvas.style.setProperty("--builder-page-accent", design.theme?.accent || "#9b7337");
-  canvas.style.setProperty("--builder-page-font", previewFontStack(design.typography?.fontFamily || design.theme?.font || "Geist"));
-  canvas.style.setProperty("--builder-page-font-size", `${Number(design.typography?.baseFontSize) || 15}px`);
-  canvas.style.setProperty("--builder-page-radius", `${Number(design.theme?.radius) || 14}px`);
-  canvas.style.setProperty("--builder-content-width", `${Number(design.layout?.contentWidth) || 1100}px`);
+  const tokens = window.ConciergeTheme.apply(canvas, design);
+  canvas.style.setProperty("--builder-page-bg", tokens.background);
+  canvas.style.setProperty("--builder-page-surface", tokens.surface);
+  canvas.style.setProperty("--builder-page-ink", tokens.bodyColor);
+  canvas.style.setProperty("--builder-page-heading", tokens.headingColor);
+  canvas.style.setProperty("--builder-page-muted", tokens.textSecondary);
+  canvas.style.setProperty("--builder-page-accent", tokens.accent);
+  canvas.style.setProperty("--builder-page-primary", tokens.primaryColor);
+  canvas.style.setProperty("--builder-page-secondary", tokens.secondaryColor);
+  canvas.style.setProperty("--builder-page-button-text", tokens.buttonText);
+  canvas.style.setProperty("--builder-page-border", tokens.border);
+  canvas.style.setProperty("--builder-page-hover", tokens.hoverColor);
+  canvas.style.setProperty("--builder-page-focus", tokens.focusColor);
+  canvas.style.setProperty("--builder-page-shadow", tokens.shadow === "none" ? "none" : tokens.shadow === "strong" ? "0 14px 38px rgba(25,25,25,.16)" : "0 7px 24px rgba(25,25,25,.07)");
+  canvas.style.setProperty("--builder-page-font", previewFontStack(tokens.fontFamily));
+  canvas.style.setProperty("--builder-page-font-size", `${tokens.baseFontSize}px`);
+  canvas.style.setProperty("--builder-page-radius", `${tokens.radius}px`);
+  canvas.style.setProperty("--builder-content-width", `${tokens.contentWidth}px`);
   const sections = [...(page.sections || [])].sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
   const pageShell = document.createElement("div"); pageShell.className = "builder-guest-page";
   const pageBody = document.createElement("div"); pageBody.className = "builder-guest-content";
@@ -4941,8 +4954,17 @@ function applyBuilderTemplate(template) {
     restaurant: [["hero", "Welcome"], ["restaurant", "Restaurants"], ["carousel", "Featured dining"], ["concierge_composer", "Ask the concierge"]],
     blank: [],
   };
-  builderRecordChange(); page.sections = (specs[template] || []).map(([type, title], index) => { const definition = state.builderRegistry[type]; const properties = structuredClone(definition?.defaults || {}); if (type === "quick_actions") delete properties.items; return { id: builderNewId(type), type, title, enabled: true, order: index, properties, responsive: {}, animation: { entrance: "none", duration: "normal", delay: 0, trigger: "page_load", repeat: "once", interaction: "none" }, appearance: {} }; });
+  if (!Object.hasOwn(specs, template)) return;
+  builderRecordChange();
+  page.sections = specs[template].map(([type, title], index) => { const definition = state.builderRegistry[type]; const properties = structuredClone(definition?.defaults || {}); if (type === "quick_actions") delete properties.items; return { id: builderNewId(type), type, title, enabled: true, order: index, properties, responsive: {}, animation: { entrance: "none", duration: "normal", delay: 0, trigger: "page_load", repeat: "once", interaction: "none" }, appearance: {} }; });
+  state.builderLayoutTemplateId = template;
+  if (!$('builder-preserve-theme-input')?.checked) {
+    const palette = window.ConciergeTheme.TEMPLATE_PALETTES[template];
+    if (palette) applyDesignPreset(palette, { record: false, notify: false });
+  }
   state.builderSelectedSectionId = page.sections[0]?.id || null; state.builderSelection = null; $("builder-template-menu").hidden = true; $("builder-templates-button").setAttribute("aria-expanded", "false"); normalizeBuilderOrder(); renderBuilder();
+  updatePreview();
+  showToast(`${template === "restaurant" ? "Restaurant focused" : template} layout applied to the draft${$('builder-preserve-theme-input')?.checked ? "; current theme kept" : " with its default theme"}.`);
 }
 
 function updateBuilderField(event) {
@@ -5053,7 +5075,15 @@ function updateBuilderAction(action, field, value) {
 }
 
 function fillDesignForm(config) {
-  state.designAccentText = config.theme?.accentText || "#ffffff";
+  const themeTokens = window.ConciergeTheme.normalize(config);
+  state.builderLayoutTemplateId = themeTokens.layoutTemplateId;
+  state.builderPaletteId = themeTokens.paletteId || "custom";
+  document.querySelectorAll("[data-design-preset]").forEach((button) => {
+    const selected = button.dataset.designPreset === state.builderPaletteId;
+    button.classList.toggle("selected", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+  state.designAccentText = config.theme?.buttonText || config.theme?.accentText || "#ffffff";
   $("design-hotel-name").value = config.branding?.hotelName || "";
   $("design-concierge-name").value = config.branding?.conciergeName || "";
   $("logo-display-input").value = config.branding?.logoDisplay || "mark_name";
@@ -5069,11 +5099,17 @@ function fillDesignForm(config) {
   $("composer-placeholder-input").value = config.composer?.placeholder || "";
   $("background-input").value = normalizeColor(config.theme?.background || "#faf8f4");
   $("surface-input").value = normalizeColor(config.theme?.surface || "#ffffff");
+  $("heading-color-input").value = normalizeColor(themeTokens.headingColor);
   $("text-color-input").value = normalizeColor(config.theme?.textPrimary || "#1c1c1c");
   $("secondary-text-color-input").value = normalizeColor(config.theme?.textSecondary || "#6e6a64");
   $("accent-input").value = normalizeColor(config.theme?.accent || "#b38a4a");
+  $("secondary-color-input").value = normalizeColor(themeTokens.secondaryColor);
   $("user-message-input").value = normalizeColor(config.theme?.userMessageBackground || "#f0ede7");
-  $("button-color-input").value = normalizeColor(config.theme?.buttonColor || config.theme?.accent || "#b38a4a");
+  $("button-color-input").value = normalizeColor(themeTokens.primaryColor);
+  $("button-text-color-input").value = normalizeColor(themeTokens.buttonText);
+  $("border-color-input").value = normalizeColor(themeTokens.border);
+  $("hover-color-input").value = normalizeColor(themeTokens.hoverColor);
+  $("focus-color-input").value = normalizeColor(themeTokens.focusColor);
   $("composer-background-input").value = normalizeColor(config.composer?.background || config.theme?.composerBackground || "#ffffff");
   $("background-image-url-input").value = config.theme?.backgroundImageUrl || "";
   $("background-overlay-input").value = config.theme?.backgroundOverlay ?? 0;
@@ -5085,6 +5121,7 @@ function fillDesignForm(config) {
   $("base-font-size-input").value = config.typography?.baseFontSize || 15;
   $("message-spacing-input").value = config.layout?.messageSpacing || config.messages?.messageSpacing || 24;
   $("radius-input").value = config.theme?.radius ?? 14;
+  $("theme-shadow-input").value = themeTokens.shadow;
   $("suggestion-layout-input").value = config.layout?.suggestionLayout || "stack";
   $("user-style-input").value = config.messages?.userStyle || "bubble";
   $("assistant-style-input").value = config.messages?.assistantStyle || "minimal";
@@ -5111,14 +5148,24 @@ function designPayload() {
   };
   base.theme = {
     ...(base.theme || {}),
+    paletteId: state.builderPaletteId || "custom",
+    layoutTemplateId: state.builderLayoutTemplateId || "",
     font: $("font-input").value,
     background: $("background-input").value,
     surface: $("surface-input").value,
+    headingColor: $("heading-color-input").value,
+    bodyColor: $("text-color-input").value,
     textPrimary: $("text-color-input").value,
     textSecondary: $("secondary-text-color-input").value,
     accent: $("accent-input").value,
-    accentText: state.designAccentText || base.theme?.accentText || "#ffffff",
-    border: base.theme?.border || "#e8e3da",
+    primaryColor: $("button-color-input").value,
+    secondaryColor: $("secondary-color-input").value,
+    buttonText: $("button-text-color-input").value,
+    accentText: $("button-text-color-input").value,
+    border: $("border-color-input").value,
+    hoverColor: $("hover-color-input").value,
+    focusColor: $("focus-color-input").value,
+    shadow: $("theme-shadow-input").value,
     userMessageBackground: $("user-message-input").value,
     userMessageText: base.theme?.userMessageText || "#1c1c1c",
     assistantText: base.theme?.assistantText || "#1c1c1c",
@@ -5385,50 +5432,62 @@ function updatePreview() {
   renderBuilderCanvas();
 }
 
-const designPresets = {
-  elegant: { background: "#f5f5f5", surface: "#ffffff", text: "#202020", subtle: "#666666", accent: "#444444", user: "#ededed", button: "#202020", buttonText: "#ffffff", composer: "#ffffff", font: "Playfair Display", density: "comfortable", baseSize: 15, contentWidth: 840, messageWidth: 660, composerWidth: 820, spacing: 27, radius: 8 },
-  minimal: { background: "#f7f7f7", surface: "#ffffff", text: "#171717", subtle: "#686868", accent: "#111111", user: "#eeeeee", button: "#111111", buttonText: "#ffffff", composer: "#ffffff", font: "Inter", density: "comfortable", baseSize: 15, contentWidth: 840, messageWidth: 680, composerWidth: 840, spacing: 24, radius: 8 },
-  "soft-gray": { background: "#f1f1f1", surface: "#ffffff", text: "#222222", subtle: "#6b6b6b", accent: "#444444", user: "#e8e8e8", button: "#222222", buttonText: "#ffffff", composer: "#ffffff", font: "Geist", density: "comfortable", baseSize: 15, contentWidth: 840, messageWidth: 680, composerWidth: 840, spacing: 26, radius: 12 },
-  "high-contrast": { background: "#ececec", surface: "#ffffff", text: "#111111", subtle: "#4d4d4d", accent: "#111111", user: "#e1e1e1", button: "#111111", buttonText: "#ffffff", composer: "#ffffff", font: "Inter", density: "compact", baseSize: 15, contentWidth: 840, messageWidth: 620, composerWidth: 800, spacing: 20, radius: 5 },
-  graphite: { background: "#202020", surface: "#292929", text: "#f4f4f4", subtle: "#b5b5b5", accent: "#f1f1f1", user: "#3b3b3b", button: "#f1f1f1", buttonText: "#171717", composer: "#303030", font: "Inter", density: "comfortable", baseSize: 15, contentWidth: 840, messageWidth: 680, composerWidth: 840, spacing: 24, radius: 8 },
-  ocean: { background: "#edf5f6", surface: "#ffffff", text: "#183039", subtle: "#566b70", accent: "#287987", user: "#dcecef", button: "#236a78", buttonText: "#ffffff", composer: "#ffffff", font: "Geist", density: "comfortable", baseSize: 15, contentWidth: 840, messageWidth: 680, composerWidth: 840, spacing: 24, radius: 8 },
-  botanical: { background: "#f1f5f1", surface: "#ffffff", text: "#20302a", subtle: "#5e6f64", accent: "#4b7659", user: "#e0eae2", button: "#3a6248", buttonText: "#ffffff", composer: "#ffffff", font: "Geist", density: "comfortable", baseSize: 15, contentWidth: 840, messageWidth: 680, composerWidth: 840, spacing: 24, radius: 8 },
-  rose: { background: "#f7f1f4", surface: "#ffffff", text: "#322730", subtle: "#74636d", accent: "#98677f", user: "#efe1e9", button: "#83556c", buttonText: "#ffffff", composer: "#ffffff", font: "Inter", density: "comfortable", baseSize: 15, contentWidth: 840, messageWidth: 680, composerWidth: 840, spacing: 24, radius: 8 },
-  coral: { background: "#f8f1ef", surface: "#ffffff", text: "#332723", subtle: "#76625c", accent: "#ad5d4d", user: "#f2dfda", button: "#994d3e", buttonText: "#ffffff", composer: "#ffffff", font: "Inter", density: "comfortable", baseSize: 15, contentWidth: 840, messageWidth: 680, composerWidth: 840, spacing: 24, radius: 8 },
-  "modern-elegance": { background: "#f5f4f0", surface: "#ffffff", text: "#262a27", subtle: "#686c68", accent: "#78633c", user: "#ece9e1", button: "#304239", buttonText: "#ffffff", composer: "#ffffff", font: "Playfair Display", density: "comfortable", baseSize: 15, contentWidth: 840, messageWidth: 660, composerWidth: 820, spacing: 28, radius: 8 },
-};
+const designPresets = window.ConciergeTheme.PRESETS;
 
-function applyDesignPreset(presetName) {
+function applyDesignPreset(presetName, { record = true, notify = true } = {}) {
   const preset = designPresets[presetName];
   if (!preset) return;
-  builderRecordChange();
+  if (record) builderRecordChange();
   const values = {
     "background-input": preset.background,
     "surface-input": preset.surface,
-    "text-color-input": preset.text,
-    "secondary-text-color-input": preset.subtle,
+    "heading-color-input": preset.headingColor,
+    "text-color-input": preset.bodyColor,
+    "secondary-text-color-input": preset.textSecondary,
     "accent-input": preset.accent,
-    "user-message-input": preset.user,
-    "button-color-input": preset.button,
-    "composer-background-input": preset.composer,
-    "font-input": preset.font,
+    "secondary-color-input": preset.secondaryColor,
+    "user-message-input": preset.userMessageBackground,
+    "button-color-input": preset.primaryColor,
+    "button-text-color-input": preset.buttonText,
+    "border-color-input": preset.border,
+    "hover-color-input": preset.hoverColor,
+    "focus-color-input": preset.focusColor,
+    "composer-background-input": preset.composerBackground,
+    "font-input": preset.fontFamily,
     "density-input": preset.density,
-    "base-font-size-input": preset.baseSize,
+    "base-font-size-input": preset.baseFontSize,
     "content-width-input": preset.contentWidth,
     "message-width-input": preset.messageWidth,
     "composer-width-input": preset.composerWidth,
-    "message-spacing-input": preset.spacing,
+    "message-spacing-input": preset.messageSpacing,
     "radius-input": preset.radius,
+    "theme-shadow-input": preset.shadow,
   };
   for (const [id, value] of Object.entries(values)) $(id).value = String(value);
   state.designAccentText = preset.buttonText;
+  state.builderPaletteId = presetName;
   document.querySelectorAll("[data-design-preset]").forEach((button) => {
     const selected = button.dataset.designPreset === presetName;
     button.classList.toggle("selected", selected);
     button.setAttribute("aria-pressed", String(selected));
   });
   updatePreview();
-  showToast(`${presetName.replaceAll("-", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())} palette applied to the draft.`);
+  if (notify) showToast(`${presetName.replaceAll("-", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())} palette applied to the draft.`);
+}
+
+function markBuilderThemeCustom() {
+  state.builderPaletteId = "custom";
+  document.querySelectorAll("[data-design-preset]").forEach((button) => {
+    button.classList.remove("selected");
+    button.setAttribute("aria-pressed", "false");
+  });
+}
+
+function restoreBuilderThemeDefaults() {
+  const palette = window.ConciergeTheme.TEMPLATE_PALETTES[state.builderLayoutTemplateId]
+    || (state.builderPaletteId !== "custom" ? state.builderPaletteId : "modern-elegance");
+  applyDesignPreset(palette);
+  showToast("The selected layout’s default theme was restored to the draft.");
 }
 
 function setDesignInspector(panelName) {
@@ -9603,12 +9662,19 @@ function setup() {
     "composer-placeholder-input",
     "background-input",
     "surface-input",
+    "heading-color-input",
     "text-color-input",
     "secondary-text-color-input",
     "accent-input",
+    "secondary-color-input",
     "user-message-input",
     "button-color-input",
+    "button-text-color-input",
+    "border-color-input",
+    "hover-color-input",
+    "focus-color-input",
     "composer-background-input",
+    "theme-shadow-input",
     "background-overlay-input",
     "font-input",
     "base-font-size-input",
@@ -9626,8 +9692,14 @@ function setup() {
     "show-name-input",
     "show-concierge-input",
   ];
+  const themeInputs = new Set([
+    "background-input", "surface-input", "heading-color-input", "text-color-input", "secondary-text-color-input", "accent-input",
+    "secondary-color-input", "user-message-input", "button-color-input", "button-text-color-input", "border-color-input", "hover-color-input",
+    "focus-color-input", "composer-background-input", "theme-shadow-input", "font-input", "base-font-size-input", "density-input",
+    "content-width-input", "message-width-input", "composer-width-input", "message-spacing-input", "radius-input",
+  ]);
   for (const id of liveInputs) {
-    $(id).addEventListener("input", () => { updatePreview(); markBuilderDirty(); });
+    $(id).addEventListener("input", () => { if (themeInputs.has(id)) markBuilderThemeCustom(); updatePreview(); markBuilderDirty(); });
     $(id).addEventListener("change", () => { commitBuilderGlobalEdit(); });
   }
   $("logo-upload-input").addEventListener("change", (event) => {
@@ -9670,6 +9742,7 @@ function setup() {
     button.setAttribute("aria-pressed", "false");
     button.addEventListener("click", () => { applyDesignPreset(button.dataset.designPreset); $("builder-template-menu").hidden = true; $("builder-templates-button").setAttribute("aria-expanded", "false"); });
   }
+  $("reset-theme-template")?.addEventListener("click", restoreBuilderThemeDefaults);
   $("reset-design-template").addEventListener("click", () => {
     if (!state.designDraft) return;
     const before = builderSnapshot();

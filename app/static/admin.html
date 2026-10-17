@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Concierge.Ai Platform</title>
-  <link rel="stylesheet" href="/static/admin.css?v=100">
+  <link rel="stylesheet" href="/static/admin.css?v=101">
 </head>
 <body>
   <div class="platform-shell" id="platform-shell">
@@ -172,12 +172,12 @@
             <button type="button" class="builder-publish-button" id="builder-publish-button" data-permission="concierge.edit" data-requires-property>Publish</button>
           </div>
           <div id="builder-template-menu" class="builder-template-menu" hidden aria-label="Templates">
-            <section class="builder-template-group" aria-label="Page layouts"><div><strong>Page layouts</strong><small>Replace this page’s draft sections. Property content stays in place.</small></div><div class="builder-template-options">
+            <section class="builder-template-group" aria-label="Page layouts"><div><strong>Page layouts</strong><small>Selecting a layout applies its default theme. Property content stays in place.</small></div><div class="builder-template-options">
               <button type="button" data-builder-template="luxury">Luxury</button><button type="button" data-builder-template="elegant">Elegant</button><button type="button" data-builder-template="minimal">Minimal</button><button type="button" data-builder-template="business">Business</button><button type="button" data-builder-template="resort">Resort</button><button type="button" data-builder-template="restaurant">Restaurant Focused</button><button type="button" data-builder-template="blank">Blank</button>
-            </div></section>
+            </div><label class="builder-preserve-theme"><input id="builder-preserve-theme-input" type="checkbox"> Keep my current theme when changing layouts</label></section>
             <section class="builder-template-group" aria-label="Theme palettes"><div><strong>Theme palettes</strong><small>Set the page-wide colors and typography in this draft.</small></div><div class="builder-template-options">
               <button type="button" data-design-preset="elegant">Elegant</button><button type="button" data-design-preset="minimal">Minimal</button><button type="button" data-design-preset="soft-gray">Soft gray</button><button type="button" data-design-preset="high-contrast">High contrast</button><button type="button" data-design-preset="graphite">Graphite</button><button type="button" data-design-preset="ocean">Ocean</button><button type="button" data-design-preset="botanical">Botanical</button><button type="button" data-design-preset="rose">Rose</button><button type="button" data-design-preset="coral">Coral</button><button type="button" data-design-preset="modern-elegance">Modern Elegance</button>
-            </div><button class="builder-template-reset" id="reset-design-template" type="button">Reset page settings to saved draft</button></section>
+            </div><div class="builder-template-reset-actions"><button class="builder-template-reset" id="reset-theme-template" type="button">Restore layout theme defaults</button><button class="builder-template-reset" id="reset-design-template" type="button">Reset page settings to saved draft</button></div></section>
             <section class="builder-template-group" aria-label="Property design templates">
               <div><strong>Copy published design</strong><small>Use another property’s published guest design as this property’s draft. Property settings, integrations, and credentials stay separate.</small></div>
               <label for="builder-clone-source-property">Source property<select id="builder-clone-source-property"><option value="">Choose a property</option></select></label>
@@ -238,13 +238,20 @@
                   <div class="theme-color-grid">
                     <label>Page background<input id="background-input" type="color" value="#fbfbfa"></label>
                     <label>Chat surface<input id="surface-input" type="color" value="#ffffff"></label>
+                    <label>Heading text<input id="heading-color-input" type="color" value="#1c1c1c"></label>
                     <label>Primary text<input id="text-color-input" type="color" value="#18181b"></label>
                     <label>Secondary text<input id="secondary-text-color-input" type="color" value="#71717a"></label>
                     <label>Brand accent<input id="accent-input" type="color" value="#18181b"></label>
+                    <label>Secondary button<input id="secondary-color-input" type="color" value="#ffffff"></label>
                     <label>Guest bubble<input id="user-message-input" type="color" value="#eeeeee"></label>
                     <label>Action button<input id="button-color-input" type="color" value="#18181b"></label>
+                    <label>Button text<input id="button-text-color-input" type="color" value="#ffffff"></label>
+                    <label>Border<input id="border-color-input" type="color" value="#e8e3da"></label>
+                    <label>Hover state<input id="hover-color-input" type="color" value="#9a7136"></label>
+                    <label>Focus state<input id="focus-color-input" type="color" value="#80602f"></label>
                     <label>Message composer<input id="composer-background-input" type="color" value="#ffffff"></label>
                   </div>
+                  <label>Card shadow<select id="theme-shadow-input"><option value="none">None</option><option value="subtle">Subtle</option><option value="strong">Strong</option></select></label>
                   <label class="upload-field">Guest home hero image<input id="background-image-input" type="file" accept="image/png,image/jpeg,image/webp"></label>
                   <p class="field-note">Shown in the split welcome hero and concierge backdrop · Portrait or landscape · Under 1.5 MB</p>
                   <input id="background-image-url-input" type="hidden">
@@ -1333,6 +1340,7 @@
     </footer>
   </aside>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="/static/admin.js?v=87"></script>
+  <script src="/static/guest-theme.js?v=1"></script>
+  <script src="/static/admin.js?v=88"></script>
 </body>
 </html>

@@ -1526,6 +1526,172 @@ test("admin: visual builder renders guest sections and supports direct editing, 
   }
 });
 
+test("admin: layout templates apply complete themes, preserve custom draft colors, and publish to the guest UI", async ({ page, request }, testInfo) => {
+  test.skip(test.info().project.name !== "chromium", "Theme switching and responsive viewport evidence runs once in desktop Chromium.");
+  test.setTimeout(120_000);
+  const propertyId = await getFirstPropertyId(request);
+  const initialResponse = await request.get(`/api/admin/properties/${propertyId}/design`);
+  expect(initialResponse.ok()).toBeTruthy();
+  const initial = await initialResponse.json();
+  const otherPropertyId = `e2e-theme-scope-${Date.now().toString(36)}`;
+  const otherCreated = await request.put(`/api/admin/properties/${otherPropertyId}`, {
+    headers: csrfHeaders(request),
+    data: { property_id: otherPropertyId, hotel_name: "Theme Isolation Property", timezone: "UTC" },
+  });
+  expect(otherCreated.ok(), await otherCreated.text()).toBeTruthy();
+  const otherInitial = await request.get(`/api/admin/properties/${otherPropertyId}/design`).then((response) => response.json());
+
+  try {
+    page.on("dialog", (dialog) => dialog.accept());
+    await page.goto("/admin");
+    await openPanel(page, "Design");
+    const canvas = page.locator("#builder-canvas");
+    const canvasTokens = () => canvas.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return Object.fromEntries(["--builder-page-bg", "--builder-page-surface", "--builder-page-heading", "--builder-page-primary", "--builder-page-secondary", "--builder-page-button-text", "--builder-page-border", "--builder-page-hover", "--builder-page-focus", "--builder-page-font", "--builder-page-radius"].map((name) => [name, style.getPropertyValue(name).trim()]));
+    });
+
+    await page.locator("#builder-templates-button").click();
+    await page.locator('[data-builder-template="luxury"]').click();
+    const luxuryTokens = await canvasTokens();
+    expect(luxuryTokens["--builder-page-bg"]).toBe("#f5f4f0");
+    expect(luxuryTokens["--builder-page-primary"]).toBe("#304239");
+    expect(luxuryTokens["--builder-page-border"]).toBe("#dedbd2");
+
+    await page.locator("#builder-templates-button").click();
+    await page.locator('[data-builder-template="business"]').click();
+    const businessTokens = await canvasTokens();
+    expect(businessTokens["--builder-page-bg"]).toBe("#ececec");
+    expect(businessTokens["--builder-page-bg"]).not.toBe(luxuryTokens["--builder-page-bg"]);
+    expect(businessTokens["--builder-page-primary"]).toBe("#111111");
+    expect(businessTokens["--builder-page-secondary"]).toBe("#e1e1e1");
+    expect(businessTokens["--builder-page-border"]).toBe("#b8b8b8");
+    expect(businessTokens["--builder-page-radius"]).toBe("5px");
+
+    await page.locator("#builder-templates-button").click();
+    await page.locator("#builder-preserve-theme-input").check();
+    await page.locator('[data-builder-template="resort"]').click();
+    expect(await canvasTokens()).toMatchObject({ "--builder-page-bg": "#ececec", "--builder-page-primary": "#111111" });
+    await page.locator("#builder-templates-button").click();
+    await page.locator("#builder-preserve-theme-input").uncheck();
+    await page.locator('[data-builder-template="business"]').click();
+
+    for (const device of ["desktop", "tablet", "mobile"]) {
+      await page.locator(`[data-builder-device="${device}"]`).click();
+      await expect(page.locator(`[data-builder-device="${device}"]`)).toHaveAttribute("aria-pressed", "true");
+      expect(await canvasTokens()).toMatchObject({
+        "--builder-page-bg": "#ececec",
+        "--builder-page-primary": "#111111",
+        "--builder-page-border": "#b8b8b8",
+      });
+    }
+
+    await canvas.evaluate((element) => element.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    await expect(page.locator("#builder-page-settings")).toBeVisible();
+    await openDesignGroup(page, "theme");
+    await page.locator("#button-color-input").fill("#123456");
+    await expect.poll(async () => (await canvasTokens())["--builder-page-primary"]).toBe("#123456");
+    await page.locator("#builder-save-button").click();
+    await expect(page.getByText("Draft saved.")).toBeVisible();
+    const saved = await request.get(`/api/admin/properties/${propertyId}/design`).then((response) => response.json());
+    expect(saved.draft.theme).toMatchObject({ paletteId: "custom", layoutTemplateId: "business", primaryColor: "#123456", buttonColor: "#123456" });
+    expect(saved.published).toEqual(initial.published);
+
+    await page.goto("/admin");
+    await openPanel(page, "Design");
+    await openDesignGroup(page, "theme");
+    await expect(page.locator("#button-color-input")).toHaveValue("#123456");
+    await expect.poll(async () => (await canvasTokens())["--builder-page-primary"]).toBe("#123456");
+
+    await page.locator("#builder-publish-button").click();
+    await expect(page.getByText(/Published guest chat v\d+\./)).toBeVisible();
+    const published = await request.get(`/api/admin/properties/${propertyId}/design`).then((response) => response.json());
+    expect(published.published.theme.primaryColor).toBe("#123456");
+    const otherAfterPublish = await request.get(`/api/admin/properties/${otherPropertyId}/design`).then((response) => response.json());
+    expect(otherAfterPublish.published).toEqual(otherInitial.published);
+
+    const deletedOther = await request.delete(`/api/admin/properties/${otherPropertyId}`, { headers: csrfHeaders(request) });
+    expect(deletedOther.ok(), await deletedOther.text()).toBeTruthy();
+
+    const indexHtml = await request.get("/static/index.html").then((response) => response.text());
+    const guestRoot = new URL("/", page.url()).toString();
+    const guestProfile = {
+      property_id: propertyId,
+      name: "Published Theme Property",
+      concierge_name: "Concierge",
+      theme: { primary_color: "#111111", secondary_color: "#e1e1e1", background: "#ececec" },
+      design: published.published,
+      authentication: { enabled: false, enabled_types: [] },
+      languages: ["en"],
+      guest_modules: [],
+      quick_actions: [],
+      application: { default_language: "en" },
+    };
+    await page.route(guestRoot, (route) => route.fulfill({ status: 200, contentType: "text/html", body: indexHtml }));
+    await page.route("**/api/hotel", (route) => route.fulfill({ json: guestProfile }));
+    await page.route("**/api/guest/intro**", (route) => route.fulfill({ json: { mode: "none", first_visit_only: true, allow_skip: true } }));
+    await page.route("**/api/session/start", (route) => route.fulfill({ json: { session_id: "theme-preview-session", property_id: propertyId } }));
+    await page.route("**/api/guest/home**", (route) => route.fulfill({ json: { greeting: "Welcome", stay: { status: "unverified" }, cards: [], quick_actions: [], suggested_prompts: [], inventory: {} } }));
+    await page.setViewportSize({ width: 1366, height: 900 });
+    await page.goto("/");
+    await expect(page.locator(".concierge-shell")).toBeVisible();
+    await expect.poll(() => page.locator("html").evaluate((element) => getComputedStyle(element).getPropertyValue("--primary-color").trim())).toBe("#123456");
+    for (const width of [1920, 1366, 1024, 768, 390, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      const guestTokens = await page.locator("html").evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          background: style.getPropertyValue("--background").trim(),
+          primary: style.getPropertyValue("--primary-color").trim(),
+          border: style.getPropertyValue("--border").trim(),
+          heading: style.getPropertyValue("--heading-color").trim(),
+        };
+      });
+      expect(guestTokens).toEqual({ background: "#ececec", primary: "#123456", border: "#b8b8b8", heading: "#111111" });
+      expect(await page.locator("body").evaluate((element) => element.scrollWidth)).toBeLessThanOrEqual(width + 1);
+      if (width === 375 || width === 1366) await page.screenshot({ path: testInfo.outputPath(`published-theme-${width}.png`), fullPage: true });
+    }
+    expect(await page.locator("h1").first().evaluate((element) => getComputedStyle(element).fontFamily)).toContain("Inter");
+    const buttonColor = await page.locator(".send-button").evaluate((element) => getComputedStyle(element).backgroundColor);
+    expect(buttonColor).toBe("rgb(18, 52, 86)");
+
+    await page.goto("/admin");
+    await openPanel(page, "Design");
+    await page.locator("#builder-templates-button").click();
+    await page.locator("#reset-theme-template").click();
+    await expect.poll(async () => (await canvasTokens())["--builder-page-primary"]).toBe("#111111");
+  } finally {
+    const deletedOther = await request.delete(`/api/admin/properties/${otherPropertyId}`, { headers: csrfHeaders(request) });
+    if (!deletedOther.ok() && deletedOther.status() !== 404) expect(deletedOther.ok(), await deletedOther.text()).toBeTruthy();
+    const saveAtLatestRevision = async (config) => {
+      let result;
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        const latest = await request.get(`/api/admin/properties/${propertyId}/design`).then((response) => response.json());
+        result = await request.put(`/api/admin/properties/${propertyId}/design/draft`, {
+          headers: csrfHeaders(request),
+          data: { config, expected_revision: latest.revision },
+        });
+        if (result.ok() || result.status() !== 409) return result;
+      }
+      return result;
+    };
+    const resetPublished = await saveAtLatestRevision(initial.published);
+    expect(resetPublished.ok(), await resetPublished.text()).toBeTruthy();
+    let republished;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const beforeRepublish = await request.get(`/api/admin/properties/${propertyId}/design`).then((response) => response.json());
+      republished = await request.post(`/api/admin/properties/${propertyId}/design/publish`, {
+        headers: csrfHeaders(request),
+        data: { expected_revision: beforeRepublish.revision },
+      });
+      if (republished.ok() || republished.status() !== 409) break;
+    }
+    expect(republished.ok(), await republished.text()).toBeTruthy();
+    const resetDraft = await saveAtLatestRevision(initial.draft);
+    expect(resetDraft.ok(), await resetDraft.text()).toBeTruthy();
+  }
+});
+
 test("admin: builder visual evidence covers devices, inspector tabs, image upload, and drag reorder", async ({ page, request }, testInfo) => {
   test.skip(test.info().project.name !== "chromium", "Builder screenshot evidence is captured once in desktop Chromium.");
   test.setTimeout(120_000);

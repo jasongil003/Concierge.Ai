@@ -52,6 +52,13 @@ HEX_FIELDS = {
     "assistantText",
     "composerBackground",
     "buttonColor",
+    "primaryColor",
+    "secondaryColor",
+    "headingColor",
+    "bodyColor",
+    "buttonText",
+    "hoverColor",
+    "focusColor",
 }
 
 AUTHENTICATION_RULES = {
@@ -136,6 +143,16 @@ def default_design_config(
             "accent": "#b38a4a",
             "accentText": "#1c1c1c",
             "border": "#e8e3da",
+            "primaryColor": "#b38a4a",
+            "secondaryColor": "#ffffff",
+            "headingColor": "#1c1c1c",
+            "bodyColor": "#1c1c1c",
+            "buttonText": "#1c1c1c",
+            "hoverColor": "#9a7136",
+            "focusColor": "#80602f",
+            "shadow": "subtle",
+            "paletteId": "custom",
+            "layoutTemplateId": "",
             "userMessageBackground": "#f0ede7",
             "userMessageText": "#1c1c1c",
             "assistantText": "#1c1c1c",
@@ -208,7 +225,7 @@ def validate_design_config(config: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Unsupported guest experience configuration field.")
     nested_fields = {
         "branding": {"hotelName", "conciergeName", "logoUrl", "logoDisplay", "conciergeAvatarUrl", "faviconUrl"},
-        "theme": {"font", "background", "surface", "textPrimary", "textSecondary", "accent", "accentText", "border", "userMessageBackground", "userMessageText", "assistantText", "composerBackground", "buttonColor", "radius", "density", "backgroundImageUrl", "backgroundOverlay"},
+        "theme": {"font", "background", "surface", "textPrimary", "textSecondary", "accent", "accentText", "border", "userMessageBackground", "userMessageText", "assistantText", "composerBackground", "buttonColor", "primaryColor", "secondaryColor", "headingColor", "bodyColor", "buttonText", "hoverColor", "focusColor", "shadow", "paletteId", "layoutTemplateId", "radius", "density", "backgroundImageUrl", "backgroundOverlay"},
         "typography": {"fontFamily", "baseFontSize", "headingWeight", "bodyWeight", "letterSpacing"},
         "layout": {"contentWidth", "messageWidth", "messageSpacing", "composerWidth", "composerPosition", "suggestionLayout"},
         "header": {"enabled", "showLogo", "showHotelName", "showConciergeName", "subtitle", "sticky", "background", "border"},
@@ -226,6 +243,23 @@ def validate_design_config(config: dict[str, Any]) -> dict[str, Any]:
             merged[section].update(value)
         else:
             merged[section] = value
+
+    raw_theme = config.get("theme", {})
+    if isinstance(raw_theme, dict):
+        legacy_theme_aliases = {
+            "primaryColor": "buttonColor",
+            "headingColor": "textPrimary",
+            "bodyColor": "textPrimary",
+            "buttonText": "accentText",
+            "hoverColor": "accent",
+            "focusColor": "accent",
+        }
+        for current_field, legacy_field in legacy_theme_aliases.items():
+            if current_field not in raw_theme and legacy_field in raw_theme:
+                merged["theme"][current_field] = raw_theme[legacy_field]
+        raw_typography = config.get("typography", {})
+        if isinstance(raw_typography, dict) and "fontFamily" not in raw_typography and "font" in raw_theme:
+            merged["typography"]["fontFamily"] = raw_theme["font"]
 
     theme = merged["theme"]
     typography = merged["typography"]
@@ -257,6 +291,13 @@ def validate_design_config(config: dict[str, Any]) -> dict[str, Any]:
         value = theme.get(field)
         if not isinstance(value, str) or not _is_hex(value):
             raise ValueError(f"Invalid color value for {field}.")
+
+    if theme.get("paletteId") not in {"custom", "elegant", "minimal", "soft-gray", "high-contrast", "graphite", "ocean", "botanical", "rose", "coral", "modern-elegance"}:
+        raise ValueError("Invalid theme palette.")
+    if theme.get("layoutTemplateId") not in {"", "luxury", "elegant", "minimal", "business", "resort", "restaurant", "blank"}:
+        raise ValueError("Invalid layout template.")
+    if theme.get("shadow") not in {"none", "subtle", "strong"}:
+        raise ValueError("Invalid theme shadow.")
 
     for field, minimum, maximum in (
         ("radius", 0, 32),
