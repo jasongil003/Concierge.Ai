@@ -16,6 +16,9 @@ const state = {
   builderSelection: null,
   builderCollapsedLayers: new Set(),
   builderDevice: "desktop",
+  builderLayoutTemplateId: "",
+  builderPaletteId: "custom",
+  builderHeadingFontFamily: "Playfair Display",
   builderPageId: "home",
   builderInspectorTab: "content",
   builderLibraryTab: "components",
@@ -115,6 +118,12 @@ let dashboardRequestId = 0;
 let sessionSearchTimer = null;
 
 const $ = (id) => document.getElementById(id);
+const CHAT_COLOR_INPUTS = Object.freeze({
+  background: "chat-token-background", surface: "chat-token-surface", headerBackground: "chat-token-headerBackground", headerText: "chat-token-headerText",
+  launcherBackground: "chat-token-launcherBackground", launcherText: "chat-token-launcherText", guestBubbleBackground: "chat-token-guestBubbleBackground", guestBubbleText: "chat-token-guestBubbleText",
+  assistantBubbleBackground: "chat-token-assistantBubbleBackground", assistantBubbleText: "chat-token-assistantBubbleText", inputBackground: "chat-token-inputBackground", inputText: "chat-token-inputText",
+  inputBorder: "chat-token-inputBorder", sendBackground: "chat-token-sendBackground", sendText: "chat-token-sendText", focusColor: "chat-token-focusColor",
+});
 
 const authTypeDefinitions = [
   { id: "complimentary", label: "Complimentary", description: "Free internet codes or access plans issued by the hotel." },
@@ -3403,6 +3412,9 @@ function hydrateDesign(design) {
   state.designDraft = structuredClone(design.draft);
   state.designPublished = structuredClone(design.published);
   state.designRevision = Number(design.revision || 1);
+  state.builderLayoutTemplateId = state.designDraft.theme?.layoutTemplateId || "";
+  state.builderPaletteId = state.designDraft.theme?.paletteId || "custom";
+  state.builderHeadingFontFamily = state.designDraft.typography?.headingFontFamily || "Playfair Display";
   state.builderRegistry = design.component_registry || {};
   state.guestPages = structuredClone(state.designDraft.pages || []);
   if (!state.guestPages.some((page) => page.id === "home")) {
@@ -3547,7 +3559,7 @@ function renderBuilderLibrary() {
 function builderAddSection(type, beforeId = null) {
   const page = builderPage();
   const definition = state.builderRegistry[type];
-  if (!page || !definition || page.sections.length >= 60) return;
+  if (!can("concierge.edit") || !page || !definition || page.sections.length >= 60) return;
   builderRecordChange();
   const properties = structuredClone(definition.defaults);
   if (type === "quick_actions") delete properties.items;
@@ -3563,6 +3575,56 @@ function builderAddSection(type, beforeId = null) {
   state.builderSelection = null;
   normalizeBuilderOrder();
   renderBuilder();
+}
+
+function createBuilderEmptyState(page) {
+  const pageName = String(page.name || "guest").replace(/\s+page$/i, "");
+  const empty = document.createElement("section");
+  empty.className = "builder-empty-canvas";
+  empty.setAttribute("aria-labelledby", "builder-empty-title");
+
+  const mark = document.createElement("span");
+  mark.className = "builder-empty-mark";
+  mark.setAttribute("aria-hidden", "true");
+  mark.textContent = "✦";
+
+  const eyebrow = document.createElement("p");
+  eyebrow.className = "builder-empty-eyebrow";
+  eyebrow.textContent = "YOUR GUEST PAGE";
+
+  const title = document.createElement("h2");
+  title.id = "builder-empty-title";
+  title.textContent = `Start building your ${pageName} page`;
+
+  const description = document.createElement("p");
+  description.className = "builder-empty-description";
+  description.textContent = "This page has no sections yet. Start with a ready-made layout or add a hero section. Save your work as a draft; guests see changes only after you publish.";
+
+  empty.append(mark, eyebrow, title, description);
+
+  if (can("concierge.edit")) {
+    const actions = document.createElement("div");
+    actions.className = "builder-empty-actions";
+    const layout = document.createElement("button");
+    layout.type = "button";
+    layout.className = "builder-empty-action builder-empty-action-secondary";
+    layout.dataset.builderEmptyAction = "templates";
+    layout.textContent = "Choose a page layout";
+    const hero = document.createElement("button");
+    hero.type = "button";
+    hero.className = "builder-empty-action builder-empty-action-primary";
+    hero.dataset.builderEmptyAction = "hero";
+    hero.textContent = "Add a hero section";
+    actions.append(layout, hero);
+    empty.appendChild(actions);
+  } else {
+    const note = document.createElement("p");
+    note.className = "builder-empty-description";
+    note.textContent = "Ask a property administrator to add page sections.";
+    empty.appendChild(note);
+  }
+
+  return empty;
 }
 
 function builderSectionAction(sectionId, action) {
@@ -3937,26 +3999,100 @@ function renderBuilderCanvas() {
   canvas.replaceChildren();
   canvas.dataset.device = state.builderDevice;
   const design = designPayload();
-  canvas.style.setProperty("--builder-page-bg", design.theme?.background || "#faf8f4");
-  canvas.style.setProperty("--builder-page-surface", design.theme?.surface || "#ffffff");
-  canvas.style.setProperty("--builder-page-ink", design.theme?.textPrimary || "#1c1c1c");
-  canvas.style.setProperty("--builder-page-muted", design.theme?.textSecondary || "#6e6a64");
-  canvas.style.setProperty("--builder-page-accent", design.theme?.accent || "#9b7337");
-  canvas.style.setProperty("--builder-page-font", previewFontStack(design.typography?.fontFamily || design.theme?.font || "Geist"));
-  canvas.style.setProperty("--builder-page-font-size", `${Number(design.typography?.baseFontSize) || 15}px`);
-  canvas.style.setProperty("--builder-page-radius", `${Number(design.theme?.radius) || 14}px`);
-  canvas.style.setProperty("--builder-content-width", `${Number(design.layout?.contentWidth) || 1100}px`);
+  const tokens = window.ConciergeTheme.apply(canvas, design);
+  const chatConfig = window.ConciergeTheme.applyChat(canvas, design);
+  canvas.style.setProperty("--builder-page-bg", tokens.background);
+  canvas.style.setProperty("--builder-page-surface", tokens.surface);
+  canvas.style.setProperty("--builder-page-surface-elevated", tokens.surfaceElevated);
+  canvas.style.setProperty("--builder-page-ink", tokens.bodyColor);
+  canvas.style.setProperty("--builder-page-heading", tokens.headingColor);
+  canvas.style.setProperty("--builder-page-muted", tokens.textSecondary);
+  canvas.style.setProperty("--builder-page-accent", tokens.accent);
+  canvas.style.setProperty("--builder-page-accent-foreground", tokens.accentForeground);
+  canvas.style.setProperty("--builder-page-primary", tokens.primaryColor);
+  canvas.style.setProperty("--builder-page-secondary", tokens.secondaryColor);
+  canvas.style.setProperty("--builder-page-button-text", tokens.buttonText);
+  canvas.style.setProperty("--builder-page-secondary-button-text", tokens.secondaryButtonText);
+  canvas.style.setProperty("--builder-page-border", tokens.border);
+  canvas.style.setProperty("--builder-page-hover", tokens.hoverColor);
+  canvas.style.setProperty("--builder-page-secondary-hover", tokens.secondaryHoverColor);
+  canvas.style.setProperty("--builder-page-focus", tokens.focusColor);
+  canvas.style.setProperty("--builder-page-icon", tokens.iconColor);
+  canvas.style.setProperty("--builder-page-nav", tokens.navBackground);
+  canvas.style.setProperty("--builder-page-nav-text", tokens.navText);
+  canvas.style.setProperty("--builder-page-nav-active", tokens.navActiveBackground);
+  canvas.style.setProperty("--builder-page-nav-active-text", tokens.navActiveText);
+  canvas.style.setProperty("--builder-page-menu", tokens.menuBackground);
+  canvas.style.setProperty("--builder-page-card", tokens.cardBackground);
+  canvas.style.setProperty("--builder-page-input", tokens.inputBackground);
+  canvas.style.setProperty("--builder-page-input-text", tokens.inputText);
+  canvas.style.setProperty("--builder-page-user-bubble", tokens.userMessageBackground);
+  canvas.style.setProperty("--builder-page-user-bubble-text", tokens.userMessageText);
+  canvas.style.setProperty("--builder-page-assistant-bubble", tokens.assistantMessageBackground);
+  canvas.style.setProperty("--builder-page-assistant-text", tokens.assistantMessageText);
+  canvas.style.setProperty("--builder-page-input-border", tokens.inputBorder);
+  canvas.style.setProperty("--builder-page-input-placeholder", tokens.inputPlaceholder);
+  canvas.style.setProperty("--builder-page-shadow", tokens.shadow === "none" ? "none" : tokens.shadow === "strong" ? "0 14px 38px rgba(25,25,25,.16)" : "0 7px 24px rgba(25,25,25,.07)");
+  canvas.style.setProperty("--builder-page-font", previewFontStack(tokens.fontFamily));
+  canvas.style.setProperty("--builder-page-heading-font", previewFontStack(tokens.headingFontFamily));
+  canvas.style.setProperty("--builder-page-font-size", `${tokens.baseFontSize}px`);
+  canvas.style.setProperty("--builder-page-radius", `${tokens.radius}px`);
+  canvas.style.setProperty("--builder-content-width", `${tokens.contentWidth}px`);
   const sections = [...(page.sections || [])].sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
   const pageShell = document.createElement("div"); pageShell.className = "builder-guest-page";
   const pageBody = document.createElement("div"); pageBody.className = "builder-guest-content";
   if (!sections.length) {
-    const empty = document.createElement("div"); empty.className = "builder-empty-canvas";
-    empty.textContent = `Your ${page.name || "page"} is empty. Drag a component here or click one in the library.`; pageBody.appendChild(empty);
+    pageBody.appendChild(createBuilderEmptyState(page));
   }
   for (const [index, section] of sections.entries()) pageBody.appendChild(createBuilderSectionWrapper(section, index, design));
   pageShell.appendChild(pageBody);
+  pageShell.appendChild(createBuilderChatPreview(chatConfig));
   canvas.appendChild(pageShell);
   renderBuilderLayers(sections);
+}
+
+function createBuilderChatPreview(chat) {
+  const preview = document.createElement("section");
+  preview.className = `builder-chat-preview${chat.displayMode === "fullscreen" ? " is-fullscreen" : ""}${chat.displayMode === "floating" ? " is-floating" : ""}`;
+  preview.dataset.chatPreview = "true";
+  preview.dataset.chatStyle = chat.presetId;
+  preview.dataset.device = state.builderDevice;
+  const toolbar = document.createElement("div"); toolbar.className = "builder-chat-preview-toolbar";
+  const heading = document.createElement("div"); heading.innerHTML = "<strong>AI chat preview</strong><small>Separate from page sections · Mock only, no AI request</small>";
+  const mode = document.createElement("span"); mode.className = "builder-chat-mode-badge"; mode.textContent = ({ embedded: "Embedded", floating: "Floating", fullscreen: "Full screen" })[chat.displayMode];
+  toolbar.append(heading, mode);
+  const window = document.createElement("div"); window.className = "builder-chat-preview-window";
+  window.style.setProperty("--builder-chat-width", `${chat.width}px`);
+  window.style.setProperty("--builder-chat-height", `${chat.height}px`);
+  window.style.setProperty("--builder-chat-radius", `${chat.radius}px`);
+  window.style.setProperty("--builder-chat-shadow", chat.tokens.shadow);
+  const header = document.createElement("header"); header.className = `builder-chat-preview-header is-${chat.headerDesign}`;
+  const identity = document.createElement("div"); identity.className = "builder-chat-preview-identity";
+  const avatar = document.createElement("span"); avatar.className = "builder-chat-preview-avatar";
+  if (chat.avatarUrl && isSafeBuilderImage(chat.avatarUrl)) { const image = document.createElement("img"); image.src = chat.avatarUrl; image.alt = ""; avatar.appendChild(image); } else avatar.textContent = chat.assistantName.trim().slice(0, 1).toUpperCase() || "C";
+  const copy = document.createElement("span"); copy.innerHTML = `<strong></strong><small>Available to help</small>`; copy.querySelector("strong").textContent = chat.assistantName;
+  identity.append(avatar, copy);
+  const controls = document.createElement("div"); controls.className = "builder-chat-preview-controls";
+  if (chat.showMinimizeControl) { const button = document.createElement("button"); button.type = "button"; button.dataset.chatPreviewToggle = "minimize"; button.setAttribute("aria-label", "Minimize preview"); button.textContent = "−"; controls.appendChild(button); }
+  if (chat.showExpandControl && chat.allowFullscreenToggle) { const button = document.createElement("button"); button.type = "button"; button.dataset.chatPreviewToggle = "expand"; button.setAttribute("aria-label", "Toggle full-screen preview"); button.textContent = "⤢"; controls.appendChild(button); }
+  header.append(identity, controls);
+  const transcript = document.createElement("div"); transcript.className = "builder-chat-transcript";
+  const assistant = (text, timestamp) => { const row = document.createElement("article"); row.className = "builder-chat-message assistant"; const bubble = document.createElement("p"); bubble.textContent = text; row.appendChild(bubble); if (chat.showTimestamps) { const time = document.createElement("time"); time.textContent = timestamp; row.appendChild(time); } return row; };
+  const guest = (text, timestamp) => { const row = document.createElement("article"); row.className = "builder-chat-message guest"; const bubble = document.createElement("p"); bubble.textContent = text; row.appendChild(bubble); if (chat.showTimestamps) { const time = document.createElement("time"); time.textContent = timestamp; row.appendChild(time); } return row; };
+  const welcome = chat.welcomeMessage || "Welcome. How may we help with your stay?";
+  transcript.append(assistant(welcome, "9:40 AM"), guest("Could you recommend somewhere for dinner?", "9:41 AM"), assistant("I can help explore dining information available for this property.", "9:41 AM"));
+  const prompts = document.createElement("div"); prompts.className = "builder-chat-prompts";
+  for (const promptText of chat.suggestedPrompts.slice(0, 3)) { const button = document.createElement("button"); button.type = "button"; button.dataset.chatPrompt = promptText; button.textContent = promptText; prompts.appendChild(button); }
+  if (prompts.childElementCount) transcript.appendChild(prompts);
+  if (chat.showTypingIndicator) { const typing = document.createElement("span"); typing.className = "builder-chat-typing"; typing.setAttribute("aria-label", "Assistant typing indicator preview"); typing.innerHTML = "<i></i><i></i><i></i>"; transcript.appendChild(typing); }
+  const form = document.createElement("form"); form.className = "builder-chat-preview-form";
+  const input = document.createElement("textarea"); input.rows = 1; input.maxLength = 500; input.placeholder = "Ask your concierge…"; input.setAttribute("aria-label", "Mock chat input");
+  const send = document.createElement("button"); send.type = "submit"; send.className = "builder-chat-send"; send.setAttribute("aria-label", "Add mock guest message"); send.textContent = chat.sendButtonIcon === "arrow" ? "→" : "➤";
+  form.append(input, send);
+  window.append(header, transcript, form);
+  preview.append(toolbar, window);
+  if (chat.displayMode === "floating") { const launcher = document.createElement("button"); launcher.type = "button"; launcher.className = "builder-chat-launcher"; launcher.setAttribute("aria-label", "Chat launcher preview"); launcher.textContent = ({ concierge: "C", message: "▢", sparkle: "✦" })[chat.launcherIcon]; preview.appendChild(launcher); }
+  return preview;
 }
 
 function createBuilderSectionWrapper(section, index, design) {
@@ -4094,6 +4230,7 @@ function renderBuilderInspector() {
   const inspector = $("builder-inspector");
   const page = builderPage();
   if (!inspector || !page) return;
+  const openDesignGroups = new Set([...document.querySelectorAll("#builder-page-settings [data-inspector-panel]")].filter((panel) => panel.open).map((panel) => panel.dataset.inspectorPanel));
   const selectedChrome = state.builderSelection?.type === "chrome" ? state.builderSelection.component : null;
   const section = page.sections.find((item) => item.id === state.builderSelectedSectionId);
   const showingNavigationEditor = (selectedChrome === "bottom_navigation" || section?.type === "bottom_navigation") && state.builderInspectorTab === "content";
@@ -4107,7 +4244,7 @@ function renderBuilderInspector() {
     $("builder-page-settings").hidden = false;
     $("builder-inspector-tabs").hidden = true;
     inspector.hidden = true;
-    document.querySelectorAll("#builder-page-settings [data-inspector-panel]").forEach((panel) => { panel.open = ["brand", "content", "theme"].includes(panel.dataset.inspectorPanel); });
+    document.querySelectorAll("#builder-page-settings [data-inspector-panel]").forEach((panel) => { panel.open = ["brand", "content", "theme"].includes(panel.dataset.inspectorPanel) || openDesignGroups.has(panel.dataset.inspectorPanel); });
     if (navigationHost) navigationHost.appendChild(navigationSettings);
     renderBuilderNavigationSettings(navigation);
     return;
@@ -4525,6 +4662,20 @@ function bindBuilderEvents() {
   document.querySelectorAll("[data-builder-tab]").forEach((button) => button.addEventListener("click", () => setBuilderInspectorTab(button.dataset.builderTab)));
   bindBuilderDragAndDrop();
   $("builder-canvas")?.addEventListener("click", (event) => {
+    const emptyAction = event.target.closest("[data-builder-empty-action]");
+    if (emptyAction) {
+      if (!can("concierge.edit")) return;
+      if (emptyAction.dataset.builderEmptyAction === "hero") { builderAddSection("hero"); return; }
+      if (emptyAction.dataset.builderEmptyAction === "templates") {
+        $("builder-templates-button")?.click();
+        requestAnimationFrame(() => $("builder-template-menu")?.querySelector("[data-builder-template]")?.focus());
+        return;
+      }
+    }
+    const previewToggle = event.target.closest("[data-chat-preview-toggle]");
+    if (previewToggle) { const preview = previewToggle.closest("[data-chat-preview]"); if (previewToggle.dataset.chatPreviewToggle === "minimize") preview.classList.toggle("is-minimized"); else preview.classList.toggle("is-expanded"); return; }
+    const chatPrompt = event.target.closest("[data-chat-prompt]");
+    if (chatPrompt) { const input = chatPrompt.closest("[data-chat-preview]").querySelector(".builder-chat-preview-form textarea"); input.value = chatPrompt.dataset.chatPrompt; input.focus(); return; }
     const addButton = event.target.closest("[data-builder-add-button]");
     if (addButton) { const section = builderPage()?.sections?.find((item) => item.id === addButton.closest("[data-builder-section]")?.dataset.builderSection); if (section) builderAddHeroButton(section); return; }
     const inlineAdd = event.target.closest("[data-builder-add-quick-action]");
@@ -4558,6 +4709,19 @@ function bindBuilderEvents() {
     else if (event.target.closest("[data-builder-property-card]")) state.builderSelection = { type: "data_card", itemId: event.target.closest("[data-builder-property-card]").dataset.builderPropertyCard };
     else state.builderSelection = null;
     state.builderSelectedSectionId = section.id; renderBuilder();
+  });
+  $("builder-canvas")?.addEventListener("submit", (event) => {
+    const form = event.target.closest(".builder-chat-preview-form");
+    if (!form) return;
+    event.preventDefault();
+    const input = form.querySelector("textarea");
+    const text = input.value.trim();
+    if (!text) return;
+    const transcript = form.closest(".builder-chat-preview-window").querySelector(".builder-chat-transcript");
+    const appendMock = (role, message) => { const row = document.createElement("article"); row.className = `builder-chat-message ${role}`; const bubble = document.createElement("p"); bubble.textContent = message; row.appendChild(bubble); transcript.appendChild(row); };
+    appendMock("guest", text);
+    appendMock("assistant", "This is a sample concierge reply for design review.");
+    input.value = ""; transcript.scrollTop = transcript.scrollHeight;
   });
   $("builder-canvas")?.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" && event.key !== " ") return;
@@ -4941,8 +5105,17 @@ function applyBuilderTemplate(template) {
     restaurant: [["hero", "Welcome"], ["restaurant", "Restaurants"], ["carousel", "Featured dining"], ["concierge_composer", "Ask the concierge"]],
     blank: [],
   };
-  builderRecordChange(); page.sections = (specs[template] || []).map(([type, title], index) => { const definition = state.builderRegistry[type]; const properties = structuredClone(definition?.defaults || {}); if (type === "quick_actions") delete properties.items; return { id: builderNewId(type), type, title, enabled: true, order: index, properties, responsive: {}, animation: { entrance: "none", duration: "normal", delay: 0, trigger: "page_load", repeat: "once", interaction: "none" }, appearance: {} }; });
+  if (!Object.hasOwn(specs, template)) return;
+  builderRecordChange();
+  page.sections = specs[template].map(([type, title], index) => { const definition = state.builderRegistry[type]; const properties = structuredClone(definition?.defaults || {}); if (type === "quick_actions") delete properties.items; return { id: builderNewId(type), type, title, enabled: true, order: index, properties, responsive: {}, animation: { entrance: "none", duration: "normal", delay: 0, trigger: "page_load", repeat: "once", interaction: "none" }, appearance: {} }; });
+  state.builderLayoutTemplateId = template;
+  if (!$('builder-preserve-theme-input')?.checked) {
+    const palette = window.ConciergeTheme.TEMPLATE_PALETTES[template];
+    if (palette) applyDesignPreset(palette, { record: false, notify: false });
+  }
   state.builderSelectedSectionId = page.sections[0]?.id || null; state.builderSelection = null; $("builder-template-menu").hidden = true; $("builder-templates-button").setAttribute("aria-expanded", "false"); normalizeBuilderOrder(); renderBuilder();
+  updatePreview();
+  showToast(`${template === "restaurant" ? "Restaurant focused" : template} layout applied to the draft${$('builder-preserve-theme-input')?.checked ? "; current theme kept" : " with its default theme"}.`);
 }
 
 function updateBuilderField(event) {
@@ -5052,8 +5225,176 @@ function updateBuilderAction(action, field, value) {
   return { ...(action || {}), [field]: value };
 }
 
+function renderChatPresetOptions() {
+  const root = $("chat-preset-options");
+  if (!root) return;
+  root.replaceChildren();
+  for (const [id, preset] of Object.entries(window.ConciergeTheme.CHAT_PRESETS)) {
+    const button = document.createElement("button"); button.type = "button"; button.className = "chat-preset-card"; button.dataset.chatStyle = id; button.setAttribute("aria-pressed", "false");
+    const name = document.createElement("strong"); name.textContent = preset.name;
+    const description = document.createElement("small"); description.textContent = preset.description;
+    const swatches = document.createElement("span"); swatches.className = "chat-preset-swatches"; swatches.setAttribute("aria-hidden", "true");
+    for (const color of preset.swatches) { const swatch = document.createElement("i"); swatch.style.setProperty("--chat-swatch", color); swatches.appendChild(swatch); }
+    button.append(name, description, swatches); root.appendChild(button);
+  }
+}
+
+function applyChatStylePreset(id, { updatePalette = true } = {}) {
+  const preset = window.ConciergeTheme.CHAT_PRESETS[id];
+  if (!preset) return;
+  $("chat-style-selection").value = id;
+  if (updatePalette) $("chat-palette-input").value = id;
+  $("chat-header-design-input").value = preset.headerDesign;
+  $("chat-radius-input").value = preset.radius;
+  $("chat-shadow-input").value = preset.shadow;
+  const palette = window.ConciergeTheme.CHAT_PRESETS[$("chat-palette-input").value] || preset;
+  for (const [field, inputId] of Object.entries(CHAT_COLOR_INPUTS)) $(inputId).value = normalizeColor(palette.tokens[field]);
+  document.querySelectorAll("[data-chat-style]").forEach((button) => {
+    const selected = button.dataset.chatStyle === id;
+    button.classList.toggle("selected", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+  syncChatColorControls();
+}
+
+function bindChatDesignerEvents() {
+  const panel = $("inspector-chat");
+  if (!panel) return;
+  panel.addEventListener("focusin", () => { if (!state.builderGlobalEditBefore) state.builderGlobalEditBefore = builderSnapshot(); });
+  panel.addEventListener("input", () => { updatePreview(); markBuilderDirty(); });
+  panel.addEventListener("change", (event) => {
+    if (event.target.id === "chat-inherit-theme-input") syncChatColorControls();
+    if (event.target.id === "chat-palette-input") {
+      const palette = window.ConciergeTheme.CHAT_PRESETS[event.target.value];
+      if (palette) for (const [field, inputId] of Object.entries(CHAT_COLOR_INPUTS)) $(inputId).value = normalizeColor(palette.tokens[field]);
+    }
+    updatePreview();
+    commitBuilderGlobalEdit();
+  });
+  $("chat-preset-options").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-chat-style]");
+    if (!button || !can("concierge.edit")) return;
+    if (!state.builderGlobalEditBefore) state.builderGlobalEditBefore = builderSnapshot();
+    applyChatStylePreset(button.dataset.chatStyle);
+    updatePreview();
+    commitBuilderGlobalEdit();
+  });
+  $("chat-reset-defaults").addEventListener("click", () => {
+    if (!can("concierge.edit")) return;
+    if (!state.builderGlobalEditBefore) state.builderGlobalEditBefore = builderSnapshot();
+    const mode = $("chat-display-mode-input").value;
+    const inherit = $("chat-inherit-theme-input").checked;
+    const id = $("chat-style-selection").value || "luxury";
+    applyChatStylePreset(id);
+    $("chat-display-mode-input").value = mode;
+    $("chat-inherit-theme-input").checked = inherit;
+    $("chat-assistant-name-input").value = "Concierge";
+    $("chat-avatar-url-input").value = "";
+    $("chat-welcome-input").value = "";
+    $("chat-prompts-input").value = "";
+    $("chat-timestamps-input").checked = false;
+    $("chat-typing-input").checked = true;
+    $("chat-minimize-input").checked = true;
+    $("chat-expand-input").checked = true;
+    $("chat-fullscreen-toggle-input").checked = true;
+    $("chat-position-input").value = "bottom-right";
+    $("chat-width-input").value = 420;
+    $("chat-height-input").value = 620;
+    $("chat-launcher-icon-input").value = "concierge";
+    $("chat-send-icon-input").value = "send";
+    syncChatColorControls();
+    updatePreview();
+    commitBuilderGlobalEdit();
+    showToast("Chat style defaults restored in this draft.");
+  });
+  renderChatPresetOptions();
+}
+
+function fillChatDesignerForm(config = {}) {
+  const chat = window.ConciergeTheme.normalizeChatConfig({ chat: config });
+  $("chat-style-selection").value = chat.presetId;
+  const palette = window.ConciergeTheme.CHAT_PRESETS[chat.paletteId] || window.ConciergeTheme.CHAT_PRESETS.luxury;
+  $("chat-display-mode-input").value = chat.displayMode;
+  $("chat-inherit-theme-input").checked = chat.inheritLandingTheme;
+  $("chat-palette-input").value = chat.paletteId;
+  $("chat-header-design-input").value = chat.headerDesign;
+  $("chat-assistant-name-input").value = chat.assistantName;
+  $("chat-avatar-url-input").value = chat.avatarUrl;
+  $("chat-launcher-icon-input").value = chat.launcherIcon;
+  $("chat-send-icon-input").value = chat.sendButtonIcon;
+  $("chat-position-input").value = chat.position;
+  $("chat-width-input").value = chat.width;
+  $("chat-height-input").value = chat.height;
+  $("chat-radius-input").value = chat.radius;
+  $("chat-shadow-input").value = chat.shadow;
+  $("chat-welcome-input").value = chat.welcomeMessage;
+  $("chat-prompts-input").value = chat.suggestedPrompts.join("\n");
+  $("chat-timestamps-input").checked = chat.showTimestamps;
+  $("chat-typing-input").checked = chat.showTypingIndicator;
+  $("chat-minimize-input").checked = chat.showMinimizeControl;
+  $("chat-expand-input").checked = chat.showExpandControl;
+  $("chat-fullscreen-toggle-input").checked = chat.allowFullscreenToggle;
+  for (const [field, inputId] of Object.entries(CHAT_COLOR_INPUTS)) $(inputId).value = normalizeColor(chat.tokens[field] || palette.tokens[field]);
+  document.querySelectorAll("[data-chat-style]").forEach((button) => {
+    const selected = button.dataset.chatStyle === chat.presetId;
+    button.classList.toggle("selected", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+  syncChatColorControls();
+}
+
+function syncChatColorControls() {
+  const inherited = $("chat-inherit-theme-input")?.checked !== false;
+  $("chat-palette-field").hidden = inherited;
+  for (const inputId of Object.values(CHAT_COLOR_INPUTS)) $(inputId).disabled = inherited;
+  $("chat-palette-input").disabled = inherited;
+}
+
+function readChatDesignerForm(previous = {}) {
+  const old = previous || {};
+  const paletteId = $("chat-palette-input").value;
+  const preset = window.ConciergeTheme.CHAT_PRESETS[paletteId] || window.ConciergeTheme.CHAT_PRESETS.luxury;
+  const tokens = { ...(old.tokens || {}) };
+  for (const [field, inputId] of Object.entries(CHAT_COLOR_INPUTS)) tokens[field] = $(inputId).value || preset.tokens[field];
+  const bounded = (id, minimum, maximum, fallback) => Math.max(minimum, Math.min(maximum, Number($(id).value) || fallback));
+  return {
+    ...old,
+    presetId: $("chat-style-selection").value || old.presetId || "luxury",
+    paletteId,
+    inheritLandingTheme: $("chat-inherit-theme-input").checked,
+    displayMode: $("chat-display-mode-input").value,
+    headerDesign: $("chat-header-design-input").value,
+    launcherIcon: $("chat-launcher-icon-input").value,
+    sendButtonIcon: $("chat-send-icon-input").value,
+    assistantName: $("chat-assistant-name-input").value.trim().slice(0, 60) || "Concierge",
+    avatarUrl: $("chat-avatar-url-input").value.trim(),
+    welcomeMessage: $("chat-welcome-input").value.trim().slice(0, 240),
+    suggestedPrompts: $("chat-prompts-input").value.split(/\r?\n/).map((item) => item.trim().slice(0, 80)).filter(Boolean).slice(0, 4),
+    showTimestamps: $("chat-timestamps-input").checked,
+    showTypingIndicator: $("chat-typing-input").checked,
+    showMinimizeControl: $("chat-minimize-input").checked,
+    showExpandControl: $("chat-expand-input").checked,
+    allowFullscreenToggle: $("chat-fullscreen-toggle-input").checked,
+    position: $("chat-position-input").value,
+    width: bounded("chat-width-input", 320, 560, 420),
+    height: bounded("chat-height-input", 360, 900, 620),
+    radius: bounded("chat-radius-input", 8, 32, preset.radius),
+    shadow: $("chat-shadow-input").value,
+    tokens,
+  };
+}
+
 function fillDesignForm(config) {
-  state.designAccentText = config.theme?.accentText || "#ffffff";
+  const themeTokens = window.ConciergeTheme.normalize(config);
+  state.builderLayoutTemplateId = themeTokens.layoutTemplateId;
+  state.builderPaletteId = themeTokens.paletteId || "custom";
+  state.builderHeadingFontFamily = themeTokens.headingFontFamily;
+  document.querySelectorAll("[data-design-preset]").forEach((button) => {
+    const selected = button.dataset.designPreset === state.builderPaletteId;
+    button.classList.toggle("selected", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+  state.designAccentText = config.theme?.buttonText || config.theme?.accentText || "#ffffff";
   $("design-hotel-name").value = config.branding?.hotelName || "";
   $("design-concierge-name").value = config.branding?.conciergeName || "";
   $("logo-display-input").value = config.branding?.logoDisplay || "mark_name";
@@ -5069,11 +5410,18 @@ function fillDesignForm(config) {
   $("composer-placeholder-input").value = config.composer?.placeholder || "";
   $("background-input").value = normalizeColor(config.theme?.background || "#faf8f4");
   $("surface-input").value = normalizeColor(config.theme?.surface || "#ffffff");
+  $("heading-color-input").value = normalizeColor(themeTokens.headingColor);
   $("text-color-input").value = normalizeColor(config.theme?.textPrimary || "#1c1c1c");
   $("secondary-text-color-input").value = normalizeColor(config.theme?.textSecondary || "#6e6a64");
   $("accent-input").value = normalizeColor(config.theme?.accent || "#b38a4a");
+  $("secondary-color-input").value = normalizeColor(themeTokens.secondaryColor);
   $("user-message-input").value = normalizeColor(config.theme?.userMessageBackground || "#f0ede7");
-  $("button-color-input").value = normalizeColor(config.theme?.buttonColor || config.theme?.accent || "#b38a4a");
+  $("button-color-input").value = normalizeColor(themeTokens.primaryColor);
+  $("button-text-color-input").value = normalizeColor(themeTokens.buttonText);
+  $("secondary-button-text-input").value = normalizeColor(themeTokens.secondaryButtonText);
+  $("border-color-input").value = normalizeColor(themeTokens.border);
+  $("hover-color-input").value = normalizeColor(themeTokens.hoverColor);
+  $("focus-color-input").value = normalizeColor(themeTokens.focusColor);
   $("composer-background-input").value = normalizeColor(config.composer?.background || config.theme?.composerBackground || "#ffffff");
   $("background-image-url-input").value = config.theme?.backgroundImageUrl || "";
   $("background-overlay-input").value = config.theme?.backgroundOverlay ?? 0;
@@ -5085,6 +5433,7 @@ function fillDesignForm(config) {
   $("base-font-size-input").value = config.typography?.baseFontSize || 15;
   $("message-spacing-input").value = config.layout?.messageSpacing || config.messages?.messageSpacing || 24;
   $("radius-input").value = config.theme?.radius ?? 14;
+  $("theme-shadow-input").value = themeTokens.shadow;
   $("suggestion-layout-input").value = config.layout?.suggestionLayout || "stack";
   $("user-style-input").value = config.messages?.userStyle || "bubble";
   $("assistant-style-input").value = config.messages?.assistantStyle || "minimal";
@@ -5093,6 +5442,7 @@ function fillDesignForm(config) {
   $("show-name-input").checked = config.header?.showHotelName !== false;
   $("show-concierge-input").checked = config.header?.showConciergeName !== false;
   renderPrompts(config.suggestions || []);
+  fillChatDesignerForm(config.chat || {});
 }
 
 function designPayload() {
@@ -5111,14 +5461,25 @@ function designPayload() {
   };
   base.theme = {
     ...(base.theme || {}),
+    paletteId: state.builderPaletteId || "custom",
+    layoutTemplateId: state.builderLayoutTemplateId || "",
     font: $("font-input").value,
     background: $("background-input").value,
     surface: $("surface-input").value,
+    headingColor: $("heading-color-input").value,
+    bodyColor: $("text-color-input").value,
     textPrimary: $("text-color-input").value,
     textSecondary: $("secondary-text-color-input").value,
     accent: $("accent-input").value,
-    accentText: state.designAccentText || base.theme?.accentText || "#ffffff",
-    border: base.theme?.border || "#e8e3da",
+    primaryColor: $("button-color-input").value,
+    secondaryColor: $("secondary-color-input").value,
+    buttonText: $("button-text-color-input").value,
+    secondaryButtonText: $("secondary-button-text-input").value,
+    accentText: $("button-text-color-input").value,
+    border: $("border-color-input").value,
+    hoverColor: $("hover-color-input").value,
+    focusColor: $("focus-color-input").value,
+    shadow: $("theme-shadow-input").value,
     userMessageBackground: $("user-message-input").value,
     userMessageText: base.theme?.userMessageText || "#1c1c1c",
     assistantText: base.theme?.assistantText || "#1c1c1c",
@@ -5132,6 +5493,7 @@ function designPayload() {
   base.typography = {
     ...(base.typography || {}),
     fontFamily: $("font-input").value,
+    headingFontFamily: state.builderHeadingFontFamily || "Playfair Display",
     baseFontSize: Number($("base-font-size-input").value || 15),
   };
   base.layout = {
@@ -5172,6 +5534,7 @@ function designPayload() {
     assistantStyle: $("assistant-style-input").value,
     messageSpacing: Number($("message-spacing-input").value || 24),
   };
+  base.chat = readChatDesignerForm(base.chat || {});
   base.suggestions = readPrompts();
   return base;
 }
@@ -5385,54 +5748,104 @@ function updatePreview() {
   renderBuilderCanvas();
 }
 
-const designPresets = {
-  elegant: { background: "#f5f5f5", surface: "#ffffff", text: "#202020", subtle: "#666666", accent: "#444444", user: "#ededed", button: "#202020", buttonText: "#ffffff", composer: "#ffffff", font: "Playfair Display", density: "comfortable", baseSize: 15, contentWidth: 840, messageWidth: 660, composerWidth: 820, spacing: 27, radius: 8 },
-  minimal: { background: "#f7f7f7", surface: "#ffffff", text: "#171717", subtle: "#686868", accent: "#111111", user: "#eeeeee", button: "#111111", buttonText: "#ffffff", composer: "#ffffff", font: "Inter", density: "comfortable", baseSize: 15, contentWidth: 840, messageWidth: 680, composerWidth: 840, spacing: 24, radius: 8 },
-  "soft-gray": { background: "#f1f1f1", surface: "#ffffff", text: "#222222", subtle: "#6b6b6b", accent: "#444444", user: "#e8e8e8", button: "#222222", buttonText: "#ffffff", composer: "#ffffff", font: "Geist", density: "comfortable", baseSize: 15, contentWidth: 840, messageWidth: 680, composerWidth: 840, spacing: 26, radius: 12 },
-  "high-contrast": { background: "#ececec", surface: "#ffffff", text: "#111111", subtle: "#4d4d4d", accent: "#111111", user: "#e1e1e1", button: "#111111", buttonText: "#ffffff", composer: "#ffffff", font: "Inter", density: "compact", baseSize: 15, contentWidth: 840, messageWidth: 620, composerWidth: 800, spacing: 20, radius: 5 },
-  graphite: { background: "#202020", surface: "#292929", text: "#f4f4f4", subtle: "#b5b5b5", accent: "#f1f1f1", user: "#3b3b3b", button: "#f1f1f1", buttonText: "#171717", composer: "#303030", font: "Inter", density: "comfortable", baseSize: 15, contentWidth: 840, messageWidth: 680, composerWidth: 840, spacing: 24, radius: 8 },
-  ocean: { background: "#edf5f6", surface: "#ffffff", text: "#183039", subtle: "#566b70", accent: "#287987", user: "#dcecef", button: "#236a78", buttonText: "#ffffff", composer: "#ffffff", font: "Geist", density: "comfortable", baseSize: 15, contentWidth: 840, messageWidth: 680, composerWidth: 840, spacing: 24, radius: 8 },
-  botanical: { background: "#f1f5f1", surface: "#ffffff", text: "#20302a", subtle: "#5e6f64", accent: "#4b7659", user: "#e0eae2", button: "#3a6248", buttonText: "#ffffff", composer: "#ffffff", font: "Geist", density: "comfortable", baseSize: 15, contentWidth: 840, messageWidth: 680, composerWidth: 840, spacing: 24, radius: 8 },
-  rose: { background: "#f7f1f4", surface: "#ffffff", text: "#322730", subtle: "#74636d", accent: "#98677f", user: "#efe1e9", button: "#83556c", buttonText: "#ffffff", composer: "#ffffff", font: "Inter", density: "comfortable", baseSize: 15, contentWidth: 840, messageWidth: 680, composerWidth: 840, spacing: 24, radius: 8 },
-  coral: { background: "#f8f1ef", surface: "#ffffff", text: "#332723", subtle: "#76625c", accent: "#ad5d4d", user: "#f2dfda", button: "#994d3e", buttonText: "#ffffff", composer: "#ffffff", font: "Inter", density: "comfortable", baseSize: 15, contentWidth: 840, messageWidth: 680, composerWidth: 840, spacing: 24, radius: 8 },
-  "modern-elegance": { background: "#f5f4f0", surface: "#ffffff", text: "#262a27", subtle: "#686c68", accent: "#78633c", user: "#ece9e1", button: "#304239", buttonText: "#ffffff", composer: "#ffffff", font: "Playfair Display", density: "comfortable", baseSize: 15, contentWidth: 840, messageWidth: 660, composerWidth: 820, spacing: 28, radius: 8 },
-};
+const designPresets = window.ConciergeTheme.PRESETS;
 
-function applyDesignPreset(presetName) {
+function renderPaletteOptions() {
+  const container = $("builder-palette-options");
+  if (!container) return;
+  container.replaceChildren();
+  for (const [paletteId, palette] of Object.entries(designPresets)) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "builder-palette-card";
+    button.dataset.designPreset = paletteId;
+    button.setAttribute("aria-pressed", "false");
+
+    const title = document.createElement("strong");
+    title.className = "builder-palette-name";
+    title.textContent = palette.name;
+    const description = document.createElement("span");
+    description.className = "builder-palette-description";
+    description.textContent = palette.description;
+    const swatches = document.createElement("span");
+    swatches.className = "builder-palette-swatches";
+    swatches.setAttribute("aria-hidden", "true");
+    const swatchNames = ["Background", "Primary", "Secondary", "Accent", "Text"];
+    palette.swatches.forEach((color, index) => {
+      const swatch = document.createElement("span");
+      swatch.className = "builder-palette-swatch";
+      swatch.style.setProperty("--palette-swatch-color", color);
+      swatch.title = `${swatchNames[index]} ${color}`;
+      swatches.appendChild(swatch);
+    });
+    button.append(title, description, swatches);
+    container.appendChild(button);
+  }
+}
+
+renderPaletteOptions();
+
+function applyDesignPreset(presetName, { record = true, notify = true } = {}) {
   const preset = designPresets[presetName];
   if (!preset) return;
-  builderRecordChange();
+  if (record) builderRecordChange();
   const values = {
     "background-input": preset.background,
     "surface-input": preset.surface,
-    "text-color-input": preset.text,
-    "secondary-text-color-input": preset.subtle,
+    "heading-color-input": preset.headingColor,
+    "text-color-input": preset.bodyColor,
+    "secondary-text-color-input": preset.textSecondary,
     "accent-input": preset.accent,
-    "user-message-input": preset.user,
-    "button-color-input": preset.button,
-    "composer-background-input": preset.composer,
-    "font-input": preset.font,
+    "secondary-color-input": preset.secondaryColor,
+    "user-message-input": preset.userMessageBackground,
+    "button-color-input": preset.primaryColor,
+    "button-text-color-input": preset.buttonText,
+    "secondary-button-text-input": preset.secondaryButtonText,
+    "border-color-input": preset.border,
+    "hover-color-input": preset.hoverColor,
+    "focus-color-input": preset.focusColor,
+    "composer-background-input": preset.composerBackground,
+    "font-input": preset.fontFamily,
     "density-input": preset.density,
-    "base-font-size-input": preset.baseSize,
+    "base-font-size-input": preset.baseFontSize,
     "content-width-input": preset.contentWidth,
     "message-width-input": preset.messageWidth,
     "composer-width-input": preset.composerWidth,
-    "message-spacing-input": preset.spacing,
+    "message-spacing-input": preset.messageSpacing,
     "radius-input": preset.radius,
+    "theme-shadow-input": preset.shadow,
   };
   for (const [id, value] of Object.entries(values)) $(id).value = String(value);
   state.designAccentText = preset.buttonText;
+  state.builderPaletteId = presetName;
+  state.builderHeadingFontFamily = preset.headingFontFamily;
   document.querySelectorAll("[data-design-preset]").forEach((button) => {
     const selected = button.dataset.designPreset === presetName;
     button.classList.toggle("selected", selected);
     button.setAttribute("aria-pressed", String(selected));
   });
   updatePreview();
-  showToast(`${presetName.replaceAll("-", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())} palette applied to the draft.`);
+  if (notify) showToast(`${presetName.replaceAll("-", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())} palette applied to the draft.`);
+}
+
+function markBuilderThemeCustom() {
+  document.querySelectorAll("[data-design-preset]").forEach((button) => {
+    const selected = button.dataset.designPreset === state.builderPaletteId;
+    button.classList.toggle("selected", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+}
+
+function restoreBuilderThemeDefaults() {
+  const palette = designPresets[state.builderPaletteId]
+    ? state.builderPaletteId
+    : (window.ConciergeTheme.TEMPLATE_PALETTES[state.builderLayoutTemplateId] || "champagne-onyx");
+  applyDesignPreset(palette);
+  showToast("The selected palette defaults were restored to the draft.");
 }
 
 function setDesignInspector(panelName) {
-  const labels = { templates: "Templates", brand: "Brand identity", content: "Welcome content", theme: "Colors & background", layout: "Typography & layout", prompts: "Suggested prompts", versions: "Published versions" };
+  const labels = { templates: "Templates", brand: "Brand identity", content: "Welcome content", theme: "Colors & background", chat: "AI Chat Designer", layout: "Typography & layout", prompts: "Suggested prompts", versions: "Published versions" };
   state.designInspector = panelName;
   document.querySelectorAll(".design-tool").forEach((button) => {
     const selected = button.dataset.designInspector === panelName;
@@ -9370,6 +9783,7 @@ function syncSidebarToggleState({ breakpointChanged = false } = {}) {
 function setup() {
   annotateAdminPages();
   bindBuilderEvents();
+  bindChatDesignerEvents();
   for (const icon of document.querySelectorAll(".nav-icon")) icon.setAttribute("aria-hidden", "true");
   for (const item of document.querySelectorAll(".nav-item")) {
     item.addEventListener("click", () => activatePanel(item.dataset.panel));
@@ -9603,12 +10017,19 @@ function setup() {
     "composer-placeholder-input",
     "background-input",
     "surface-input",
+    "heading-color-input",
     "text-color-input",
     "secondary-text-color-input",
     "accent-input",
+    "secondary-color-input",
     "user-message-input",
     "button-color-input",
+    "button-text-color-input",
+    "border-color-input",
+    "hover-color-input",
+    "focus-color-input",
     "composer-background-input",
+    "theme-shadow-input",
     "background-overlay-input",
     "font-input",
     "base-font-size-input",
@@ -9626,8 +10047,14 @@ function setup() {
     "show-name-input",
     "show-concierge-input",
   ];
+  const themeInputs = new Set([
+    "background-input", "surface-input", "heading-color-input", "text-color-input", "secondary-text-color-input", "accent-input",
+    "secondary-color-input", "user-message-input", "button-color-input", "button-text-color-input", "secondary-button-text-input", "border-color-input", "hover-color-input",
+    "focus-color-input", "composer-background-input", "theme-shadow-input", "font-input", "base-font-size-input", "density-input",
+    "content-width-input", "message-width-input", "composer-width-input", "message-spacing-input", "radius-input",
+  ]);
   for (const id of liveInputs) {
-    $(id).addEventListener("input", () => { updatePreview(); markBuilderDirty(); });
+    $(id).addEventListener("input", () => { if (themeInputs.has(id)) markBuilderThemeCustom(); updatePreview(); markBuilderDirty(); });
     $(id).addEventListener("change", () => { commitBuilderGlobalEdit(); });
   }
   $("logo-upload-input").addEventListener("change", (event) => {
@@ -9670,14 +10097,11 @@ function setup() {
     button.setAttribute("aria-pressed", "false");
     button.addEventListener("click", () => { applyDesignPreset(button.dataset.designPreset); $("builder-template-menu").hidden = true; $("builder-templates-button").setAttribute("aria-expanded", "false"); });
   }
+  $("reset-theme-template")?.addEventListener("click", restoreBuilderThemeDefaults);
   $("reset-design-template").addEventListener("click", () => {
     if (!state.designDraft) return;
     const before = builderSnapshot();
     fillDesignForm(state.designDraft);
-    document.querySelectorAll("[data-design-preset]").forEach((button) => {
-      button.classList.remove("selected");
-      button.setAttribute("aria-pressed", "false");
-    });
     builderRecordChange(before);
     updatePreview();
     showToast("Page settings reset to the saved draft.");

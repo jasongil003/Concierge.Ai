@@ -388,6 +388,117 @@ def test_guest_home_design_welcome_copy_has_a_generic_default_and_bounded_descri
     assert len(configured["welcome"]["description"]) == 280
 
 
+def test_design_theme_tokens_are_safe_and_legacy_colors_migrate():
+    defaults = default_design_config()["theme"]
+    for field in ("primaryColor", "secondaryColor", "headingColor", "bodyColor", "buttonText", "secondaryButtonText", "hoverColor", "focusColor"):
+        assert isinstance(defaults[field], str) and defaults[field].startswith("#") and len(defaults[field]) == 7
+    assert defaults["paletteId"] == "custom"
+    assert defaults["shadow"] == "subtle"
+    assert default_design_config()["typography"]["headingFontFamily"] == "Playfair Display"
+
+    curated = validate_design_config({
+        "theme": {"paletteId": "royal-emerald-gold", "secondaryButtonText": "#14221b"},
+        "typography": {"headingFontFamily": "Playfair Display"},
+    })
+    assert curated["theme"]["paletteId"] == "royal-emerald-gold"
+    assert curated["theme"]["secondaryButtonText"] == "#14221b"
+    assert curated["typography"]["headingFontFamily"] == "Playfair Display"
+
+    legacy_config = validate_design_config({"theme": {
+        "font": "Playfair Display",
+        "background": "#abcdef",
+        "surface": "#ffffff",
+        "textPrimary": "#123456",
+        "accent": "#654321",
+        "accentText": "#ffffff",
+        "buttonColor": "#234567",
+    }})
+    legacy = legacy_config["theme"]
+    assert legacy["primaryColor"] == "#234567"
+    assert legacy["headingColor"] == "#123456"
+    assert legacy["bodyColor"] == "#123456"
+    assert legacy["buttonText"] == "#ffffff"
+    assert legacy["hoverColor"] == "#654321"
+    assert legacy["focusColor"] == "#654321"
+    assert legacy_config["typography"]["fontFamily"] == "Playfair Display"
+
+    custom = validate_design_config({"theme": {
+        "paletteId": "custom",
+        "layoutTemplateId": "business",
+        "primaryColor": "#123456",
+        "secondaryColor": "#abcdef",
+        "headingColor": "#222222",
+        "buttonText": "#ffffff",
+        "shadow": "strong",
+    }})["theme"]
+    assert custom["primaryColor"] == "#123456"
+    assert custom["layoutTemplateId"] == "business"
+    assert custom["shadow"] == "strong"
+
+    with pytest.raises(ValueError, match="theme palette"):
+        validate_design_config({"theme": {"paletteId": "not-a-palette"}})
+    with pytest.raises(ValueError, match="heading font family"):
+        validate_design_config({"typography": {"headingFontFamily": "Comic Sans"}})
+    with pytest.raises(ValueError, match="theme shadow"):
+        validate_design_config({"theme": {"shadow": "huge"}})
+
+
+def test_chat_designer_config_is_sanitized_property_scoped_and_draft_published(tmp_path: Path):
+    defaults = default_design_config()
+    assert defaults["chat"]["inheritLandingTheme"] is True
+    assert defaults["chat"]["displayMode"] == "embedded"
+
+    configured = validate_design_config({"chat": {
+        "presetId": "midnight",
+        "paletteId": "midnight",
+        "inheritLandingTheme": False,
+        "displayMode": "floating",
+        "assistantName": "Maya",
+        "welcomeMessage": "Welcome to the hotel.",
+        "suggestedPrompts": ["Explore dining", "Find the spa"],
+        "width": 500,
+        "height": 780,
+        "tokens": {"headerBackground": "#101316", "guestBubbleBackground": "#303944"},
+    }})["chat"]
+    assert configured["presetId"] == "midnight"
+    assert configured["displayMode"] == "floating"
+    assert configured["assistantName"] == "Maya"
+    assert configured["suggestedPrompts"] == ["Explore dining", "Find the spa"]
+    assert configured["tokens"]["headerBackground"] == "#101316"
+
+    store = PropertyStore(tmp_path / "chat-design.db")
+    store.upsert(PropertyRecord(property_id="chat-property-a", hotel_name="Property A"))
+    store.upsert(PropertyRecord(property_id="chat-property-b", hotel_name="Property B"))
+    before_a = store.get("chat-property-a")
+    before_b = store.get("chat-property-b")
+    assert before_a is not None and before_b is not None
+    draft = copy.deepcopy(before_a.design_draft)
+    draft["chat"].update(configured)
+    store.save_design_draft("chat-property-a", draft)
+    saved_a = store.get("chat-property-a")
+    saved_b = store.get("chat-property-b")
+    assert saved_a is not None and saved_b is not None
+    assert saved_a.design_draft["chat"]["assistantName"] == "Maya"
+    assert saved_a.design_published["chat"] == before_a.design_published["chat"]
+    assert saved_b.design_draft["chat"] == before_b.design_draft["chat"]
+
+    store.publish_design("chat-property-a")
+    published_a = store.get("chat-property-a")
+    published_b = store.get("chat-property-b")
+    assert published_a is not None and published_b is not None
+    assert published_a.design_published["chat"]["displayMode"] == "floating"
+    assert published_b.design_published["chat"] == before_b.design_published["chat"]
+
+    assert len(validate_design_config({"chat": {"assistantName": "x" * 61}})["chat"]["assistantName"]) == 60
+    invalid_cases = (
+        {"displayMode": "popup"},
+        {"tokens": {"headerBackground": "javascript:alert(1)"}},
+    )
+    for invalid in invalid_cases:
+        with pytest.raises(ValueError):
+            validate_design_config({"chat": invalid})
+
+
 def test_guest_home_quick_action_descriptions_are_property_configured_and_bounded():
     configured = validate_design_config({"suggestions": [{
         "label": "Explore dining",
