@@ -24,6 +24,12 @@ async function openPanel(page, label) {
   await button.click();
 }
 
+async function openHiddenPanel(page, panelId) {
+  await page.locator('body[data-admin-ready="true"]').waitFor();
+  await page.evaluate((id) => window.activatePanel(id), panelId);
+  await expect(page.locator(`#${panelId}`)).toBeVisible();
+}
+
 test.beforeEach(async ({ page }) => {
   await loginAdmin(page.request);
 });
@@ -318,7 +324,7 @@ test("admin operations buttons: map, stay memory, location, and intro", async ({
   await page.getByRole("button", { name: "Load Report" }).click();
   await expect(page.locator("#location-report")).toContainText("visits");
 
-  await openPanel(page, "Branding / Intro");
+  await openHiddenPanel(page, "intro");
   const originalMode = await page.locator("#intro-mode").inputValue();
   const originalMessage = await page.locator("#intro-message").inputValue();
   await page.locator("#intro-mode").selectOption("generate_from_logo");

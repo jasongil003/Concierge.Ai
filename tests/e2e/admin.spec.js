@@ -47,6 +47,12 @@ async function openPanel(page, label) {
   await button.click();
 }
 
+async function openHiddenPanel(page, panelId) {
+  await page.locator('body[data-admin-ready="true"]').waitFor();
+  await page.evaluate((id) => window.activatePanel(id), panelId);
+  await expect(page.locator(`#${panelId}`)).toBeVisible();
+}
+
 async function openLegacyDesignControls(page) {
   await openPanel(page, "Design");
   await expect(page.locator("#builder-page-settings")).toBeVisible();
@@ -497,7 +503,6 @@ test("sidebar: all navigation items are visible and clickable", async ({ page })
     ["Analytics", "analytics"],
     ["Reports", "reports"],
     ["Design", "appearance"],
-    ["Branding / Intro", "intro"],
     ["Location", "location"],
     ["Users", "users"],
     ["Roles", "roles"],
@@ -510,6 +515,7 @@ test("sidebar: all navigation items are visible and clickable", async ({ page })
     await openPanel(page, label);
     await expect(page.locator(`#${panel}`)).toBeVisible();
   }
+  await expect(page.locator('.nav-item[data-nav-id="branding-intro"]')).toHaveCount(0);
 });
 
 test("integration directory links open the separate working setup pages", async ({ page }) => {
@@ -1050,7 +1056,7 @@ test("preview controls are interactive and intro settings save", async ({ page }
     await expect(button).toBeDisabled();
   }
 
-  await openPanel(page, "Branding / Intro");
+  await openHiddenPanel(page, "intro");
   await expect(page.locator(".intro-editor")).toHaveCSS("background-color", "rgb(255, 255, 255)");
   await expect(page.locator(".intro-editor-heading")).toHaveCSS("background-color", "rgb(255, 255, 255)");
   await expect(page.locator(".intro-preview-toolbar")).toHaveCSS("background-color", "rgb(255, 255, 255)");
@@ -1102,7 +1108,7 @@ test("preview controls are interactive and intro settings save", async ({ page }
   await page.locator("#save-intro").click();
   await expect(page.locator("#intro-save-status")).toContainText("Saved");
   await page.reload();
-  await openPanel(page, "Branding / Intro");
+  await openHiddenPanel(page, "intro");
   await expect(page.locator("#intro-mode")).toHaveValue("generate_from_logo");
   await expect(page.locator("#intro-preset")).toHaveValue("fade_scale");
   await expect(page.locator("#intro-duration")).toHaveValue("2.2");
@@ -2450,7 +2456,7 @@ test("admin: local property recommendations can be given home-card images", asyn
 
 test("admin: long workflow guidance is collapsed until requested", async ({ page }) => {
   await page.goto("/admin");
-  for (const label of ["Guest Requests", "Guest Sessions", "Personalization", "Conversation Modules", "Rooms", "Facilities", "Branding / Intro"]) {
+  for (const label of ["Guest Requests", "Guest Sessions", "Personalization", "Conversation Modules", "Rooms", "Facilities"]) {
     await openPanel(page, label);
     const help = page.locator(".panel.active > .contextual-help-disclosure");
     await expect(help).toBeVisible();

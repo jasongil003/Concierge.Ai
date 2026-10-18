@@ -176,7 +176,7 @@ const NAV_SECTIONS = [
       { id: "service-catalog", label: "Service Catalog", panel: "service-catalog", permission: "requests.view", icon: "＋" },
       { id: "zones-maps", label: "Zones & Maps", panel: "zones", permission: "properties.view", icon: "⌗" },
       { id: "appearance", label: "Design", panel: "appearance", permission: "concierge.view", icon: "◐" },
-      { id: "branding-intro", label: "Branding / Intro", panel: "intro", permission: "concierge.view", icon: "A" },
+      { id: "branding-intro", label: "Branding / Intro", panel: "intro", permission: "concierge.view", icon: "A", hidden: true },
     ],
   },
   {
@@ -366,6 +366,7 @@ function renderNavigation() {
   nav.innerHTML = "";
   for (const section of NAV_SECTIONS) {
     const visibleItems = section.items.filter((item) => {
+      if (item.hidden) return false;
       if (!can(item.permission)) return false;
       return !item.superAdminOnly || isSuperAdmin();
     });
@@ -822,7 +823,8 @@ async function loadCurrentAdmin() {
   renderNavigation();
   populatePageCommentLinks();
   applyPermissionVisibility();
-  activatePanel(state.activeNavId ? allNavItems().find((item) => item.id === state.activeNavId)?.panel || "overview" : "overview", state.activeNavId || "dashboard");
+  const initialNavItem = allNavItems().find((item) => item.id === state.activeNavId && !item.hidden);
+  activatePanel(initialNavItem?.panel || "overview", initialNavItem?.id || "dashboard");
   if (state.auth.force_password_change) {
     activatePanel("security");
     showToast("Change your temporary password to continue.");
