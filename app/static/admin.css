@@ -2800,10 +2800,17 @@ details:not([open]) > :not(summary) { display: none !important; }
 .network-access-summary .detail-list { margin: 0; }
 .network-access-fields { min-width: 0; margin: 0; padding: 0; border: 0; }
 .network-access-fields:disabled { opacity: .86; }
+#network-access .network-add-row { align-items: end; }
+#network-access .network-add-row > button { min-width: 128px; min-height: 38px; }
 #network-access .detail-list dd { overflow-wrap: anywhere; }
 .guest-entry-preview { display: grid; justify-items: start; gap: 10px; margin: 12px 0 16px; }
 .guest-entry-preview img { width: min(100%, 240px); aspect-ratio: 1; background: #fff; border: 1px solid var(--line); border-radius: 8px; }
 .guest-entry-preview a { overflow-wrap: anywhere; }
+@media (max-width: 620px) {
+  #network-access .network-add-row { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+  #network-access .network-add-row > button { min-width: 0; padding-inline: 10px; }
+  #network-access #save-management-access, #network-access #save-guest-access { width: 100%; }
+}
 
 #knowledge > .card + .card,
 #knowledge > .card + .two-col { margin-top: 14px; }

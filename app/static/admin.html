@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Concierge.Ai Platform</title>
-  <link rel="stylesheet" href="/static/admin.css?v=104">
+  <link rel="stylesheet" href="/static/admin.css?v=105">
 </head>
 <body>
   <div class="platform-shell" id="platform-shell">
@@ -1189,11 +1189,11 @@
             <div id="management-manage-controls" hidden>
               <label class="check-row"><input id="management-access-enabled" type="checkbox"> Management Access network restriction enabled</label>
               <label>Allowed Management Networks (CIDR)<textarea id="management-networks" rows="4" placeholder="10.10.10.0/24&#10;10.20.30.0/24"></textarea></label>
-              <div class="inline-fields"><label>New network<input id="management-network-input" placeholder="10.10.10.0/24" autocomplete="off"></label><button class="secondary" id="add-management-network" type="button">Add Network</button></div>
+              <div class="inline-fields network-add-row"><label>New network<input id="management-network-input" placeholder="10.10.10.0/24" autocomplete="off"></label><button class="btn btn-secondary" id="add-management-network" type="button">Add Network</button></div>
               <label>Trusted Management Proxy Ranges (CIDR)<textarea id="management-proxies" rows="3" placeholder="10.20.30.10/32"></textarea></label>
               <p class="field-note" id="management-access-warning"></p>
-              <button id="save-management-access" type="button" data-permission="network.manage">Save Management Access</button>
-              <button id="finalize-management-access" class="secondary" type="button" hidden data-permission="network.manage">Confirm and Keep Management Access</button>
+              <button id="save-management-access" class="btn btn-primary" type="button" data-permission="network.manage">Save Management Access</button>
+              <button id="finalize-management-access" class="btn btn-secondary" type="button" hidden data-permission="network.manage">Confirm and Keep Management Access</button>
             </div>
             <p class="field-note" id="management-readonly-note" hidden>Management CIDRs are installation-wide. A Super Admin manages these networks.</p>
             <p class="field-note" id="management-rollback-note" hidden>A temporary rollback is pending. The previous application policy will return automatically if the new network is not confirmed within 10 minutes.</p>
@@ -1215,10 +1215,10 @@
               <label class="check-row"><input id="guardrail-antlabs" type="checkbox"> ANTlabs Gateway Validation</label>
               <label>ANTlabs Gateway Networks (CIDR)<textarea id="guardrail-antlabs-ranges" rows="2" placeholder="10.20.0.1/32"></textarea></label>
               <p class="field-note">Signed ANTlabs credentials remain in Security → Guardrails. Network changes here do not replace the existing gateway validation.</p>
-              <button id="save-guest-access" type="button" data-permission="network.manage">Save Guest Access</button>
+              <button id="save-guest-access" class="btn btn-primary" type="button" data-permission="network.manage">Save Guest Access</button>
             </fieldset>
             <h3>Domain and SSL Verification</h3>
-            <div class="dialog-actions"><button id="verify-deployment" type="button" data-permission="network.manage">Verify DNS &amp; SSL</button></div>
+            <div class="dialog-actions"><button id="verify-deployment" class="btn btn-primary" type="button" data-permission="network.manage">Verify DNS &amp; SSL</button></div>
             <dl class="detail-list"><div><dt>Domain Status</dt><dd id="domain-status">Not configured</dd></div><div><dt>Resolved Addresses</dt><dd id="domain-addresses">—</dd></div><div><dt>Last Checked</dt><dd id="deployment-last-checked">Never</dd></div><div><dt>SSL Status</dt><dd id="ssl-status">Not configured</dd></div><div><dt>Issuer</dt><dd id="ssl-issuer">—</dd></div><div><dt>Expiration</dt><dd id="ssl-expiration">—</dd></div><div><dt>Days Remaining</dt><dd id="ssl-days">—</dd></div><div><dt>Validation Detail</dt><dd id="ssl-error">—</dd></div></dl>
             <h3>Guest QR and NFC Entry</h3>
             <p class="field-note">Print this QR code or write the same approved HTTPS guest URL to an NFC tag. Save Guest Access first when you change the domain. Both open the property's normal guest page; they do not contain session credentials.</p>

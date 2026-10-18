@@ -688,6 +688,12 @@ test("Network Access saves exact guest hosts", async ({ page }, testInfo) => {
   });
   await page.goto("/admin");
   await openPanel(page, "Network Access");
+  await expect(page.locator("#save-management-access")).toHaveClass(/btn-primary/);
+  await expect(page.locator("#save-guest-access")).toHaveClass(/btn-primary/);
+  await expect(page.locator("#verify-deployment")).toHaveClass(/btn-primary/);
+  await expect(page.locator("#add-management-network")).toHaveClass(/btn-secondary/);
+  const addNetworkHeight = await page.locator("#add-management-network").evaluate((button) => button.getBoundingClientRect().height);
+  expect(addNetworkHeight).toBeLessThanOrEqual(44);
   const hosts = page.locator("#guest-access-hosts");
   await expect(hosts).toBeVisible();
   await expect(hosts).toBeDisabled();
