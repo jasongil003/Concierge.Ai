@@ -694,6 +694,12 @@ test("Network Access saves exact guest hosts", async ({ page }, testInfo) => {
   await expect(page.locator("#add-management-network")).toHaveClass(/btn-secondary/);
   const addNetworkHeight = await page.locator("#add-management-network").evaluate((button) => button.getBoundingClientRect().height);
   expect(addNetworkHeight).toBeLessThanOrEqual(44);
+  const addNetworkAlignment = await Promise.all([
+    page.locator("#management-network-input").evaluate((input) => input.getBoundingClientRect().toJSON()),
+    page.locator("#add-management-network").evaluate((button) => button.getBoundingClientRect().toJSON()),
+  ]);
+  expect(Math.abs(addNetworkAlignment[0].y - addNetworkAlignment[1].y)).toBeLessThanOrEqual(2);
+  expect(Math.abs(addNetworkAlignment[0].height - addNetworkAlignment[1].height)).toBeLessThanOrEqual(2);
   const hosts = page.locator("#guest-access-hosts");
   await expect(hosts).toBeVisible();
   await expect(hosts).toBeDisabled();

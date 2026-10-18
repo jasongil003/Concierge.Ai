@@ -2801,6 +2801,7 @@ details:not([open]) > :not(summary) { display: none !important; }
 .network-access-fields { min-width: 0; margin: 0; padding: 0; border: 0; }
 .network-access-fields:disabled { opacity: .86; }
 #network-access .network-add-row { align-items: end; }
+#network-access .network-add-row > label { margin-bottom: 0; }
 #network-access .network-add-row > button { min-width: 128px; min-height: 38px; }
 #network-access .detail-list dd { overflow-wrap: anywhere; }
 .guest-entry-preview { display: grid; justify-items: start; gap: 10px; margin: 12px 0 16px; }
