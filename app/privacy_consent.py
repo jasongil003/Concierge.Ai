@@ -82,6 +82,25 @@ class PrivacyConsentStore:
                 values[row["category"]] = bool(row["granted"])
         return values
 
+    def property_counts(self, property_id: str, now: int | None = None) -> dict[str, dict[str, int]]:
+        """Aggregate unexpired consent records without returning guest or session identifiers."""
+        current = int(time.time()) if now is None else int(now)
+        counts = {category: {"granted": 0, "not_granted": 0} for category in CONSENT_CATEGORIES}
+        with self._connect() as db:
+            rows = db.execute(
+                """SELECT category,granted,COUNT(*) AS total
+                   FROM guest_privacy_consents
+                   WHERE property_id=? AND expires_at>?
+                   GROUP BY category,granted""",
+                (property_id, current),
+            ).fetchall()
+        for row in rows:
+            category = str(row["category"])
+            if category in counts:
+                key = "granted" if bool(row["granted"]) else "not_granted"
+                counts[category][key] = max(0, int(row["total"] or 0))
+        return counts
+
     def set(
         self,
         property_id: str,

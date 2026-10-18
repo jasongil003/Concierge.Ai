@@ -376,6 +376,17 @@ function experienceAction(action) {
     case "concierge":
       setActiveView("concierge");
       return true;
+    case "property_info": {
+      setActiveView("concierge");
+      const hotel = state.hotel || {};
+      const location = hotel.location || {};
+      const details = [hotel.name, hotel.description, location.address].filter((value) => typeof value === "string" && value.trim());
+      addMessage({ role: "assistant", type: "text", text: details.join("\n") || "Property information has not been configured yet." });
+      return true;
+    }
+    case "nearby_recommendations":
+      setActiveView("explore");
+      return true;
     case "external_url": {
       const url = safeGuestUrl(action.url, { allowExternalHttp: true });
       if (!url) return false;
@@ -574,6 +585,7 @@ function renderExperienceSection(section, design) {
       image.className = "experience-hero-image";
       image.src = imageUrl;
       image.alt = p.alt || "";
+      if (!p.image_url) image.dataset.themeBackground = "true";
       image.loading = "eager";
       image.decoding = "async";
       image.addEventListener("error", () => { image.remove(); outer.classList.remove("experience-hero-has-image"); }, { once: true });
@@ -2729,22 +2741,36 @@ function renderComposerForPage(page, target, design) {
 function renderConfiguredModules(modules) {
   const list = $("configured-module-list");
   list.innerHTML = "";
-  for (const module of [...modules].sort((a, b) => Number(a.order || 0) - Number(b.order || 0))) {
+  const sortedModules = [...modules].sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+  list.classList.toggle("has-module-carousel", sortedModules.some((module) => module.display_style === "carousel"));
+  const iconGlyphs = { sparkles: "✦", room: "▤", dining: "♨", map: "⌖", compass: "◇", info: "i", service: "＋", car: "↗", help: "?" };
+  const displayStyles = new Set(["suggestion_chip", "icon_card", "action_tile", "carousel"]);
+  for (const module of sortedModules) {
     const button = document.createElement("button");
     button.type = "button";
+    button.className = "configured-module-item";
+    const displayStyle = displayStyles.has(module.display_style) ? module.display_style : "icon_card";
+    button.dataset.displayStyle = displayStyle;
     const icon = document.createElement("span");
     icon.className = "menu-item-icon menu-item-icon-module";
     icon.setAttribute("aria-hidden", "true");
-    icon.innerHTML = '<svg viewBox="0 0 24 24"><path d="m12 3 1.6 5.4L19 10l-5.4 1.6L12 17l-1.6-5.4L5 10l5.4-1.6L12 3Z"/><path d="m19 15 .7 2.3L22 18l-2.3.7L19 21l-.7-2.3L16 18l2.3-.7L19 15Z"/></svg>';
+    icon.textContent = iconGlyphs[module.icon] || iconGlyphs.sparkles;
     const copy = document.createElement("span");
     copy.className = "menu-item-copy";
     const title = document.createElement("strong");
     title.textContent = module.name;
     const description = document.createElement("small");
-    description.textContent = module.description || "Explore this service";
+    description.textContent = module.description || "Explore this guest service";
     copy.append(title, description);
     button.append(icon, copy);
-    button.addEventListener("click", () => { closeMenu(); sendChat(module.prompt).catch((error) => showToast(error.message, "warning")); });
+    button.addEventListener("click", () => {
+      closeMenu();
+      if (module.action) {
+        if (!experienceAction(module.action)) showToast("This guest action is not available right now.", "warning");
+        return;
+      }
+      if (module.prompt) sendChat(module.prompt).catch((error) => showToast(error.message, "warning"));
+    });
     list.appendChild(button);
   }
 }
@@ -2826,10 +2852,19 @@ function applyDesignTokens(design) {
   const themeTokens = window.ConciergeTheme.apply(root, design);
   const chat = window.ConciergeTheme.applyChat(root, design);
   const backgroundImageUrl = safeGuestUrl(theme.backgroundImageUrl, { allowDataImage: true });
+  const imagePositions = theme.backgroundImagePosition || {};
+  const desktopImagePosition = imagePositions.desktop || { x: 50, y: 50 };
+  const mobileImagePosition = imagePositions.mobile || { x: 50, y: 50 };
+  const coordinate = (value) => Number.isFinite(Number(value)) ? Math.max(0, Math.min(100, Number(value))) : 50;
+  const positionValue = (position) => `${coordinate(position.x)}% ${coordinate(position.y)}%`;
   const cssBackgroundImage = backgroundImageUrl
     ? `url("${backgroundImageUrl.replaceAll("\\", "%5C").replaceAll('"', "%22").replaceAll(")", "%29")}")`
     : "none";
   root.style.setProperty("--background-image", cssBackgroundImage);
+  root.style.setProperty("--background-image-position-desktop", positionValue(desktopImagePosition));
+  root.style.setProperty("--background-image-position-mobile", positionValue(mobileImagePosition));
+  root.style.setProperty("--guest-hero-image-position-desktop", positionValue(desktopImagePosition));
+  root.style.setProperty("--guest-hero-image-position-mobile", positionValue(mobileImagePosition));
   root.style.setProperty("--background-overlay", (theme.backgroundOverlay || 0) / 100);
   root.style.setProperty("--background-overlay-percent", `${theme.backgroundOverlay || 0}%`);
   root.style.setProperty("--column-width", themeTokens.contentWidth + "px");

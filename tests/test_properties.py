@@ -46,6 +46,33 @@ def test_clean_database_has_no_property_or_operational_seed_data(tmp_path: Path)
     assert operations.list_knowledge("property-a") == []
 
 
+def test_property_location_settings_validate_coordinates_and_persist_guest_visibility(admin_client: TestClient):
+    path = "/api/admin/properties/test-property"
+    invalid = admin_client.put(path, json={
+        "property_id": "test-property",
+        "hotel_name": "Test Property",
+        "app_settings": {"locations": [{
+            "id": "entrance-1", "name": "Main entrance", "type": "entrance",
+            "description": "North side", "latitude": 91, "longitude": 123, "guest_visible": True,
+        }]},
+    })
+    assert invalid.status_code == 422
+
+    saved = admin_client.put(path, json={
+        "property_id": "test-property",
+        "hotel_name": "Test Property",
+        "app_settings": {"locations": [{
+            "id": "entrance-1", "name": "Main entrance", "type": "entrance",
+            "description": "North side", "latitude": 14.5547, "longitude": 121.0244, "guest_visible": True,
+        }]},
+    })
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["app_settings"]["locations"] == [{
+        "id": "entrance-1", "name": "Main entrance", "type": "entrance",
+        "description": "North side", "latitude": 14.5547, "longitude": 121.0244, "guest_visible": True,
+    }]
+
+
 def test_admin_property_list_returns_200_for_properties_with_additive_schema_columns(
     admin_client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

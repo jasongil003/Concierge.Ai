@@ -15,7 +15,14 @@ from .guardrails import (
     public_guardrails,
     validate_guest_hostname_ownership,
 )
-from .guest_experience import default_guest_pages, default_navigation, is_safe_image_url, validate_guest_pages, validate_navigation
+from .guest_experience import (
+    default_guest_pages,
+    default_navigation,
+    is_safe_image_url,
+    public_conversation_modules,
+    validate_guest_pages,
+    validate_navigation,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -163,6 +170,10 @@ def default_design_config(
             "radius": 14,
             "density": "comfortable",
             "backgroundImageUrl": "",
+            "backgroundImagePosition": {
+                "desktop": {"x": 50, "y": 50},
+                "mobile": {"x": 50, "y": 50},
+            },
             "backgroundOverlay": 0,
         },
         "typography": {
@@ -252,7 +263,7 @@ def validate_design_config(config: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Unsupported guest experience configuration field.")
     nested_fields = {
         "branding": {"hotelName", "conciergeName", "logoUrl", "logoDisplay", "conciergeAvatarUrl", "faviconUrl"},
-        "theme": {"font", "background", "surface", "textPrimary", "textSecondary", "accent", "accentText", "border", "userMessageBackground", "userMessageText", "assistantText", "composerBackground", "buttonColor", "primaryColor", "secondaryColor", "headingColor", "bodyColor", "buttonText", "secondaryButtonText", "hoverColor", "focusColor", "shadow", "paletteId", "layoutTemplateId", "radius", "density", "backgroundImageUrl", "backgroundOverlay"},
+        "theme": {"font", "background", "surface", "textPrimary", "textSecondary", "accent", "accentText", "border", "userMessageBackground", "userMessageText", "assistantText", "composerBackground", "buttonColor", "primaryColor", "secondaryColor", "headingColor", "bodyColor", "buttonText", "secondaryButtonText", "hoverColor", "focusColor", "shadow", "paletteId", "layoutTemplateId", "radius", "density", "backgroundImageUrl", "backgroundImagePosition", "backgroundOverlay"},
         "typography": {"fontFamily", "headingFontFamily", "baseFontSize", "headingWeight", "bodyWeight", "letterSpacing"},
         "layout": {"contentWidth", "messageWidth", "messageSpacing", "composerWidth", "composerPosition", "suggestionLayout"},
         "header": {"enabled", "showLogo", "showHotelName", "showConciergeName", "subtitle", "sticky", "background", "border"},
@@ -348,10 +359,23 @@ def validate_design_config(config: dict[str, Any]) -> dict[str, Any]:
         if image_url and not is_safe_image_url(image_url):
             raise ValueError(f"Image URL for {field} must use HTTPS, a same-origin path, or a supported image upload.")
     background_image_url = theme.get("backgroundImageUrl", "")
-    if not isinstance(background_image_url, str) or len(background_image_url) > 700000:
+    if not isinstance(background_image_url, str) or len(background_image_url) > 2100000:
         raise ValueError("Invalid background image URL.")
     if background_image_url and not is_safe_image_url(background_image_url):
         raise ValueError("Background image must use HTTPS, a same-origin path, or a supported image upload.")
+    image_positions = theme.get("backgroundImagePosition", {})
+    if not isinstance(image_positions, dict) or set(image_positions) - {"desktop", "mobile"}:
+        raise ValueError("Invalid background image position settings.")
+    normalized_positions = {}
+    for device in ("desktop", "mobile"):
+        position = image_positions.get(device, {})
+        if not isinstance(position, dict) or set(position) - {"x", "y"}:
+            raise ValueError("Invalid background image position settings.")
+        normalized_positions[device] = {
+            "x": _bounded_int(position.get("x", 50), 0, 100, f"background image {device} horizontal position"),
+            "y": _bounded_int(position.get("y", 50), 0, 100, f"background image {device} vertical position"),
+        }
+    theme["backgroundImagePosition"] = normalized_positions
 
     font = typography.get("fontFamily") or theme.get("font") or "Geist"
     if font not in SAFE_FONTS:
@@ -628,7 +652,7 @@ class PropertyRecord:
             "support_contacts": self.support_contacts,
             "quick_actions": self.quick_actions,
             "rooms": self.rooms,
-            "guest_modules": [item for item in self.guest_modules if item.get("enabled", True)],
+            "guest_modules": public_conversation_modules(self.guest_modules),
             "locations": [item for item in (self.app_settings.get("locations") or []) if item.get("guest_visible", True)],
             "application": {
                 "default_language": (self.app_settings.get("application") or {}).get("default_language", self.languages[0] if self.languages else "en"),

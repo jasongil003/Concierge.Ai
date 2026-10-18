@@ -1122,6 +1122,69 @@ test("guest: a configured service can be requested directly without opening chat
   await expect(page.locator("#message-list")).toBeEmpty();
 });
 
+test("guest module property information uses the typed action without calling AI", async ({ page, request }) => {
+  const csrf = await loginAdmin(request);
+  const propertyId = "e2e-property";
+  const root = `/api/admin/properties/${propertyId}/conversation-modules`;
+  const created = await request.post(root, {
+    headers: { "X-CSRF-Token": csrf },
+    data: { config: { name: "Property details", description: "See verified hotel information.", icon: "info", category: "Stay", group: "Stay", display_style: "icon_card", order: 0, enabled: true, action: { type: "property_info" } } },
+  });
+  expect(created.ok(), await created.text()).toBeTruthy();
+  const module = (await created.json()).module;
+  const published = await request.post(`${root}/${module.id}/publish`, {
+    headers: { "X-CSRF-Token": csrf },
+    data: { expected_revision: module.revision },
+  });
+  expect(published.ok(), await published.text()).toBeTruthy();
+  const publishedModule = (await published.json()).module;
+  let aiCalls = 0;
+  page.on("request", (browserRequest) => { if (new URL(browserRequest.url()).pathname === "/api/chat") aiCalls += 1; });
+  await page.goto("/");
+  await openHotelMenu(page);
+  await page.getByRole("button", { name: "Property details" }).click();
+  await expect(page.locator(".message-row.assistant").last()).toContainText("E2E Property");
+  expect(aiCalls).toBe(0);
+  const archived = await request.post(`${root}/${module.id}/archive`, {
+    headers: { "X-CSRF-Token": csrf },
+    data: { expected_revision: publishedModule.revision },
+  });
+  expect(archived.ok(), await archived.text()).toBeTruthy();
+});
+
+test("guest module service action opens the real guest confirmation flow", async ({ page, request }) => {
+  await ensureGuestData(request);
+  const csrf = await loginAdmin(request);
+  const propertyId = "e2e-property";
+  const root = `/api/admin/properties/${propertyId}/conversation-modules`;
+  const catalog = await (await request.get(`/api/admin/properties/${propertyId}/service-catalog`)).json();
+  const service = catalog.services.find((item) => item.name === "Towels" && item.enabled !== false && !item.archived);
+  expect(service, "synthetic enabled Towels service should exist in the test catalog").toBeTruthy();
+  const created = await request.post(root, {
+    headers: { "X-CSRF-Token": csrf },
+    data: { config: { name: "Request towels", description: "Ask hotel staff for fresh towels.", icon: "service", category: "Requests", group: "Stay", display_style: "action_tile", order: 0, enabled: true, action: { type: "service_request", service_id: service.service_id } } },
+  });
+  expect(created.ok(), await created.text()).toBeTruthy();
+  const module = (await created.json()).module;
+  const published = await request.post(`${root}/${module.id}/publish`, {
+    headers: { "X-CSRF-Token": csrf },
+    data: { expected_revision: module.revision },
+  });
+  expect(published.ok(), await published.text()).toBeTruthy();
+  const publishedModule = (await published.json()).module;
+  await page.goto("/");
+  await openHotelMenu(page);
+  await page.getByRole("button", { name: "Request towels" }).click();
+  await expect(page.locator("#request-action-confirmation")).toContainText("Towels");
+  await expect(page.locator("#request-action-confirmation")).toContainText("Send this request to the hotel team?");
+  await expect(page.locator("#request-list .request-status-card")).toHaveCount(0);
+  const archived = await request.post(`${root}/${module.id}/archive`, {
+    headers: { "X-CSRF-Token": csrf },
+    data: { expected_revision: publishedModule.revision },
+  });
+  expect(archived.ok(), await archived.text()).toBeTruthy();
+});
+
 test("guest: confirm request persists and returns a request id", async ({ page, request }) => {
   await ensureGuestData(request);
   await page.goto("/");

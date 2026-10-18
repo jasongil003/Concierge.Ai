@@ -12,6 +12,7 @@ import app.main as main_module
 from app.guest_identity import GuestIdentityStore, pseudonymous_device_id
 from app.location_analytics import LocationAnalyticsStore
 from app.privacy_consent import CONSENT_CATEGORIES, PrivacyConsentStore
+from app.personalization import PersonalizationStore
 from app.hospitality import HospitalityStore
 from app.properties import PropertyRecord
 
@@ -174,6 +175,58 @@ def test_nearby_search_enforces_each_requested_category_permission(
     assert response.status_code == 200, response.text
     assert (len(calls) == 1) is provider_allowed
     assert response.json()["nearby_status"] == ("empty" if provider_allowed else "disabled")
+
+
+def test_personalization_location_policy_blocks_provider_search(admin_client, tmp_path, monkeypatch, request):
+    property_id = f"nearby-policy-{uuid.uuid4().hex[:10]}"
+    main_module.properties.upsert(PropertyRecord(
+        property_id=property_id,
+        hotel_name="Nearby Policy Test Property",
+        latitude=14.55,
+        longitude=121.02,
+        guardrails={
+            "nearby_places_enabled": True,
+            "internet_search_enabled": True,
+            "restaurant_search_enabled": True,
+            "attractions_enabled": False,
+        },
+    ))
+    request.addfinalizer(lambda: main_module.properties.delete(property_id))
+    memory = PersonalizationStore(tmp_path / "nearby-personalization-policy.db")
+    monkeypatch.setattr(main_module, "personalization", memory)
+    memory.save_policy(property_id, {
+        "allow_location_aware_recommendations": False,
+        "allow_internet_recommendations": True,
+    })
+    session_id = _new_guest(admin_client, property_id)
+    consent = admin_client.put("/api/guest/privacy", json={
+        "session_id": session_id,
+        "consents": {"external_data_processing": True},
+    })
+    assert consent.status_code == 200, consent.text
+    calls = []
+
+    async def fake_places(*args, **kwargs):
+        calls.append((args, kwargs))
+        return [], "empty"
+
+    class ModelResult:
+        provider = "local"
+        model = "test-model"
+        text = "I can help with nearby dining options."
+
+    async def fake_chat(**_kwargs):
+        return ModelResult()
+
+    monkeypatch.setattr(main_module.places, "search_with_status", fake_places)
+    monkeypatch.setattr(main_module.ai_models, "concierge_chat", fake_chat)
+    response = admin_client.post("/api/chat", json={
+        "session_id": session_id,
+        "message": "Find restaurants nearby.",
+    })
+    assert response.status_code == 200, response.text
+    assert response.json()["nearby_status"] == "disabled"
+    assert calls == []
 
 
 def test_location_observation_requires_consent_and_never_persists_unauthorized_mac(admin_client):

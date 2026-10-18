@@ -24,7 +24,7 @@ async function openPanel(page, label) {
   await button.click();
 }
 
-test("guest stays search on the server and paginate on desktop and mobile", async ({ page }) => {
+test("guest stays search, paginate, and open scoped drawers across responsive sizes", async ({ page }, testInfo) => {
   const csrf = csrfByRequest.get(page.request);
   const propertyId = await ensureTestProperty(page.request, csrf);
   const headers = { "X-CSRF-Token": csrf };
@@ -54,6 +54,7 @@ test("guest stays search on the server and paginate on desktop and mobile", asyn
   const firstData = await firstPage.json();
   expect(firstData.stays).toHaveLength(25);
   expect(firstData.pages.stays).toMatchObject({ total: 27, limit: 25, offset: 0 });
+  await expect(page.locator("#refresh-sessions")).toHaveText("Refresh");
   await expect(page.locator("#session-list")).toContainText("Showing 1–25 of 27");
 
   const nextPageResponse = page.waitForResponse((response) => {
@@ -68,6 +69,42 @@ test("guest stays search on the server and paginate on desktop and mobile", asyn
   expect(nextData.pages.stays).toMatchObject({ total: 27, limit: 25, offset: 25 });
   await expect(page.locator("#session-list")).toContainText("Showing 26–27 of 27");
   await expect(page.locator("#session-list .session-record-group-list .session-record-card")).toHaveCount(2);
+  for (const [label, width, height] of [["desktop-wide", 1920, 1080], ["desktop", 1366, 900], ["tablet-wide", 1024, 900], ["tablet", 768, 960], ["mobile-wide", 390, 844], ["mobile", 375, 812]]) {
+    await page.setViewportSize({ width, height });
+    await page.waitForTimeout(220);
+    const dimensions = await page.evaluate(() => ({ document: document.documentElement.scrollWidth, viewport: window.innerWidth }));
+    expect(dimensions.document, `${label} has no horizontal page overflow`).toBeLessThanOrEqual(dimensions.viewport);
+    if (label === "desktop" || label === "tablet" || label === "mobile") {
+      await page.screenshot({ path: testInfo.outputPath(`guest-sessions-${label}.png`), fullPage: true });
+    }
+  }
+  await page.setViewportSize({ width: 1366, height: 900 });
+  await page.getByRole("button", { name: "Open Guest 360°" }).first().click();
+  await expect(page.locator("#session-guest360-drawer")).toBeVisible();
+  await expect(page.locator("#session-guest360-title")).toContainText("Room");
+  await expect(page.locator("#session-guest360-link-count")).toHaveText("1");
+  await expect(page.locator("#session-guest360-conversations")).toContainText("No linked Concierge session summaries");
+  await page.screenshot({ path: testInfo.outputPath("guest-sessions-guest-360-desktop.png"), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(220);
+  await expect(page.locator("#session-guest360-drawer")).toBeVisible();
+  const detailDimensions = await page.evaluate(() => ({ document: document.documentElement.scrollWidth, viewport: window.innerWidth }));
+  expect(detailDimensions.document, "Guest 360 drawer has no mobile horizontal overflow").toBeLessThanOrEqual(detailDimensions.viewport);
+  await page.screenshot({ path: testInfo.outputPath("guest-sessions-guest-360-mobile.png"), fullPage: true });
+  await page.getByRole("button", { name: "Close details" }).click();
+  await page.setViewportSize({ width: 1366, height: 900 });
+  await page.waitForTimeout(220);
+  await page.getByRole("button", { name: "Link a device" }).click();
+  await expect(page.locator("#session-link-drawer")).toBeVisible();
+  await expect(page.locator("#session-link-drawer")).toContainText(/raw MAC is used only for server-side pseudonymous identity conversion/i);
+  await page.screenshot({ path: testInfo.outputPath("guest-sessions-link-device-desktop.png"), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(220);
+  const linkDimensions = await page.evaluate(() => ({ document: document.documentElement.scrollWidth, viewport: window.innerWidth }));
+  expect(linkDimensions.document, "Link Device drawer has no mobile horizontal overflow").toBeLessThanOrEqual(linkDimensions.viewport);
+  await page.screenshot({ path: testInfo.outputPath("guest-sessions-link-device-mobile.png"), fullPage: true });
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.locator("#session-link-drawer")).toBeHidden();
 });
 
 test("hotel knowledge entries use bounded pages on desktop and mobile", async ({ page }) => {

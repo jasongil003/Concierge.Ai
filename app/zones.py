@@ -1240,6 +1240,61 @@ class ZoneStore:
                 aps = [dict(row) for row in db.execute("SELECT * FROM access_points WHERE property_id=? ORDER BY name", (property_id,))]
         return {"buildings": buildings, "floors": floors, "maps": maps, "zones": zones, "facilities": facilities, "access_points": aps, "navigation_nodes": nodes, "navigation_edges": edges}
 
+    def validate_map(self, property_id: str, overview: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Return actionable, non-blocking map readiness issues for this property."""
+        data = overview if overview is not None else self.overview(property_id)
+        buildings = data.get("buildings", [])
+        floors = data.get("floors", [])
+        maps = data.get("maps", [])
+        nodes = data.get("navigation_nodes", [])
+        edges = data.get("navigation_edges", [])
+        issues: list[dict[str, Any]] = []
+        map_floor_ids = {str(item.get("floor_id") or "") for item in maps}
+        if not buildings:
+            issues.append({"code": "building_missing", "message": "Add a building before setting up floor maps and routes."})
+        for floor in floors:
+            floor_id = str(floor.get("floor_id") or "")
+            floor_name = str(floor.get("name") or "this floor")
+            if floor_id not in map_floor_ids:
+                issues.append({"code": "floor_map_missing", "floor_id": floor_id, "message": f"{floor_name} has no uploaded floor plan."})
+            visible_nodes = [
+                item for item in nodes
+                if str(item.get("floor_id") or "") == floor_id and item.get("guest_visible") not in (0, False)
+            ]
+            if len(visible_nodes) < 2:
+                if visible_nodes:
+                    issues.append({"code": "destination_missing", "floor_id": floor_id, "message": f"{floor_name} has one guest waypoint; add a second point and connect the route."})
+                else:
+                    issues.append({"code": "waypoints_missing", "floor_id": floor_id, "message": f"{floor_name} has no guest-visible waypoints. Add route start and destination points if directions are needed."})
+                continue
+            visible_ids = {str(item.get("node_id") or "") for item in visible_nodes}
+            adjacency: dict[str, set[str]] = {node_id: set() for node_id in visible_ids}
+            for edge in edges:
+                if edge.get("guest_visible") in (0, False):
+                    continue
+                source = str(edge.get("from_node_id") or "")
+                target = str(edge.get("to_node_id") or "")
+                if source in visible_ids and target in visible_ids:
+                    adjacency[source].add(target)
+                    adjacency[target].add(source)
+            if not any(adjacency.values()):
+                issues.append({"code": "routes_missing", "floor_id": floor_id, "message": f"{floor_name} has guest waypoints but no guest-visible route connections."})
+                continue
+            unseen = set(visible_ids)
+            components = 0
+            while unseen:
+                components += 1
+                pending = [unseen.pop()]
+                while pending:
+                    current = pending.pop()
+                    reachable = adjacency[current] & unseen
+                    unseen.difference_update(reachable)
+                    pending.extend(reachable)
+            if components > 1:
+                issues.append({"code": "routes_disconnected", "floor_id": floor_id, "message": f"{floor_name} has {components} separate guest route groups. Check connections between destinations."})
+        status = "review" if issues else "ready" if floors else "needs_setup"
+        return {"status": status, "issues": issues, "building_count": len(buildings), "floor_count": len(floors), "map_count": len(maps), "guest_waypoint_count": sum(1 for item in nodes if item.get("guest_visible") not in (0, False)), "guest_route_count": sum(1 for item in edges if item.get("guest_visible") not in (0, False))}
+
     def route(
         self,
         property_id: str,

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Concierge.Ai Platform</title>
-  <link rel="stylesheet" href="/static/admin.css?v=106">
+  <link rel="stylesheet" href="/static/admin.css?v=110">
 </head>
 <body>
   <div class="platform-shell" id="platform-shell">
@@ -189,7 +189,7 @@
               <div id="builder-components-panel" role="tabpanel" aria-labelledby="builder-library-tab-components" data-builder-library-panel="components"><label class="builder-library-search"><span class="sr-only">Search components</span><input id="builder-component-search" type="search" placeholder="Search components…" autocomplete="off"></label><div class="builder-component-groups" id="builder-component-library"></div></div>
               <div id="builder-layers-panel" class="builder-layers" role="tabpanel" aria-labelledby="builder-library-tab-layers" data-builder-library-panel="layers" hidden><p class="builder-panel-hint">Select a section to edit. Reorder or manage visibility from its compact menu.</p><ol id="builder-section-layers" aria-label="Page sections"></ol></div>
             </aside>
-            <main class="builder-canvas-panel" aria-label="Live canvas"><div class="builder-canvas-toolbar"><div><span class="builder-live-indicator"></span><strong>Live Canvas</strong><small>Changes stay in draft until published.</small></div><span id="builder-page-size-label">Desktop · Full width</span></div><div class="builder-canvas-scroll"><div id="builder-canvas" class="builder-canvas" aria-label="Guest page canvas" tabindex="0"></div></div></main>
+            <section class="builder-canvas-panel" aria-label="Live canvas"><div class="builder-canvas-toolbar"><div><span class="builder-live-indicator"></span><strong>Live Canvas</strong><small>Changes stay in draft until published.</small></div><span id="builder-page-size-label">Desktop · Full width</span></div><div class="builder-canvas-scroll"><div id="builder-canvas" class="builder-canvas" aria-label="Guest page canvas" tabindex="0"></div></div></section>
             <aside class="builder-inspector-panel" aria-label="Page and section inspector" data-permission="concierge.edit">
               <div class="builder-panel-heading"><div><p>INSPECTOR</p><h2 id="builder-inspector-title">Page Settings</h2></div></div>
               <div class="builder-inspector-tabs" id="builder-inspector-tabs" role="tablist" aria-label="Component settings"><button type="button" role="tab" id="builder-tab-content" aria-selected="true" aria-controls="builder-inspector" data-builder-tab="content">Content</button><button type="button" role="tab" id="builder-tab-style" aria-selected="false" aria-controls="builder-inspector" data-builder-tab="style">Style</button><button type="button" role="tab" id="builder-tab-layout" aria-selected="false" aria-controls="builder-inspector" data-builder-tab="layout">Layout</button><button type="button" role="tab" id="builder-tab-animation" aria-selected="false" aria-controls="builder-inspector" data-builder-tab="animation">Animation</button></div>
@@ -251,9 +251,23 @@
                     <label>Message composer<input id="composer-background-input" type="color" value="#ffffff"></label>
                   </div>
                   <label>Card shadow<select id="theme-shadow-input"><option value="none">None</option><option value="subtle">Subtle</option><option value="strong">Strong</option></select></label>
-                  <label class="upload-field">Guest home hero image<input id="background-image-input" type="file" accept="image/png,image/jpeg,image/webp"></label>
-                  <p class="field-note">Shown in the split welcome hero and concierge backdrop · Portrait or landscape · Under 1.5 MB</p>
-                  <input id="background-image-url-input" type="hidden">
+                  <div class="background-image-control">
+                    <span class="upload-field-label">Guest home hero image</span>
+                    <input class="background-image-input" id="background-image-input" type="file" accept="image/png,image/jpeg,image/webp" aria-label="Choose guest home hero image">
+                    <input id="background-image-url-input" type="hidden">
+                    <input id="background-image-position-input" type="hidden" value='{"desktop":{"x":50,"y":50},"mobile":{"x":50,"y":50}}'>
+                    <div class="background-image-preview" id="background-image-preview" hidden>
+                      <img id="background-image-thumbnail" alt="" aria-hidden="true">
+                      <span><strong id="background-image-name">Saved background image</strong><small id="background-image-dimensions"></small></span>
+                    </div>
+                    <div class="background-image-actions">
+                      <button class="background-image-pick" id="background-image-choose" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 13V3m0 0L6.5 6.5M10 3l3.5 3.5M3 12v4.5A.5.5 0 0 0 3.5 17h13a.5.5 0 0 0 .5-.5V12"/></svg><span id="background-image-choose-label">Choose image</span></button>
+                      <button class="background-image-secondary" id="background-image-adjust" type="button" disabled>Adjust crop</button>
+                      <button class="background-image-remove" id="background-image-remove" type="button" hidden>Remove</button>
+                    </div>
+                    <p class="background-image-status" id="background-image-status" role="status" aria-live="polite">No image selected.</p>
+                  </div>
+                  <p class="field-note">Shown in the welcome hero and page backdrop · PNG, JPEG, or WebP · Under 1.5 MB</p>
                   <label class="range-field">Image tint <span><input id="background-overlay-input" type="range" min="0" max="70" step="5"><output id="background-overlay-value">0%</output></span></label>
                 </div>
               </details>
@@ -345,131 +359,160 @@
       </section>
 
       <section class="panel" id="guest">
-        <div class="page-title"><div><p>Guest experience</p><h1>Conversation modules</h1><span>Create quick actions guests can tap in the concierge chat. Saving a module updates the guest menu immediately.</span></div></div>
+        <div class="page-title module-studio-heading"><div><p>Guest experience · No-code builder</p><h1>Conversation Module Studio</h1><span>Build clear guest actions, test a safe preview, and publish them deliberately to the concierge menu.</span></div><button id="module-create" type="button">Create module</button></div>
         <details class="contextual-help-disclosure">
           <summary><span aria-hidden="true">?</span><strong>How conversation modules work</strong><span class="contextual-help-toggle" aria-hidden="true"></span></summary>
         <section class="card module-guide" aria-labelledby="module-guide-title">
-          <div class="module-guide-intro"><p>WHAT THIS PAGE IS FOR</p><h2 id="module-guide-title">Give guests useful conversation shortcuts</h2><span>Each module adds a named button to the guest chat menu. When a guest taps it, the saved prompt is sent as their chat message and the concierge responds using available property information and configured rules.</span></div>
+          <div class="module-guide-intro"><p>WHAT THIS PAGE IS FOR</p><h2 id="module-guide-title">Give guests useful, approved shortcuts</h2><span>Modules can open property pages, show configured property information, send a chat prompt, route to Explore, open a property map, or start a catalog-backed service request.</span></div>
           <div class="module-guide-howto">
             <h3>How to create a module</h3>
             <ol>
-              <li><strong>Name it for the guest.</strong> Use a short action such as “Explore dining” or “Request extra towels.”</li>
-              <li><strong>Write the full prompt.</strong> Say what the guest wants help with; include useful constraints and ask the concierge to be clear when hotel details are unavailable.</li>
-              <li><strong>Set order and visibility.</strong> Lower order numbers appear first. Turn on “Show in guest menu” to make the action available to guests.</li>
-              <li><strong>Save and review.</strong> Saving applies the change immediately. Use “Open guest app” in the top bar to see the enabled menu actions.</li>
+              <li><strong>Choose a starter or action.</strong> The editor only exposes action types backed by existing guest app behavior.</li>
+              <li><strong>Configure and test.</strong> Preview the menu card at desktop, tablet, and phone widths. Test preview uses synthetic content and does not submit a request or call an AI provider.</li>
+              <li><strong>Save a draft.</strong> Draft edits stay in the editor and do not change the currently published guest menu.</li>
+              <li><strong>Publish deliberately.</strong> Publish a validated draft to update the guest menu. A prior published version can be restored as a new draft.</li>
             </ol>
           </div>
           <div class="module-guide-examples">
-            <article><strong>Explore dining</strong><span>“Suggest restaurants that are open now and match my preferences.”</span></article>
-            <article><strong>Room service</strong><span>“Show me the room-service options and how to place an order.”</span></article>
-            <article><strong>Getting around</strong><span>“Help me find the best way to get to a nearby attraction.”</span></article>
+            <article><strong>Ask the concierge</strong><span>Send a short, guest-authored request through the existing AI conversation.</span></article>
+            <article><strong>Request a service</strong><span>Choose an enabled Service Catalog item. The guest confirms before a real request is created.</span></article>
+            <article><strong>Explore nearby</strong><span>Open the existing Explore experience and its configured recommendation sources.</span></article>
           </div>
-          <p class="module-guide-note"><strong>Keep information current:</strong> a module is a prompt shortcut, not a place to store hotel facts or trigger a backend workflow. Add verified hotel details in Hotel Information or Knowledge so the concierge has reliable facts to answer with.</p>
+          <p class="module-guide-note"><strong>Capability note:</strong> generic guided workflows, module-specific staff escalation, indoor turn-by-turn directions, and module analytics are not configured in this system. External links are restricted to validated HTTP(S) URLs. Add verified hotel details in Hotel Information or Knowledge.</p>
         </section>
         </details>
-        <div class="two-col module-workspace">
-          <section class="card module-editor">
-            <header class="module-section-heading"><div><p>MENU ACTION</p><h2 id="guest-module-form-title">Create a module</h2></div></header>
-            <input id="guest-module-id" type="hidden">
-            <label>Guest-facing name<input id="guest-module-name" maxlength="80" placeholder="For example, Explore dining"></label>
-            <p class="module-field-help">This short label appears on the button in guest chat.</p>
-            <label>Prompt sent to concierge<textarea id="guest-module-prompt" rows="4" placeholder="For example, Suggest restaurants that are open now and fit my preferences."></textarea></label>
-            <p class="module-field-help">This text is sent as the guest’s message when they tap the action. Write the full request, not private instructions or hotel facts.</p>
-            <div class="inline-fields"><label>Menu order (0–99)<input id="guest-module-order" type="number" min="0" max="99" step="1" value="0"></label><div><label class="check-row"><input id="guest-module-enabled" type="checkbox" checked> Show in guest menu</label><p class="module-field-help">Disabled modules stay saved here but are hidden from guests.</p></div></div>
-            <div class="module-form-actions"><button id="save-guest-module" type="button">Save Module</button><button id="clear-guest-module-form" class="secondary" type="button">Clear form</button></div>
-          </section>
-          <section class="card module-list-card">
-            <header class="module-section-heading"><div><p>GUEST MENU</p><h2>Saved modules</h2><span id="guest-module-count">0 modules</span></div></header>
-            <div id="guest-module-list" class="compact-list"></div>
-          </section>
+        <div class="module-studio-statuses" role="group" aria-label="Filter conversation modules">
+          <button type="button" data-module-status-filter="all" aria-pressed="true"><span>All modules</span><strong id="guest-module-total">0</strong></button>
+          <button type="button" data-module-status-filter="draft" aria-pressed="false"><span>Drafts</span><strong id="guest-module-drafts">0</strong></button>
+          <button type="button" data-module-status-filter="published" aria-pressed="false"><span>Published</span><strong id="guest-module-published">0</strong></button>
+          <button type="button" data-module-status-filter="disabled" aria-pressed="false"><span>Disabled</span><strong id="guest-module-disabled">0</strong></button>
         </div>
+        <div class="module-studio-layout">
+          <section class="card module-library-card" aria-labelledby="module-library-title">
+            <header class="module-section-heading"><div><p>PROPERTY MODULES</p><h2 id="module-library-title">Guest menu library</h2><span id="guest-module-count">Loading modules…</span></div><button id="module-new-starter" class="secondary" type="button">Use a starter</button></header>
+            <div class="module-library-toolbar"><label for="guest-module-search">Search modules<input id="guest-module-search" type="search" maxlength="100" placeholder="Search name, description, or action"></label><label for="guest-module-category-filter">Category<select id="guest-module-category-filter"><option value="all">All categories</option><option>Stay</option><option>Dining</option><option>Explore</option><option>Requests</option><option>Support</option><option>Other</option></select></label><label for="guest-module-group-filter">Group<select id="guest-module-group-filter"><option value="all">All groups</option></select></label></div>
+            <div class="module-library-grid" id="guest-module-list" aria-live="polite"><div class="empty-state"><strong>Loading modules</strong><p>Modules are scoped to the selected property.</p></div></div>
+          </section>
+          <aside class="card module-library-preview" aria-labelledby="module-library-preview-title"><header class="module-section-heading"><div><p>LIVE GUEST MENU</p><h2 id="module-library-preview-title">Preview</h2></div><div class="module-preview-devices" role="group" aria-label="Preview size"><button type="button" data-module-preview-device="desktop" aria-pressed="true">Desktop</button><button type="button" data-module-preview-device="tablet" aria-pressed="false">Tablet</button><button type="button" data-module-preview-device="mobile" aria-pressed="false">Phone</button></div></header><div class="module-preview-stage" id="module-library-preview-stage" data-device="desktop"><div class="module-preview-window"><div class="module-preview-window-header"><span>◉</span><strong id="module-preview-property-name">Concierge</strong><small>Guest menu</small></div><div id="module-library-preview-items" class="module-preview-items"><div class="module-preview-empty">Select a module to preview its guest action.</div></div><div class="module-preview-chat-bar">Ask your concierge…</div></div></div><p class="module-preview-note" id="module-library-preview-note">Preview only. Guest action is not run.</p></aside>
+        </div>
+        <dialog class="admin-dialog module-editor-dialog" id="guest-module-dialog" aria-labelledby="guest-module-editor-title" aria-describedby="guest-module-editor-description">
+          <div class="module-editor-shell">
+            <header class="module-editor-header"><div><p>CONVERSATION MODULE STUDIO</p><h2 id="guest-module-editor-title">Create a module</h2><span id="guest-module-editor-description">Configure one guest action, check its preview, save the draft, and publish when ready.</span></div><button id="guest-module-close" class="secondary" type="button" aria-label="Close module editor">Close</button></header>
+            <div class="module-editor-layout">
+              <form id="guest-module-form" class="module-config-form" novalidate>
+                <input id="guest-module-id" type="hidden">
+                <label for="guest-module-template">Starter template<select id="guest-module-template"><option value="">Start from scratch</option><option value="concierge">Ask the concierge</option><option value="property_info">Property information</option><option value="nearby">Explore nearby</option><option value="service">Request a service</option><option value="map">Property map</option></select></label>
+                <div class="module-config-grid"><label for="guest-module-name">Guest-facing title<input id="guest-module-name" maxlength="80" required placeholder="For example, Explore dining"></label><label for="guest-module-icon">Icon<select id="guest-module-icon"><option value="sparkles">Sparkles</option><option value="room">Stay</option><option value="dining">Dining</option><option value="map">Map</option><option value="compass">Explore</option><option value="info">Information</option><option value="service">Service</option><option value="car">Transport</option><option value="help">Help</option></select></label></div>
+                <label for="guest-module-description">Short guest description<input id="guest-module-description" maxlength="180" placeholder="A brief explanation of what this action does"></label>
+                <div class="module-config-grid"><label for="guest-module-category">Category<select id="guest-module-category"><option>Stay</option><option>Dining</option><option>Explore</option><option>Requests</option><option>Support</option><option>Other</option></select></label><label for="guest-module-group">Group label<input id="guest-module-group" maxlength="48" value="Stay"></label></div>
+                <div class="module-config-grid"><label for="guest-module-display-style">Display style<select id="guest-module-display-style"><option value="suggestion_chip">Suggestion chip</option><option value="icon_card">Icon card</option><option value="action_tile">Action tile</option><option value="carousel">Action carousel</option></select></label><label for="guest-module-order">Menu position<input id="guest-module-order" type="number" min="0" max="99" step="1" value="0"></label></div>
+                <label for="guest-module-action-type">Action type<select id="guest-module-action-type"><option value="prompt">AI conversation</option><option value="property_info">Property information</option><option value="service_request">Service catalog request</option><option value="nearby_recommendations">Nearby recommendations</option><option value="map">Property map / navigation</option><option value="internal_page">Open a guest page</option><option value="external_url">Approved external link</option><option value="guided_workflow" disabled>Guided workflow · unavailable</option></select></label>
+                <div id="guest-module-action-fields" class="module-action-fields"></div>
+                <label class="check-row module-enabled-row"><input id="guest-module-enabled" type="checkbox" checked> Enabled when published</label>
+                <p class="module-config-feedback" id="guest-module-config-feedback" role="status" aria-live="polite"></p>
+              </form>
+              <section class="module-editor-preview-panel" aria-labelledby="module-editor-preview-heading"><header class="module-preview-heading"><div><span>SAFE PREVIEW</span><h3 id="module-editor-preview-heading">Guest menu action</h3></div><div class="module-preview-devices" role="group" aria-label="Module preview size"><button type="button" data-module-editor-device="desktop" aria-pressed="true">Desktop</button><button type="button" data-module-editor-device="tablet" aria-pressed="false">Tablet</button><button type="button" data-module-editor-device="mobile" aria-pressed="false">Phone</button></div></header><div class="module-preview-stage" id="module-editor-preview-stage" data-device="desktop"><div class="module-preview-window"><div class="module-preview-window-header"><span>◉</span><strong id="module-editor-property-name">Concierge</strong><small>Guest menu</small></div><div id="module-editor-preview-items" class="module-preview-items"></div><div class="module-preview-chat-bar">Ask your concierge…</div></div></div><button id="guest-module-test-preview" class="secondary module-test-preview" type="button">Test preview · no AI or request sent</button><p id="guest-module-test-result" class="module-preview-note" role="status" aria-live="polite">Test uses synthetic context only.</p>
+                <section class="module-version-panel" id="guest-module-version-panel" hidden><label for="guest-module-version">Published versions<select id="guest-module-version"></select></label><button id="guest-module-restore-version" class="secondary" type="button">Restore as draft</button><p>Restoring a version creates a draft. Publish it separately to update guests.</p></section>
+              </section>
+            </div>
+            <footer class="module-editor-footer"><p id="guest-module-save-status" role="status" aria-live="polite">Draft changes are private until published.</p><div><button id="guest-module-delete" class="danger-button" type="button" hidden>Delete draft</button><button id="guest-module-archive" class="secondary" type="button" hidden>Archive</button><button id="guest-module-duplicate" class="secondary" type="button" hidden>Duplicate</button><button id="guest-module-publish" type="button" disabled>Publish</button><button id="guest-module-save" class="secondary" type="button">Save draft</button></div></footer>
+          </div>
+        </dialog>
       </section>
 
       <section class="panel" id="personalization-settings">
-        <div class="page-title"><div><p>Guest experience</p><h1>Personalization</h1><span>Control which guest memory and recommendation features are available at this property. Guests still choose whether to opt in.</span></div></div>
-        <details class="contextual-help-disclosure">
-          <summary><span aria-hidden="true">?</span><strong>Privacy levels and consent</strong><span class="contextual-help-toggle" aria-hidden="true"></span></summary>
-        <section class="card personalization-guide" aria-labelledby="personalization-guide-title">
-          <div class="personalization-guide-intro">
-            <p>WHAT THIS PAGE IS FOR</p>
-            <h2 id="personalization-guide-title">Set privacy rules for tailored guest assistance</h2>
-            <span>Choose which personalization options the concierge may offer, what can be remembered after a guest agrees, and which context sources may inform recommendations.</span>
-          </div>
-          <div class="personalization-guide-steps">
-            <h3>How to use these settings</h3>
-            <ol>
-              <li><strong>Choose availability and a suggested level.</strong> The default is shown to guests as a starting point; it never opts them in automatically.</li>
-              <li><strong>Set learning and expiry.</strong> Decide whether eligible preferences may be learned after opt-in, and how long saved preferences remain available.</li>
-              <li><strong>Choose allowed context.</strong> Enable only the PMS, location, and internet sources your property has configured and approved.</li>
-              <li><strong>Save settings.</strong> Guests can still switch to a more private level, review or remove preferences, and turn personalization off.</li>
-            </ol>
-          </div>
-          <div class="personalization-levels" aria-label="Personalization levels">
-            <article><h3>Private / Anonymous</h3><p>No saved guest preferences are applied. This is the opt-out level.</p></article>
-            <article><h3>Stay Personalization</h3><p>When a guest opts in, relevant preferences can help during the current concierge session and its retention window.</p></article>
-            <article><h3>Personal Concierge</h3><p>When profiles are allowed, a guest may choose this level for profile-style preferences. The guest must opt in.</p></article>
-          </div>
-          <p class="personalization-privacy-note"><strong>Guest control:</strong> these are property-wide limits, not consent. A guest's choice is scoped to their property and session. If checkout deletion is enabled, linked preference records are removed at checkout.</p>
-        </section>
-        </details>
-        <div class="two-col">
-          <section class="card settings-form">
-            <div><h2>Guest memory and consent</h2><p class="field-note">These controls decide what the concierge can offer. Turning on property personalization does not activate it for a guest.</p></div>
-            <label class="check-row"><input id="personalization-enabled" type="checkbox"> Personalization enabled</label>
-            <p class="personalization-help">Master switch. When off, guest personalization is unavailable and responses use the private level.</p>
-            <label>Suggested default level<select id="personalization-default-level"><option value="private">Private / Anonymous</option><option value="stay">Stay Personalization</option><option value="personal">Personal Concierge</option></select></label>
-            <p class="personalization-help">Starting choice shown in guest controls. Guests are not opted in by this setting and can choose a more private level.</p>
-            <label class="check-row"><input id="personalization-learning" type="checkbox"> Learn preferences from conversation</label>
-            <p class="personalization-help">When a guest opts in, allow the concierge to learn eligible preferences from messages. Guests can review and remove saved preferences.</p>
-            <label class="check-row"><input id="personalization-profile" type="checkbox"> Allow Personal Concierge profile</label>
-            <p class="personalization-help">Makes the Personal Concierge level available. A guest must select it; profile preferences are still guest-controlled.</p>
-            <label class="check-row"><input id="personalization-delete-checkout" type="checkbox"> Delete profile at checkout</label>
-            <p class="personalization-help">Remove linked guest preference and consent records when the stay is checked out.</p>
-            <div class="inline-fields"><label>Memory expiry<select id="personalization-retention"><option value="stay_only">2-day idle expiry</option><option value="configurable">Configurable idle expiry</option></select></label><label>Idle expiry days<input id="personalization-retention-days" type="number" min="1" max="365" value="2"></label></div>
-            <p class="personalization-help">The fixed mode clears memory after 2 days without activity. Configurable mode lets you set that idle window from 1 to 365 days.</p>
-            <label class="check-row"><input id="personalization-pms" type="checkbox"> Allow authorized PMS personalization</label>
-            <p class="personalization-help">Allow verified PMS-linked room context when a guest asks a question that needs it.</p>
-          </section>
-          <section class="card settings-form">
-            <h2>Recommendation context</h2>
-            <label class="check-row"><input id="personalization-location" type="checkbox"> Allow location-aware recommendations</label>
-            <p class="personalization-help">Let recommendations use configured property location context when relevant.</p>
-            <label class="check-row"><input id="personalization-internet" type="checkbox"> Allow internet recommendations</label>
-            <p class="personalization-help">Permit relevant web-based suggestions. The provider and network must also be configured and available.</p>
-            <p class="field-note">Both options remain subject to the property's guardrails and configured location or provider data.</p>
-            <button id="save-personalization-policy" type="button" data-permission="properties.edit">Save Personalization Settings</button>
-            <p class="field-note">Saving applies these rules immediately. This page does not expose guest conversation contents or saved preference values.</p>
-          </section>
+        <div class="page-title personalization-page-title">
+          <div><p>Guest experience · Privacy &amp; AI</p><h1>Personalization Control Center</h1><span>Set the property’s limits. Each guest keeps control of their own memory and optional privacy choices.</span></div>
+          <div class="personalization-save-tools"><span id="personalization-save-state" role="status" aria-live="polite">Loading saved policy…</span><button class="secondary" id="discard-personalization-changes" type="button" disabled>Discard changes</button><button id="save-personalization-policy" type="button" data-permission="properties.edit" disabled>Save changes</button></div>
         </div>
+        <div class="personalization-alert" id="personalization-form-error" role="alert" hidden></div>
+        <section class="personalization-boundary" aria-label="Personalization privacy rule"><span class="personalization-boundary-icon" aria-hidden="true">✓</span><div><strong>Property availability is not guest consent</strong><p>Guests start private. Memory is used only after a guest chooses a personalization level. External recommendations separately require the guest’s external-data choice.</p></div><button class="secondary" type="button" id="preview-guest-privacy">Preview guest choices</button></section>
+        <nav class="personalization-tabs" role="tablist" aria-label="Personalization settings sections">
+          <button id="personalization-tab-overview" type="button" role="tab" aria-selected="true" aria-controls="personalization-panel-overview" tabindex="0" data-personalization-tab="overview">Overview</button>
+          <button id="personalization-tab-memory" type="button" role="tab" aria-selected="false" aria-controls="personalization-panel-memory" tabindex="-1" data-personalization-tab="memory">Privacy &amp; memory</button>
+          <button id="personalization-tab-sources" type="button" role="tab" aria-selected="false" aria-controls="personalization-panel-sources" tabindex="-1" data-personalization-tab="sources">Sources &amp; integrations</button>
+        </nav>
+        <section id="personalization-panel-overview" class="personalization-tab-panel" role="tabpanel" aria-labelledby="personalization-tab-overview" tabindex="0">
+          <div class="personalization-metric-grid" aria-label="Personalization readiness">
+            <article class="personalization-metric"><span>Property policy</span><strong id="personalization-overview-status">Loading</strong><small id="personalization-overview-default">Suggested guest choice pending</small></article>
+            <article class="personalization-metric"><span>Unexpired guest opt-ins</span><strong id="personalization-metric-opt-ins">—</strong><small>Aggregate count; no guest details shown</small></article>
+            <article class="personalization-metric"><span>Memory due in 24 hours</span><strong id="personalization-metric-expiring">—</strong><small id="personalization-metric-expiring-detail">Profiles and preferences</small></article>
+            <article class="personalization-metric"><span>External recommendations</span><strong id="personalization-overview-recommendations">Checking</strong><small id="personalization-overview-recommendations-note">Each guest’s external-data consent is still required</small></article>
+          </div>
+          <div class="personalization-overview-grid">
+            <section class="card personalization-overview-card"><div class="personalization-section-heading"><div><p>PRIVACY MODEL</p><h2>Two separate guest choices</h2></div></div><ol class="personalization-flow"><li><span>1</span><div><strong>Memory choice</strong><p>The guest selects Private, Stay, or Personal Concierge in the guest app. The property default only suggests a starting level.</p></div></li><li><span>2</span><div><strong>Optional data choices</strong><p>Location, notifications, promotions, and external data are separate choices. They start off and can be withdrawn.</p></div></li><li><span>3</span><div><strong>Property rules apply</strong><p>Learning, profile availability, expiry, and source settings limit what the concierge may do after a guest opts in.</p></div></li></ol></section>
+            <section class="card personalization-overview-card"><div class="personalization-section-heading"><div><p>CONSENT RECORDS</p><h2>Aggregate guest choices</h2></div><span id="personalization-consent-total" class="personalization-count-pill">Loading</span></div><p class="personalization-muted">Counts include consent records still inside their stored expiry window. They are session-scoped totals, not unique guest counts.</p><div id="personalization-consent-summary" class="personalization-consent-summary" aria-live="polite"><p>Consent totals are loading.</p></div></section>
+          </div>
+          <div class="personalization-overview-foot"><span id="personalization-last-updated">Policy update time unavailable</span><span>Guest conversation text and preference values are never shown in this center.</span></div>
+        </section>
+        <section id="personalization-panel-memory" class="personalization-tab-panel" role="tabpanel" aria-labelledby="personalization-tab-memory" tabindex="0" hidden>
+          <section class="card personalization-level-section"><div class="personalization-section-heading"><div><p>GUEST-CONTROLLED MEMORY</p><h2>What each privacy level means</h2><span>These levels control saved preference memory, not the property’s hotel facts or ordinary session handling.</span></div></div><div class="personalization-levels" aria-label="Personalization levels"><article><span class="personalization-level-icon">○</span><h3>Private / Anonymous</h3><p>No saved preferences are used. This is the default and opt-out level. Current conversation handling follows the separate session-retention policy.</p></article><article><span class="personalization-level-icon">◷</span><h3>Stay Personalization</h3><p>After opting in, eligible preferences can support relevant replies during this guest session and any explicitly linked active stay.</p></article><article><span class="personalization-level-icon">✦</span><h3>Personal Concierge</h3><p>After opting in, the guest can keep profile-style preferences, including a preferred name. Profiles remain scoped to the guest session; there is no cross-stay identity profile.</p></article></div></section>
+          <div class="personalization-memory-grid">
+            <section class="card personalization-settings-card"><div class="personalization-section-heading"><div><p>PROPERTY LIMITS</p><h2>Guest memory &amp; learning</h2><span>Saved policy values. Changing these does not opt guests in or alter their stored preferences.</span></div></div>
+              <label class="personalization-toggle-row"><input id="personalization-enabled" type="checkbox"><span><strong>Offer personalization</strong><small>When off, guests cannot enable memory and replies use the private level.</small></span></label>
+              <label class="personalization-control">Suggested default level<select id="personalization-default-level"><option value="private">Private / Anonymous</option><option value="stay">Stay Personalization</option><option value="personal">Personal Concierge</option></select><small>Shown as the starting choice in guest controls. It never grants consent.</small></label>
+              <label class="personalization-toggle-row"><input id="personalization-learning" type="checkbox"><span><strong>Learn eligible preferences from conversation</strong><small>Learning runs only when the guest has enabled memory. Sensitive personal details are rejected by the preference filter.</small></span></label>
+              <label class="personalization-toggle-row"><input id="personalization-profile" type="checkbox"><span><strong>Offer Personal Concierge</strong><small>Allows guests to choose profile-style preferences. The current implementation remains session-scoped.</small></span></label>
+            </section>
+            <section class="card personalization-settings-card"><div class="personalization-section-heading"><div><p>EXPIRY &amp; DELETION</p><h2>Memory retention</h2><span>Active stay-linked preferences remain until checkout; idle expiry applies outside an active stay.</span></div></div>
+              <label class="personalization-toggle-row"><input id="personalization-delete-checkout" type="checkbox"><span><strong>Delete profile at checkout</strong><small>When enabled, checkout removes linked personalization records. Guest privacy consent and location records are also cleared by checkout.</small></span></label>
+              <div class="personalization-retention-controls"><label class="personalization-control">Idle expiry mode<select id="personalization-retention"><option value="stay_only">Fixed 2-day idle expiry</option><option value="configurable">Configurable idle expiry</option></select><small>Applies to unlinked/inactive memory. Active stay preferences are protected until checkout.</small></label><label class="personalization-control">Idle expiry days<input id="personalization-retention-days" type="number" min="1" max="365" value="2"><small>Choose from 1 to 365 days.</small></label></div>
+              <div class="personalization-health-inline"><span id="personalization-expired-queue">Checking expired records…</span><span id="personalization-cleanup-status">Cleanup job history is not tracked.</span></div>
+            </section>
+          </div>
+          <section class="card personalization-category-card"><div class="personalization-section-heading"><div><p>SUPPORTED MEMORY TYPES</p><h2>Preference categories</h2><span>Only these categories are available to the preference store; values are intentionally not displayed here.</span></div></div><div id="personalization-supported-categories" class="personalization-category-list"><span>Loading supported categories…</span></div></section>
+          <section class="card personalization-preview-card"><div class="personalization-section-heading"><div><p>GUEST EXPERIENCE</p><h2>Preview the real guest privacy choices</h2><span>This static preview mirrors the guest app’s opt-in controls. It does not read or change a guest session.</span></div><a class="secondary" href="/guest/v2/" target="_blank" rel="noopener">Open guest app</a></div><div id="personalization-guest-consent-preview" class="personalization-guest-preview"></div></section>
+        </section>
+        <section id="personalization-panel-sources" class="personalization-tab-panel" role="tabpanel" aria-labelledby="personalization-tab-sources" tabindex="0" hidden>
+          <section class="card personalization-source-section"><div class="personalization-section-heading"><div><p>RECOMMENDATION SOURCES</p><h2>Hotel-managed and external suggestions</h2><span>Hotel content is curated in Recommendations. Nearby search uses Google Places only when property policy, guardrails, configuration, and the guest’s external-data choice allow it.</span></div></div><div class="personalization-source-grid">
+              <article class="personalization-source-card"><div><p>HOTEL-PROVIDED</p><h3>Property recommendations</h3><span id="personalization-hotel-source-status">Checking published content…</span></div><strong id="personalization-hotel-source-count">—</strong><small>Enabled recommendations managed by this property.</small></article>
+              <article class="personalization-source-card"><div><p>EXTERNAL PROVIDER</p><h3>Google Places nearby search</h3><span id="personalization-places-source-status">Checking configuration…</span></div><strong id="personalization-places-source-count">—</strong><small id="personalization-places-source-detail">No provider key or guest data is displayed.</small></article>
+            </div><div class="personalization-source-controls"><label class="personalization-toggle-row"><input id="personalization-location" type="checkbox"><span><strong>Allow property-location-aware recommendations</strong><small>Uses the hotel’s configured location, never device GPS. This setting gates nearby provider searches.</small></span></label><label class="personalization-toggle-row"><input id="personalization-internet" type="checkbox"><span><strong>Allow external internet recommendations</strong><small>Permits Google Places searches when internet search guardrails are enabled and the guest separately allows external data processing.</small></span></label></div><div id="personalization-recommendation-prerequisites" class="personalization-prerequisite-list" aria-live="polite"><p>Provider prerequisites are loading.</p></div><p class="personalization-policy-note">Nearby provider health is not tested from this page. The provider is contacted only for an eligible guest search; no API key is exposed here.</p></section>
+          <div class="personalization-integration-grid">
+            <section class="card personalization-integration-card"><div class="personalization-section-heading"><div><p>PMS INTEGRATION</p><h2>Room context capability</h2></div><span id="personalization-pms-status" class="personalization-status-badge">Checking</span></div><p id="personalization-pms-description">Checking the available stay-context behavior.</p><label class="personalization-toggle-row"><input id="personalization-pms" type="checkbox"><span><strong>Allow linked room context on confirmed service requests</strong><small>This is the behavior currently controlled by this policy. It does not connect a PMS or synchronize reservations.</small></span></label><p class="personalization-policy-note">PMS / room login is a guest Wi-Fi authentication method, not a PMS data integration.</p></section>
+            <section class="card personalization-integration-card"><div class="personalization-section-heading"><div><p>RETENTION OPERATIONS</p><h2>Cleanup diagnostics</h2></div><span id="personalization-cleanup-badge" class="personalization-status-badge">Checking</span></div><div class="personalization-cleanup-grid"><div><span>Last successful cleanup</span><strong id="personalization-cleanup-last-success">Not tracked</strong></div><div><span>Failed cleanup jobs</span><strong id="personalization-cleanup-failures">Not tracked</strong></div><div><span>Expired records awaiting cleanup</span><strong id="personalization-cleanup-pending">—</strong></div><div><span>Due within 24 hours</span><strong id="personalization-cleanup-due">—</strong></div></div><p class="personalization-policy-note">The worker currently exposes no per-property job history. Counts are aggregate and never include guest IDs or preference values.</p></section>
+          </div>
+          <section class="card personalization-history-card"><div class="personalization-section-heading"><div><p>ADMINISTRATIVE RECORD</p><h2>Policy change history</h2><span>Future successful policy changes are recorded with the administrator and changed setting values. Guest memory is not included.</span></div><button class="secondary" id="refresh-personalization-history" type="button">Refresh history</button></div><div id="personalization-policy-history" class="personalization-history-list" aria-live="polite"><p>Policy history is loading.</p></div></section>
+        </section>
+        <dialog class="personalization-preview-dialog" id="personalization-preview-dialog" aria-labelledby="personalization-preview-title"><div class="personalization-preview-dialog-content"><header><div><p>GUEST APP PREVIEW</p><h2 id="personalization-preview-title">Privacy choices</h2></div><button class="secondary" id="close-personalization-preview" type="button" aria-label="Close guest privacy preview">Close</button></header><p>Each choice is optional and starts off. This screen does not request device GPS.</p><div id="personalization-dialog-consent-preview" class="personalization-guest-preview"></div><div class="personalization-preview-memory"><strong>Personalization &amp; memory</strong><label>Personalization level<select disabled><option>Private / Anonymous</option><option>Stay Personalization</option><option>Personal Concierge</option></select></label><p>Guests can review, remove, or clear saved preferences and turn memory off at any time.</p></div><small>Preview only. These controls are not connected to a guest session.</small></div></dialog>
       </section>
 
       <section class="panel" id="notification-campaigns">
-        <div class="page-title"><div><p>Guest experience · Messaging</p><h1>Notification campaigns</h1><span>Prepare verified, property-specific announcements and review an aggregate audience before publishing.</span></div></div>
-        <section class="health-banner warning" role="note"><div><span class="health-dot warning" aria-hidden="true">i</span><div><strong>In-app delivery only</strong><p>Publishing queues a message for active stays only when every linked guest session has promotional-message consent and the stay preference is enabled. This page does not send email or push notifications.</p></div></div></section>
-        <div class="notification-campaign-layout">
-          <section class="card settings-form" aria-labelledby="notification-campaign-form-title">
-            <div><h2 id="notification-campaign-form-title">New campaign</h2><p class="field-note">Use a verified operations or event source reference. The audience is fixed to eligible active stays; individual guest identities are never shown here.</p></div>
-            <form id="notification-campaign-form">
-              <label>Campaign name<input id="notification-campaign-name" maxlength="160" required></label>
-              <label>Guest-facing title<input id="notification-campaign-title" maxlength="160" required></label>
-              <label>Guest-facing message<textarea id="notification-campaign-body" rows="4" maxlength="2000" required></textarea></label>
-              <label>Verified source or approval reference<input id="notification-campaign-source" maxlength="160" required placeholder="For example, event or operations record ID"></label>
-              <div class="notification-campaign-actions">
-                <button id="notification-campaign-save" type="submit">Save draft</button>
-                <button id="notification-campaign-new" class="secondary" type="button">New campaign</button>
-                <button id="notification-campaign-preview-button" class="secondary" type="button" disabled>Preview audience</button>
-                <button id="notification-campaign-publish" type="button" disabled>Publish in-app</button>
-              </div>
-            </form>
-            <p class="field-note" id="notification-campaign-preview" role="status" aria-live="polite">Save a draft to preview its aggregate audience.</p>
-          </section>
-          <section class="card" aria-labelledby="campaign-list-title">
-            <div class="card-heading"><div><span>PROPERTY CAMPAIGNS</span><h2 id="campaign-list-title">Campaign history</h2><p class="field-note" id="notification-campaign-count" aria-live="polite">Loading campaigns</p></div><button class="secondary" id="notification-campaign-refresh" type="button">Refresh</button></div>
-            <label for="notification-campaign-search">Search campaign history<input id="notification-campaign-search" type="search" maxlength="120" placeholder="Search campaign name or content"></label>
+        <div class="page-title notification-center-heading"><div><p>Guest experience · Messaging</p><h1>Notification &amp; Communication Center</h1><span>Review property campaigns, consent eligibility, and in-app delivery health.</span></div><button id="notification-campaign-new" type="button">New campaign</button></div>
+        <section class="notification-channel-banner" aria-label="Available notification channels"><span class="notification-channel-icon" aria-hidden="true">◉</span><div><strong>In-app inbox is the available campaign channel</strong><p>Campaigns publish immediately to eligible active stays. Email, push, and scheduled campaign sends are not configured. Guest receipt and read status are reported separately from queueing.</p></div><span class="notification-channel-badge">IN-APP</span></section>
+        <div class="notification-center-summary" role="group" aria-label="Campaign status summary">
+          <button class="notification-summary-card is-active" type="button" data-campaign-status="all" aria-pressed="true"><span>All campaigns</span><strong id="notification-summary-all">0</strong></button>
+          <button class="notification-summary-card" type="button" data-campaign-status="draft" aria-pressed="false"><span>Drafts</span><strong id="notification-summary-draft">0</strong></button>
+          <div class="notification-summary-card is-unavailable" aria-label="Scheduled campaigns not available"><span>Scheduled</span><strong>—</strong><small>Not available</small></div>
+          <button class="notification-summary-card" type="button" data-campaign-status="published" aria-pressed="false"><span>Published</span><strong id="notification-summary-published">0</strong></button>
+          <button class="notification-summary-card" type="button" data-campaign-status="failed" aria-pressed="false"><span>Failed</span><strong id="notification-summary-failed">0</strong></button>
+          <button class="notification-summary-card" type="button" data-campaign-status="expired" aria-pressed="false" aria-label="Filter campaigns with expired in-app notices"><span>Expired notices</span><strong id="notification-summary-expired">0</strong><small>7-day message expiry</small></button>
+        </div>
+        <div class="notification-center-layout">
+          <section class="card notification-queue-panel" aria-labelledby="campaign-list-title">
+            <div class="card-heading"><div><span>PROPERTY CAMPAIGNS</span><h2 id="campaign-list-title">Campaign activity</h2><p class="field-note" id="notification-campaign-count" aria-live="polite">Loading campaigns</p></div><button class="secondary" id="notification-campaign-refresh" type="button">Refresh</button></div>
+            <div class="notification-queue-toolbar"><label for="notification-campaign-search">Search campaigns<input id="notification-campaign-search" type="search" maxlength="120" placeholder="Name, message, or source reference"></label><span id="notification-campaign-filter-label">All campaigns</span></div>
             <div id="notification-campaign-list" class="notification-campaign-list" aria-live="polite"><div class="empty-state"><strong>Loading campaigns</strong><p>Campaigns remain scoped to the selected property.</p></div></div>
             <nav class="conversation-pagination" aria-label="Campaign history pages"><button class="secondary" id="notification-campaign-page-previous" type="button" disabled>Previous page</button><span id="notification-campaign-page-info" aria-live="polite">No pages</span><button class="secondary" id="notification-campaign-page-next" type="button" disabled>Next page</button></nav>
           </section>
+          <aside class="notification-center-aside" aria-label="Communication and delivery details">
+            <section class="card notification-delivery-card"><div class="notification-card-eyebrow">IN-APP DELIVERY HEALTH</div><h2>Campaign message states</h2><p class="field-note">Aggregate counts for this property’s promotional campaign messages.</p><dl class="notification-delivery-metrics"><div><dt>Queued</dt><dd id="notification-delivery-queued">0</dd></div><div><dt>Sent to inbox</dt><dd id="notification-delivery-sent">0</dd></div><div><dt>Client acknowledged</dt><dd id="notification-delivery-delivered">0</dd></div><div><dt>Marked read</dt><dd id="notification-delivery-read">0</dd></div><div><dt>Failed</dt><dd id="notification-delivery-failed">0</dd></div><div><dt>Expired</dt><dd id="notification-delivery-expired">0</dd></div></dl><small>“Sent” means handed to the guest inbox. “Client acknowledged” records guest-app receipt; “read” records an explicit read action.</small></section>
+            <section class="card notification-types-card"><div class="notification-card-eyebrow">COMMUNICATION TYPES</div><h2>Separate message policies</h2><div class="notification-type-row"><span class="notification-type-mark promotional" aria-hidden="true"></span><div><strong>Promotional campaigns</strong><p>This workspace. Requires every active linked session’s promotional consent and the stay preference.</p></div></div><div class="notification-type-row"><span class="notification-type-mark operational" aria-hidden="true"></span><div><strong>Operational updates</strong><p>Triggered by supported service and facility events; guest preferences and property rules still apply.</p></div></div><div class="notification-type-row is-muted"><span class="notification-type-mark transactional" aria-hidden="true"></span><div><strong>Transactional campaigns</strong><p>Not available as an administrator-created campaign type.</p></div></div></section>
+          </aside>
         </div>
+        <dialog class="admin-dialog notification-campaign-dialog" id="notification-campaign-dialog" aria-labelledby="notification-campaign-form-title" aria-describedby="notification-campaign-dialog-description">
+          <div class="notification-campaign-drawer">
+            <header class="notification-campaign-drawer-header"><div><p class="notification-card-eyebrow">PROMOTIONAL · IN-APP ONLY</p><h2 id="notification-campaign-form-title">New campaign</h2><p id="notification-campaign-dialog-description">Create a verified guest message, review the aggregate eligible audience, then publish deliberately.</p></div><button class="secondary" id="notification-campaign-close" type="button" aria-label="Close campaign editor">Close</button></header>
+            <ol class="notification-campaign-steps" aria-label="Campaign setup steps"><li data-campaign-step-indicator="content" aria-current="step"><span>1</span>Content</li><li data-campaign-step-indicator="audience"><span>2</span>Audience</li><li data-campaign-step-indicator="delivery"><span>3</span>Delivery</li><li data-campaign-step-indicator="review"><span>4</span>Review</li></ol>
+            <form id="notification-campaign-form" novalidate>
+              <section class="notification-campaign-step-panel" data-campaign-step-panel="content" aria-labelledby="notification-campaign-content-heading"><div class="notification-step-heading"><span>STEP 1</span><h3 id="notification-campaign-content-heading" tabindex="-1">Message content</h3><p>Use concise, accurate copy. The reference is stored but is not checked against another system.</p></div><label for="notification-campaign-name">Internal campaign name<input id="notification-campaign-name" maxlength="160" required autocomplete="off"></label><label for="notification-campaign-title">Guest-facing title<input id="notification-campaign-title" maxlength="160" required autocomplete="off"></label><label for="notification-campaign-body">Guest-facing message<textarea id="notification-campaign-body" rows="5" maxlength="2000" required></textarea><small>Maximum 2,000 characters.</small></label><section class="notification-message-preview" aria-label="Live guest in-app message preview"><div class="notification-card-eyebrow">GUEST IN-APP PREVIEW</div><article class="notification-message-preview-card"><div class="notification-message-preview-brand"><span aria-hidden="true">◉</span><div><strong>Concierge update</strong><small>Guest inbox</small></div></div><strong id="notification-message-preview-title">Guest message title</strong><p id="notification-message-preview-body">Your campaign message will appear here as guests see it in the in-app inbox.</p></article><small>Sample inbox presentation. Sending is only available after the campaign is saved, checked, and deliberately published.</small></section><label for="notification-campaign-source">Operations source or approval reference<input id="notification-campaign-source" maxlength="160" required placeholder="Operations record ID or approval note"></label></section>
+              <section class="notification-campaign-step-panel" data-campaign-step-panel="audience" aria-labelledby="notification-campaign-audience-heading" hidden><div class="notification-step-heading"><span>STEP 2</span><h3 id="notification-campaign-audience-heading" tabindex="-1">Audience and eligibility</h3><p>Eligibility is checked again when the message is queued.</p></div><div class="notification-policy-card"><span class="notification-policy-label">PROMOTIONAL MESSAGE</span><strong>Eligible active guest stays</strong><p>Every active session linked to a stay must have promotional-message consent, and that stay’s promotional preference must be enabled. Individual guest identities are never shown.</p><ul><li>Audience segmentation is not supported.</li><li>Consent withdrawal, checkout, and session expiry are checked at publish and dispatch.</li><li>Property isolation is enforced by the campaign API.</li></ul></div><div class="notification-campaign-preview-panel"><div><strong>Aggregate audience preview</strong><p id="notification-campaign-preview" role="status" aria-live="polite">Save a draft before previewing eligible stays.</p></div><button id="notification-campaign-preview-button" class="secondary" type="button" disabled>Preview audience</button></div></section>
+              <section class="notification-campaign-step-panel" data-campaign-step-panel="delivery" aria-labelledby="notification-campaign-delivery-heading" hidden><div class="notification-step-heading"><span>STEP 3</span><h3 id="notification-campaign-delivery-heading" tabindex="-1">Delivery timing and expiry</h3><p>Campaign delivery uses the existing in-app inbox workflow.</p></div><div class="notification-policy-card"><div class="notification-policy-facts"><div><span>Timing</span><strong>Queue immediately on publish</strong></div><div><span>Channel</span><strong>Guest in-app inbox</strong></div><div><span>Expiry</span><strong>7 days after queueing</strong></div></div><p>Scheduled campaigns and external channels are not configured. The delivery worker applies due-time rules, retries transient failures, and records terminal failures. A queued message is not proof of guest receipt.</p></div><p class="notification-inline-note">Checkout and retention rules can expire or remove guest-linked inbox items before the seven-day message expiry.</p></section>
+              <section class="notification-campaign-step-panel" data-campaign-step-panel="review" aria-labelledby="notification-campaign-review-heading" hidden><div class="notification-step-heading"><span>STEP 4</span><h3 id="notification-campaign-review-heading" tabindex="-1">Review and publish</h3><p>Publishing cannot be undone. Confirm the source, audience, and final queue estimate.</p></div><div class="notification-review-summary"><div><span>Campaign</span><strong id="notification-review-name">Not saved</strong></div><div><span>Source reference</span><strong id="notification-review-source">Not saved</strong></div><div><span>Audience preview</span><strong id="notification-review-audience">Preview required</strong></div><div><span>Publication action</span><strong>Queue eligible stays in-app</strong></div></div><p class="notification-inline-note">Publishing rechecks eligibility before creating any guest inbox item. Duplicate event IDs are idempotent; dispatch and guest read acknowledgement happen separately.</p></section>
+              <div class="notification-campaign-drawer-footer"><p class="notification-campaign-live-status" id="notification-campaign-live-status" role="status" aria-live="polite"></p><div class="notification-campaign-footer-actions"><button id="notification-campaign-back" class="secondary" type="button" hidden>Back</button><button id="notification-campaign-save" class="secondary" type="button">Save draft</button><button id="notification-campaign-next" type="button">Continue</button><button id="notification-campaign-publish" type="button" hidden disabled>Publish now</button></div></div>
+            </form>
+          </div>
+        </dialog>
       </section>
 
       <section class="panel" id="zones">
@@ -487,7 +530,7 @@
             <span class="map-plan-icon" aria-hidden="true">▧</span>
             <div><strong id="map-plan-name">No floor plan uploaded</strong><span id="map-plan-detail">Upload a PNG, JPG, or SVG plan up to 8 MB.</span></div>
           </div>
-          <input id="floor-map-upload" type="file" accept="image/png,image/jpeg,image/svg+xml,application/pdf" hidden>
+          <input id="floor-map-upload" type="file" accept="image/png,image/jpeg,image/svg+xml" hidden>
           <button class="map-upload-button" id="upload-floor-plan-trigger" type="button" disabled>Upload floor plan</button>
         </section>
         <section class="map-publication-toolbar card" aria-label="Map draft publication">
@@ -596,7 +639,7 @@
       </section>
 
       <section class="panel" id="sessions">
-        <div class="page-title"><div><p>Guest Experience · Sessions</p><h1>Guest Sessions</h1><span>Link WLAN visits to temporary guest stays, record staff notes, and review session activity.</span></div><div class="session-page-actions"><span id="session-last-refreshed" role="status" aria-live="polite">Not refreshed yet</span><button class="secondary" id="refresh-sessions" type="button">Refresh records</button></div></div>
+        <div class="page-title"><div><p>Guest Experience · Sessions</p><h1>Guest Sessions</h1><span>Review property-scoped guest activity, WLAN links, stays, and device records.</span></div></div>
         <details class="contextual-help-disclosure">
           <summary><span aria-hidden="true">?</span><strong>Session linking and guest privacy</strong><span class="contextual-help-toggle" aria-hidden="true"></span></summary>
         <section class="card session-guide" aria-labelledby="session-guide-title">
@@ -616,56 +659,100 @@
           <button class="session-summary-card" type="button" data-session-filter="expired-sessions"><span>Expired concierge sessions</span><strong id="session-count-expired">0</strong></button>
           <button class="session-summary-card" type="button" data-session-filter="devices"><span>Known devices</span><strong id="session-count-devices">0</strong></button>
         </section>
-        <div class="guest-session-workspace">
-          <section class="card session-reconnect-card">
-            <header class="session-panel-heading"><div><p>LINK A DEVICE</p><h2>Reconnect a WLAN device</h2></div></header>
-            <p class="field-note">Create a new guest stay or reconnect a device to its current active stay. Retention is refreshed on reconnect. The raw MAC is used only for the server-side identity conversion.</p>
-            <label>WLAN MAC address<input id="session-raw-mac" autocomplete="off" placeholder="AA:BB:CC:DD:EE:FF"></label>
-            <label>Room number (optional)<input id="session-room" maxlength="80" placeholder="For example, 1204"></label>
-            <details class="session-advanced-fields"><summary>Optional PMS and session identifiers</summary><p class="field-note">Fill these only when the identifiers come from a trusted hotel integration. Leave unknown values blank.</p><label>Concierge session ID<input id="session-concierge-id" maxlength="200"></label><label>ANTlabs session ID<input id="session-antlabs-id" maxlength="200"></label><label>Browser session ID<input id="session-browser-id" maxlength="200"></label><label>PMS guest ID<input id="session-pms-guest-id" maxlength="200"></label><label>Stay retention (days)<input id="session-retention-days" type="number" min="1" max="60" value="2"></label></details>
-            <button id="create-stay-session" type="button">Create / Restore Stay</button>
-          </section>
-          <section class="card session-memory-card">
-            <header class="session-panel-heading"><div><p>STAY-SCOPED RECORD</p><h2>Stay notes</h2></div></header>
-            <p class="field-note">Keep notes short and factual. Choose a stay first; notes are saved with that stay and retention window for staff reference.</p>
-            <label>Guest stay<select id="memory-stay-id" required><option value="">Select a stay</option></select></label>
-            <p class="session-memory-selection" id="session-memory-selection">Choose an active or historical stay to view its saved notes.</p>
-            <label>Conversation summary<textarea id="memory-summary" rows="3" maxlength="2000" disabled placeholder="Briefly summarize useful context for staff."></textarea></label>
-            <label>Preferences (one item per line)<textarea id="memory-preferences" rows="2" maxlength="3000" disabled placeholder="Quiet room&#10;Extra pillows"></textarea></label>
-            <label>Recent request notes (one item per line)<textarea id="memory-recent-requests" rows="2" maxlength="3000" disabled></textarea></label>
-            <label>Unresolved request notes (one item per line)<textarea id="memory-unresolved-requests" rows="2" maxlength="3000" disabled></textarea></label>
-            <label>Important staff context<textarea id="memory-important-context" rows="2" maxlength="1200" disabled placeholder="Context staff may need when assisting this guest."></textarea></label>
-            <button id="save-stay-memory" type="button" disabled>Save stay notes</button>
-          </section>
-        </div>
         <section class="card session-records-card">
-          <header class="session-panel-heading"><div><p>PROPERTY RECORDS</p><h2>Session activity, WLAN links, stays, and device identities</h2><span id="session-result-count">0 records</span></div></header>
-          <div class="session-record-filters"><label>Search records<input id="session-record-search" type="search" placeholder="Session ID, stay ID, room, device ID"></label><label>Record type<select id="session-record-filter"><option value="all">All records</option><option value="active-sessions">Active concierge sessions</option><option value="expired-sessions">Expired concierge sessions</option><option value="guest-links">WLAN / integration links</option><option value="active-stays">Active stays</option><option value="checked-out-stays">Checked-out stays</option><option value="devices">Device identities</option></select></label></div>
+          <header class="session-directory-heading"><div><p>PROPERTY DIRECTORY</p><h2>Guest session records</h2><span>Concierge app sessions, WLAN links, guest stays, and pseudonymous devices remain separate records.</span></div><div class="session-directory-actions"><span id="session-result-count">0 records</span><span id="session-last-refreshed" role="status" aria-live="polite">Not refreshed yet</span><button class="secondary" id="refresh-sessions" type="button">Refresh</button><button class="btn btn-primary" id="open-session-link" type="button" hidden>Link a device</button></div></header>
+          <div class="session-record-filters"><label>Search records<input id="session-record-search" type="search" placeholder="Stay, room, session, or device"></label><label>Record type<select id="session-record-filter"><option value="all">All records</option><option value="active-sessions">Active concierge sessions</option><option value="expired-sessions">Expired concierge sessions</option><option value="guest-links">WLAN / integration links</option><option value="active-stays">Active stays</option><option value="checked-out-stays">Checked-out stays</option><option value="devices">Device identities</option></select></label></div>
+          <p id="session-load-message" class="session-load-message" role="status" aria-live="polite" hidden></p>
           <div id="session-list" class="session-record-list" aria-live="polite"></div>
         </section>
+        <dialog id="session-link-drawer" class="guest-session-drawer" aria-labelledby="session-link-title">
+          <section class="guest-session-drawer-panel">
+            <header class="guest-session-drawer-header"><div><p>LINK A DEVICE</p><h2 id="session-link-title">Reconnect a WLAN device</h2><span>Create a new stay or restore a device to its current active stay.</span></div><button class="secondary session-drawer-close" id="session-link-close" type="button" aria-label="Close link device drawer">×</button></header>
+            <div class="guest-session-drawer-body session-reconnect-card">
+              <p class="session-privacy-note"><strong>Device privacy:</strong> the raw MAC is used only for server-side pseudonymous identity conversion. It is never used as a guest identity or authorization credential.</p>
+              <label>WLAN MAC address<input id="session-raw-mac" autocomplete="off" placeholder="AA:BB:CC:DD:EE:FF"></label>
+              <label>Room number <span class="optional-label">optional</span><input id="session-room" maxlength="80" placeholder="For example, 1204"></label>
+              <details class="session-advanced-fields"><summary>Trusted PMS and session identifiers</summary><p class="field-note">Only enter identifiers supplied by an authorized hotel integration. A Concierge session ID must belong to this property.</p><label>Concierge session ID<input id="session-concierge-id" maxlength="200"></label><label>ANTlabs session ID<input id="session-antlabs-id" maxlength="200"></label><label>Browser session ID<input id="session-browser-id" maxlength="200"></label><label>PMS guest ID<input id="session-pms-guest-id" maxlength="200"></label><label>Retention after checkout (days)<input id="session-retention-days" type="number" min="1" max="60" value="2"></label></details>
+            </div>
+            <footer class="guest-session-drawer-footer"><button class="btn btn-secondary" id="session-link-cancel" type="button">Cancel</button><button class="btn btn-primary" id="create-stay-session" type="button">Create / restore stay</button></footer>
+          </section>
+        </dialog>
+        <dialog id="session-guest360-drawer" class="guest-session-drawer guest-360-drawer" aria-labelledby="session-guest360-title">
+          <section class="guest-session-drawer-panel">
+            <header class="guest-session-drawer-header"><div><p>GUEST 360° · PROPERTY-SCOPED</p><h2 id="session-guest360-title">Guest stay</h2><span id="session-guest360-subtitle">Loading stay details…</span></div><button class="secondary session-drawer-close" id="session-guest360-close" type="button" aria-label="Close guest details">×</button></header>
+            <div class="guest-session-drawer-body guest-360-body">
+              <div id="session-guest360-facts" class="session-record-facts" aria-live="polite"></div>
+              <section class="session-context-section"><header><h3>Linked WLAN visits</h3><span id="session-guest360-link-count">0</span></header><div id="session-guest360-links" class="session-context-list"></div></section>
+              <section class="session-context-section" id="session-guest360-requests-section"><header><h3>Related guest requests</h3></header><div id="session-guest360-requests" class="session-context-list"></div></section>
+              <section class="session-context-section" id="session-guest360-conversations-section"><header><h3>Concierge session summaries</h3></header><div id="session-guest360-conversations" class="session-context-list"></div></section>
+              <section class="card session-memory-card" id="session-memory-card">
+                <header class="session-panel-heading"><div><p>STAFF ONLY</p><h2>Stay notes</h2></div></header>
+                <p class="field-note">Keep notes short and factual. Notes stay attached to this property-scoped stay and follow its retention window.</p>
+                <p class="session-notes-restricted" id="session-notes-restricted" hidden>Stay notes are limited to staff with guest-session management access.</p>
+                <label>Guest stay<select id="memory-stay-id" required><option value="">Select a stay</option></select></label>
+                <p class="session-memory-selection" id="session-memory-selection">Choose an active or historical stay to view its saved notes.</p>
+                <label>Conversation summary<textarea id="memory-summary" rows="3" maxlength="2000" disabled placeholder="Briefly summarize useful context for staff."></textarea></label>
+                <label>Preferences (one item per line)<textarea id="memory-preferences" rows="2" maxlength="3000" disabled placeholder="Quiet room&#10;Extra pillows"></textarea></label>
+                <label>Recent request notes (one item per line)<textarea id="memory-recent-requests" rows="2" maxlength="3000" disabled></textarea></label>
+                <label>Unresolved request notes (one item per line)<textarea id="memory-unresolved-requests" rows="2" maxlength="3000" disabled></textarea></label>
+                <label>Important staff context<textarea id="memory-important-context" rows="2" maxlength="1200" disabled placeholder="Context staff may need when assisting this guest."></textarea></label>
+                <button class="btn btn-primary" id="save-stay-memory" type="button" disabled>Save stay notes</button>
+              </section>
+            </div>
+            <footer class="guest-session-drawer-footer"><button class="btn btn-danger" id="session-checkout-stay" type="button" hidden>Check out stay</button><button class="btn btn-secondary" id="session-guest360-dismiss" type="button">Close details</button></footer>
+          </section>
+        </dialog>
       </section>
 
       <section class="panel" id="location">
-        <div class="page-title"><div><p>Location Analytics</p><h1>Locations, occupancy, and movement</h1><span>Manage guest-visible property locations and review aggregate WLAN-derived activity.</span></div></div>
-        <div class="two-col"><section class="card"><h2>Location</h2><input id="location-id" type="hidden"><label>Name<input id="location-name" maxlength="160"></label><label>Type<input id="location-type" maxlength="80" placeholder="entrance, venue, landmark"></label><label>Description<textarea id="location-description" rows="3" maxlength="1000"></textarea></label><div class="inline-fields"><label>Latitude<input id="location-latitude" type="number" step="any"></label><label>Longitude<input id="location-longitude" type="number" step="any"></label></div><label class="check-row"><input id="location-visible" type="checkbox" checked> Guest visible</label><button id="save-location" type="button">Save Location</button></section><section class="card"><h2>Managed locations</h2><div id="managed-location-list" class="compact-list"></div></section></div>
-        <section class="metrics" id="location-live-metrics"></section>
-        <div class="two-col">
-          <section class="card">
-            <h2>Record AP Observation</h2>
-            <label>Consenting concierge session ID<input id="obs-session-id" maxlength="200" autocomplete="off" placeholder="Active guest session ID"></label>
-            <label>Device MAC<input id="obs-raw-mac" placeholder="AA:BB:CC:DD:EE:FF"></label>
-            <label>Access Point ID<input id="obs-ap-id" placeholder="ap-lobby-01"></label>
-            <button id="record-observation" type="button">Record Observation</button>
-            <p class="field-note">Requires an authenticated guest session linked to this device and active location consent. V1 analytics are zone occupancy from associated AP, not meter-level positioning.</p>
+        <div class="page-title location-page-title"><div><p>PROPERTY · LOCATION INTELLIGENCE</p><h1>Property Location &amp; Navigation</h1><span>Manage guest locations, mapped routes, and privacy-controlled WLAN activity for the selected property.</span></div><div class="location-page-actions"><button class="secondary" id="refresh-location-workspace" type="button">Refresh</button><button class="btn btn-primary" id="add-property-location" type="button" data-permission="properties.edit">+ Add location</button></div></div>
+        <section class="location-truth-note" aria-label="Location data limitations"><span aria-hidden="true">i</span><p><strong>Location signals are approximate.</strong> WLAN observations count pseudonymous devices seen near mapped access points. They do not identify people or provide precise indoor positioning. Guest directions use confirmed map points and the published route graph.</p></section>
+        <div class="location-intelligence-grid">
+          <section class="card location-workstream-card" aria-labelledby="location-maps-title">
+            <header class="location-workstream-heading"><div><p>PROPERTY MAPS &amp; NAVIGATION</p><h2 id="location-maps-title">Floor plans and guest routes</h2></div><span class="location-workstream-icon" aria-hidden="true">⌖</span></header>
+            <p>Configure buildings, floors, floor plans, guest areas, access points, and explicit walking connections in the map studio.</p>
+            <div class="location-map-summary" id="location-map-summary" aria-live="polite"><div><span>Buildings</span><strong>—</strong></div><div><span>Floors</span><strong>—</strong></div><div><span>Guest waypoints</span><strong>—</strong></div><div><span>Route links</span><strong>—</strong></div></div>
+            <div class="location-map-publication" id="location-map-publication" role="status">Map publication status is loading.</div>
+            <div id="location-map-validation" class="location-map-validation" hidden></div>
+            <div class="location-workstream-actions"><button class="btn btn-primary" type="button" data-location-panel="zones">Open map studio</button><button class="secondary" type="button" data-location-panel="zones">Review guest directions</button></div>
           </section>
-          <section class="card">
-            <h2>Report Filter</h2>
-            <label>Period<select id="analytics-period"><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option></select></label>
-            <button id="load-location-report" type="button">Load Report</button>
+          <section class="card location-workstream-card" aria-labelledby="location-directory-title">
+            <header class="location-workstream-heading"><div><p>FACILITIES &amp; LOCATIONS</p><h2 id="location-directory-title">Guest-facing directory</h2></div><span class="location-workstream-icon" aria-hidden="true">◇</span></header>
+            <p>Keep public place names and descriptions clear. Facility details, hours, operating status, and floor-map positions remain in their property records.</p>
+            <div class="location-directory-stats" id="location-directory-stats" aria-live="polite"><span>Loading directory…</span></div>
+            <div class="location-directory-toolbar"><label class="sr-only" for="location-search">Search locations</label><input id="location-search" type="search" placeholder="Search guest locations"><span id="location-directory-count"></span></div>
+            <div id="managed-location-list" class="location-directory-list" aria-live="polite"></div>
+            <div class="location-facility-summary"><div><strong>Structured facilities</strong><span id="location-facility-count">Loading…</span></div><div id="location-facility-list" aria-live="polite"></div></div>
+            <div class="location-workstream-actions"><button class="secondary" type="button" data-location-panel="facilities" data-permission="restaurant.view">Manage facilities</button><button class="secondary" type="button" data-location-panel="zones">Place on a floor map</button></div>
           </section>
         </div>
-        <section class="card table-card"><h2>Area and Movement Report</h2><div id="location-report" class="compact-list"></div><h3>Peak observed hours</h3><p class="field-note">Hourly device counts use consented access-point observations grouped by the property’s local time. They represent observed activity and may not reflect continuous occupancy.</p><div id="location-peak-hours" class="compact-list"></div></section>
+        <section class="card location-analytics-card" id="location-analytics" data-permission="analytics.view" aria-labelledby="location-analytics-title">
+          <header class="location-analytics-heading"><div><p>OCCUPANCY &amp; MOVEMENT ANALYTICS</p><h2 id="location-analytics-title">Observed activity by zone</h2><span>Counts are based on consented observations from the last 15 minutes unless a report period is selected.</span></div><div class="location-freshness"><span id="location-data-freshness-dot" aria-hidden="true"></span><span id="location-data-freshness" role="status" aria-live="polite">Waiting for observation data</span></div></header>
+          <section class="location-metrics" id="location-live-metrics" aria-label="Recent observed devices"></section>
+          <p class="location-ingestion-note"><strong>Source status:</strong> this application does not poll or configure a WLAN controller from this page. AP identifiers map observations to zones; the existing protected API accepts session-bound records after checking the active stay, device link, and guest location consent.</p>
+          <div class="location-analytics-toolbar"><div><strong>Historical summary</strong><span id="location-report-timezone">Times use the property timezone.</span></div><label>Period<select id="analytics-period"><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option></select></label><button class="secondary" id="load-location-report" type="button">Load report</button></div>
+          <div class="location-report-grid"><section><h3>Zone activity</h3><div id="location-report" class="location-report-list" aria-live="polite"><p class="location-report-empty">Choose a period to view recorded activity.</p></div></section><section><h3>Observed movement</h3><div id="location-movement-report" class="location-report-list" aria-live="polite"><p class="location-report-empty">Movement summaries appear when observations connect mapped zones.</p></div></section></div>
+          <details class="location-analytics-detail"><summary>Observed device patterns</summary><p class="field-note">Hourly device counts are deduplicated by pseudonymous device and grouped in the property’s local time. A device count is not a people count. Detailed records are retained only while linked to an active stay and are removed at checkout.</p><div id="location-peak-hours" class="location-peak-list"></div></details>
+        </section>
+        <section class="card location-analytics-unavailable" id="location-analytics-unavailable" hidden>
+          <strong>WLAN analytics setup needs attention</strong><p id="location-analytics-unavailable-copy">Analytics require property location collection to be enabled, authorized access points mapped to zones, and an active guest choice for location services.</p><button class="secondary" type="button" data-location-panel="zones">Review access-point mappings</button>
+        </section>
+        <section class="card location-permission-note" id="location-analytics-access-note" hidden><strong>Analytics access is not included in your role.</strong><p>You can still manage guest locations and open the property map studio.</p></section>
       </section>
+
+      <dialog class="location-editor-drawer" id="location-editor-drawer" aria-labelledby="location-editor-title">
+        <form class="location-editor-panel" id="location-editor-form" method="dialog">
+          <header><div><p>FACILITIES &amp; LOCATIONS</p><h2 id="location-editor-title">Add guest location</h2><span>Use verified public details. Coordinates are optional and do not represent live guest position.</span></div><button class="icon-button" type="button" id="close-location-editor" aria-label="Close location editor">×</button></header>
+          <input id="location-id" type="hidden">
+          <label>Name<input id="location-name" maxlength="160" required autocomplete="off" placeholder="For example, Main entrance"></label>
+          <label>Category<select id="location-type"><option value="entrance">Entrance</option><option value="lobby">Lobby</option><option value="amenity">Amenity</option><option value="dining">Dining</option><option value="landmark">Landmark</option><option value="parking">Parking</option><option value="service">Guest service</option><option value="other">Other</option></select></label>
+          <label>Guest-facing description<textarea id="location-description" rows="4" maxlength="1000" placeholder="Short, helpful directions or identifying details."></textarea></label>
+          <fieldset><legend>Map coordinates <span>Optional</span></legend><div class="inline-fields"><label>Latitude<input id="location-latitude" type="number" min="-90" max="90" step="any" inputmode="decimal"></label><label>Longitude<input id="location-longitude" type="number" min="-180" max="180" step="any" inputmode="decimal"></label></div><small>Use a verified outdoor map point. For indoor placement, use the floor map studio.</small></fieldset>
+          <label class="check-row"><input id="location-visible" type="checkbox" checked> Show in guest experience</label>
+          <p class="location-editor-message" id="location-editor-message" role="status" aria-live="polite"></p>
+          <footer><button class="secondary" type="button" id="cancel-location-editor">Cancel</button><button class="btn btn-primary" id="save-location" type="button">Save location</button></footer>
+        </form>
+      </dialog>
 
       <section class="panel" id="intro">
         <div class="page-title"><div><p>Branding · Guest arrival</p><h1>Intro experience</h1><span>Design the short welcome guests see before chat. It never blocks access to the concierge.</span></div><span class="intro-publish-status" id="intro-save-status" role="status">Loading intro settings…</span></div>
@@ -843,7 +930,7 @@
       </section>
 
       <section class="panel" id="conversations">
-        <div class="page-title conversation-page-title"><div><p>Guest Experience</p><h1>Conversations</h1><span>Review guest requests sent to restaurant staff, route them to a team member, and reply from one inbox.</span></div><div class="conversation-page-actions"><span id="conversation-last-refreshed">Not refreshed yet</span><button class="secondary" id="refresh-conversations" type="button">Refresh inbox</button></div></div>
+        <div class="page-title conversation-page-title"><div><p>Guest Experience</p><h1>Conversations</h1><span>Coordinate guest, Concierge AI, and staff conversations from one property-scoped inbox.</span></div><div class="conversation-page-actions"><span id="conversation-last-refreshed">Not refreshed yet</span><button class="secondary" id="refresh-conversations" type="button">Refresh inbox</button></div></div>
         <section class="conversation-summary" id="conversation-summary" aria-label="Conversation status overview">
           <button class="conversation-summary-card selected" type="button" data-conversation-filter=""><span>All conversations</span><strong id="conversation-count-all">0</strong></button>
           <button class="conversation-summary-card" type="button" data-conversation-filter="waiting_for_staff"><span>Waiting for staff</span><strong id="conversation-count-waiting">0</strong></button>
@@ -859,16 +946,21 @@
         <div class="conversation-workspace">
           <section class="card conversation-queue">
             <header class="conversation-panel-heading"><div><p>Inbox</p><h2>Conversation queue</h2></div><span class="conversation-result-count" id="conversation-result-count">0 conversations</span></header>
-            <div class="conversation-filters"><label>Search this page<input id="conversation-search" type="search" aria-label="Search conversations on this page" placeholder="Guest, restaurant, message…"></label><label>Status<select id="conversation-status-filter"><option value="">All conversations</option><option value="waiting_for_staff">Waiting for staff</option><option value="assigned">Assigned</option><option value="human_active">Staff handling</option><option value="ai_active">With AI</option><option value="resolved">Resolved</option></select></label></div>
+            <div class="conversation-filters"><label>Search inbox<input id="conversation-search" type="search" aria-label="Search conversations on this page" placeholder="Guest message, team, or session…"></label><label>Status<select id="conversation-status-filter"><option value="">All conversations</option><option value="waiting_for_staff">Waiting for staff</option><option value="assigned">Assigned</option><option value="human_active">Staff handling</option><option value="ai_active">With AI</option><option value="resolved">Resolved</option></select></label><label>Department<select id="conversation-department-filter"><option value="">All departments</option></select></label><label class="conversation-unread-filter"><input id="conversation-unread-filter" type="checkbox">Unread only</label></div>
             <div id="conversation-list" class="conversation-list" aria-live="polite"></div>
             <nav class="conversation-pagination" aria-label="Conversation pages"><button class="secondary" id="conversation-page-previous" type="button" disabled>Previous page</button><span id="conversation-page-info" aria-live="polite">No pages</span><button class="secondary" id="conversation-page-next" type="button" disabled>Next page</button></nav>
           </section>
           <section class="card conversation-detail" aria-label="Selected conversation">
-            <header class="conversation-detail-header"><div class="conversation-detail-title"><p>Conversation</p><h2 id="conversation-detail-name">Select a conversation</h2><span id="conversation-detail-meta">Choose a guest from the inbox to review their messages.</span></div><span class="conversation-status-badge" id="conversation-detail-status" hidden></span></header>
-            <div class="conversation-detail-actions" id="conversation-detail-actions"><label id="conversation-assignment" data-permission="conversations.assign">Assign to staff<select id="conversation-staff-select" disabled><option value="">Select a conversation first</option></select></label><button class="secondary" id="assign-conversation" type="button" data-permission="conversations.assign" disabled>Assign</button><span class="conversation-action-spacer"></span><button class="secondary" id="toggle-takeover" type="button" disabled>Accept conversation</button><button class="secondary" id="close-conversation" type="button" disabled>Resolve</button></div>
-            <div id="conversation-messages" class="conversation-thread"><div class="conversation-empty"><strong>Your request details will appear here</strong><span>Select a staff request from the inbox to review the guest's shared reason and staff replies.</span></div></div>
-            <div class="conversation-composer"><label for="staff-response">Staff reply<textarea id="staff-response" rows="2" placeholder="Write a clear reply to the guest…" disabled></textarea></label><div class="conversation-composer-footer"><span id="conversation-reply-hint">Accept a conversation before replying as staff.</span><button id="send-staff-response" type="button" disabled>Send Response</button></div></div>
+            <header class="conversation-detail-header"><div class="conversation-detail-title"><p>Conversation</p><h2 id="conversation-detail-name">Select a conversation</h2><span id="conversation-detail-meta">Choose a guest conversation to review the permitted transcript and context.</span></div><div class="conversation-detail-header-actions"><span class="conversation-status-badge" id="conversation-detail-status" hidden></span><button class="secondary conversation-context-toggle" id="conversation-show-context" type="button" aria-expanded="false" aria-controls="conversation-context">Guest context</button></div></header>
+            <div class="conversation-detail-actions" id="conversation-detail-actions"><label id="conversation-assignment" data-permission="conversations.assign">Assign to staff<select id="conversation-staff-select" disabled><option value="">Select a conversation first</option></select></label><button class="secondary" id="assign-conversation" type="button" data-permission="conversations.assign" disabled>Assign</button><label class="conversation-route-control" id="conversation-routing" data-permission="conversations.assign">Route to department<select id="conversation-department-select" disabled><option value="">Select a department</option></select></label><button class="secondary" id="route-conversation" type="button" data-permission="conversations.assign" disabled>Route</button><span class="conversation-action-spacer"></span><button class="secondary" id="toggle-takeover" type="button" disabled>Take over</button><button class="secondary" id="close-conversation" type="button" disabled>Resolve</button><button class="secondary" id="reopen-conversation" type="button" hidden>Reopen</button></div>
+            <div id="conversation-messages" class="conversation-thread" aria-live="polite"><div class="conversation-empty"><strong>Your conversation will appear here</strong><span>Select a guest conversation to review its authorized transcript.</span></div></div>
+            <div class="conversation-composer"><label for="staff-response">Staff reply<textarea id="staff-response" rows="2" placeholder="Write a clear reply to the guest…" disabled></textarea></label><div class="conversation-composer-footer"><span id="conversation-reply-hint">Take over a conversation before replying as staff.</span><button id="send-staff-response" type="button" disabled>Send reply</button></div></div>
           </section>
+          <button id="conversation-context-backdrop" class="conversation-context-backdrop" type="button" aria-label="Close guest context" hidden></button>
+          <aside class="card conversation-context" id="conversation-context" aria-label="Guest context" aria-hidden="true">
+            <header class="conversation-context-header"><div><p>Context</p><h2>Guest overview</h2></div><button class="secondary conversation-context-close" id="conversation-context-close" type="button" aria-label="Close guest context">×</button></header>
+            <div id="conversation-context-body" class="conversation-context-body"><div class="conversation-empty"><strong>No conversation selected</strong><span>Guest stay, related requests, assignment, and internal notes appear here when available.</span></div></div>
+          </aside>
         </div>
       </section>
 
@@ -888,35 +980,57 @@
         </section>
         </details>
         <section class="request-summary" aria-label="Service request totals">
-          <button class="request-summary-card selected" type="button" data-request-filter="open"><span>Open</span><strong id="request-count-open">0</strong></button>
+          <button class="request-summary-card" type="button" data-request-filter="open"><span>Open</span><strong id="request-count-open">0</strong></button>
           <button class="request-summary-card" type="button" data-request-filter="in_progress"><span>In progress</span><strong id="request-count-in_progress">0</strong></button>
           <button class="request-summary-card" type="button" data-request-filter="due_soon"><span>Due soon</span><strong id="request-count-due_soon">0</strong></button>
           <button class="request-summary-card" type="button" data-request-filter="overdue"><span>Overdue</span><strong id="request-count-overdue">0</strong></button>
           <button class="request-summary-card" type="button" data-request-filter="completed_today"><span>Completed today</span><strong id="request-count-completed_today">0</strong></button>
         </section>
         <div class="service-request-workspace">
-          <section class="card service-request-create">
-            <header class="service-request-heading"><div><p>NEW WORK</p><h2>Create a request</h2></div></header>
-            <p class="field-note">Create a request on a guest’s behalf. It joins the same queue as guest-submitted requests.</p>
-            <label>Room number (optional)<input id="service-room" maxlength="80" placeholder="For example, 1204"></label>
-            <label>Service<select id="service-type" required><option value="">Select a configured service</option></select></label>
-            <p class="field-note">The selected service determines which department receives this request and fills in its default SLA.</p>
-            <p class="request-catalog-empty" id="service-catalog-empty" hidden>No enabled services are configured yet. Add services in the Service Catalog before creating requests.</p>
-            <button class="secondary request-catalog-link" id="open-service-catalog" type="button">Open Service Catalog</button>
-            <label>Routed department<select id="service-department" disabled><option value="">Select a service first</option></select></label>
-            <label>Priority<select id="service-priority"><option value="low">Low</option><option value="normal" selected>Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></label>
-            <label>Request details<textarea id="service-description" rows="3" maxlength="1000" placeholder="Describe what the guest needs, including useful details."></textarea></label>
-            <label>SLA target (minutes)<input id="service-sla" type="number" min="1" max="1440" value="15"></label>
-            <p class="field-note">The SLA countdown starts when the request is created and shows when it becomes due.</p>
-            <button id="create-service-request" type="button" disabled>Create Request</button>
-          </section>
           <section class="card service-request-queue">
-            <header class="service-request-heading"><div><p>LIVE OPERATIONS</p><h2>Request queue</h2></div><div class="service-request-queue-actions"><span class="service-request-result-count" id="service-request-result-count">0 requests</span><span class="service-request-result-count" id="request-last-updated" role="status" aria-live="polite">Not refreshed yet</span><button class="secondary" id="refresh-service-requests" type="button">Refresh</button></div></header>
-            <div class="service-request-filters"><label>Find a request<input id="service-request-search" type="search" placeholder="Room, service, assignee, or details"></label><label>Show<select id="service-request-status-filter"><option value="open">Open requests</option><option value="">All requests</option><option value="new">New</option><option value="assigned">Assigned</option><option value="accepted">Accepted</option><option value="in_progress">In progress</option><option value="delivered">Delivered</option><option value="completed">Completed</option><option value="due_soon">Due soon</option><option value="overdue">Overdue</option><option value="completed_today">Completed today</option></select></label></div>
+            <header class="service-request-heading"><div><p>LIVE OPERATIONS</p><h2>Request queue</h2></div><div class="service-request-queue-actions"><span class="service-request-result-count" id="service-request-result-count">0 requests</span><span class="service-request-result-count" id="request-last-updated" role="status" aria-live="polite">Not refreshed yet</span><button class="secondary" id="refresh-service-requests" type="button">Refresh</button><button id="open-service-request" type="button">New request</button></div></header>
+            <aside class="request-catalog-setup" id="request-catalog-setup" hidden>
+              <div><strong>Service Catalog setup needed</strong><span>No enabled services are configured. Add a service before staff can create requests. Existing requests remain available in this queue.</span></div>
+              <button class="secondary" id="request-catalog-setup-link" type="button">Configure services</button>
+            </aside>
+            <nav class="service-request-views" aria-label="Request queue views">
+              <button type="button" data-request-view="all" aria-pressed="true">All requests</button>
+              <button type="button" data-request-view="unassigned" aria-pressed="false">Unassigned</button>
+              <button type="button" data-request-view="mine" aria-pressed="false">My requests</button>
+              <button type="button" data-request-view="urgent" aria-pressed="false">Urgent</button>
+              <button type="button" data-request-view="completed" aria-pressed="false">Completed</button>
+            </nav>
+            <div class="service-request-filters"><label>Find a request<input id="service-request-search" type="search" placeholder="Room, service, assignee, or details"></label><label>Show<select id="service-request-status-filter"><option value="">All requests</option><option value="open">Open requests</option><option value="new">New</option><option value="assigned">Assigned</option><option value="accepted">Accepted</option><option value="in_progress">In progress</option><option value="delivered">Delivered</option><option value="completed">Completed</option><option value="due_soon">Due soon</option><option value="overdue">Overdue</option><option value="completed_today">Completed today</option></select></label></div>
+            <div class="service-request-list-toolbar"><span>Requests in queue</span><div role="group" aria-label="Queue layout"><button class="active" type="button" data-request-layout="list" aria-pressed="true">List</button><button type="button" data-request-layout="board" aria-pressed="false">Board</button></div></div>
             <div id="service-request-list" class="service-request-list" aria-live="polite"></div>
             <nav class="conversation-pagination" aria-label="Service request pages"><button class="secondary" id="service-request-page-previous" type="button" disabled>Previous page</button><span id="service-request-page-info" aria-live="polite">No pages</span><button class="secondary" id="service-request-page-next" type="button" disabled>Next page</button></nav>
           </section>
         </div>
+        <dialog id="service-request-create-drawer" class="service-request-drawer" aria-labelledby="service-request-create-title">
+          <section class="service-request-drawer-panel">
+            <header class="service-request-drawer-header"><div><p>NEW WORK</p><h2 id="service-request-create-title">Create a request</h2><span>Create on a guest’s behalf. It joins the same property queue as guest-submitted requests.</span></div><button class="secondary service-request-drawer-close" type="button" data-close-service-request="create" aria-label="Close new request">×</button></header>
+            <div class="service-request-drawer-body service-request-create">
+              <label>Room number <span class="optional-label">optional</span><input id="service-room" maxlength="80" placeholder="For example, 1204"></label>
+              <label>Service<select id="service-type" required><option value="">Select a configured service</option></select></label>
+              <p class="field-note">The selected service routes this request to its department and applies the service’s default SLA.</p>
+              <p class="request-catalog-empty" id="service-catalog-empty" hidden>No enabled services are configured yet. Add services in the Service Catalog before creating requests.</p>
+              <button class="secondary request-catalog-link" id="open-service-catalog" type="button">Open Service Catalog</button>
+              <label>Routed department<select id="service-department" disabled><option value="">Select a service first</option></select></label>
+              <label>Priority<select id="service-priority"><option value="low">Low</option><option value="normal" selected>Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></label>
+              <label>Request details<textarea id="service-description" rows="3" maxlength="1000" placeholder="Describe what the guest needs, including useful details."></textarea></label>
+              <label>SLA target (minutes)<input id="service-sla" type="number" min="1" max="1440" value="15"></label>
+              <p class="field-note">The SLA countdown starts when the request is created and shows when it becomes due.</p>
+            </div>
+            <footer class="service-request-drawer-footer"><button class="secondary" type="button" data-close-service-request="create">Cancel</button><button id="create-service-request" type="button" disabled>Create Request</button></footer>
+          </section>
+        </dialog>
+        <dialog id="service-request-details-drawer" class="service-request-drawer" aria-labelledby="service-request-details-title">
+          <section class="service-request-drawer-panel">
+            <header class="service-request-drawer-header"><div><p>REQUEST DETAILS</p><h2 id="service-request-details-title">Service request</h2><span id="service-request-details-subtitle">Review status, assignment, and activity.</span></div><button class="secondary service-request-drawer-close" type="button" data-close-service-request="details" aria-label="Close request details">×</button></header>
+            <div id="service-request-details-content" class="service-request-drawer-body"></div>
+            <footer class="service-request-drawer-footer"><button class="secondary" type="button" data-close-service-request="details">Close details</button></footer>
+          </section>
+        </dialog>
       </section>
 
       <section class="panel" id="service-catalog">
@@ -1348,6 +1462,42 @@
       <div class="dialog-actions"><button class="secondary" id="default-password-back" type="button">Back</button><button id="default-password-change-submit" type="submit">Change Password</button></div>
     </form>
   </dialog>
+  <dialog class="admin-dialog background-crop-dialog" id="background-crop-dialog" aria-labelledby="background-crop-title">
+    <div class="background-crop-content">
+      <div class="dialog-heading">
+        <div><span>IMAGE FIT</span><h2 id="background-crop-title">Fit your image to every screen</h2><p id="background-crop-description">Choose automatic fitting or set a different focal point for desktop and mobile.</p></div>
+        <button class="icon-button" id="background-crop-close" type="button" aria-label="Close image fitting">×</button>
+      </div>
+      <div class="background-crop-layout">
+        <div class="background-crop-preview" id="background-crop-preview" data-device="desktop">
+          <img id="background-crop-image" alt="Preview of the guest home background crop">
+          <span>Guest home preview</span>
+        </div>
+        <div class="background-crop-options" id="background-crop-options">
+          <article><strong>Automatic fit</strong><p>Fill the welcome area responsively with a centered crop on each screen.</p></article>
+          <article><strong>Adjust for each screen</strong><p>Keep the same image and choose which part stays in view on desktop and mobile.</p></article>
+        </div>
+        <div class="background-crop-editor" id="background-crop-editor" hidden>
+          <div class="background-crop-device-tabs" role="group" aria-label="Choose screen size">
+            <button type="button" data-crop-device="desktop" aria-pressed="true">Desktop</button>
+            <button type="button" data-crop-device="mobile" aria-pressed="false">Mobile</button>
+          </div>
+          <label class="background-crop-range">Horizontal position <span><input id="background-crop-x" type="range" min="0" max="100" step="1"><output id="background-crop-x-value">50%</output></span></label>
+          <label class="background-crop-range">Vertical position <span><input id="background-crop-y" type="range" min="0" max="100" step="1"><output id="background-crop-y-value">50%</output></span></label>
+          <p>Drag the sliders to keep the important part of your photo in view.</p>
+        </div>
+      </div>
+      <div class="dialog-actions background-crop-actions" id="background-crop-choice-actions">
+        <button class="btn btn-secondary" id="background-crop-auto" type="button">Use automatic fit</button>
+        <button class="btn btn-primary" id="background-crop-customize" type="button">Adjust crop</button>
+      </div>
+      <div class="dialog-actions background-crop-actions" id="background-crop-edit-actions" hidden>
+        <button class="btn btn-secondary" id="background-crop-back" type="button">Back</button>
+        <button class="btn btn-secondary" id="background-crop-reset" type="button">Reset positions</button>
+        <button class="btn btn-primary" id="background-crop-apply" type="button">Apply crop</button>
+      </div>
+    </div>
+  </dialog>
   <dialog class="builder-preview-dialog" id="builder-preview-dialog" aria-labelledby="builder-preview-title" aria-describedby="builder-preview-description">
     <div class="builder-preview-dialog-shell">
       <header class="builder-preview-dialog-header">
@@ -1413,6 +1563,6 @@
   </aside>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script src="/static/guest-theme.js?v=3"></script>
-  <script src="/static/admin.js?v=93"></script>
+  <script src="/static/admin.js?v=101"></script>
 </body>
 </html>

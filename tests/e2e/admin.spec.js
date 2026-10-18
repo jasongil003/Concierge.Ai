@@ -1048,9 +1048,58 @@ test("appearance panel: add and remove prompt buttons work", async ({ page }) =>
 test("guest experience panel: modules can be managed", async ({ page }) => {
   await page.goto("/admin");
   await openPanel(page, "Conversation Modules");
+  await expect(page.getByRole("heading", { name: "Conversation Module Studio" })).toBeVisible();
+  await page.locator("#module-create").click();
+  await expect(page.locator("#guest-module-dialog")).toBeVisible();
   await expect(page.locator("#guest-module-name")).toBeEnabled();
-  await expect(page.locator("#guest-module-prompt")).toBeEnabled();
-  await expect(page.getByRole("button", { name: "Save Module" })).toBeEnabled();
+  await expect(page.locator("#guest-module-action-type")).toBeEnabled();
+  await expect(page.locator("#guest-module-test-preview")).toBeEnabled();
+});
+
+test("conversation module studio saves private drafts and publishes a version", async ({ page }) => {
+  const propertyId = (await (await page.request.get("/api/admin/properties")).json()).properties[0].property_id;
+  await page.goto("/admin");
+  await openPanel(page, "Conversation Modules");
+  await page.locator("#module-create").click();
+  await page.locator("#guest-module-name").fill("Synthetic concierge help");
+  await page.locator("#guest-module-description").fill("Ask the concierge a sample question.");
+  await page.locator("[data-module-editor-device='mobile']").click();
+  await page.locator("#guest-module-test-preview").click();
+  await expect(page.locator("#guest-module-test-result")).toContainText("No AI provider or service request was called");
+  const draftResponse = page.waitForResponse((response) => response.url().includes("/conversation-modules") && response.request().method() === "POST");
+  await page.locator("#guest-module-save").click();
+  const draft = await draftResponse;
+  expect(draft.ok()).toBeTruthy();
+  const draftModule = (await draft.json()).module;
+  const hiddenBeforePublish = await page.request.get("/api/admin/properties/" + encodeURIComponent(propertyId) + "/conversation-modules");
+  expect((await hiddenBeforePublish.json()).modules.find((item) => item.id === draftModule.id).status).toBe("draft");
+  const publicBeforePublish = await page.request.get("/api/hotel");
+  expect((await publicBeforePublish.json()).guest_modules.some((item) => item.id === draftModule.id)).toBeFalsy();
+  await page.locator("[data-module-action-field='prompt']").fill("Help me plan my stay.");
+  await page.locator("#guest-module-publish").click();
+  await expect(page.locator("#guest-module-save-status")).toContainText("Published as version 1");
+  const publicAfterPublish = await page.request.get("/api/hotel");
+  expect((await publicAfterPublish.json()).guest_modules.some((item) => item.id === draftModule.id)).toBeTruthy();
+  await page.setViewportSize({ width: 1366, height: 900 });
+  await page.screenshot({ path: test.info().outputPath("module-studio-desktop.png") });
+  await page.setViewportSize({ width: 768, height: 900 });
+  await expect(page.locator("#guest-module-dialog")).toBeVisible();
+  const tabletDialogRight = await page.locator("#guest-module-dialog").evaluate((element) => element.getBoundingClientRect().right);
+  expect(tabletDialogRight).toBeLessThanOrEqual(768);
+  await page.screenshot({ path: test.info().outputPath("module-studio-tablet.png") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator("#guest-module-dialog")).toBeVisible();
+  await page.locator(".module-editor-layout").evaluate((element) => { element.scrollTop = 0; });
+  const dialogRight = await page.locator("#guest-module-dialog").evaluate((element) => element.getBoundingClientRect().right);
+  expect(dialogRight).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: test.info().outputPath("module-studio-mobile.png") });
+  if (test.info().project.name === "mobile-chrome") {
+    const documentWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+    expect(documentWidth).toBeLessThanOrEqual(390);
+  }
+  await page.locator(".module-editor-layout").evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  await expect(page.locator(".module-editor-preview-panel")).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath("module-studio-mobile-preview.png") });
 });
 
 test("preview controls are interactive and intro settings save", async ({ page }) => {
@@ -2689,22 +2738,44 @@ test("authentication master switch saves and reloads independently of method cho
 });
 
 test("requests panel: service request controls are available", async ({ page }) => {
+  await page.route("**/api/admin/properties/*/service-catalog", (route) => route.fulfill({
+    status: 200,
+    json: { departments: [], services: [] },
+  }));
   await page.goto("/admin");
   await openPanel(page, "Guest Requests");
+  await expect(page.locator("#service-request-create-drawer")).toBeHidden();
+  await expect(page.locator("#request-catalog-setup")).toBeVisible();
+  await expect(page.locator("#request-catalog-setup-link")).toBeVisible();
+  await expect(page.locator('[data-request-view="all"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator('[data-request-layout="list"]')).toBeVisible();
+  await expect(page.locator("#service-request-list")).toBeVisible();
+  await expect(page.locator("#request-last-updated")).toContainText("Updated");
+  await page.getByRole("button", { name: "New request" }).click();
+  await expect(page.locator("#service-request-create-drawer")).toBeVisible();
   await expect(page.locator("#service-room")).toBeVisible();
   await expect(page.locator("#service-type")).toBeVisible();
   await expect(page.getByRole("button", { name: "Create Request" })).toBeVisible();
-  await expect(page.locator("#service-request-list")).toBeVisible();
-  await expect(page.locator("#request-last-updated")).toContainText("Updated");
+  await expect(page.locator("#service-catalog-empty")).toBeVisible();
+  await expect(page.locator("#open-service-catalog")).toBeVisible();
+  await page.locator('[data-close-service-request="create"]').first().click();
+  await expect(page.locator("#service-request-create-drawer")).toBeHidden();
+  await page.locator("#request-catalog-setup-link").click();
+  await expect(page.locator("#service-catalog")).toBeVisible();
+  await openPanel(page, "Guest Requests");
+  await page.getByRole("button", { name: "New request" }).click();
+  await page.locator("#open-service-catalog").click();
+  await expect(page.locator("#service-request-create-drawer")).toBeHidden();
+  await expect(page.locator("#service-catalog")).toBeVisible();
 });
 
 test("requests panel: operational summary counts and filters use property-local dates", async ({ page }) => {
   const now = Math.floor(Date.now() / 1000);
   const requests = [
     { request_id: "open-1", status: "new", sla_state: "within_sla", request_type: "Water", room: "101", description: "Water", created_at: now, updated_at: now, notes: [] },
-    { request_id: "progress-1", status: "in_progress", sla_state: "within_sla", request_type: "Towels", room: "102", description: "Towels", created_at: now, updated_at: now, notes: [] },
+    { request_id: "progress-1", status: "in_progress", sla_state: "within_sla", request_type: "Towels", room: "102", description: "Towels", assigned_to: "admin", created_at: now, updated_at: now, notes: [] },
     { request_id: "soon-1", status: "assigned", sla_state: "warning", request_type: "Pillows", room: "103", description: "Pillows", created_at: now, updated_at: now, notes: [] },
-    { request_id: "late-1", status: "new", sla_state: "overdue", request_type: "Taxi", room: "104", description: "Taxi", created_at: now, updated_at: now, notes: [] },
+    { request_id: "late-1", status: "new", priority: "urgent", sla_state: "overdue", request_type: "Taxi", room: "104", description: "Taxi", created_at: now, updated_at: now, notes: [] },
     { request_id: "done-today", status: "completed", sla_state: "completed", request_type: "Ice", room: "105", description: "Ice", completed_at: now, created_at: now, updated_at: now, notes: [] },
     { request_id: "done-before", status: "completed", sla_state: "completed", request_type: "Laundry", room: "106", description: "Laundry", completed_at: now - 172800, created_at: now - 172800, updated_at: now - 172800, notes: [] },
   ];
@@ -2712,7 +2783,15 @@ test("requests panel: operational summary counts and filters use property-local 
   await page.route("**/api/admin/properties/*/service-requests?*", (route) => {
     const url = new URL(route.request().url());
     const status = url.searchParams.get("status") || "all";
-    const filtered = requests.filter((item) => {
+    const queueView = url.searchParams.get("queue_view") || "all";
+    const byView = requests.filter((item) => {
+      if (queueView === "unassigned") return !item.assigned_to;
+      if (queueView === "mine") return item.assigned_to === "admin";
+      if (queueView === "urgent") return item.priority === "urgent";
+      if (queueView === "completed") return item.status === "completed";
+      return true;
+    });
+    const filtered = byView.filter((item) => {
       if (!status || status === "all") return true;
       if (status === "open") return !["completed", "cancelled"].includes(item.status);
       if (status === "due_soon") return item.sla_state === "warning";
@@ -2742,9 +2821,20 @@ test("requests panel: operational summary counts and filters use property-local 
     await expect(page.locator("#service-request-result-count")).toContainText("1–1 of 1 matching");
     await expect(page.locator("#service-request-list")).toContainText(requestId);
   }
+  for (const [view, requestId] of [["unassigned", "open-1"], ["mine", "progress-1"], ["urgent", "late-1"], ["completed", "done-today"]]) {
+    await page.locator(`[data-request-view="${view}"]`).click();
+    await expect(page.locator("#service-request-list")).toContainText(requestId);
+  }
+  await page.locator('[data-request-view="all"]').click();
+  await page.locator('[data-request-layout="board"]').click();
+  await expect(page.locator("#service-request-list")).toHaveClass(/is-board/);
+  await page.locator(".service-request-board-card").filter({ hasText: "late-1" }).click();
+  await expect(page.locator("#service-request-details-drawer")).toBeVisible();
+  await expect(page.locator("#service-request-details-content")).toContainText("Internal notes · staff only");
+  await page.locator('[data-close-service-request="details"]').first().click();
 });
 
-test("requests panel identifies queued overdue escalations and records their in-app history", async ({ page }) => {
+test("requests panel identifies queued overdue escalations and records their in-app history", async ({ page }, testInfo) => {
   const now = Math.floor(Date.now() / 1000);
   const overdueRequest = {
     request_id: "overdue-escalated",
@@ -2791,10 +2881,44 @@ test("requests panel identifies queued overdue escalations and records their in-
   await openPanel(page, "Guest Requests");
   const card = page.locator(".service-request-card").filter({ hasText: overdueRequest.request_id });
   await expect(card.locator(".request-escalation-badge")).toHaveText("Escalation queued");
-  await card.getByText("View activity history").click();
-  await expect(card.locator(".service-request-history-content")).toContainText(
+  await expect(card).toContainText("Priority");
+  await expect(card).toContainText("Overdue by");
+  await card.getByRole("button", { name: `Open details for request ${overdueRequest.request_id}` }).click();
+  await expect(page.locator("#service-request-details-content")).toContainText("Overdue by");
+  await expect(page.locator("#service-request-details-content .service-request-history-content")).toContainText(
     "Overdue escalation queued for Duty Manager",
   );
+  const detailsScreenshot = await page.screenshot({ path: testInfo.outputPath("guest-request-details-desktop.png") });
+  await testInfo.attach("guest-request-details-desktop.png", { body: detailsScreenshot, contentType: "image/png" });
+});
+
+test("requests panel: drawers stay usable from mobile through desktop widths", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/admin");
+  await openPanel(page, "Guest Requests");
+  const drawer = page.locator("#service-request-create-drawer");
+  const shell = page.locator(".platform-shell");
+  if (await shell.evaluate((element) => element.classList.contains("mobile-nav-open"))) {
+    await page.locator("#sidebar-toggle").click();
+  }
+  for (const width of [375, 390, 768, 1024, 1366]) {
+    await page.setViewportSize({ width, height: 844 });
+    if (width === 390) {
+      const queueScreenshot = await page.screenshot({ path: testInfo.outputPath("guest-requests-mobile-queue.png") });
+      await testInfo.attach("guest-requests-mobile-queue.png", { body: queueScreenshot, contentType: "image/png" });
+    }
+    await page.getByRole("button", { name: "New request" }).click();
+    await expect(drawer).toBeVisible();
+    const box = await drawer.boundingBox();
+    expect(box?.width).toBe(width < 620 ? width : 560);
+    expect(box?.height).toBe(844);
+    await expect(page.locator("#service-room")).toBeVisible();
+    if (width === 390) {
+      const drawerScreenshot = await page.screenshot({ path: testInfo.outputPath("guest-requests-mobile-create-drawer.png") });
+      await testInfo.attach("guest-requests-mobile-create-drawer.png", { body: drawerScreenshot, contentType: "image/png" });
+    }
+    await page.locator('[data-close-service-request="create"]').first().click();
+  }
 });
 
 test("requests panel: pagination fetches bounded pages from the full queue", async ({ page }) => {

@@ -930,6 +930,48 @@ def test_staff_cannot_export_or_run_infrastructure_tools(auth_store: AdminAuthSt
     assert "infrastructure.view" not in diagnostic.json()["detail"]
 
 
+def test_location_analytics_permissions_are_separate_from_property_editing(auth_store: AdminAuthStore, auth_client: TestClient):
+    _, administrator = auth_store.login("admin", ADMIN_PASSWORD, "10.0.0.1", "test")
+    analytics_role = auth_store.save_role({
+        "name": "Location Analytics Reader",
+        "description": "View aggregate property location analytics",
+        "property_id": "tenant-a",
+        "permissions": ["analytics.view"],
+    }, administrator)
+    editor_role = auth_store.save_role({
+        "name": "Property Editor Only",
+        "description": "Edit property configuration without analytics access",
+        "property_id": "tenant-a",
+        "permissions": ["properties.edit", "properties.view"],
+    }, administrator)
+    auth_store.create_user({
+        "username": "location.reader", "display_name": "Location Reader", "password": "LocationReader123!",
+        "role_id": analytics_role["role_id"], "property_id": "tenant-a", "status": "active",
+    }, administrator)
+    auth_store.create_user({
+        "username": "property.editor", "display_name": "Property Editor", "password": "PropertyEditor123!",
+        "role_id": editor_role["role_id"], "property_id": "tenant-a", "status": "active",
+    }, administrator)
+
+    reader_csrf = login(auth_client, "location.reader", "LocationReader123!")
+    report = auth_client.post(
+        "/api/admin/properties/tenant-a/location/report",
+        headers={"X-CSRF-Token": reader_csrf},
+        json={"start_at": 0, "end_at": 1, "filters": {}},
+    )
+    assert report.status_code == 200, report.text
+    assert auth_client.get("/api/admin/properties/tenant-a/location/live").status_code == 200
+
+    editor_csrf = login(auth_client, "property.editor", "PropertyEditor123!")
+    denied_report = auth_client.post(
+        "/api/admin/properties/tenant-a/location/report",
+        headers={"X-CSRF-Token": editor_csrf},
+        json={"start_at": 0, "end_at": 1, "filters": {}},
+    )
+    assert denied_report.status_code == 403
+    assert auth_client.get("/api/admin/properties/tenant-a/location/live").status_code == 403
+
+
 def test_property_viewer_does_not_receive_service_request_records(auth_store: AdminAuthStore, auth_client: TestClient):
     auth_store.create_user(
         {

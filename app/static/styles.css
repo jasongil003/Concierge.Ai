@@ -1,6 +1,11 @@
 :root {
   --background: #faf8f4;
   --background-image: none;
+  --background-image-position-desktop: 50% 50%;
+  --background-image-position-mobile: 50% 50%;
+  --background-image-position: var(--background-image-position-desktop);
+  --guest-hero-image-position-desktop: 50% 50%;
+  --guest-hero-image-position-mobile: 50% 50%;
   --background-overlay: 0;
   --surface: #ffffff;
   --surface-elevated: #ffffff;
@@ -250,7 +255,7 @@ input:focus-visible {
   padding-top: env(safe-area-inset-top);
   background:
     linear-gradient(rgba(251,251,250,var(--background-overlay)), rgba(251,251,250,var(--background-overlay))),
-    var(--background-image) var(--background-image-position, center) / cover no-repeat,
+    var(--background-image) var(--background-image-position) / cover no-repeat,
     radial-gradient(circle at top left, color-mix(in srgb, var(--accent) 5%, transparent), transparent 32rem),
     var(--background);
 }
@@ -841,7 +846,7 @@ body {
 .concierge-shell {
   background:
     linear-gradient(color-mix(in srgb, var(--background) var(--background-overlay-percent, 0%), transparent), color-mix(in srgb, var(--background) var(--background-overlay-percent, 0%), transparent)),
-    var(--background-image) center / cover no-repeat,
+    var(--background-image) var(--background-image-position) / cover no-repeat,
     radial-gradient(circle at 84% 10%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 24rem),
     radial-gradient(circle at 16% 82%, color-mix(in srgb, var(--accent) 6%, transparent), transparent 26rem),
     var(--background);
@@ -2041,6 +2046,39 @@ body.concierge-name-hidden .identity-copy span { display: none; }
 
 #configured-module-list:empty { display: none; }
 
+#configured-module-list > button[data-display-style="suggestion_chip"] {
+  grid-template-columns: 30px minmax(0, 1fr);
+  min-height: 48px;
+  padding: 6px 10px;
+  border-radius: 999px;
+}
+
+#configured-module-list > button[data-display-style="suggestion_chip"] .menu-item-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+}
+
+#configured-module-list > button[data-display-style="action_tile"] {
+  border-color: var(--soft-border);
+  background: color-mix(in srgb, var(--surface) 92%, var(--accent) 8%);
+}
+
+#configured-module-list.has-module-carousel {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  padding-bottom: 8px;
+}
+
+#configured-module-list.has-module-carousel > button[data-display-style="carousel"] {
+  flex: 0 0 min(230px, 72vw);
+  min-height: 84px;
+  border-color: var(--soft-border);
+  background: var(--surface);
+}
+
 .composer {
   grid-template-columns: minmax(0, 1fr) 42px;
 }
@@ -2216,6 +2254,7 @@ body::before, body::after { display: none; }
 .experience-hero-large { min-height: 300px; }
 .experience-hero-has-image { isolation: isolate; color: #fff; background: #64523a; }
 .experience-hero-image { position: absolute; z-index: -2; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.experience-hero-image[data-theme-background="true"] { object-position: var(--guest-hero-image-position-desktop, 50% 50%); }
 .experience-hero-has-image::after { position: absolute; z-index: -1; inset: 0; background: linear-gradient(90deg, var(--experience-overlay, rgba(24,21,18,.68)), rgba(24,21,18,.08)); content: ""; }
 .experience-align-center { justify-items: center; text-align: center; }
 .experience-align-right { justify-items: end; text-align: right; }
@@ -2529,7 +2568,7 @@ body[data-composer-position="floating"] .composer-region .composer-note, body[da
   background: linear-gradient(90deg, var(--background) 0%, color-mix(in srgb, var(--background) 88%, transparent) 18%, transparent 58%), linear-gradient(0deg, rgba(40, 29, 15, .12), transparent 48%);
   content: "";
 }
-.home-hero-media img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.home-hero-media img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: var(--guest-hero-image-position-desktop, 50% 50%); }
 .home-hero.has-hero-image { min-height: clamp(285px, 25vw, 330px); border: 0; border-radius: 19px; }
 .home-hero-copy { display: grid; justify-items: start; gap: 11px; width: min(650px, 100%); padding: 0 0 22px; }
 .home-hero.has-hero-image .home-hero-copy { width: 58%; max-width: 620px; padding: clamp(22px, 3.2vw, 36px) 16px clamp(22px, 3.2vw, 36px) 0; }
@@ -2726,11 +2765,14 @@ body[data-composer-position="floating"] .composer-region .composer-note, body[da
 .guest-content-card, .home-conversation, .quick-action-list button, .composer, .composer-action-sheet { animation: guest-ui-in 220ms ease both; }
 @keyframes guest-ui-in { from { opacity: .72; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
 @media (max-width: 700px) {
+  :root { --background-image-position: var(--background-image-position-mobile, 50% 50%); }
   .quick-action-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .home-suggestion-list { grid-template-columns: 1fr; }
   .home-hero { min-height: 170px; }
   .home-hero.has-hero-image { min-height: 245px; }
   .home-hero.has-hero-image .home-hero-media { inset: 0; border-radius: 16px; }
+  .home-hero-media img { object-position: var(--guest-hero-image-position-mobile, 50% 50%); }
+  .experience-hero-image[data-theme-background="true"] { object-position: var(--guest-hero-image-position-mobile, 50% 50%); }
   .home-hero.has-hero-image .home-hero-media::after { background: linear-gradient(90deg, rgba(31, 24, 17, .65), rgba(31, 24, 17, .2)), linear-gradient(0deg, rgba(31, 24, 17, .28), transparent 78%); }
   .home-hero.has-hero-image .home-hero-copy { width: 100%; max-width: 100%; padding: 22px; }
   .home-hero.has-hero-image .home-hero-greeting,
@@ -3270,7 +3312,7 @@ body { color: var(--body-color); background: var(--background); }
   color: var(--body-color);
   background:
     linear-gradient(color-mix(in srgb, var(--background) var(--background-overlay-percent, 0%), transparent), color-mix(in srgb, var(--background) var(--background-overlay-percent, 0%), transparent)),
-    var(--background-image) center / cover no-repeat,
+    var(--background-image) var(--background-image-position, center) / cover no-repeat,
     var(--background);
   font-family: var(--body-font-family, var(--font-family));
 }

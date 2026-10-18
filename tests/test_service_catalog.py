@@ -69,10 +69,21 @@ def test_guest_confirmation_creates_trackable_request(admin_client, tmp_path: Pa
     request_page = admin_client.get(f"/api/admin/properties/{property_id}/service-requests?status=all")
     assert request_page.status_code == 200, request_page.text
     assert request_page.json()["service_requests"][0]["request_id"] == request_record["request_id"]
+    hospitality.update_service_request(property_id, request_record["request_id"], {"note": "Staff-only follow-up detail."})
+    guest_requests = admin_client.get(f"/api/guest/requests?session_id={session['session_id']}")
+    assert "Staff-only follow-up detail." not in guest_requests.text
+    assert "notes" not in guest_requests.json()["requests"][0]
+    cancelled = admin_client.post(
+        f"/api/guest/requests/{request_record['request_id']}/cancel",
+        json={"session_id": session["session_id"], "confirmed": True},
+    )
+    assert cancelled.status_code == 200, cancelled.text
+    assert "notes" not in cancelled.json()["request"]
     history = admin_client.get(
         f"/api/admin/properties/{property_id}/service-requests/{request_record['request_id']}/history"
     ).json()["history"]
-    assert history[0]["action"] == "created"
+    assert any(event["action"] == "created" for event in history)
+    assert any(event["detail"].get("note") == "Staff-only follow-up detail." for event in history)
 
 
 def test_admin_service_requests_are_filtered_and_paginated_across_the_property(admin_client, tmp_path: Path, monkeypatch):
@@ -86,6 +97,8 @@ def test_admin_service_requests_are_filtered_and_paginated_across_the_property(a
             "room": "Needle Room" if index == 0 else str(400 + index),
             "department": "Housekeeping",
         }))
+    hospitality.update_service_request(property_id, created[0]["request_id"], {"assigned_to": "admin", "priority": "urgent"})
+    hospitality.update_service_request(property_id, created[1]["request_id"], {"assigned_to": "Front Desk"})
     completed = hospitality.update_service_status(property_id, created[-1]["request_id"], "completed")
     hospitality.create_service_request("other-property", {"description": "Other property must stay hidden"})
 
@@ -112,8 +125,18 @@ def test_admin_service_requests_are_filtered_and_paginated_across_the_property(a
     assert completed_today.json()["total"] == 1
     assert completed_today.json()["service_requests"][0]["request_id"] == completed["request_id"]
     assert completed_today.json()["summary"]["completed_today"] == 1
+    unassigned = admin_client.get(f"/api/admin/properties/{property_id}/service-requests?status=all&queue_view=unassigned")
+    mine = admin_client.get(f"/api/admin/properties/{property_id}/service-requests?status=all&queue_view=mine")
+    urgent = admin_client.get(f"/api/admin/properties/{property_id}/service-requests?status=all&queue_view=urgent")
+    completed_view = admin_client.get(f"/api/admin/properties/{property_id}/service-requests?status=all&queue_view=completed")
+    assert unassigned.status_code == mine.status_code == urgent.status_code == completed_view.status_code == 200
+    assert unassigned.json()["total"] == 53
+    assert mine.json()["total"] == 1 and mine.json()["service_requests"][0]["request_id"] == created[0]["request_id"]
+    assert urgent.json()["total"] == 1 and urgent.json()["service_requests"][0]["request_id"] == created[0]["request_id"]
+    assert completed_view.json()["total"] == 1 and completed_view.json()["service_requests"][0]["request_id"] == completed["request_id"]
     assert admin_client.get(f"/api/admin/properties/{property_id}/service-requests?limit=101").status_code == 422
     assert admin_client.get(f"/api/admin/properties/{property_id}/service-requests?status=made_up").status_code == 422
+    assert admin_client.get(f"/api/admin/properties/{property_id}/service-requests?queue_view=made_up").status_code == 422
 
 
 def test_overdue_escalations_are_bounded_scoped_and_idempotent(tmp_path: Path):

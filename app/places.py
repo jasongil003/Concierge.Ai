@@ -54,6 +54,15 @@ _PRICE_LEVELS = {
     "PRICE_LEVEL_EXPENSIVE",
     "PRICE_LEVEL_VERY_EXPENSIVE",
 }
+DISCOVERY_CATEGORY_QUERIES = {
+    "restaurants": "restaurants nearby",
+    "cafes": "cafes nearby",
+    "nightlife": "bars nearby",
+    "attractions": "attractions nearby",
+    "shopping": "shopping nearby",
+    "pharmacies": "pharmacy nearby",
+    "groceries": "grocery stores nearby",
+}
 _MAX_GOOGLE_RADIUS_METERS = 50_000
 _MAX_GOOGLE_RESULTS = 20
 
@@ -186,7 +195,13 @@ def _safe_provider_category(place: dict[str, Any]) -> str | None:
     return None
 
 
-def _valid_place(place: Any, origin: tuple[float, float], radius_meters: float) -> dict[str, Any] | None:
+def _valid_place(
+    place: Any,
+    origin: tuple[float, float],
+    radius_meters: float,
+    *,
+    include_coordinates: bool = False,
+) -> dict[str, Any] | None:
     if not isinstance(place, dict):
         return None
     point = place.get("location")
@@ -235,7 +250,7 @@ def _valid_place(place: Any, origin: tuple[float, float], radius_meters: float) 
         if isinstance(item, str)
     ]
 
-    return {
+    result = {
         "place_id": place_id,
         "name": name.strip()[:300],
         "category": _safe_provider_category(place),
@@ -249,6 +264,11 @@ def _valid_place(place: Any, origin: tuple[float, float], radius_meters: float) 
         "distance_type": "straight_line",
         "maps_url": _safe_google_maps_url(place.get("googleMapsUri")),
     }
+    # Coordinates are only needed in the admin discovery response. The public
+    # guest-chat response keeps its established, smaller result contract.
+    if include_coordinates:
+        result["latitude"], result["longitude"] = coordinates
+    return result
 
 
 class GooglePlaces:
@@ -264,6 +284,7 @@ class GooglePlaces:
         open_now: bool = True,
         radius_meters: int | None = None,
         max_results: int | None = None,
+        include_coordinates: bool = False,
     ) -> list[dict[str, Any]]:
         places, _ = await self.search_with_status(
             message,
@@ -272,6 +293,7 @@ class GooglePlaces:
             open_now=open_now,
             radius_meters=radius_meters,
             max_results=max_results,
+            include_coordinates=include_coordinates,
         )
         return places
 
@@ -283,6 +305,7 @@ class GooglePlaces:
         open_now: bool = True,
         radius_meters: int | None = None,
         max_results: int | None = None,
+        include_coordinates: bool = False,
     ) -> tuple[list[dict[str, Any]], str]:
         """Search live and report why no verified results were returned.
 
@@ -328,7 +351,7 @@ class GooglePlaces:
                 "places.id,places.displayName,places.formattedAddress,"
                 "places.rating,places.userRatingCount,places.priceLevel,"
                 "places.currentOpeningHours.openNow,places.currentOpeningHours.weekdayDescriptions,"
-                "places.googleMapsUri,places.location,places.primaryTypeDisplayName,places.primaryType"
+                "places.googleMapsUri,places.location,places.primaryTypeDisplayName,places.primaryType,places.attributions"
             ),
         }
 
@@ -356,9 +379,38 @@ class GooglePlaces:
         places = [
             result
             for place in provider_places[:result_limit]
-            if (result := _valid_place(place, origin, radius)) is not None
+            if (result := _valid_place(place, origin, radius, include_coordinates=include_coordinates)) is not None
         ]
         return places, "available" if places else "empty"
+
+    async def discover(
+        self,
+        category: str,
+        latitude: float | None,
+        longitude: float | None,
+        *,
+        radius_meters: int = 5000,
+        max_results: int = 8,
+    ) -> tuple[list[dict[str, Any]], str]:
+        """Run a bounded category search for the admin curation workflow.
+
+        The query always comes from the fixed category allow-list. Provider
+        content is returned to the caller for display and is never persisted by
+        this adapter.
+        """
+        query = DISCOVERY_CATEGORY_QUERIES.get(category)
+        if query is None:
+            return [], "invalid_category"
+        places, status = await self.search_with_status(
+            query,
+            latitude,
+            longitude,
+            open_now=False,
+            radius_meters=radius_meters,
+            max_results=max_results,
+            include_coordinates=True,
+        )
+        return places, status
 
 
 def _result_limit(value: Any) -> int:

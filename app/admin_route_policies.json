@@ -111,6 +111,38 @@
     "authentication": "required",
     "permission": "properties.view"
   },
+  "GET /api/admin/properties/{property_id}/conversation-modules": {
+    "authentication": "required",
+    "permission": "properties.view"
+  },
+  "POST /api/admin/properties/{property_id}/conversation-modules": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "POST /api/admin/properties/{property_id}/conversation-modules/reorder": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "POST /api/admin/properties/{property_id}/conversation-modules/{module_id}/archive": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "POST /api/admin/properties/{property_id}/conversation-modules/{module_id}/publish": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "POST /api/admin/properties/{property_id}/conversation-modules/{module_id}/rollback": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "DELETE /api/admin/properties/{property_id}/conversation-modules/{module_id}": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
+  "PUT /api/admin/properties/{property_id}/conversation-modules/{module_id}": {
+    "authentication": "required",
+    "permission": "properties.edit"
+  },
   "GET /api/admin/properties/{property_id}/ai": {
     "authentication": "required",
     "permission": "ai.view"
@@ -251,6 +283,14 @@
     "authentication": "required",
     "permission": "properties.view"
   },
+  "GET /api/admin/properties/{property_id}/personalization/diagnostics": {
+    "authentication": "required",
+    "permission": "properties.view"
+  },
+  "GET /api/admin/properties/{property_id}/personalization/history": {
+    "authentication": "required",
+    "permission": "properties.view"
+  },
   "GET /api/admin/properties/{property_id}/recommendations": {
     "authentication": "required",
     "permission": "properties.view"
@@ -292,6 +332,10 @@
     "permission": "requests.view"
   },
   "GET /api/admin/properties/{property_id}/sessions": {
+    "authentication": "required",
+    "permission": "guest_sessions.view"
+  },
+  "GET /api/admin/properties/{property_id}/stays/{stay_id}/guest-360": {
     "authentication": "required",
     "permission": "guest_sessions.view"
   },
@@ -529,11 +573,11 @@
   },
   "POST /api/admin/properties/{property_id}/location/observations": {
     "authentication": "required",
-    "permission": "properties.edit"
+    "permission": "guest_sessions.manage"
   },
   "POST /api/admin/properties/{property_id}/location/report": {
     "authentication": "required",
-    "permission": "properties.edit"
+    "permission": "analytics.view"
   },
   "POST /api/admin/properties/{property_id}/menus/{menu_id}/approve": {
     "authentication": "required",
@@ -636,6 +680,14 @@
     "permission": "requests.manage"
   },
   "POST /api/admin/properties/{property_id}/sessions/reconnect": {
+    "authentication": "required",
+    "permission": "guest_sessions.manage"
+  },
+  "POST /api/admin/properties/{property_id}/sessions/{session_id}/expire": {
+    "authentication": "required",
+    "permission": "guest_sessions.manage"
+  },
+  "POST /api/admin/properties/{property_id}/guest-sessions/{guest_session_id}/unlink": {
     "authentication": "required",
     "permission": "guest_sessions.manage"
   },
@@ -790,6 +842,26 @@
   "GET /api/admin/properties/{property_id}/conversations": {
     "authentication": "required",
     "permission": "conversations.view"
+  },
+  "GET /api/admin/properties/{property_id}/conversations/{session_id}/detail": {
+    "authentication": "required",
+    "permission": "conversations.view"
+  },
+  "POST /api/admin/properties/{property_id}/conversations/{session_id}/read": {
+    "authentication": "required",
+    "permission": "conversations.view"
+  },
+  "POST /api/admin/properties/{property_id}/conversations/{session_id}/notes": {
+    "authentication": "required",
+    "permission": "conversations.notes.manage"
+  },
+  "POST /api/admin/properties/{property_id}/conversations/{session_id}/route": {
+    "authentication": "required",
+    "permission": "conversations.assign"
+  },
+  "POST /api/admin/properties/{property_id}/conversations/{session_id}/reopen": {
+    "authentication": "required",
+    "permission": "conversations.resolve"
   },
   "GET /api/admin/properties/{property_id}/restaurants/{restaurant_id}/staff": {
     "authentication": "required",

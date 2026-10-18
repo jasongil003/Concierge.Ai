@@ -5,6 +5,7 @@ from pathlib import Path
 from app.guest_identity import GuestIdentityStore, pseudonymous_device_id
 from app.intro import IntroExperienceStore
 from app.location_analytics import LocationAnalyticsStore
+import app.location_analytics as location_analytics_module
 from app.properties import PropertyRecord, PropertyStore
 import app.zones as zones_module
 from app.zones import ZoneStore
@@ -119,6 +120,24 @@ def test_location_analytics_observation_dwell_movement_and_aggregation(tmp_path:
     assert report["area_metrics"][lobby["zone_id"]]["average_dwell_seconds"] == 120
     assert report["movement_patterns"][0]["source_zone_id"] == lobby["zone_id"]
     assert report["movement_patterns"][0]["destination_zone_id"] == pool["zone_id"]
+
+
+def test_live_location_summary_is_recent_property_scoped_and_does_not_expose_device_ids(tmp_path: Path, monkeypatch):
+    _, _, _, analytics, _ = _stores(tmp_path)
+    monkeypatch.setattr(location_analytics_module, "_now", lambda: 1_000)
+    analytics.record_observation("hotel-a", "pseudonymous-a", "lobby", "ap-a", stay_id="stay-a", observed_at=960)
+    analytics.record_observation("hotel-a", "pseudonymous-a", "lobby", "ap-a", stay_id="stay-a", observed_at=970)
+    analytics.record_observation("hotel-a", "pseudonymous-old", "pool", "ap-b", stay_id="stay-b", observed_at=10)
+    analytics.record_observation("hotel-b", "other-property", "lobby", "ap-c", stay_id="stay-c", observed_at=990)
+
+    summary = analytics.live("hotel-a")
+
+    assert summary["currently_detected"] == 1
+    assert summary["active_sessions"] == 1
+    assert summary["occupancy_by_zone"] == {"lobby": 1}
+    assert summary["last_observation_at"] == 970
+    assert summary["window_minutes"] == 15
+    assert "device_id" not in summary
 
 
 def test_location_peak_hours_are_property_local_and_deduplicate_devices_per_day(tmp_path: Path):

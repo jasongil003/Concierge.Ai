@@ -140,6 +140,10 @@ class GuestIdentityStore:
             )
         return device_id
 
+    def preview_device_id(self, property_id: str, raw_mac: str) -> str:
+        """Compute the property-scoped pseudonym without recording a device observation."""
+        return pseudonymous_device_id(self.property_secret(property_id), raw_mac)
+
     def reconnect_or_create_stay(
         self,
         property_id: str,
@@ -154,6 +158,33 @@ class GuestIdentityStore:
         now = _now()
         keep_days = max(int(retention_days), 0)
         with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if concierge_session_id:
+                existing = db.execute(
+                    """SELECT gs.guest_session_id,gs.stay_id,s.device_id,s.status
+                    FROM guest_sessions gs JOIN concierge_stays s
+                      ON s.stay_id=gs.stay_id AND s.property_id=gs.property_id
+                    WHERE gs.property_id=? AND gs.concierge_session_id=?
+                    ORDER BY gs.last_seen_at DESC LIMIT 1""",
+                    (property_id, concierge_session_id),
+                ).fetchone()
+                if existing:
+                    if existing["status"] != "active" or existing["device_id"] != device_id:
+                        raise ValueError("That Concierge session is already linked to a different stay or device.")
+                    db.execute(
+                        """UPDATE concierge_stays SET room=COALESCE(?,room),pms_guest_id=COALESCE(?,pms_guest_id),
+                        retention_days=?,updated_at=? WHERE property_id=? AND stay_id=? AND status='active'""",
+                        (room, pms_guest_id, keep_days, now, property_id, existing["stay_id"]),
+                    )
+                    db.execute(
+                        "UPDATE guest_sessions SET last_seen_at=? WHERE property_id=? AND guest_session_id=?",
+                        (now, property_id, existing["guest_session_id"]),
+                    )
+                    stay = db.execute(
+                        "SELECT * FROM concierge_stays WHERE property_id=? AND stay_id=?",
+                        (property_id, existing["stay_id"]),
+                    ).fetchone()
+                    return self._stay_dict(stay, str(existing["guest_session_id"]))
             stay = db.execute(
                 """SELECT * FROM concierge_stays
                 WHERE property_id=? AND device_id=? AND status='active'
@@ -214,6 +245,18 @@ class GuestIdentityStore:
             ).fetchone()
         return self._stay_dict(row) if row else None
 
+    def stay_for_session(self, property_id: str, concierge_session_id: str) -> dict[str, Any] | None:
+        """Return the most recent explicitly linked stay without crossing property scope."""
+        with self._connect() as db:
+            row = db.execute(
+                """SELECT s.* FROM guest_sessions gs
+                JOIN concierge_stays s ON s.stay_id=gs.stay_id AND s.property_id=gs.property_id
+                WHERE gs.property_id=? AND gs.concierge_session_id=?
+                ORDER BY gs.last_seen_at DESC,s.updated_at DESC LIMIT 1""",
+                (property_id, concierge_session_id),
+            ).fetchone()
+        return self._stay_dict(row) if row else None
+
     def checkout(self, property_id: str, stay_id: str, anonymize: bool = True) -> dict[str, Any]:
         now = _now()
         with self._connect() as db:
@@ -250,6 +293,41 @@ class GuestIdentityStore:
                 (property_id, stay_id),
             ).fetchall()
         return list(dict.fromkeys(str(row["concierge_session_id"]) for row in rows if row["concierge_session_id"]))
+
+    def get_stay(self, property_id: str, stay_id: str) -> dict[str, Any] | None:
+        """Return a stay only when both its ID and property match."""
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM concierge_stays WHERE property_id=? AND stay_id=?",
+                (property_id, stay_id),
+            ).fetchone()
+        return self._stay_dict(row) if row else None
+
+    def guest_sessions_for_stay(self, property_id: str, stay_id: str) -> list[dict[str, Any]]:
+        """Return property-scoped WLAN association metadata for one known stay."""
+        with self._connect() as db:
+            rows = db.execute(
+                """SELECT guest_session_id,stay_id,concierge_session_id,antlabs_session_id,
+                browser_session_id,created_at,last_seen_at FROM guest_sessions
+                WHERE property_id=? AND stay_id=? ORDER BY last_seen_at DESC,guest_session_id DESC""",
+                (property_id, stay_id),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def unlink_guest_session(self, property_id: str, guest_session_id: str) -> str:
+        """Remove only the WLAN-to-stay association, preserving the stay and app session."""
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT stay_id FROM guest_sessions WHERE property_id=? AND guest_session_id=?",
+                (property_id, guest_session_id),
+            ).fetchone()
+            if row is None:
+                raise KeyError("Guest link not found.")
+            db.execute(
+                "DELETE FROM guest_sessions WHERE property_id=? AND guest_session_id=?",
+                (property_id, guest_session_id),
+            )
+        return str(row["stay_id"])
 
     def cleanup_retention(self, property_id: str | None = None, *, now: int | None = None) -> int:
         current = _now() if now is None else int(now)

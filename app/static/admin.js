@@ -23,6 +23,8 @@ const state = {
   builderInspectorTab: "content",
   builderLibraryTab: "components",
   builderGlobalEditBefore: null,
+  backgroundImageCropDraft: null,
+  backgroundImageCropDevice: "desktop",
   builderHospitality: null,
   builderQuickActionsExpanded: false,
   builderHistory: [],
@@ -36,6 +38,10 @@ const state = {
   versions: [],
   ai: null,
   personalizationPolicy: null,
+  personalizationDiagnostics: null,
+  personalizationBaseline: null,
+  personalizationBaselinePropertyId: "",
+  personalizationSaving: false,
   improvementLoop: null,
   activeProvider: null,
   providerDirty: false,
@@ -67,6 +73,14 @@ const state = {
   selectedConversation: null,
   guestSessionLinks: [],
   guestStays: [],
+  guestModules: [],
+  guestModuleServices: [],
+  guestModuleStatusFilter: "all",
+  guestModuleSearchTimer: null,
+  selectedGuestModuleId: "",
+  guestModuleDirty: false,
+  guestModulePreviewDevice: "desktop",
+  guestModuleDragId: "",
   guestDevices: [],
   guestSelectedStay: null,
   guestSessionPages: {},
@@ -74,6 +88,8 @@ const state = {
   guestRecordCounts: null,
   guestSessionResultCount: 0,
   sessionRequestSequence: 0,
+  guest360RequestSequence: 0,
+  guest360: null,
   recommendations: [],
   hospitality: null,
   restaurantMenus: [],
@@ -91,12 +107,17 @@ const state = {
   notificationCampaignPageOffset: 0,
   notificationCampaignPageLimit: 25,
   notificationCampaignTotal: 0,
+  notificationCampaignStatusCounts: { draft: 0, publishing: 0, published: 0, failed: 0 },
+  notificationCampaignDeliveryCounts: { queued: 0, sent: 0, delivered: 0, read: 0, failed: 0, expired: 0 },
+  notificationCampaignStatusFilter: "all",
   notificationCampaignLoadVersion: 0,
   notificationCampaignPropertyId: "",
   notificationCampaignFilterSignature: null,
   notificationCampaignSearchTimer: null,
   selectedNotificationCampaignId: null,
   notificationCampaignPreview: null,
+  notificationCampaignStep: "content",
+  notificationCampaignDirty: false,
   deployment: null,
   operations: null,
   operationsPeriod: "24h",
@@ -163,7 +184,7 @@ const NAV_SECTIONS = [
       { id: "notification-campaigns", label: "Notification Campaigns", panel: "notification-campaigns", permission: "properties.edit", icon: "◉" },
       { id: "guest-preview", label: "Conversation Modules", panel: "guest", permission: "concierge.view", icon: "◫" },
       { id: "recommendations", label: "Recommendations", panel: "recommendations", permission: "properties.view", icon: "✦" },
-      { id: "location", label: "Location", panel: "location", permission: "analytics.view", icon: "⌖" },
+      { id: "location", label: "Location", panel: "location", permission: "properties.view", icon: "⌖" },
     ],
   },
   {
@@ -495,9 +516,9 @@ const PAGE_COMMENTS = {
     "Keep the map aligned with the actual property. Network access-point identifiers belong in the location workflow, not guest-facing labels."
   ],
   location: [
-    "Manage guest-visible property locations and review aggregate activity derived from configured WLAN observations.",
-    ["Create or update a location with a clear guest-facing name and map placement.", "Choose the reporting period and review the available activity summaries.", "Confirm that network observations are configured before interpreting location counts."],
-    "Location activity is an aggregate signal; it should not be treated as precise individual tracking."
+    "Manage public location descriptions, review the published indoor map, and inspect aggregate WLAN observations when your role permits.",
+    ["Use the map studio for floor plans, guest waypoints, accessibility routes, and publication.", "Add verified guest-facing locations from the drawer and manage structured facility details in Facilities.", "Choose a property-local report period and read device counts as approximate observations, never as people counts."],
+    "WLAN identifiers are mapped to zones; the application does not provide precise indoor positioning or directly configure network hardware. Guest location consent and active stay checks are enforced on observation ingestion."
   ],
   intro: [
     "Configure the branded welcome or introductory experience guests see before starting a concierge conversation.",
@@ -868,6 +889,10 @@ function activatePanel(panelId, navId = null) {
     showPropertyOnboarding(`Create or select a property to view ${requestedItem?.label || "this page"}.`);
     return;
   }
+  const activePanelId = document.querySelector(".platform-main > .panel.active")?.id;
+  if (activePanelId === "personalization-settings" && panelId !== activePanelId && personalizationIsDirty()) {
+    if (!window.confirm("Discard unsaved personalization changes and leave this page?")) return false;
+  }
   const panel = ensurePanel(panelId);
   document.querySelector(".platform-shell")?.classList.toggle("is-design-panel", panelId === "appearance");
   if (panel) addPageComment(panel);
@@ -908,7 +933,7 @@ function activatePanel(panelId, navId = null) {
   if (panelId === "recommendations" && currentPropertyId()) loadRecommendations().catch((error) => showToast(error.message, "error"));
   if (panelId === "hotel-information" && currentPropertyId()) loadHotelInformation();
   if (panelId === "rooms" && currentPropertyId()) renderRooms();
-  if (panelId === "guest" && currentPropertyId()) renderGuestModules();
+  if (panelId === "guest" && currentPropertyId()) loadGuestModules().catch((error) => showToast(error.message, "error"));
   if (["facilities", "restaurants"].includes(panelId) && currentPropertyId()) loadHospitalityManagement().catch((error) => showToast(error.message, "error"));
   if (panelId === "ai-usage" && currentPropertyId()) loadAIUsage().catch((error) => showToast(error.message, "error"));
   if (panelId === "wifi" && currentPropertyId()) loadAntlabsStatus().catch((error) => showToast(error.message, "error"));
@@ -942,7 +967,26 @@ function hasValidPropertyContext() {
 }
 
 async function loadPersonalizationPolicy() {
-  const config = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/personalization`);
+  const propertyId = currentPropertyId();
+  if (!propertyId) throw new Error("Select a property to view personalization settings.");
+  $("personalization-save-state").textContent = "Loading saved policy…";
+  $("personalization-form-error").hidden = true;
+  $("save-personalization-policy").disabled = true;
+  setPersonalizationControlsEnabled(false);
+  let config;
+  try {
+    config = await jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}/personalization`);
+  } catch (error) {
+    if (propertyId === currentPropertyId()) {
+      state.personalizationBaseline = null;
+      state.personalizationBaselinePropertyId = "";
+      $("personalization-save-state").textContent = "Saved policy unavailable";
+      $("personalization-form-error").hidden = false;
+      $("personalization-form-error").textContent = error.message || "Saved personalization policy could not be loaded.";
+    }
+    throw error;
+  }
+  if (propertyId !== currentPropertyId()) return;
   state.personalizationPolicy = config;
   $("personalization-enabled").checked = Boolean(config.enabled);
   $("personalization-default-level").value = config.default_level || "private";
@@ -957,33 +1001,343 @@ async function loadPersonalizationPolicy() {
   $("personalization-location").checked = Boolean(config.allow_location_aware_recommendations);
   $("personalization-internet").checked = Boolean(config.allow_internet_recommendations);
   $("personalization-retention-days").disabled = $("personalization-retention").value !== "configurable";
-  const personalOption = $("personalization-default-level").querySelector('option[value="personal"]');
-  personalOption.disabled = !config.allow_guest_profile;
+  updatePersonalizationDependencies();
+  setPersonalizationControlsEnabled(true);
+  renderPersonalizationPolicySummary(config);
+  renderGuestPrivacyPreview();
+  state.personalizationBaseline = personalizationFormPayload();
+  state.personalizationBaselinePropertyId = propertyId;
+  setPersonalizationDirtyStatus();
+  const [diagnosticsResult, historyResult] = await Promise.allSettled([
+    jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}/personalization/diagnostics`),
+    jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}/personalization/history`),
+  ]);
+  if (propertyId !== currentPropertyId()) return;
+  if (diagnosticsResult.status === "fulfilled") {
+    state.personalizationDiagnostics = diagnosticsResult.value;
+    renderPersonalizationDiagnostics(diagnosticsResult.value);
+  } else {
+    state.personalizationDiagnostics = null;
+    renderPersonalizationDiagnosticsError(diagnosticsResult.reason);
+  }
+  if (historyResult.status === "fulfilled") renderPersonalizationHistory(historyResult.value);
+  else renderPersonalizationHistoryError(historyResult.reason);
 }
 
-async function savePersonalizationPolicy() {
+function personalizationFormPayload() {
   const retentionMode = $("personalization-retention").value;
-  const retentionDays = retentionMode === "configurable" ? Number($("personalization-retention-days").value) : 2;
-  if (retentionMode === "configurable" && (!Number.isInteger(retentionDays) || retentionDays < 1 || retentionDays > 365)) {
-    throw new Error("Configurable memory expiry must be between 1 and 365 days.");
-  }
-  const payload = {
+  return {
     enabled: $("personalization-enabled").checked,
     default_level: $("personalization-default-level").value,
     allow_preference_learning: $("personalization-learning").checked,
     allow_guest_profile: $("personalization-profile").checked,
     delete_profile_at_checkout: $("personalization-delete-checkout").checked,
-    memory_retention: $("personalization-retention").value,
-    memory_retention_days: retentionDays,
+    memory_retention: retentionMode,
+    memory_retention_days: retentionMode === "configurable" ? Number($("personalization-retention-days").value) : 2,
     allow_pms_personalization: $("personalization-pms").checked,
     allow_location_aware_recommendations: $("personalization-location").checked,
     allow_internet_recommendations: $("personalization-internet").checked,
   };
-  state.personalizationPolicy = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/personalization`, {
-    method: "PUT",
-    body: JSON.stringify({ data: payload }),
-  });
-  showToast("Personalization settings saved.");
+}
+
+function setPersonalizationControlsEnabled(enabled) {
+  const allowed = Boolean(enabled && can("properties.edit"));
+  for (const id of [
+    "personalization-enabled", "personalization-default-level", "personalization-learning",
+    "personalization-profile", "personalization-delete-checkout", "personalization-retention",
+    "personalization-pms", "personalization-location", "personalization-internet",
+  ]) $(id).disabled = !allowed;
+  $("personalization-retention-days").disabled = !allowed || $("personalization-retention").value !== "configurable";
+}
+
+function personalizationIsDirty() {
+  return Boolean(state.personalizationBaseline && state.personalizationBaselinePropertyId === currentPropertyId()
+    && JSON.stringify(personalizationFormPayload()) !== JSON.stringify(state.personalizationBaseline));
+}
+
+function setPersonalizationDirtyStatus() {
+  const dirty = personalizationIsDirty();
+  const stateLabel = $("personalization-save-state");
+  if (stateLabel) stateLabel.textContent = state.personalizationSaving ? "Saving policy…" : dirty ? "Unsaved changes" : (state.personalizationBaseline ? "All changes saved" : "Saved policy not loaded");
+  const save = $("save-personalization-policy");
+  if (save) save.disabled = !dirty || state.personalizationSaving || !can("properties.edit");
+  const discard = $("discard-personalization-changes");
+  if (discard) discard.disabled = !dirty || state.personalizationSaving;
+}
+
+function updatePersonalizationDependencies() {
+  const profileAllowed = $("personalization-profile").checked;
+  const personalOption = $("personalization-default-level").querySelector('option[value="personal"]');
+  personalOption.disabled = !profileAllowed;
+  if (!profileAllowed && $("personalization-default-level").value === "personal") {
+    $("personalization-default-level").value = "stay";
+    $("personalization-form-error").hidden = false;
+    $("personalization-form-error").textContent = "Personal Concierge needs profile memory. The suggested default was changed to Stay Personalization.";
+  }
+  const configurable = $("personalization-retention").value === "configurable";
+  $("personalization-retention-days").disabled = !configurable;
+  if (!configurable) $("personalization-retention-days").value = "2";
+  const profileLabel = $("personalization-metric-expiring-detail");
+  if (profileLabel) profileLabel.textContent = configurable ? "Profiles and preferences · configured idle expiry" : "Profiles and preferences · fixed 2-day idle expiry";
+}
+
+function renderPersonalizationPolicySummary(config) {
+  $("personalization-overview-status").textContent = config.enabled ? "Available" : "Off";
+  const levels = { private: "Private / Anonymous", stay: "Stay Personalization", personal: "Personal Concierge" };
+  $("personalization-overview-default").textContent = `Suggested guest choice: ${levels[config.default_level] || levels.private}`;
+  const updatedAt = config.updated_at ? new Date(Number(config.updated_at) * 1000) : null;
+  $("personalization-last-updated").textContent = updatedAt && !Number.isNaN(updatedAt.valueOf())
+    ? `Policy last saved ${updatedAt.toLocaleString()}` : "Policy has not been changed from its saved default";
+}
+
+function renderGuestPrivacyPreview() {
+  const choices = [
+    ["location_services", "Location services", "Allow location-based hotel features. This screen does not request device GPS."],
+    ["proactive_notifications", "Proactive stay updates", "Allow the hotel to send relevant updates during your stay."],
+    ["promotional_messages", "Promotional messages", "Allow offers and promotional messages."],
+    ["external_data_processing", "External data processing", "Allow external service providers to process data for concierge features."],
+  ];
+  for (const containerId of ["personalization-guest-consent-preview", "personalization-dialog-consent-preview"]) {
+    const container = $(containerId);
+    if (!container) continue;
+    container.replaceChildren();
+    for (const [category, label, description] of choices) {
+      const row = document.createElement("label");
+      row.className = "personalization-consent-choice";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.disabled = true;
+      input.dataset.consentCategory = category;
+      const copy = document.createElement("span");
+      const title = document.createElement("strong");
+      title.textContent = label;
+      const detail = document.createElement("small");
+      detail.textContent = description;
+      copy.append(title, detail);
+      row.append(input, copy);
+      container.append(row);
+    }
+  }
+}
+
+function renderPersonalizationDiagnostics(diagnostics) {
+  const memory = diagnostics.memory || {};
+  const recommendation = diagnostics.recommendations || {};
+  const consent = diagnostics.consent_records || {};
+  const safeCount = (value) => Number.isFinite(Number(value)) ? Math.max(0, Number(value)) : 0;
+  $("personalization-metric-opt-ins").textContent = String(safeCount(memory.unexpired_opt_ins));
+  const expiring = safeCount(memory.profiles_expiring_within_24h) + safeCount(memory.preferences_expiring_within_24h);
+  $("personalization-metric-expiring").textContent = String(expiring);
+  $("personalization-expired-queue").textContent = `${safeCount(memory.expired_records_awaiting_cleanup)} expired records are awaiting or eligible for cleanup`;
+  $("personalization-cleanup-pending").textContent = String(safeCount(memory.expired_records_awaiting_cleanup));
+  $("personalization-cleanup-due").textContent = String(expiring);
+  $("personalization-cleanup-status").textContent = diagnostics.cleanup?.explanation || "Cleanup job history is not tracked.";
+  $("personalization-cleanup-badge").textContent = "Job history not tracked";
+  $("personalization-cleanup-last-success").textContent = diagnostics.cleanup?.last_success_at ? new Date(Number(diagnostics.cleanup.last_success_at) * 1000).toLocaleString() : "Not tracked";
+  $("personalization-cleanup-failures").textContent = diagnostics.cleanup?.failed_jobs == null ? "Not tracked" : String(safeCount(diagnostics.cleanup.failed_jobs));
+  const categories = $("personalization-supported-categories");
+  categories.replaceChildren();
+  for (const item of memory.supported_categories || []) {
+    const pill = document.createElement("span");
+    pill.textContent = item.label;
+    categories.append(pill);
+  }
+  if (!categories.childElementCount) categories.textContent = "No supported categories were reported.";
+  renderConsentCounts(consent);
+  const allReady = Boolean(recommendation.ready_to_attempt);
+  $("personalization-overview-recommendations").textContent = allReady ? "Configured" : "Needs setup";
+  $("personalization-overview-recommendations-note").textContent = allReady
+    ? "Provider is attempted only for eligible searches with guest external-data consent."
+    : "Property location, provider, policy, and search guardrails must all be ready.";
+  $("personalization-hotel-source-count").textContent = String(safeCount(recommendation.hotel_managed_enabled_count));
+  $("personalization-hotel-source-status").textContent = safeCount(recommendation.hotel_managed_enabled_count) ? "Available to guests" : "No enabled property recommendations";
+  $("personalization-places-source-count").textContent = recommendation.provider_key_configured ? "Key set" : "Not set";
+  $("personalization-places-source-status").textContent = recommendation.provider_key_configured ? "Configured; live availability is checked per guest search" : "Unavailable: provider key is not configured";
+  $("personalization-places-source-detail").textContent = recommendation.provider_key_configured ? "Provider credentials are never displayed here." : "Ask a platform administrator to configure the provider.";
+  const prerequisites = $("personalization-recommendation-prerequisites");
+  prerequisites.replaceChildren();
+  const labels = {
+    property_location: "Property coordinates configured",
+    places_provider_configured: "Google Places credential configured",
+    location_aware_recommendations: "Property allows location-aware recommendations",
+    internet_recommendations: "Property allows internet recommendations",
+    nearby_search_guardrails: "Nearby search guardrails allow at least one category",
+  };
+  for (const [key, label] of Object.entries(labels)) {
+    const ready = Boolean(recommendation.prerequisites?.[key]);
+    const row = document.createElement("p");
+    row.className = ready ? "is-ready" : "is-missing";
+    const mark = document.createElement("span");
+    mark.setAttribute("aria-hidden", "true");
+    mark.textContent = ready ? "✓" : "!";
+    const text = document.createElement("span");
+    text.textContent = label;
+    const status = document.createElement("strong");
+    status.textContent = ready ? "Ready" : "Required";
+    row.append(mark, text, status);
+    prerequisites.append(row);
+  }
+  const pms = diagnostics.pms || {};
+  $("personalization-pms-status").textContent = pms.sync_provider === "not_configured" ? "No PMS sync" : "Configured";
+  $("personalization-pms-description").textContent = pms.available_behavior || "PMS synchronization status is unavailable.";
+}
+
+function renderConsentCounts(consent) {
+  const records = consent.categories || {};
+  $("personalization-consent-total").textContent = `${Number(consent.total_within_expiry) || 0} records`;
+  const target = $("personalization-consent-summary");
+  target.replaceChildren();
+  for (const [category, counts] of Object.entries(records)) {
+    const row = document.createElement("div");
+    row.className = "personalization-consent-total-row";
+    const name = document.createElement("strong");
+    name.textContent = counts.label || category.replaceAll("_", " ");
+    const amount = document.createElement("span");
+    amount.textContent = `${Number(counts.granted) || 0} allowed · ${Number(counts.not_granted) || 0} declined`;
+    row.append(name, amount);
+    target.append(row);
+  }
+  if (!target.childElementCount) target.textContent = "No unexpired consent records are available.";
+}
+
+function renderPersonalizationDiagnosticsError(error) {
+  const message = error?.message || "Operational diagnostics could not be loaded.";
+  $("personalization-consent-total").textContent = "Unavailable";
+  $("personalization-consent-summary").textContent = message;
+  $("personalization-supported-categories").textContent = "Supported categories are unavailable.";
+  $("personalization-expired-queue").textContent = "Expiry counts unavailable.";
+  $("personalization-recommendation-prerequisites").textContent = "Recommendation prerequisites could not be loaded.";
+}
+
+function renderPersonalizationHistory(result) {
+  const target = $("personalization-policy-history");
+  target.replaceChildren();
+  const items = Array.isArray(result.items) ? result.items : [];
+  if (!items.length) {
+    const empty = document.createElement("p");
+    empty.textContent = "No policy changes are recorded yet. Changes made from this page will appear here.";
+    target.append(empty);
+  } else {
+    for (const item of items) {
+      const row = document.createElement("article");
+      row.className = "personalization-history-entry";
+      const heading = document.createElement("div");
+      const actor = document.createElement("strong");
+      actor.textContent = item.actor || "Administrator";
+      const date = document.createElement("time");
+      const seconds = Number(item.timestamp);
+      const dateValue = Number.isFinite(seconds) ? new Date(seconds * 1000) : new Date(item.timestamp);
+      date.textContent = Number.isNaN(dateValue.valueOf()) ? "Time unavailable" : dateValue.toLocaleString();
+      heading.append(actor, date);
+      const changes = document.createElement("ul");
+      for (const [key, value] of Object.entries(item.changes || {})) {
+        const line = document.createElement("li");
+        const label = document.createElement("strong");
+        label.textContent = key.replaceAll("_", " ");
+        const from = value?.from === true ? "On" : value?.from === false ? "Off" : String(value?.from ?? "—");
+        const to = value?.to === true ? "On" : value?.to === false ? "Off" : String(value?.to ?? "—");
+        line.append(label, document.createTextNode(`: ${from} → ${to}`));
+        changes.append(line);
+      }
+      row.append(heading, changes);
+      target.append(row);
+    }
+  }
+  const note = document.createElement("small");
+  note.className = "personalization-history-note";
+  note.textContent = "History is read from the latest 500 administrative audit events; older entries may no longer be included.";
+  target.append(note);
+}
+
+function renderPersonalizationHistoryError(error) {
+  $("personalization-policy-history").textContent = error?.message || "Policy history could not be loaded.";
+}
+
+function setPersonalizationTab(name, focus = false) {
+  for (const tab of document.querySelectorAll("[data-personalization-tab]")) {
+    const selected = tab.dataset.personalizationTab === name;
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    const panel = $(tab.getAttribute("aria-controls"));
+    if (panel) panel.hidden = !selected;
+    if (selected && focus) tab.focus();
+  }
+}
+
+function discardPersonalizationChanges() {
+  const baseline = state.personalizationBaseline;
+  if (!baseline || state.personalizationBaselinePropertyId !== currentPropertyId()) return;
+  $("personalization-enabled").checked = baseline.enabled;
+  $("personalization-default-level").value = baseline.default_level;
+  $("personalization-learning").checked = baseline.allow_preference_learning;
+  $("personalization-profile").checked = baseline.allow_guest_profile;
+  $("personalization-delete-checkout").checked = baseline.delete_profile_at_checkout;
+  $("personalization-retention").value = baseline.memory_retention;
+  $("personalization-retention-days").dataset.configurableValue = String(baseline.memory_retention_days);
+  $("personalization-retention-days").value = String(baseline.memory_retention_days);
+  $("personalization-pms").checked = baseline.allow_pms_personalization;
+  $("personalization-location").checked = baseline.allow_location_aware_recommendations;
+  $("personalization-internet").checked = baseline.allow_internet_recommendations;
+  $("personalization-form-error").hidden = true;
+  updatePersonalizationDependencies();
+  setPersonalizationDirtyStatus();
+}
+
+async function savePersonalizationPolicy() {
+  if (!can("properties.edit")) {
+    $("personalization-form-error").hidden = false;
+    $("personalization-form-error").textContent = "Your account can view personalization settings but cannot change this property policy.";
+    return;
+  }
+  const payload = personalizationFormPayload();
+  if (payload.memory_retention === "configurable" && (!Number.isInteger(payload.memory_retention_days) || payload.memory_retention_days < 1 || payload.memory_retention_days > 365)) {
+    $("personalization-form-error").hidden = false;
+    $("personalization-form-error").textContent = "Idle expiry must be a whole number from 1 to 365 days.";
+    $("personalization-retention-days").focus();
+    return;
+  }
+  if (payload.default_level === "personal" && !payload.allow_guest_profile) {
+    $("personalization-form-error").hidden = false;
+    $("personalization-form-error").textContent = "Allow Personal Concierge profiles before selecting it as the suggested guest level.";
+    $("personalization-profile").focus();
+    return;
+  }
+  state.personalizationSaving = true;
+  $("personalization-form-error").hidden = true;
+  setPersonalizationControlsEnabled(false);
+  $("personalization-save-state").textContent = "Saving policy…";
+  setPersonalizationDirtyStatus();
+  try {
+    const propertyId = currentPropertyId();
+    const saved = await jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}/personalization`, {
+      method: "PUT",
+      body: JSON.stringify({ data: payload }),
+    });
+    state.personalizationPolicy = saved;
+    state.personalizationBaseline = personalizationFormPayload();
+    state.personalizationBaselinePropertyId = propertyId;
+    renderPersonalizationPolicySummary(saved);
+    setPersonalizationDirtyStatus();
+    showToast("Personalization settings saved.");
+    const [diagnosticsResult, historyResult] = await Promise.allSettled([
+      jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}/personalization/diagnostics`),
+      jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}/personalization/history`),
+    ]);
+    if (propertyId === currentPropertyId()) {
+      if (diagnosticsResult.status === "fulfilled") renderPersonalizationDiagnostics(diagnosticsResult.value);
+      else renderPersonalizationDiagnosticsError(diagnosticsResult.reason);
+      if (historyResult.status === "fulfilled") renderPersonalizationHistory(historyResult.value);
+      else renderPersonalizationHistoryError(historyResult.reason);
+    }
+  } catch (error) {
+    $("personalization-form-error").hidden = false;
+    $("personalization-form-error").textContent = error.message || "Settings could not be saved. Review the values and try again.";
+    throw error;
+  } finally {
+    state.personalizationSaving = false;
+    setPersonalizationControlsEnabled(true);
+    setPersonalizationDirtyStatus();
+  }
 }
 
 async function loadDashboard() {
@@ -1468,53 +1822,279 @@ async function deleteRoom(id) {
   await savePropertyBasics(); renderRooms(); showToast("Room deleted.");
 }
 
-function renderGuestModules() {
-  const list = $("guest-module-list"); list.innerHTML = "";
-  const modules = [...(state.property.guest_modules || [])].sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
-  const enabledCount = modules.filter((module) => module.enabled !== false).length;
-  $("guest-module-count").textContent = modules.length + (modules.length === 1 ? " module" : " modules") + " · " + enabledCount + " shown to guests";
-  for (const module of modules) {
-    const row = document.createElement("div"); row.className = "compact-row module-saved-row"; row.innerHTML = `<strong>${escapeHTML(module.name)}</strong><span>${module.enabled !== false ? "Shown to guests" : "Hidden"} · menu position ${Number(module.order || 0)}</span><span>${escapeHTML(module.prompt || "")}</span>`;
-    const edit = makeActionButton("Edit", () => {
-      $("guest-module-id").value = module.id;
-      $("guest-module-name").value = module.name;
-      $("guest-module-prompt").value = module.prompt || "";
-      $("guest-module-order").value = module.order || 0;
-      $("guest-module-enabled").checked = module.enabled !== false;
-      $("guest-module-form-title").textContent = "Edit module";
-      $("save-guest-module").textContent = "Update Module";
-      $("guest-module-name").scrollIntoView({ behavior: "smooth", block: "center" });
-    });
-    const toggle = makeActionButton(module.enabled !== false ? "Hide" : "Show", () => toggleGuestModule(module.id), true);
-    const remove = makeActionButton("Delete", () => deleteGuestModule(module.id), true);
-    row.append(edit, toggle, remove); list.appendChild(row);
+const GUEST_MODULE_ICONS = { sparkles: "✦", room: "⌂", dining: "♨", map: "⌖", compass: "⌾", info: "i", service: "✧", car: "↗", help: "?" };
+const GUEST_MODULE_STARTERS = {
+  concierge: { name: "Ask the concierge", description: "Get help with your stay.", icon: "sparkles", category: "Support", group: "Concierge", display_style: "suggestion_chip", action: { type: "prompt", prompt: "I'd like help with my stay." } },
+  property_info: { name: "Property information", description: "View useful details about the hotel.", icon: "info", category: "Stay", group: "Stay", display_style: "icon_card", action: { type: "property_info" } },
+  nearby: { name: "Explore nearby", description: "Browse places and recommendations around the property.", icon: "compass", category: "Explore", group: "Explore", display_style: "action_tile", action: { type: "nearby_recommendations" } },
+  service: { name: "Request a service", description: "Ask the hotel team for an available service.", icon: "service", category: "Requests", group: "Services", display_style: "action_tile", action: { type: "service_request" } },
+  map: { name: "Property map", description: "Open the configured property map.", icon: "map", category: "Explore", group: "Explore", display_style: "suggestion_chip", action: { type: "map" } },
+};
+
+function guestModuleApiRoot() { return "/api/admin/properties/" + encodeURIComponent(currentPropertyId()) + "/conversation-modules"; }
+function guestModuleById(id) { return state.guestModules.find((item) => item.id === id) || null; }
+function guestModuleStatus(module) { return module.status === "archived" ? "archived" : module.status === "draft" || module.needs_configuration ? "draft" : module.enabled === false ? "disabled" : "published"; }
+function guestModuleHasLiveVersion(module) { return module.status !== "archived" && Number(module.published_version || 0) > 0 && module.published_config?.enabled !== false; }
+function guestModuleStatusLabel(module) {
+  const status = guestModuleStatus(module);
+  return status === "draft" && guestModuleHasLiveVersion(module) ? "Draft · v" + module.published_version + " live" : status;
+}
+function guestModuleActionLabel(module) {
+  const type = module.action?.type || (module.prompt ? "prompt" : "unconfigured");
+  return ({ prompt: "AI conversation", property_info: "Property information", nearby_recommendations: "Nearby recommendations", service_request: "Service request", map: "Property map", internal_page: "Guest page", external_url: "External link", concierge: "Concierge" })[type] || "Action needs setup";
+}
+function guestModuleCurrentConfig() {
+  const type = $("guest-module-action-type").value;
+  const action = { type };
+  for (const field of $("guest-module-action-fields").querySelectorAll("[data-module-action-field]")) {
+    const value = field.type === "checkbox" ? field.checked : field.value.trim();
+    if (value !== "" && value !== false) action[field.dataset.moduleActionField] = value;
   }
-  if (!list.children.length) list.textContent = "No guest menu actions yet. Create one with a guest-facing name and a complete prompt.";
+  return {
+    id: $("guest-module-id").value || undefined,
+    name: $("guest-module-name").value.trim(), description: $("guest-module-description").value.trim(),
+    icon: $("guest-module-icon").value, category: $("guest-module-category").value,
+    group: $("guest-module-group").value.trim(), display_style: $("guest-module-display-style").value,
+    order: Number($("guest-module-order").value || 0), enabled: $("guest-module-enabled").checked, action,
+  };
 }
-
-function clearGuestModuleForm() {
-  $("guest-module-id").value = "";
-  $("guest-module-name").value = "";
-  $("guest-module-prompt").value = "";
-  $("guest-module-order").value = "0";
-  $("guest-module-enabled").checked = true;
-  $("guest-module-form-title").textContent = "Create a module";
-  $("save-guest-module").textContent = "Save Module";
+function moduleField(label, field, value, type) {
+  const safeValue = escapeHTML(value || "");
+  if (type === "textarea") return '<label>' + label + '<textarea data-module-action-field="' + field + '" rows="4" maxlength="500" placeholder="Enter the guest-facing action">' + safeValue + '</textarea></label>';
+  return '<label>' + label + '<input data-module-action-field="' + field + '" type="' + (type || "text") + '" value="' + safeValue + '" maxlength="2048"></label>';
 }
-
-async function saveGuestModule() {
-  const name = $("guest-module-name").value.trim(); const prompt = $("guest-module-prompt").value.trim();
-  if (!name || !prompt) throw new Error("Module name and guest prompt are required.");
-  const order = Number($("guest-module-order").value || 0);
-  if (!Number.isInteger(order) || order < 0 || order > 99) throw new Error("Menu order must be a whole number from 0 to 99.");
-  const id = $("guest-module-id").value || `module_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
-  const modules = [...(state.property.guest_modules || [])]; const record = { id, name, prompt, order, enabled: $("guest-module-enabled").checked };
-  const index = modules.findIndex((item) => item.id === id); if (index >= 0) modules[index] = record; else modules.push(record);
-  state.property.guest_modules = modules; await savePropertyBasics(); clearGuestModuleForm(); renderGuestModules(); showToast("Guest menu action saved.");
+function renderGuestModuleActionFields(action = {}) {
+  const type = $("guest-module-action-type").value;
+  const mount = $("guest-module-action-fields");
+  if (type === "prompt") mount.innerHTML = moduleField("Guest message sent to concierge", "prompt", action.prompt, "textarea") + '<small>This becomes the guest’s chat message. It is not private system instruction and does not trigger privileged operations.</small>';
+  else if (type === "service_request") {
+    const options = state.guestModuleServices.map((item) => '<option value="' + escapeHTML(item.service_id) + '" ' + (item.service_id === action.service_id ? "selected" : "") + '>' + escapeHTML(item.name) + (item.department ? " · " + escapeHTML(item.department) : "") + "</option>").join("");
+    mount.innerHTML = '<label>Enabled Service Catalog item<select data-module-action-field="service_id"><option value="">Choose a service</option>' + options + '</select></label><small>The guest confirms before the real catalog request is created.</small>' + (options ? "" : '<p class="module-action-warning">No enabled services are available. Configure a service in Service Catalog first.</p>');
+  } else if (type === "internal_page") mount.innerHTML = '<label>Guest page<select data-module-action-field="page_id">' + [["home", "Home"], ["explore", "Explore"], ["requests", "Requests"], ["stay", "My Stay"], ["concierge", "Concierge"]].map((item) => '<option value="' + item[0] + '" ' + (item[0] === (action.page_id || "home") ? "selected" : "") + '>' + item[1] + "</option>").join("") + "</select></label>";
+  else if (type === "external_url") mount.innerHTML = moduleField("Approved HTTP(S) URL", "url", action.url, "url") + '<label>Open link<select data-module-action-field="open_in"><option value="new_tab">New tab</option><option value="same_tab" ' + (action.open_in === "same_tab" ? "selected" : "") + '>Same tab</option></select></label>';
+  else if (type === "map") mount.innerHTML = moduleField("Map URL (optional)", "url", action.url, "url") + "<small>If left blank, the guest app uses the configured property coordinates.</small>";
+  else if (type === "property_info") mount.innerHTML = "<p>The guest app shows the property name, configured description, and address. Add verified details in Hotel Information.</p>";
+  else if (type === "nearby_recommendations") mount.innerHTML = "<p>Opens the guest app’s existing Explore view. Available sources follow property configuration and guest consent.</p>";
+  else mount.textContent = "Choose an available action type.";
 }
-
-async function toggleGuestModule(id) { state.property.guest_modules = (state.property.guest_modules || []).map((item) => item.id === id ? { ...item, enabled: item.enabled === false } : item); await savePropertyBasics(); renderGuestModules(); showToast("Guest menu action updated."); }
-async function deleteGuestModule(id) { state.property.guest_modules = (state.property.guest_modules || []).filter((item) => item.id !== id); await savePropertyBasics(); if ($("guest-module-id").value === id) clearGuestModuleForm(); renderGuestModules(); showToast("Guest menu action deleted."); }
+function renderGuestModulePreview(config, mountId, device, append = false) {
+  const mount = $(mountId); if (!append) mount.replaceChildren();
+  mount.closest(".module-preview-stage").dataset.device = device;
+  if (!config || !config.name) { mount.innerHTML = '<div class="module-preview-empty">Select a module to preview its guest action.</div>'; return; }
+  const action = config.action || {};
+  const card = document.createElement("button"); card.type = "button"; card.className = "module-preview-action style-" + (config.display_style || "suggestion_chip");
+  card.dataset.displayStyle = config.display_style || "suggestion_chip";
+  card.disabled = true; card.setAttribute("aria-label", config.name + ". Preview only.");
+  const icon = document.createElement("span"); icon.className = "module-preview-icon"; icon.setAttribute("aria-hidden", "true"); icon.textContent = GUEST_MODULE_ICONS[config.icon] || "✦";
+  const copy = document.createElement("span"); copy.className = "module-preview-copy";
+  const title = document.createElement("strong"); title.textContent = config.name; copy.appendChild(title);
+  if (config.description) { const desc = document.createElement("small"); desc.textContent = config.description; copy.appendChild(desc); }
+  const kind = document.createElement("small"); kind.className = "module-preview-kind"; kind.textContent = guestModuleActionLabel(config); copy.appendChild(kind);
+  card.append(icon, copy); mount.appendChild(card);
+  const note = $(mountId === "module-editor-preview-items" ? "guest-module-test-result" : "module-library-preview-note");
+  if (note && mountId !== "module-editor-preview-items") note.textContent = "Published configuration preview. Guest action is not run.";
+}
+function renderGuestModules() {
+  const list = $("guest-module-list"); if (!list) return;
+  const modules = [...state.guestModules].sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+  const query = $("guest-module-search").value.trim().toLocaleLowerCase();
+  const category = $("guest-module-category-filter").value;
+  const groupFilter = $("guest-module-group-filter");
+  const selectedGroup = groupFilter.value || "all";
+  const groups = [...new Set(modules.map((item) => item.group || item.category || "Other"))].sort((a, b) => a.localeCompare(b));
+  groupFilter.replaceChildren(new Option("All groups", "all"), ...groups.map((group) => new Option(group, group)));
+  groupFilter.value = groups.includes(selectedGroup) ? selectedGroup : "all";
+  const counts = {
+    all: modules.length,
+    draft: modules.filter((item) => guestModuleStatus(item) === "draft").length,
+    published: modules.filter((item) => guestModuleHasLiveVersion(item)).length,
+    disabled: modules.filter((item) => item.status === "published" && item.enabled === false).length,
+  };
+  $("guest-module-total").textContent = counts.all; $("guest-module-drafts").textContent = counts.draft; $("guest-module-published").textContent = counts.published; $("guest-module-disabled").textContent = counts.disabled;
+  $("guest-module-count").textContent = modules.length + (modules.length === 1 ? " module" : " modules") + " · " + counts.published + " published";
+  $("module-create").disabled = !can("properties.edit");
+  $("module-new-starter").disabled = !can("properties.edit");
+  for (const button of document.querySelectorAll("[data-module-status-filter]")) button.setAttribute("aria-pressed", String(button.dataset.moduleStatusFilter === state.guestModuleStatusFilter));
+  const visible = modules.filter((item) => {
+    const status = guestModuleStatus(item);
+    const statusMatch = state.guestModuleStatusFilter === "all" || (state.guestModuleStatusFilter === "published" ? guestModuleHasLiveVersion(item) : state.guestModuleStatusFilter === "disabled" ? item.status === "published" && item.enabled === false : state.guestModuleStatusFilter === status);
+    const categoryMatch = category === "all" || item.category === category;
+    const groupMatch = groupFilter.value === "all" || (item.group || item.category || "Other") === groupFilter.value;
+    const searchMatch = !query || [item.name, item.description, item.group, guestModuleActionLabel(item)].some((value) => String(value || "").toLocaleLowerCase().includes(query));
+    return statusMatch && categoryMatch && groupMatch && searchMatch;
+  });
+  list.replaceChildren();
+  if (!visible.length) {
+    const empty = document.createElement("div"); empty.className = "module-library-empty";
+    const title = document.createElement("strong"); title.textContent = modules.length ? "No modules match these filters" : "No guest actions yet";
+    const text = document.createElement("p"); text.textContent = modules.length ? "Clear the search or choose another category." : "Create a module or start with a verified action template.";
+    empty.append(title, text); if (!modules.length) { const create = document.createElement("button"); create.type = "button"; create.textContent = "Create first module"; create.addEventListener("click", () => openGuestModuleEditor()); empty.appendChild(create); }
+    list.appendChild(empty);
+  }
+  visible.forEach((module, index) => {
+    const card = document.createElement("article"); card.className = "module-library-item"; card.draggable = can("properties.edit"); card.dataset.moduleId = module.id;
+    const top = document.createElement("div"); top.className = "module-library-item-top";
+    const icon = document.createElement("span"); icon.className = "module-library-icon"; icon.setAttribute("aria-hidden", "true"); icon.textContent = GUEST_MODULE_ICONS[module.icon] || "✦";
+    const status = document.createElement("span"); status.className = "module-status status-" + guestModuleStatus(module); status.textContent = guestModuleStatusLabel(module);
+    top.append(icon, status);
+    const heading = document.createElement("h3"); heading.textContent = module.name;
+    const desc = document.createElement("p"); desc.textContent = module.description || guestModuleActionLabel(module);
+    const meta = document.createElement("small"); meta.textContent = (module.category || "Other") + " · " + (module.group || "Ungrouped") + " · " + guestModuleActionLabel(module) + " · Position " + (Number(module.order || 0) + 1);
+    const actions = document.createElement("div"); actions.className = "module-library-item-actions";
+    const edit = makeActionButton("Edit", () => openGuestModuleEditor(module.id), false); edit.disabled = !can("properties.view");
+    const up = makeActionButton("Move up", () => moveGuestModule(module.id, -1), true); up.disabled = index === 0 || !can("properties.edit");
+    const down = makeActionButton("Move down", () => moveGuestModule(module.id, 1), true); down.disabled = index === visible.length - 1 || !can("properties.edit");
+    actions.append(edit, up, down);
+    card.append(top, heading, desc, meta, actions);
+    card.addEventListener("click", (event) => { if (!event.target.closest("button")) renderGuestModulePreview(module, "module-library-preview-items", state.guestModulePreviewDevice); });
+    card.addEventListener("dragstart", (event) => { state.guestModuleDragId = module.id; event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", module.id); });
+    card.addEventListener("dragover", (event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; card.classList.add("drag-target"); });
+    card.addEventListener("dragleave", () => card.classList.remove("drag-target"));
+    card.addEventListener("drop", (event) => { event.preventDefault(); card.classList.remove("drag-target"); reorderGuestModules(state.guestModuleDragId, module.id).catch((error) => showToast(error.message, "error")); });
+    list.appendChild(card);
+  });
+  const published = modules.filter((item) => guestModuleHasLiveVersion(item) && item.published_config?.enabled !== false);
+  if (published.length) published.forEach((item, index) => renderGuestModulePreview(item.published_config || item, "module-library-preview-items", state.guestModulePreviewDevice, index > 0));
+  else renderGuestModulePreview(null, "module-library-preview-items", state.guestModulePreviewDevice);
+  $("module-preview-property-name").textContent = propertyName(currentPropertyId()) || "Concierge";
+}
+async function loadGuestModules() {
+  if (!currentPropertyId()) return;
+  $("guest-module-count").textContent = "Loading modules…";
+  const result = await jsonFetch(guestModuleApiRoot());
+  state.guestModules = Array.isArray(result.modules) ? result.modules : [];
+  state.guestModuleServices = Array.isArray(result.services) ? result.services : [];
+  renderGuestModules();
+}
+function guestModuleSetFields(config) {
+  $("guest-module-id").value = config.id || ""; $("guest-module-name").value = config.name || "";
+  $("guest-module-description").value = config.description || ""; $("guest-module-icon").value = config.icon || "sparkles";
+  $("guest-module-category").value = config.category || "Stay"; $("guest-module-group").value = config.group || config.category || "Stay";
+  $("guest-module-display-style").value = config.display_style || "suggestion_chip"; $("guest-module-order").value = Number(config.order || 0);
+  $("guest-module-enabled").checked = config.enabled !== false; $("guest-module-action-type").value = config.action?.type || "prompt";
+  $("guest-module-template").value = ""; renderGuestModuleActionFields(config.action || {});
+}
+function updateGuestModulePreview() {
+  let config;
+  try { config = guestModuleCurrentConfig(); } catch { return; }
+  renderGuestModulePreview(config, "module-editor-preview-items", state.guestModulePreviewDevice);
+  $("guest-module-editor-title").textContent = config.id ? "Edit module" : "Create a module";
+  const validationMessage = guestModuleValidationMessage(config);
+  $("guest-module-config-feedback").textContent = validationMessage || "Configuration is ready to save and validate on the server.";
+  $("guest-module-publish").disabled = !can("properties.edit") || Boolean(validationMessage);
+}
+function guestModuleValidationMessage(config) {
+  if (!config.name) return "Add a guest-facing title before saving.";
+  if (!config.group) return "Add a menu group label before saving.";
+  if (!Number.isInteger(config.order) || config.order < 0 || config.order > 99) return "Menu position must be a whole number from 0 to 99.";
+  if (config.action.type === "prompt" && !config.action.prompt?.trim()) return "Add the guest-facing message for this AI conversation action.";
+  if (config.action.type === "service_request" && !config.action.service_id) return state.guestModuleServices.length ? "Choose an enabled Service Catalog item." : "Configure an enabled service in Service Catalog first.";
+  if (["external_url", "map"].includes(config.action.type) && config.action.url) {
+    try {
+      const url = new URL(config.action.url);
+      if (!["http:", "https:"].includes(url.protocol) || !url.hostname || url.username || url.password) return "Enter a valid HTTP or HTTPS URL.";
+    } catch { return "Enter a valid HTTP or HTTPS URL."; }
+  } else if (config.action.type === "external_url") return "Enter a valid HTTP or HTTPS URL.";
+  return "";
+}
+function openGuestModuleEditor(moduleId = "", starter = "") {
+  if (!can("properties.view")) return showToast("You do not have permission to view conversation modules.", "error");
+  state.selectedGuestModuleId = moduleId || ""; state.guestModuleDirty = false;
+  const module = moduleId ? guestModuleById(moduleId) : null;
+  const config = module ? { ...module, action: module.action || { type: "prompt", prompt: "" } } : { name: "", description: "", icon: "sparkles", category: "Stay", group: "Stay", display_style: "suggestion_chip", order: state.guestModules.length, enabled: true, action: { type: "prompt", prompt: "" } };
+  guestModuleSetFields(config);
+  for (const field of $("guest-module-form").querySelectorAll("input, select, textarea")) field.disabled = !can("properties.edit") && field.id !== "guest-module-id";
+  if (starter && GUEST_MODULE_STARTERS[starter]) { const prepared = { ...GUEST_MODULE_STARTERS[starter], order: config.order }; guestModuleSetFields(prepared); }
+  $("guest-module-editor-title").textContent = module ? "Edit module" : "Create a module";
+  $("guest-module-save-status").textContent = module ? "Saved draft and published version are shown separately." : "Draft changes are private until published.";
+  $("guest-module-version-panel").hidden = !module || !(module.history || []).length;
+  const versions = $("guest-module-version"); versions.replaceChildren();
+  (module?.history || []).slice().reverse().forEach((item) => { const option = document.createElement("option"); option.value = item.version; option.textContent = "Version " + item.version + " · " + new Date((item.published_at || 0) * 1000).toLocaleString(); versions.appendChild(option); });
+  $("guest-module-publish").hidden = false; $("guest-module-publish").disabled = !can("properties.edit");
+  $("guest-module-save").disabled = !can("properties.edit"); $("guest-module-archive").hidden = !module || guestModuleStatus(module) === "archived";
+  $("guest-module-delete").hidden = !module || (guestModuleStatus(module) !== "draft" && guestModuleStatus(module) !== "archived");
+  $("guest-module-duplicate").hidden = !module; $("guest-module-restore-version").disabled = !can("properties.edit") || !module?.history?.length;
+  updateGuestModulePreview();
+  if (!$("guest-module-dialog").open) $("guest-module-dialog").showModal();
+}
+function markGuestModuleDirty() { state.guestModuleDirty = true; $("guest-module-save-status").textContent = "Unsaved draft changes"; updateGuestModulePreview(); }
+function applyGuestModuleStarter(key) {
+  const starter = GUEST_MODULE_STARTERS[key]; if (!starter) return;
+  const currentOrder = $("guest-module-order").value; guestModuleSetFields({ ...starter, order: currentOrder }); markGuestModuleDirty();
+}
+function setGuestModulePreviewDevice(device, editor = false) {
+  state.guestModulePreviewDevice = device;
+  const selector = editor ? "[data-module-editor-device]" : "[data-module-preview-device]";
+  for (const button of document.querySelectorAll(selector)) button.setAttribute("aria-pressed", String(button.dataset.moduleEditorDevice === device || button.dataset.modulePreviewDevice === device));
+  if (editor) updateGuestModulePreview(); else renderGuestModules();
+}
+function guestModulePayload(config) { return Object.fromEntries(Object.entries(config).filter(([, value]) => value !== undefined)); }
+async function saveGuestModule(options = {}) {
+  if (!can("properties.edit")) throw new Error("You do not have permission to edit conversation modules.");
+  const config = guestModulePayload(guestModuleCurrentConfig());
+  if (!config.name) throw new Error("Add a guest-facing title before saving the draft.");
+  if (!config.group) throw new Error("Add a menu group label before saving the draft.");
+  const id = $("guest-module-id").value; const current = guestModuleById(id);
+  const response = id
+    ? await jsonFetch(guestModuleApiRoot() + "/" + encodeURIComponent(id), { method: "PUT", body: JSON.stringify({ config, expected_revision: current?.revision }) })
+    : await jsonFetch(guestModuleApiRoot(), { method: "POST", body: JSON.stringify({ config }) });
+  const saved = response.module; state.selectedGuestModuleId = saved.id; state.guestModuleDirty = false;
+  await loadGuestModules(); guestModuleSetFields(saved); $("guest-module-save-status").textContent = "Draft saved. Guests still see the last published version.";
+  $("guest-module-delete").hidden = guestModuleStatus(saved) !== "draft" && guestModuleStatus(saved) !== "archived"; $("guest-module-archive").hidden = guestModuleStatus(saved) === "archived";
+  if (!options.quiet) showToast("Conversation module draft saved.");
+  return saved;
+}
+async function publishGuestModule() {
+  if (guestModuleValidationMessage(guestModuleCurrentConfig())) throw new Error(guestModuleValidationMessage(guestModuleCurrentConfig()));
+  let module = guestModuleById($("guest-module-id").value);
+  if (state.guestModuleDirty || !module) module = await saveGuestModule({ quiet: true });
+  const response = await jsonFetch(guestModuleApiRoot() + "/" + encodeURIComponent(module.id) + "/publish", { method: "POST", body: JSON.stringify({ expected_revision: module.revision }) });
+  state.selectedGuestModuleId = response.module.id; state.guestModuleDirty = false; await loadGuestModules();
+  guestModuleSetFields(response.module); $("guest-module-save-status").textContent = "Published as version " + response.module.published_version + ". The guest menu now uses this version.";
+  $("guest-module-version-panel").hidden = !(response.module.history || []).length; showToast("Module published to the guest menu.");
+}
+async function archiveGuestModule() {
+  const module = guestModuleById($("guest-module-id").value); if (!module) return;
+  if (!window.confirm("Archive this module? It will be removed from the guest menu.")) return;
+  const response = await jsonFetch(guestModuleApiRoot() + "/" + encodeURIComponent(module.id) + "/archive", { method: "POST", body: JSON.stringify({ expected_revision: module.revision }) });
+  state.guestModuleDirty = false; await loadGuestModules(); guestModuleSetFields(response.module); $("guest-module-save-status").textContent = "Archived. Guests no longer see this module."; $("guest-module-archive").hidden = true; $("guest-module-delete").hidden = false;
+}
+async function deleteGuestModule() {
+  const module = guestModuleById($("guest-module-id").value); if (!module) return;
+  if (!window.confirm("Delete this unpublished or archived module?")) return;
+  await jsonFetch(guestModuleApiRoot() + "/" + encodeURIComponent(module.id), { method: "DELETE" });
+  $("guest-module-dialog").close(); state.selectedGuestModuleId = ""; state.guestModuleDirty = false; await loadGuestModules(); showToast("Module deleted.");
+}
+async function duplicateGuestModule() {
+  const source = guestModuleById($("guest-module-id").value); if (!source) return;
+  const config = { ...source, id: undefined, name: source.name + " copy", order: state.guestModules.length, enabled: false, action: { ...source.action } };
+  delete config.status; delete config.revision; delete config.published_version; delete config.published_config; delete config.history; delete config.legacy; delete config.needs_configuration;
+  const result = await jsonFetch(guestModuleApiRoot(), { method: "POST", body: JSON.stringify({ config }) });
+  await loadGuestModules(); $("guest-module-dialog").close(); openGuestModuleEditor(result.module.id); showToast("Draft copy created.");
+}
+async function restoreGuestModuleVersion() {
+  const module = guestModuleById($("guest-module-id").value); if (!module) return;
+  const result = await jsonFetch(guestModuleApiRoot() + "/" + encodeURIComponent(module.id) + "/rollback", { method: "POST", body: JSON.stringify({ version: Number($("guest-module-version").value), expected_revision: module.revision }) });
+  state.guestModuleDirty = false; await loadGuestModules(); guestModuleSetFields(result.module); $("guest-module-save-status").textContent = "Previous version restored as a draft. Publish to make it live."; showToast("Version restored as a draft.");
+}
+async function reorderGuestModules(sourceId, targetId) {
+  if (!sourceId || sourceId === targetId || !can("properties.edit")) return;
+  const ordered = [...state.guestModules].sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+  const from = ordered.findIndex((item) => item.id === sourceId); const to = ordered.findIndex((item) => item.id === targetId); if (from < 0 || to < 0) return;
+  const [item] = ordered.splice(from, 1); ordered.splice(to, 0, item);
+  const result = await jsonFetch(guestModuleApiRoot() + "/reorder", { method: "POST", body: JSON.stringify({ module_ids: ordered.map((module) => module.id) }) });
+  state.guestModules = result.modules; renderGuestModules(); showToast("Guest menu order updated.");
+}
+function moveGuestModule(id, offset) {
+  const ordered = [...state.guestModules].sort((a, b) => Number(a.order || 0) - Number(b.order || 0)); const index = ordered.findIndex((item) => item.id === id); const next = index + offset;
+  if (index < 0 || next < 0 || next >= ordered.length) return Promise.resolve();
+  return reorderGuestModules(id, ordered[next].id);
+}
+function testGuestModulePreview() {
+  const config = guestModuleCurrentConfig(); const action = config.action;
+  const summary = action.type === "prompt" ? "A synthetic guest message will be sent to the concierge when guests tap this action." : action.type === "service_request" ? "The guest will review and confirm the selected catalog service before submission." : action.type === "external_url" ? "The guest will open the approved external page." : action.type === "nearby_recommendations" ? "The guest app will open Explore using configured sources and consent." : action.type === "property_info" ? "The guest app will show configured public property details." : "The guest app will open the configured destination.";
+  $("guest-module-test-result").textContent = "Synthetic preview: " + summary + " No AI provider or service request was called.";
+}
 
 async function loadHospitalityManagement() {
   state.hospitality = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/hospitality`);
@@ -2237,22 +2817,105 @@ function selectedNotificationCampaign() {
   return state.notificationCampaigns.find((campaign) => campaign.campaign_id === state.selectedNotificationCampaignId) || null;
 }
 
-function setNotificationCampaignForm(campaign = null) {
+const NOTIFICATION_CAMPAIGN_STEPS = ["content", "audience", "delivery", "review"];
+
+function notificationCampaignStep(step = state.notificationCampaignStep) {
+  return NOTIFICATION_CAMPAIGN_STEPS.includes(step) ? step : "content";
+}
+
+function updateNotificationCampaignMessagePreview() {
+  const title = $("notification-campaign-title")?.value.trim() || "Guest message title";
+  const body = $("notification-campaign-body")?.value.trim() || "Your campaign message will appear here as guests see it in the in-app inbox.";
+  $("notification-message-preview-title").textContent = title;
+  $("notification-message-preview-body").textContent = body;
+}
+
+function updateNotificationCampaignDrawer() {
+  updateNotificationCampaignMessagePreview();
+  const step = notificationCampaignStep();
+  for (const panel of document.querySelectorAll("[data-campaign-step-panel]")) {
+    panel.hidden = panel.dataset.campaignStepPanel !== step;
+  }
+  for (const indicator of document.querySelectorAll("[data-campaign-step-indicator]")) {
+    if (indicator.dataset.campaignStepIndicator === step) indicator.setAttribute("aria-current", "step");
+    else indicator.removeAttribute("aria-current");
+  }
+  const index = NOTIFICATION_CAMPAIGN_STEPS.indexOf(step);
+  $("notification-campaign-back").hidden = index === 0;
+  $("notification-campaign-next").hidden = index === NOTIFICATION_CAMPAIGN_STEPS.length - 1;
+  const campaign = selectedNotificationCampaign();
+  const editable = !campaign || campaign.status === "draft";
+  $("notification-campaign-save").hidden = !editable;
+  $("notification-campaign-publish").hidden = step !== "review" || !campaign || !["draft", "failed"].includes(campaign.status);
+  $("notification-campaign-publish").disabled = !campaign || !["draft", "failed"].includes(campaign.status)
+    || state.notificationCampaignDirty || !state.notificationCampaignPreview
+    || state.notificationCampaignPreview.revision !== campaign.revision
+    || Number(state.notificationCampaignPreview.eligible || 0) < 1;
+  $("notification-campaign-preview-button").disabled = !campaign
+    || !["draft", "failed"].includes(campaign.status) || state.notificationCampaignDirty;
+  $("notification-review-name").textContent = campaign?.name || $("notification-campaign-name").value.trim() || "Not saved";
+  $("notification-review-source").textContent = campaign?.source_reference || $("notification-campaign-source").value.trim() || "Not saved";
+  const preview = state.notificationCampaignPreview;
+  $("notification-review-audience").textContent = preview && campaign && preview.revision === campaign.revision
+    ? `${preview.eligible} eligible of ${preview.active_stays} active stays`
+    : "Preview required";
+}
+
+function setNotificationCampaignForm(campaign = null, { resetStep = true } = {}) {
   state.selectedNotificationCampaignId = campaign?.campaign_id || null;
   state.notificationCampaignPreview = null;
+  state.notificationCampaignDirty = false;
+  if (resetStep) state.notificationCampaignStep = "content";
   $("notification-campaign-name").value = campaign?.name || "";
   $("notification-campaign-title").value = campaign?.title || "";
   $("notification-campaign-body").value = campaign?.body || "";
   $("notification-campaign-source").value = campaign?.source_reference || "";
   const editable = !campaign || campaign.status === "draft";
   for (const id of ["notification-campaign-name", "notification-campaign-title", "notification-campaign-body", "notification-campaign-source"]) $(id).disabled = !editable;
-  $("notification-campaign-save").disabled = !editable;
   $("notification-campaign-save").textContent = campaign ? "Save draft changes" : "Save draft";
-  $("notification-campaign-form-title").textContent = campaign ? (editable ? "Edit campaign draft" : "Campaign details") : "New campaign";
-  $("notification-campaign-preview-button").disabled = !campaign || !["draft", "failed"].includes(campaign.status);
-  $("notification-campaign-publish").disabled = !campaign || !["draft", "failed"].includes(campaign.status);
-  $("notification-campaign-preview").textContent = campaign ? `Revision ${campaign.revision} · ${campaign.status}. Preview the aggregate audience before publishing.` : "Save a draft to preview its aggregate audience.";
+  $("notification-campaign-form-title").textContent = campaign ? (editable ? "Review campaign" : "Campaign details") : "New campaign";
+  $("notification-campaign-preview").textContent = campaign ? `Revision ${campaign.revision} · ${campaign.status}. Preview the aggregate audience before publishing.` : "Save a draft before previewing eligible stays.";
+  $("notification-campaign-live-status").textContent = campaign
+    ? `${campaign.status[0].toUpperCase()}${campaign.status.slice(1)} · revision ${campaign.revision}${campaign.created_by ? ` · created by ${campaign.created_by}` : " · creator not recorded"}`
+    : "Drafts stay property-scoped and are not visible to guests.";
+  updateNotificationCampaignDrawer();
   renderNotificationCampaigns();
+}
+
+function openNotificationCampaignDrawer(campaign = null) {
+  setNotificationCampaignForm(campaign);
+  const dialog = $("notification-campaign-dialog");
+  if (!dialog.open) dialog.showModal();
+  $("notification-campaign-name").focus();
+}
+
+function validateNotificationCampaignContent() {
+  const required = [
+    ["notification-campaign-name", "Enter an internal campaign name."],
+    ["notification-campaign-title", "Enter the guest-facing title."],
+    ["notification-campaign-body", "Write the guest-facing message."],
+    ["notification-campaign-source", "Add a verified source or approval reference."],
+  ];
+  const missing = required.find(([id]) => !$(id).value.trim());
+  if (missing) {
+    state.notificationCampaignStep = "content";
+    updateNotificationCampaignDrawer();
+    $("notification-campaign-live-status").textContent = missing[1];
+    $(missing[0]).focus();
+    return false;
+  }
+  return true;
+}
+
+function goToNotificationCampaignStep(step) {
+  const nextIndex = NOTIFICATION_CAMPAIGN_STEPS.indexOf(step);
+  const currentIndex = NOTIFICATION_CAMPAIGN_STEPS.indexOf(notificationCampaignStep());
+  if (nextIndex < 0) return;
+  if (nextIndex > currentIndex && !validateNotificationCampaignContent()) return;
+  state.notificationCampaignStep = step;
+  updateNotificationCampaignDrawer();
+  const heading = document.querySelector(`[data-campaign-step-panel="${step}"] h3`);
+  heading?.focus?.({ preventScroll: true });
 }
 
 function renderNotificationCampaigns() {
@@ -2264,7 +2927,27 @@ function renderNotificationCampaigns() {
   const offset = state.notificationCampaignPageOffset || 0;
   const limit = state.notificationCampaignPageLimit || 25;
   const count = $("notification-campaign-count");
-  if (count) count.textContent = total ? `Showing ${Math.min(offset + 1, total)}–${Math.min(offset + state.notificationCampaigns.length, total)} of ${total} campaigns` : (search ? "No matching campaigns" : "No campaigns yet");
+  const statusFilter = state.notificationCampaignStatusFilter || "all";
+  const statusCounts = state.notificationCampaignStatusCounts || {};
+  const deliveryCounts = state.notificationCampaignDeliveryCounts || {};
+  $("notification-summary-all").textContent = String(Object.values(statusCounts).reduce((sum, value) => sum + Number(value || 0), 0));
+  for (const status of ["draft", "published", "failed"]) $(
+    `notification-summary-${status}`,
+  ).textContent = String(Number(statusCounts[status] || 0));
+  $("notification-summary-expired").textContent = String(Number(deliveryCounts.expired || 0));
+  for (const status of ["queued", "sent", "delivered", "read", "failed", "expired"]) $(
+    `notification-delivery-${status}`,
+  ).textContent = String(Number(deliveryCounts[status] || 0));
+  for (const button of document.querySelectorAll("[data-campaign-status]")) {
+    const active = button.dataset.campaignStatus === statusFilter;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
+  }
+  const labels = { all: "All campaigns", draft: "Drafts", publishing: "Publishing", published: "Published", failed: "Failed", expired: "Campaigns with expired notices" };
+  $("notification-campaign-filter-label").textContent = labels[statusFilter] || labels.all;
+  if (count) count.textContent = total
+    ? `Showing ${Math.min(offset + 1, total)}–${Math.min(offset + state.notificationCampaigns.length, total)} of ${total} ${total === 1 ? "campaign" : "campaigns"}`
+    : (search || statusFilter !== "all" ? "No campaigns match these filters" : "No campaigns yet");
   const pageInfo = $("notification-campaign-page-info");
   if (pageInfo) pageInfo.textContent = total ? `Page ${Math.floor(offset / limit) + 1} of ${Math.ceil(total / limit)}` : "No pages";
   const previous = $("notification-campaign-page-previous");
@@ -2275,9 +2958,9 @@ function renderNotificationCampaigns() {
     const empty = document.createElement("div");
     empty.className = "empty-state";
     const title = document.createElement("strong");
-    title.textContent = search ? "No campaigns match this search" : "No notification campaigns yet";
+    title.textContent = search || statusFilter !== "all" ? "No campaigns match this view" : "No notification campaigns yet";
     const detail = document.createElement("p");
-    detail.textContent = search ? "Try a different campaign name or message term." : "Saved drafts and published campaign counts for this property will appear here.";
+    detail.textContent = search || statusFilter !== "all" ? "Try another status or search term, or create a new campaign." : "New drafts and publication history for this property will appear here.";
     empty.append(title, detail);
     root.appendChild(empty);
     return;
@@ -2286,19 +2969,33 @@ function renderNotificationCampaigns() {
     const row = document.createElement("article");
     row.className = "notification-campaign-row";
     const info = document.createElement("div");
+    info.className = "notification-campaign-row-info";
+    const heading = document.createElement("div");
+    heading.className = "notification-campaign-row-heading";
     const title = document.createElement("h3");
     title.textContent = campaign.name || "Untitled campaign";
     const status = document.createElement("p");
-    status.className = "campaign-state";
-    status.textContent = `${campaign.status} · revision ${campaign.revision}`;
+    status.className = `notification-campaign-status is-${campaign.status || "draft"}`;
+    status.textContent = String(campaign.status || "draft").replaceAll("_", " ");
+    heading.append(title, status);
+    const subline = document.createElement("p");
+    subline.className = "notification-campaign-subline";
+    const updatedAt = Number(campaign.updated_at || 0);
+    const updatedLabel = updatedAt ? new Date(updatedAt * 1000).toLocaleString() : "Update time not recorded";
+    subline.textContent = `${campaign.created_by ? `Created by ${campaign.created_by}` : "Creator not recorded"} · revision ${campaign.revision || 1} · updated ${updatedLabel}`;
+    const source = document.createElement("small");
+    source.className = "notification-campaign-source-line";
+    source.textContent = `Source · ${campaign.source_reference || "Not recorded"}`;
     const metrics = document.createElement("small");
-    metrics.textContent = `${campaign.queued_count || 0} queued · ${campaign.suppressed_count || 0} suppressed · ${campaign.engagement?.read || 0} read`;
+    metrics.className = "notification-campaign-engagement";
+    metrics.textContent = `${campaign.engagement?.queued || campaign.queued_count || 0} queued · ${campaign.engagement?.delivered || 0} acknowledged · ${campaign.engagement?.read || 0} read · ${campaign.engagement?.failed || 0} failed`;
     const edit = document.createElement("button");
     edit.type = "button";
     edit.className = "secondary";
-    edit.textContent = campaign.status === "draft" ? "Edit draft" : "View";
+    edit.textContent = campaign.status === "draft" ? "Edit draft" : campaign.status === "failed" ? "Review failure" : "View details";
+    edit.setAttribute("aria-label", `${edit.textContent}: ${campaign.name || "campaign"}`);
     edit.dataset.campaignId = campaign.campaign_id;
-    info.append(title, status, metrics);
+    info.append(heading, subline, source, metrics);
     row.append(info, edit);
     root.appendChild(row);
   }
@@ -2307,14 +3004,17 @@ function renderNotificationCampaigns() {
 async function loadNotificationCampaigns({ resetPage = false } = {}) {
   const propertyId = currentPropertyId();
   const query = $("notification-campaign-search")?.value.trim() || "";
-  if (resetPage || propertyId !== state.notificationCampaignPropertyId || query !== state.notificationCampaignFilterSignature) {
+  const status = state.notificationCampaignStatusFilter || "all";
+  const filterSignature = `${query}\u0000${status}`;
+  if (resetPage || propertyId !== state.notificationCampaignPropertyId || filterSignature !== state.notificationCampaignFilterSignature) {
     state.notificationCampaignPageOffset = 0;
   }
   state.notificationCampaignPropertyId = propertyId;
-  state.notificationCampaignFilterSignature = query;
+  state.notificationCampaignFilterSignature = filterSignature;
   const params = new URLSearchParams({
     limit: String(state.notificationCampaignPageLimit),
     offset: String(state.notificationCampaignPageOffset),
+    status,
   });
   if (query) params.set("q", query);
   const version = ++state.notificationCampaignLoadVersion;
@@ -2322,17 +3022,20 @@ async function loadNotificationCampaigns({ resetPage = false } = {}) {
   if (version !== state.notificationCampaignLoadVersion || propertyId !== currentPropertyId()) return;
   state.notificationCampaigns = result.campaigns || [];
   state.notificationCampaignTotal = Number(result.total || 0);
+  state.notificationCampaignStatusCounts = result.status_counts || state.notificationCampaignStatusCounts;
+  state.notificationCampaignDeliveryCounts = result.delivery_counts || state.notificationCampaignDeliveryCounts;
   if (state.notificationCampaignPageOffset > 0 && state.notificationCampaignPageOffset >= state.notificationCampaignTotal) {
     state.notificationCampaignPageOffset = Math.max(0, Math.floor((state.notificationCampaignTotal - 1) / state.notificationCampaignPageLimit) * state.notificationCampaignPageLimit);
     return loadNotificationCampaigns();
   }
   const selected = selectedNotificationCampaign();
-  if (selected) setNotificationCampaignForm(selected);
+  if (selected && $("notification-campaign-dialog")?.open) setNotificationCampaignForm(selected, { resetStep: false });
   else renderNotificationCampaigns();
 }
 
 async function saveNotificationCampaign(event) {
   event?.preventDefault();
+  if (!validateNotificationCampaignContent()) return;
   const selected = selectedNotificationCampaign();
   const payload = {
     name: $("notification-campaign-name").value.trim(),
@@ -2347,8 +3050,11 @@ async function saveNotificationCampaign(event) {
   });
   const campaign = result.campaign;
   state.selectedNotificationCampaignId = campaign.campaign_id;
+  state.notificationCampaignStatusFilter = "all";
+  state.notificationCampaignStep = "audience";
   $("notification-campaign-search").value = "";
   await loadNotificationCampaigns({ resetPage: true });
+  $("notification-campaign-live-status").textContent = "Draft saved for this property. Continue to preview the aggregate audience.";
   showToast("Campaign draft saved.");
 }
 
@@ -2360,6 +3066,10 @@ async function previewNotificationCampaign() {
   });
   state.notificationCampaignPreview = result;
   $("notification-campaign-preview").textContent = `${result.eligible} eligible of ${result.active_stays} active stays · ${result.promotional_consent_required} missing promotional consent · ${result.promotional_preference_disabled} preference disabled. No guest identities are displayed.`;
+  $("notification-campaign-live-status").textContent = result.eligible > 0
+    ? `${result.eligible} eligible stay${result.eligible === 1 ? "" : "s"} at preview. Publishing will recheck consent and stay status.`
+    : "No active stays currently meet the consent and preference requirements.";
+  updateNotificationCampaignDrawer();
   return result;
 }
 
@@ -2375,7 +3085,10 @@ async function publishNotificationCampaign() {
   });
   state.selectedNotificationCampaignId = result.campaign.campaign_id;
   await loadNotificationCampaigns({ resetPage: true });
+  state.notificationCampaignStep = "review";
   $("notification-campaign-preview").textContent = `${result.queued} queued in-app · ${result.already_queued} already queued · ${result.suppressed_at_publish} suppressed after the final consent check.`;
+  $("notification-campaign-live-status").textContent = `Published · ${result.queued} queued in-app · ${result.suppressed_at_publish} suppressed at the final consent check.`;
+  updateNotificationCampaignDrawer();
   showToast(`Campaign queued for ${result.queued} eligible stay${result.queued === 1 ? "" : "s"}.`);
 }
 
@@ -2443,21 +3156,89 @@ async function deleteWebhook(id) {
 }
 
 function renderManagedLocations() {
-  const list = $("managed-location-list"); list.innerHTML = "";
-  for (const item of state.property.app_settings?.locations || []) {
-    const row = document.createElement("div"); row.className = "compact-row"; row.innerHTML = `<strong>${escapeHTML(item.name)}</strong><span>${escapeHTML(item.type || "location")} · ${item.guest_visible ? "Guest visible" : "Operations only"}</span><span>${escapeHTML(item.description || "")}</span>`;
-    row.append(makeActionButton("Edit", () => { $("location-id").value = item.id; $("location-name").value = item.name; $("location-type").value = item.type || ""; $("location-description").value = item.description || ""; $("location-latitude").value = item.latitude ?? ""; $("location-longitude").value = item.longitude ?? ""; $("location-visible").checked = item.guest_visible !== false; }), makeActionButton("Delete", () => deleteManagedLocation(item.id), true)); list.appendChild(row);
+  const list = $("managed-location-list");
+  if (!list) return;
+  list.replaceChildren();
+  const locations = state.property?.app_settings?.locations || [];
+  const query = $("location-search")?.value.trim().toLocaleLowerCase() || "";
+  const filtered = locations.filter((item) => [item.name, item.type, item.description].some((value) => String(value || "").toLocaleLowerCase().includes(query)));
+  $("location-directory-count").textContent = query ? `${filtered.length} of ${locations.length}` : `${locations.length} ${locations.length === 1 ? "location" : "locations"}`;
+  if (!locations.length) {
+    const empty = document.createElement("p"); empty.className = "location-report-empty";
+    empty.textContent = can("properties.edit") ? "No guest locations yet. Add a verified entrance, landmark, or other public place." : "No guest locations have been configured.";
+    list.appendChild(empty);
+    return;
   }
-  if (!list.children.length) list.textContent = "No managed locations.";
+  if (!filtered.length) {
+    const empty = document.createElement("p"); empty.className = "location-report-empty"; empty.textContent = "No guest locations match your search."; list.appendChild(empty); return;
+  }
+  for (const item of filtered) {
+    const row = document.createElement("article"); row.className = "location-directory-item";
+    const content = document.createElement("div"); content.className = "location-directory-item-copy";
+    const title = document.createElement("strong"); title.textContent = item.name || "Unnamed location";
+    const meta = document.createElement("span"); meta.textContent = `${item.type || "Location"} · ${item.guest_visible === false ? "Hidden from guests" : "Guest visible"}`;
+    const description = document.createElement("p"); description.textContent = item.description || "No description added.";
+    content.append(title, meta, description); row.appendChild(content);
+    if (can("properties.edit")) {
+      const actions = document.createElement("div"); actions.className = "location-directory-actions";
+      actions.append(makeActionButton("Edit", () => openLocationEditor(item)), makeActionButton("Remove", () => deleteManagedLocation(item.id), true));
+      row.appendChild(actions);
+    }
+    list.appendChild(row);
+  }
+}
+
+function openLocationEditor(item = null) {
+  const select = $("location-type");
+  if (item && item.type && ![...select.options].some((option) => option.value === item.type)) {
+    const legacy = new Option(`Existing category · ${item.type}`, item.type);
+    legacy.dataset.legacy = "true";
+    select.add(legacy);
+  } else if (!item) {
+    select.querySelector("option[data-legacy]")?.remove();
+  }
+  $("location-editor-form").reset();
+  $("location-editor-message").textContent = "";
+  $("location-id").value = item?.id || "";
+  $("location-name").value = item?.name || "";
+  $("location-type").value = item?.type || "entrance";
+  $("location-description").value = item?.description || "";
+  $("location-latitude").value = item?.latitude ?? "";
+  $("location-longitude").value = item?.longitude ?? "";
+  $("location-visible").checked = item?.guest_visible !== false;
+  $("location-editor-title").textContent = item ? "Edit guest location" : "Add guest location";
+  if (!$("location-editor-drawer").open) $("location-editor-drawer").showModal();
+  requestAnimationFrame(() => $("location-name").focus());
 }
 
 async function saveManagedLocation() {
   const name = $("location-name").value.trim(); if (!name) throw new Error("Location name is required.");
   const appSettings = { ...(state.property.app_settings || {}) }; const locations = [...(appSettings.locations || [])]; const id = $("location-id").value || `location_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
-  const record = { id, name, type: $("location-type").value.trim(), description: $("location-description").value.trim(), latitude: $("location-latitude").value === "" ? null : Number($("location-latitude").value), longitude: $("location-longitude").value === "" ? null : Number($("location-longitude").value), guest_visible: $("location-visible").checked };
-  const index = locations.findIndex((item) => item.id === id); if (index >= 0) locations[index] = record; else locations.push(record); appSettings.locations = locations; state.property.app_settings = appSettings; await savePropertyBasics(); $("location-id").value = ""; $("location-name").value = ""; $("location-description").value = ""; renderManagedLocations(); showToast("Location saved.");
+  const latitudeText = $("location-latitude").value.trim();
+  const longitudeText = $("location-longitude").value.trim();
+  if (Boolean(latitudeText) !== Boolean(longitudeText)) throw new Error("Enter both coordinates, or leave both blank.");
+  const latitude = latitudeText ? Number(latitudeText) : null;
+  const longitude = longitudeText ? Number(longitudeText) : null;
+  if (latitude !== null && (!Number.isFinite(latitude) || latitude < -90 || latitude > 90)) throw new Error("Latitude must be between −90 and 90.");
+  if (longitude !== null && (!Number.isFinite(longitude) || longitude < -180 || longitude > 180)) throw new Error("Longitude must be between −180 and 180.");
+  const record = { id, name, type: $("location-type").value, description: $("location-description").value.trim(), latitude, longitude, guest_visible: $("location-visible").checked };
+  const index = locations.findIndex((item) => item.id === id); if (index >= 0) locations[index] = record; else locations.push(record); appSettings.locations = locations; state.property.app_settings = appSettings;
+  try {
+    await savePropertyBasics();
+    $("location-editor-drawer").close();
+    $("location-type").querySelector("option[data-legacy]")?.remove();
+    renderManagedLocations(); showToast("Guest location saved.");
+  } catch (error) {
+    $("location-editor-message").textContent = error.message;
+    throw error;
+  }
 }
-async function deleteManagedLocation(id) { state.property.app_settings = { ...(state.property.app_settings || {}), locations: (state.property.app_settings?.locations || []).filter((item) => item.id !== id) }; await savePropertyBasics(); renderManagedLocations(); showToast("Location deleted."); }
+async function deleteManagedLocation(id) {
+  const item = (state.property?.app_settings?.locations || []).find((location) => location.id === id);
+  if (!item || !window.confirm(`Remove “${item.name}” from the guest location directory?`)) return;
+  state.property.app_settings = { ...(state.property.app_settings || {}), locations: (state.property.app_settings?.locations || []).filter((location) => location.id !== id) };
+  await savePropertyBasics(); renderManagedLocations(); showToast("Guest location removed.");
+}
 
 function prettifyAccessStatus(value) {
   return String(value || "not_configured").replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -3870,7 +4651,7 @@ function builderGuestVisual(section, design) {
   if (type === "hero") {
     root.classList.add(`experience-hero-${p.height || "large"}`, `experience-align-${p.alignment || "left"}`);
     const imageUrl = isSafeBuilderImage(p.image_url || design.theme?.backgroundImageUrl) ? (p.image_url || design.theme.backgroundImageUrl) : "";
-    if (imageUrl) { const image = document.createElement("img"); image.className = "experience-hero-image"; image.src = imageUrl; image.alt = p.alt || ""; image.addEventListener("error", () => { image.remove(); root.classList.remove("experience-hero-has-image"); }, { once: true }); root.classList.add("experience-hero-has-image"); root.prepend(image); }
+    if (imageUrl) { const image = document.createElement("img"); image.className = "experience-hero-image"; image.src = imageUrl; image.alt = p.alt || ""; if (!p.image_url) { const device = state.builderDevice === "mobile" ? "mobile" : "desktop"; image.style.objectPosition = backgroundImagePositionValue(design.theme?.backgroundImagePosition?.[device]); } image.addEventListener("error", () => { image.remove(); root.classList.remove("experience-hero-has-image"); }, { once: true }); root.classList.add("experience-hero-has-image"); root.prepend(image); }
     if (p.eyebrow) { const eyebrow = document.createElement("p"); eyebrow.className = "experience-eyebrow"; eyebrow.textContent = p.eyebrow; root.appendChild(eyebrow); }
     const heading = document.createElement("h1"); heading.textContent = p.headline || design.welcome?.headline || ""; root.appendChild(heading);
     const description = document.createElement("p"); description.textContent = p.description || design.welcome?.description || ""; if (description.textContent) root.appendChild(description);
@@ -4730,9 +5511,7 @@ function bindBuilderEvents() {
       nextTab.focus();
     });
   });
-  $("builder-preview-button")?.addEventListener("click", () => {
-    showToast("The center canvas is the live preview of this draft.");
-  });
+  $("builder-preview-button")?.addEventListener("click", openBuilderDesignPreview);
   $("builder-undo-button")?.addEventListener("click", () => restoreBuilderSnapshot(state.builderHistory.pop(), "undo"));
   $("builder-redo-button")?.addEventListener("click", () => restoreBuilderSnapshot(state.builderRedo.pop(), "redo"));
   $("builder-focus-button")?.addEventListener("click", () => { const builder = document.querySelector(".experience-builder"); const active = builder.classList.toggle("is-focus-mode"); $("builder-focus-button").setAttribute("aria-pressed", String(active)); $("builder-focus-button").textContent = active ? "Exit focus" : "Focus mode"; });
@@ -5313,6 +6092,104 @@ function updateBuilderAction(action, field, value) {
   return { ...(action || {}), [field]: value };
 }
 
+function normalizeBackgroundImagePositions(value) {
+  let positions = value;
+  if (typeof positions === "string") {
+    try { positions = JSON.parse(positions); } catch { positions = null; }
+  }
+  const point = (device) => {
+    const raw = positions?.[device] || {};
+    const number = (axis) => Math.max(0, Math.min(100, Math.round(Number(raw[axis]) || 0)));
+    return { x: raw.x === undefined ? 50 : number("x"), y: raw.y === undefined ? 50 : number("y") };
+  };
+  return { desktop: point("desktop"), mobile: point("mobile") };
+}
+
+function setBackgroundImagePositions(value) {
+  $("background-image-position-input").value = JSON.stringify(normalizeBackgroundImagePositions(value));
+}
+
+function backgroundImagePositionValue(position) {
+  return `${position?.x ?? 50}% ${position?.y ?? 50}%`;
+}
+
+function refreshBackgroundImageControl(filename = "") {
+  const imageUrl = $("background-image-url-input")?.value || "";
+  const preview = $("background-image-preview");
+  const thumbnail = $("background-image-thumbnail");
+  const name = $("background-image-name");
+  const dimensions = $("background-image-dimensions");
+  const status = $("background-image-status");
+  const hasImage = Boolean(imageUrl);
+  if (!preview || !thumbnail || !status) return;
+  preview.hidden = !hasImage;
+  $("background-image-adjust").disabled = !hasImage;
+  $("background-image-remove").hidden = !hasImage;
+  $("background-image-choose-label").textContent = hasImage ? "Replace image" : "Choose image";
+  if (!hasImage) {
+    thumbnail.removeAttribute("src");
+    name.textContent = "";
+    dimensions.textContent = "";
+    status.textContent = "No image selected.";
+    return;
+  }
+  name.textContent = filename || "Saved background image";
+  dimensions.textContent = "Loading image details…";
+  status.textContent = filename ? `${filename} is ready in this draft.` : "Image saved in this draft.";
+  thumbnail.onload = () => {
+    dimensions.textContent = `${thumbnail.naturalWidth} × ${thumbnail.naturalHeight} px`;
+  };
+  thumbnail.onerror = () => { dimensions.textContent = "Image preview unavailable"; };
+  thumbnail.src = imageUrl;
+}
+
+function renderBackgroundCropControls() {
+  const positions = state.backgroundImageCropDraft || normalizeBackgroundImagePositions(null);
+  const device = state.backgroundImageCropDevice;
+  const position = positions[device];
+  $("background-crop-preview").dataset.device = device;
+  $("background-crop-image").style.objectPosition = backgroundImagePositionValue(position);
+  $("background-crop-x").value = String(position.x);
+  $("background-crop-y").value = String(position.y);
+  $("background-crop-x-value").textContent = `${position.x}%`;
+  $("background-crop-y-value").textContent = `${position.y}%`;
+  document.querySelectorAll("[data-crop-device]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.cropDevice === device));
+  });
+}
+
+function openBackgroundCropDialog() {
+  const imageUrl = $("background-image-url-input")?.value;
+  const dialog = $("background-crop-dialog");
+  if (!imageUrl || !dialog) return;
+  state.backgroundImageCropDraft = normalizeBackgroundImagePositions($("background-image-position-input").value);
+  state.backgroundImageCropDevice = "desktop";
+  $("background-crop-image").src = imageUrl;
+  $("background-crop-options").hidden = false;
+  $("background-crop-editor").hidden = true;
+  $("background-crop-choice-actions").hidden = false;
+  $("background-crop-edit-actions").hidden = true;
+  renderBackgroundCropControls();
+  if (!dialog.open) dialog.showModal();
+}
+
+function closeBackgroundCropDialog() {
+  const dialog = $("background-crop-dialog");
+  if (dialog?.open) dialog.close();
+  state.backgroundImageCropDraft = null;
+}
+
+function commitBackgroundImagePositions(positions) {
+  const normalized = normalizeBackgroundImagePositions(positions);
+  const current = normalizeBackgroundImagePositions($("background-image-position-input").value);
+  if (JSON.stringify(current) !== JSON.stringify(normalized)) {
+    state.builderGlobalEditBefore ||= builderSnapshot();
+    setBackgroundImagePositions(normalized);
+    commitBuilderGlobalEdit();
+  }
+  closeBackgroundCropDialog();
+}
+
 function renderChatPresetOptions() {
   const root = $("chat-preset-options");
   if (!root) return;
@@ -5512,6 +6389,9 @@ function fillDesignForm(config) {
   $("focus-color-input").value = normalizeColor(themeTokens.focusColor);
   $("composer-background-input").value = normalizeColor(config.composer?.background || config.theme?.composerBackground || "#ffffff");
   $("background-image-url-input").value = config.theme?.backgroundImageUrl || "";
+  setBackgroundImagePositions(config.theme?.backgroundImagePosition);
+  $("background-image-input").value = "";
+  refreshBackgroundImageControl();
   $("background-overlay-input").value = config.theme?.backgroundOverlay ?? 0;
   $("font-input").value = config.typography?.fontFamily || "Geist";
   $("density-input").value = config.theme?.density || "comfortable";
@@ -5576,6 +6456,7 @@ function designPayload() {
     radius: Number($("radius-input").value || 0),
     density: $("density-input").value,
     backgroundImageUrl: $("background-image-url-input").value,
+    backgroundImagePosition: normalizeBackgroundImagePositions($("background-image-position-input").value),
     backgroundOverlay: Number($("background-overlay-input").value || 0),
   };
   base.typography = {
@@ -6002,7 +6883,7 @@ function previewFontStack(font) {
   return stacks[font] || stacks.Geist;
 }
 
-function handleImageUpload(input, targetId, { maxBytes, recommended, onStatus }) {
+function handleImageUpload(input, targetId, { maxBytes, recommended, onStatus, onLoaded, onCommitted }) {
   const file = input.files?.[0];
   if (!file) return;
   if (file.size > maxBytes) {
@@ -6016,8 +6897,10 @@ function handleImageUpload(input, targetId, { maxBytes, recommended, onStatus })
   const reader = new FileReader();
   reader.addEventListener("load", () => {
     $(targetId).value = reader.result;
+    onLoaded?.(file, reader.result);
     onStatus?.(`${file.name} is ready in this draft.`, "ready");
     commitBuilderGlobalEdit();
+    onCommitted?.(file, reader.result);
   });
   reader.addEventListener("error", () => {
     onStatus?.("The file could not be read. Choose another.", "error");
@@ -6281,8 +7164,20 @@ async function createProperty(event) {
 async function switchProperty(propertyId) {
   const property = state.properties.find((item) => item.property_id === propertyId);
   if (!property || property.property_id === currentPropertyId()) return;
+  if (personalizationIsDirty() && !window.confirm("Discard unsaved personalization changes and switch properties?")) {
+    $("property-switcher").value = currentPropertyId();
+    return false;
+  }
   const shell = $("platform-shell");
   const activePanel = document.querySelector(".platform-main > .panel.active")?.id || "overview";
+  for (const id of ["session-link-drawer", "session-guest360-drawer"]) if ($(id).open) $(id).close();
+  state.guest360RequestSequence += 1;
+  state.guest360 = null;
+  state.guestSelectedStay = null;
+  state.guestSessions = [];
+  state.guestSessionLinks = [];
+  state.guestStays = [];
+  state.guestDevices = [];
   shell.classList.add("switching-property");
   hydrateProperty(property);
   if (activePanel === "ai-assistant") {
@@ -6294,10 +7189,12 @@ async function switchProperty(propertyId) {
   state.ai = null;
   state.improvementLoop = null;
   state.personalizationPolicy = null;
+  state.personalizationDiagnostics = null;
   state.zones = null;
   state.hospitality = null;
   state.intro = null;
   state.catalog = { departments: [], services: [] };
+  serviceRequestCatalogReady = false;
   state.recommendations = [];
   state.knowledge = { items: [], documents: [], faqs: [] };
   state.managedKnowledge = { items: [], sources: [], categories: [] };
@@ -6328,7 +7225,7 @@ async function switchProperty(propertyId) {
       recommendations: () => loadRecommendations(),
       "hotel-information": () => loadHotelInformation(),
       rooms: () => renderRooms(),
-      guest: () => renderGuestModules(),
+      guest: () => loadGuestModules(),
       facilities: () => loadHospitalityManagement(),
       restaurants: () => loadHospitalityManagement(),
       "ai-usage": () => loadAIUsage(),
@@ -7183,10 +8080,12 @@ function sessionRecordElement(tag, className, text) {
 
 function updateStayMemoryEditor(stay) {
   const memory = stay?.memory_summary || {};
-  const editable = stay?.status === "active";
+  const permitted = can("guest_sessions.manage") && Boolean(state.guest360?.visibility?.staff_notes);
+  const editable = permitted && stay?.status === "active";
   const fields = ["memory-summary", "memory-preferences", "memory-recent-requests", "memory-unresolved-requests", "memory-important-context"];
   for (const id of fields) $(id).disabled = !editable;
   $("save-stay-memory").disabled = !editable;
+  $("session-notes-restricted").hidden = permitted;
   $("memory-summary").value = memory.conversation_summary || "";
   $("memory-preferences").value = (memory.preferences || []).join("\n");
   $("memory-recent-requests").value = (memory.recent_requests || []).join("\n");
@@ -7194,20 +8093,169 @@ function updateStayMemoryEditor(stay) {
   $("memory-important-context").value = memory.important_context || "";
   $("session-memory-selection").textContent = !stay
     ? "Choose a stay to view or update its saved notes."
+    : !permitted
+      ? "Stay notes are limited to staff with guest-session management access."
     : editable
-      ? `Editing active stay ${stay.stay_id}${stay.room ? ` · Room ${stay.room}` : ""}.`
-      : `Stay ${stay.stay_id} is checked out. Its notes are read-only.`;
+        ? `Editing active stay${stay.room ? ` · Room ${stay.room}` : ""}.`
+        : `${stay.room ? `Room ${stay.room} · ` : ""}Stay checked out. Notes are read-only.`;
 }
 
-function stayMemoryLabel(memory = {}) {
-  const parts = [];
-  if (String(memory.conversation_summary || "").trim()) parts.push("summary");
-  for (const [key, label] of [["preferences", "preference"], ["recent_requests", "recent request"], ["unresolved_service_requests", "unresolved request"]]) {
-    const count = Array.isArray(memory[key]) ? memory[key].filter((item) => String(item || "").trim()).length : 0;
-    if (count) parts.push(count + " " + label + (count === 1 ? "" : "s"));
+function maskedSessionLabel(value, type = "Session") {
+  if (!value) return "Not linked";
+  return `${type} · ••••${String(value).slice(-4)}`;
+}
+
+function sessionStatusLabel(value) {
+  return String(value || "unknown").replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function stayRetentionLabel(stay) {
+  if (stay?.retention_until) {
+    const expired = Number(stay.retention_until) <= Date.now() / 1000;
+    return expired ? "Retention window ended" : formatDate(stay.retention_until);
   }
-  if (String(memory.important_context || "").trim()) parts.push("staff context");
-  return parts.length ? parts.join(", ") : "No notes saved";
+  return stay?.status === "active"
+    ? `Retained ${Number(stay.retention_days || 0)} days after checkout`
+    : "Retention end not recorded";
+}
+
+async function openGuest360(stayId) {
+  if (!stayId) return;
+  const propertyId = currentPropertyId();
+  const requestId = ++state.guest360RequestSequence;
+  const dialog = $("session-guest360-drawer");
+  $("session-guest360-title").textContent = "Guest stay";
+  $("session-guest360-subtitle").textContent = "Loading property-scoped stay details…";
+  $("session-guest360-facts").replaceChildren(sessionRecordElement("p", "session-context-empty", "Loading stay details…"));
+  if (!dialog.open) dialog.showModal();
+  try {
+    const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}/stays/${encodeURIComponent(stayId)}/guest-360`);
+    if (requestId !== state.guest360RequestSequence || propertyId !== currentPropertyId()) return;
+    state.guest360 = data;
+    state.guestSelectedStay = data.stay;
+    const selector = $("memory-stay-id");
+    if (![...selector.options].some((option) => option.value === stayId)) {
+      const stay = data.stay;
+      selector.appendChild(new Option([stay.room ? `Room ${stay.room}` : "No room", sessionStatusLabel(stay.status), stay.stay_id].join(" · "), stayId));
+    }
+    selector.value = stayId;
+    renderGuest360(data);
+  } catch (error) {
+    if (requestId === state.guest360RequestSequence) {
+      $("session-guest360-subtitle").textContent = "Stay details could not be loaded.";
+      $("session-guest360-facts").replaceChildren(sessionRecordElement("p", "session-context-empty", error.message || "Could not load stay details."));
+    }
+    throw error;
+  }
+}
+
+function renderGuest360(data) {
+  const stay = data.stay || {};
+  const links = data.guest_links || [];
+  const conversations = data.conversations || [];
+  $("session-guest360-title").textContent = stay.room ? `Room ${stay.room}` : "Guest stay";
+  $("session-guest360-subtitle").textContent = `${sessionStatusLabel(stay.status)} stay · created ${formatDate(stay.created_at)}`;
+
+  const facts = $("session-guest360-facts");
+  facts.replaceChildren();
+  const addFact = (label, value) => {
+    const cell = sessionRecordElement("div", "session-record-detail");
+    cell.append(sessionRecordElement("span", "", label), sessionRecordElement("strong", "", String(value || "Not recorded")));
+    facts.appendChild(cell);
+  };
+  addFact("Lifecycle", sessionStatusLabel(stay.status));
+  addFact("Room", stay.room || "Not recorded");
+  addFact("Device", stay.device_id || "Not linked");
+  addFact("Devices", String(stay.device_count ?? (stay.device_id ? 1 : 0)));
+  addFact("Linked WLAN visits", String(links.length));
+  addFact("Last activity", formatDate(stay.last_activity_at || links[0]?.last_seen_at || stay.updated_at));
+  addFact("Retention", stayRetentionLabel(stay));
+  if (can("integrations.view") && stay.pms_guest_id) addFact("PMS guest reference", stay.pms_guest_id);
+
+  const linkList = $("session-guest360-links");
+  linkList.replaceChildren();
+  $("session-guest360-link-count").textContent = String(links.length);
+  if (!links.length) linkList.appendChild(sessionRecordElement("p", "session-context-empty", "No WLAN visits are linked to this stay."));
+  for (const link of links) {
+    const item = sessionRecordElement("article", "session-context-item");
+    const header = sessionRecordElement("header");
+      header.append(sessionRecordElement("strong", "", link.guest_session_label || maskedSessionLabel(link.guest_session_id, "WLAN visit")), sessionRecordElement("span", "session-record-badge", stay.status === "active" ? "Active stay" : "Checked out"));
+    const appActivity = link.concierge_session_last_seen_at ? ` · app activity ${formatDate(link.concierge_session_last_seen_at)}` : "";
+    const appExpiry = link.concierge_session_status === "active" ? ` · access expires ${formatDate(link.concierge_session_expires_at)}` : "";
+    item.append(header, sessionRecordElement("span", "", `${link.has_concierge_session ? "Concierge session linked" : "No Concierge session linked"} · last WLAN activity ${formatDate(link.last_seen_at)}${appActivity}${appExpiry}`));
+    if (can("guest_sessions.manage")) {
+      const unlink = sessionRecordElement("button", "secondary danger", "Unlink visit");
+      unlink.type = "button";
+      unlink.addEventListener("click", () => unlinkGuestVisit(link.action_id).catch((error) => showToast(error.message, "error")));
+      item.appendChild(unlink);
+    }
+    linkList.appendChild(item);
+  }
+
+  renderGuest360List("session-guest360-requests", data.requests, data.visibility?.requests, "No related guest requests are linked to this stay.", "Request summaries are restricted for your role.", (request) => {
+    const item = sessionRecordElement("article", "session-context-item");
+    const header = sessionRecordElement("header");
+    header.append(sessionRecordElement("strong", "", `${request.request_type || "Service request"}${request.room ? ` · Room ${request.room}` : ""}`), sessionRecordElement("span", `session-record-badge ${request.status || ""}`, sessionStatusLabel(request.status)));
+    item.append(header);
+    if (request.description) item.appendChild(sessionRecordElement("p", "", request.description));
+    item.appendChild(sessionRecordElement("span", "", `${request.department || "Unrouted"} · ${request.priority || "Normal"} priority · ${formatDate(request.created_at)}`));
+    return item;
+  });
+  renderGuest360List("session-guest360-conversations", conversations, data.visibility?.conversations, "No linked Concierge session summaries are available.", "Conversation summaries are restricted for your role.", (session) => {
+    const item = sessionRecordElement("article", "session-context-item");
+    const header = sessionRecordElement("header");
+    header.append(sessionRecordElement("strong", "", `Concierge session · ${sessionStatusLabel(session.session_status)}`), sessionRecordElement("span", "session-record-badge", sessionStatusLabel(session.interaction_status)));
+    item.append(header, sessionRecordElement("span", "", `${Number(session.message_count || 0)} messages · last activity ${formatDate(session.last_message_at || session.last_seen_at)}`));
+    item.appendChild(sessionRecordElement("span", "", `Guest access ${session.session_status === "active" ? `expires ${formatDate(session.session_expires_at)}` : "expired or revoked"}`));
+    return item;
+  });
+
+  const memoryCard = $("session-memory-card");
+  memoryCard.hidden = !can("guest_sessions.view");
+  $("session-checkout-stay").hidden = !can("guest_sessions.manage") || stay.status !== "active";
+  updateStayMemoryEditor(stay);
+}
+
+function renderGuest360List(id, items, permitted, emptyMessage, restrictedMessage, renderItem) {
+  const list = $(id);
+  list.replaceChildren();
+  if (!permitted) {
+    list.appendChild(sessionRecordElement("p", "session-context-empty", restrictedMessage));
+    return;
+  }
+  if (!items?.length) {
+    list.appendChild(sessionRecordElement("p", "session-context-empty", emptyMessage));
+    return;
+  }
+  for (const item of items) list.appendChild(renderItem(item));
+}
+
+async function unlinkGuestVisit(guestSessionId) {
+  if (!can("guest_sessions.manage")) throw new Error("Permission required: guest_sessions.manage");
+  if (!window.confirm("Unlink this WLAN visit from the stay? The stay, Concierge session, and device record will remain.")) return;
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/guest-sessions/${encodeURIComponent(guestSessionId)}/unlink`, { method: "POST" });
+  const stayId = state.guest360?.stay?.stay_id;
+  await loadSessions();
+  if (stayId) await openGuest360(stayId);
+  showToast("WLAN visit unlinked from the stay.");
+}
+
+async function expireGuestAccess(sessionId) {
+  if (!can("guest_sessions.manage")) throw new Error("Permission required: guest_sessions.manage");
+  if (!window.confirm("Expire guest access for this Concierge session? Its conversation record will remain.")) return;
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/sessions/${encodeURIComponent(sessionId)}/expire`, { method: "POST" });
+  await loadSessions();
+  showToast("Guest access expired.");
+}
+
+async function checkoutGuestStay(stayId) {
+  if (!can("guest_sessions.manage")) throw new Error("Permission required: guest_sessions.manage");
+  if (!window.confirm("Check out this stay? Guest context is anonymized and retention begins according to the property policy.")) return;
+  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/stays/${encodeURIComponent(stayId)}/checkout`, { method: "POST" });
+  $("session-guest360-drawer").close();
+  state.guest360 = null;
+  await loadSessions();
+  showToast("Guest stay checked out; retention policy applied.");
 }
 
 function renderSessionSummary() {
@@ -7220,6 +8268,7 @@ function renderSessionSummary() {
     devices: summary.devices || 0,
   };
   for (const [key, value] of Object.entries(counts)) $(`session-count-${key}`).textContent = value;
+  $("open-session-link").hidden = !can("guest_sessions.manage");
   const activeFilter = $("session-record-filter").value;
   for (const card of document.querySelectorAll("[data-session-filter]")) {
     card.classList.toggle("selected", card.dataset.sessionFilter === activeFilter);
@@ -7275,7 +8324,7 @@ function renderSessionRecords() {
     const card = sessionRecordElement("article", "session-record-card");
     const header = sessionRecordElement("header", "session-record-header");
     const title = sessionRecordElement("div", "session-record-title");
-    title.append(sessionRecordElement("p", "", "CONCIERGE SESSION"), sessionRecordElement("h4", "", session.session_id));
+    title.append(sessionRecordElement("p", "", "CONCIERGE APP SESSION"), sessionRecordElement("h4", "", session.session_label || maskedSessionLabel(session.session_id)));
     const badge = sessionRecordElement("span", `session-record-badge ${session.session_status}`, session.session_status === "active" ? "Active" : "Expired");
     header.append(title, badge);
     const facts = sessionRecordElement("div", "session-record-facts");
@@ -7285,13 +8334,21 @@ function renderSessionRecords() {
       facts.appendChild(cell);
     };
     add("Authentication", session.authenticated ? "Authenticated" : "Not authenticated");
-    add("Conversation state", String(session.interaction_status || "open").replaceAll("_", " "));
-    add("Staff takeover", session.human_takeover ? "Active" : "No");
-    add("Messages", `${Number(session.message_count || 0)} messages`);
+    if (session.interaction_status) add("Conversation state", sessionStatusLabel(session.interaction_status));
+    if (session.human_takeover !== undefined) add("Staff takeover", session.human_takeover ? "Active" : "No");
+    if (session.message_count !== undefined) add("Messages", `${Number(session.message_count || 0)} messages`);
     add("Started", formatDate(session.created_at));
     add("Last activity", formatDate(session.last_seen_at));
-    if (session.last_provider) add("Last AI provider", session.last_provider);
+    add("Guest access expiry", session.session_status === "active" ? formatDate(session.session_expires_at) : "Expired or revoked");
     card.append(header, facts);
+    if (can("guest_sessions.manage") && session.action_id && session.session_status === "active") {
+      const actions = sessionRecordElement("div", "session-record-actions");
+      const expire = sessionRecordElement("button", "secondary danger", "Expire guest access");
+      expire.type = "button";
+      expire.addEventListener("click", () => expireGuestAccess(session.action_id).catch((error) => showToast(error.message, "error")));
+      actions.appendChild(expire);
+      card.appendChild(actions);
+    }
     return card;
   });
 
@@ -7299,7 +8356,7 @@ function renderSessionRecords() {
     const card = sessionRecordElement("article", "session-record-card");
     const header = sessionRecordElement("header", "session-record-header");
     const title = sessionRecordElement("div", "session-record-title");
-    title.append(sessionRecordElement("p", "", "WLAN / INTEGRATION LINK"), sessionRecordElement("h4", "", link.guest_session_id));
+    title.append(sessionRecordElement("p", "", "WLAN VISIT LINK"), sessionRecordElement("h4", "", link.guest_session_label || maskedSessionLabel(link.guest_session_id, "WLAN visit")));
     const status = link.stay_status === "active" ? "Active stay" : "Checked out";
     header.append(title, sessionRecordElement("span", "session-record-badge", status));
     const facts = sessionRecordElement("div", "session-record-facts");
@@ -7308,15 +8365,25 @@ function renderSessionRecords() {
       cell.append(sessionRecordElement("span", "", label), sessionRecordElement("strong", "", String(value || "Not linked")));
       facts.appendChild(cell);
     };
-    add("Stay ID", link.stay_id);
     add("Room", link.room || "Not recorded");
     add("Device identity", link.device_id);
-    add("Concierge session ID", link.concierge_session_id);
-    add("ANTlabs session ID", link.antlabs_session_id);
-    add("Browser session ID", link.browser_session_id);
+    add("Concierge session", link.concierge_session_id ? maskedSessionLabel(link.concierge_session_id) : "Not linked");
     add("Created", formatDate(link.created_at));
     add("Last activity", formatDate(link.last_seen_at));
     card.append(header, facts);
+    const actions = sessionRecordElement("div", "session-record-actions");
+    const details = sessionRecordElement("button", "secondary", "Open Guest 360°");
+    details.type = "button";
+    details.addEventListener("click", () => openGuest360(link.stay_id).catch((error) => showToast(error.message, "error")));
+    actions.appendChild(details);
+    if (can("guest_sessions.manage")) {
+      const unlink = sessionRecordElement("button", "secondary danger", "Unlink visit");
+      unlink.type = "button";
+      unlink.disabled = !link.action_id;
+      unlink.addEventListener("click", () => unlinkGuestVisit(link.action_id).catch((error) => showToast(error.message, "error")));
+      actions.appendChild(unlink);
+    }
+    card.appendChild(actions);
     return card;
   });
 
@@ -7324,7 +8391,7 @@ function renderSessionRecords() {
     const card = sessionRecordElement("article", "session-record-card");
     const header = sessionRecordElement("header", "session-record-header");
     const title = sessionRecordElement("div", "session-record-title");
-    title.append(sessionRecordElement("p", "", "GUEST STAY"), sessionRecordElement("h4", "", stay.stay_id));
+    title.append(sessionRecordElement("p", "", "GUEST STAY"), sessionRecordElement("h4", "", maskedSessionLabel(stay.stay_id, "Stay")));
     const badge = sessionRecordElement("span", `session-record-badge ${stay.status}`, stay.status === "active" ? "Active" : "Checked out");
     header.append(title, badge);
     const facts = sessionRecordElement("div", "session-record-facts");
@@ -7335,22 +8402,18 @@ function renderSessionRecords() {
     };
     add("Room", stay.room || "Not recorded");
     add("Device identity", stay.device_id || "Not linked");
-    add("PMS guest ID", stay.pms_guest_id || "Not linked");
-    add("Stay notes", stayMemoryLabel(stay.memory_summary));
+    add("Device count", String(stay.device_count ?? (stay.device_id ? 1 : 0)));
+    add("Linked Concierge sessions", String(stay.concierge_session_count || 0));
+    add("Linked WLAN visits", String(links.filter((link) => link.stay_id === stay.stay_id).length));
     add("Created", formatDate(stay.created_at));
-    add("Last updated", formatDate(stay.updated_at));
-    add("Retention until", stay.retention_until ? formatDate(stay.retention_until) : "No expiry set");
-    if (stay.checked_out_at) add("Checked out", formatDate(stay.checked_out_at));
-    const action = sessionRecordElement("button", "secondary", stay.status === "active" ? "Edit stay notes" : "View stay notes");
+    add("Last activity", formatDate(stay.last_activity_at || stay.updated_at));
+    add("Retention", stayRetentionLabel(stay));
+    const actions = sessionRecordElement("div", "session-record-actions");
+    const action = sessionRecordElement("button", "secondary", "Open Guest 360°");
     action.type = "button";
-    action.title = stay.status === "active" ? "Load this stay in the notes editor" : "Checked-out stay notes are read-only";
-    action.addEventListener("click", () => {
-      state.guestSelectedStay = stay;
-      $("memory-stay-id").value = stay.stay_id;
-      updateStayMemoryEditor(stay);
-      $("memory-stay-id").scrollIntoView({ behavior: "smooth", block: "center" });
-    });
-    card.append(header, facts, action);
+    action.addEventListener("click", () => openGuest360(stay.stay_id).catch((error) => showToast(error.message, "error")));
+    actions.appendChild(action);
+    card.append(header, facts, actions);
     return card;
   });
 
@@ -7358,7 +8421,7 @@ function renderSessionRecords() {
     const card = sessionRecordElement("article", "session-record-card device-record-card");
     const header = sessionRecordElement("header", "session-record-header");
     const title = sessionRecordElement("div", "session-record-title");
-    title.append(sessionRecordElement("p", "", "DEVICE IDENTITY · RAW MAC NOT DISPLAYED"), sessionRecordElement("h4", "", device.device_id));
+    title.append(sessionRecordElement("p", "", "PSEUDONYMOUS DEVICE · RAW MAC NOT DISPLAYED"), sessionRecordElement("h4", "", device.device_id));
     header.append(title, sessionRecordElement("span", "session-record-badge", String(device.source || "wlan").toUpperCase()));
     const facts = sessionRecordElement("div", "session-record-facts");
     const add = (label, value) => {
@@ -7383,7 +8446,8 @@ function renderSessionRecords() {
 
 async function loadSessions() {
   const button = $("refresh-sessions");
-  const originalLabel = button?.textContent || "Refresh records";
+  const originalLabel = "Refresh";
+  const message = $("session-load-message");
   const requestId = ++state.sessionRequestSequence;
   const propertyId = currentPropertyId();
   const params = new URLSearchParams({
@@ -7396,6 +8460,8 @@ async function loadSessions() {
     device_offset: String(state.guestSessionOffsets.devices || 0),
   });
   if (button) { button.disabled = true; button.textContent = "Refreshing…"; }
+  message.hidden = false;
+  message.textContent = "Loading property records…";
   try {
     const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}/sessions?${params}`);
     if (requestId !== state.sessionRequestSequence || propertyId !== currentPropertyId()) return;
@@ -7409,26 +8475,33 @@ async function loadSessions() {
     const selector = $("memory-stay-id");
     selector.replaceChildren(new Option("Select a stay", ""));
     for (const stay of state.guestStays) {
-      const description = [stay.room ? `Room ${stay.room}` : "No room", stay.status === "active" ? "Active" : "Checked out", stay.stay_id].join(" · ");
+      const description = [stay.room ? `Room ${stay.room}` : "No room", stay.status === "active" ? "Active stay" : "Checked out"].join(" · ");
       selector.appendChild(new Option(description, stay.stay_id));
     }
     if (state.guestSelectedStay && state.guestSelectedStay.property_id !== propertyId) state.guestSelectedStay = null;
     let selectedStay = state.guestStays.find((stay) => stay.stay_id === state.guestSelectedStay?.stay_id) || state.guestSelectedStay;
     if (selectedStay && !state.guestStays.some((stay) => stay.stay_id === selectedStay.stay_id)) {
-      const description = [selectedStay.room ? `Room ${selectedStay.room}` : "No room", selectedStay.status === "active" ? "Active" : "Checked out", selectedStay.stay_id].join(" · ");
+      const description = [selectedStay.room ? `Room ${selectedStay.room}` : "No room", selectedStay.status === "active" ? "Active stay" : "Checked out"].join(" · ");
       selector.appendChild(new Option(description, selectedStay.stay_id));
     }
     selector.value = selectedStay?.stay_id || "";
     state.guestSelectedStay = selectedStay || null;
-    updateStayMemoryEditor(selectedStay || null);
     renderSessionRecords();
+    message.hidden = true;
     $("session-last-refreshed").textContent = `Updated ${new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(new Date())}`;
+  } catch (error) {
+    if (requestId === state.sessionRequestSequence && propertyId === currentPropertyId()) {
+      message.hidden = false;
+      message.textContent = `Guest session records could not be loaded. ${error.message || "Check your connection and try again."}`;
+    }
+    throw error;
   } finally {
     if (button && requestId === state.sessionRequestSequence) { button.disabled = false; button.textContent = originalLabel; }
   }
 }
 
 async function createStaySession() {
+  if (!can("guest_sessions.manage")) throw new Error("Permission required: guest_sessions.manage");
   const rawMac = $("session-raw-mac").value.trim();
   if (!rawMac) throw new Error("Enter an authorized WLAN MAC address to create or restore a stay.");
   const retentionDays = Number($("session-retention-days").value || 2);
@@ -7450,11 +8523,11 @@ async function createStaySession() {
       }),
     });
     $("session-raw-mac").value = "";
-    state.guestSelectedStay = result.stay;
+    for (const id of ["session-room", "session-concierge-id", "session-antlabs-id", "session-browser-id", "session-pms-guest-id"]) $(id).value = "";
+    $("session-retention-days").value = "2";
+    $("session-link-drawer").close();
     await loadSessions();
-    $("memory-stay-id").value = result.stay.stay_id;
-    state.guestSelectedStay = result.stay;
-    updateStayMemoryEditor(result.stay);
+    await openGuest360(result.stay.stay_id);
     showToast("Guest stay created or restored; WLAN identity is pseudonymous.");
   } finally {
     button.disabled = false;
@@ -7463,9 +8536,11 @@ async function createStaySession() {
 }
 
 async function saveStayMemory() {
+  if (!can("guest_sessions.manage")) throw new Error("Permission required: guest_sessions.manage");
   const stayId = $("memory-stay-id").value;
-  const stay = state.guestStays.find((item) => item.stay_id === stayId)
-    || (state.guestSelectedStay?.stay_id === stayId ? state.guestSelectedStay : null);
+  const stay = state.guest360?.stay?.stay_id === stayId ? state.guest360.stay
+    : state.guestStays.find((item) => item.stay_id === stayId)
+      || (state.guestSelectedStay?.stay_id === stayId ? state.guestSelectedStay : null);
   if (!stayId || !stay) throw new Error("Select a guest stay first.");
   if (stay.status !== "active") throw new Error("Stay notes can only be changed for an active stay.");
   const lines = (id) => $(id).value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean).slice(0, 20);
@@ -7479,53 +8554,201 @@ async function saveStayMemory() {
       important_context: $("memory-important-context").value.trim(),
     } }),
   });
-  state.guestSelectedStay = updatedStay;
   await loadSessions();
+  await openGuest360(stayId);
   showToast("Stay notes saved.");
 }
 
 async function loadLocationLive() {
+  const propertyId = currentPropertyId();
   renderManagedLocations();
-  const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/location/live`);
-  $("location-live-metrics").innerHTML = `
-    <article><span>Detected devices</span><strong>${data.currently_detected}</strong></article>
-    <article><span>Active stays</span><strong>${data.active_sessions}</strong></article>
-    <article><span>Busiest zone</span><strong>${escapeHTML(data.busiest_zone_id || "-")}</strong></article>
-    <article><span>Zones occupied</span><strong>${Object.keys(data.occupancy_by_zone || {}).length}</strong></article>
-  `;
+  const analytics = can("analytics.view");
+  $("location-analytics").hidden = !analytics;
+  $("location-analytics-access-note").hidden = analytics;
+  const tasks = [];
+  if (can("properties.view")) tasks.push(loadZones());
+  if (can("restaurant.view")) tasks.push(loadHospitalityManagement());
+  if (analytics) tasks.push(jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}/location/live`));
+  const results = await Promise.allSettled(tasks);
+  let live = null;
+  let index = 0;
+  if (can("properties.view")) {
+    const zonesResult = results[index++];
+    if (zonesResult.status === "rejected") {
+      $("location-map-publication").textContent = "Map readiness could not be loaded. Open the map studio to retry.";
+      $("location-map-validation").hidden = true;
+    } else {
+      renderLocationMapSummary();
+    }
+  }
+  if (can("restaurant.view")) {
+    const facilitiesResult = results[index++];
+    if (facilitiesResult.status === "rejected") {
+      $("location-facility-count").textContent = "Facility directory could not be loaded.";
+      $("location-facility-list").textContent = "Open Facilities to retry.";
+    } else {
+      renderLocationFacilities();
+    }
+  } else {
+    $("location-facility-count").textContent = "Facility details are restricted by your role.";
+    $("location-facility-list").textContent = "Ask an administrator with facility access to review this directory.";
+  }
+  if (analytics) {
+    const liveResult = results[index];
+    if (liveResult.status === "fulfilled") live = liveResult.value;
+    else {
+      $("location-live-metrics").innerHTML = '<p class="location-report-empty">Recent WLAN activity could not be loaded. Use Refresh to try again.</p>';
+      $("location-data-freshness").textContent = "Analytics unavailable";
+      $("location-data-freshness-dot").className = "is-unavailable";
+    }
+    if (live) renderLocationLive(live);
+    updateLocationAnalyticsReadiness();
+  }
+  renderManagedLocations();
 }
 
-async function recordObservation() {
-  const sessionId = $("obs-session-id").value.trim();
-  if (!sessionId) throw new Error("Enter a consenting guest session ID before recording an observation.");
-  await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/location/observations`, {
-    method: "POST",
-    body: JSON.stringify({ session_id: sessionId, raw_mac: $("obs-raw-mac").value.trim(), access_point_identifier: $("obs-ap-id").value.trim() }),
-  });
-  await loadLocationLive();
-  showToast("Observation recorded.");
+function renderLocationMapSummary() {
+  const overview = state.zones || {};
+  const publication = overview.map_revision_state || {};
+  const validation = overview.map_validation || {};
+  const values = [
+    overview.buildings?.length || 0,
+    overview.floors?.length || 0,
+    (overview.navigation_nodes || []).filter((item) => item.guest_visible !== false && item.guest_visible !== 0).length,
+    (overview.navigation_edges || []).filter((item) => item.guest_visible !== false && item.guest_visible !== 0).length,
+  ];
+  $("location-directory-stats").textContent = `${(state.property?.app_settings?.locations || []).length} guest locations · ${(state.hospitality?.facilities || []).length} structured facilities · ${(overview.facilities || []).length} floor-map markers`;
+  $("location-map-summary").innerHTML = ["Buildings", "Floors", "Guest waypoints", "Route links"]
+    .map((label, index) => `<div><span>${label}</span><strong>${values[index]}</strong></div>`).join("");
+  const current = publication.current;
+  const status = current
+    ? `Published revision ${Number(current.revision_number) || "—"}${publication.has_unpublished_changes ? " · newer draft changes are not live" : " · guest maps are live"}`
+    : "No map revision is published · guests do not see the working map yet.";
+  $("location-map-publication").textContent = status;
+  const issues = validation.issues || [];
+  const validationBox = $("location-map-validation");
+  validationBox.hidden = !issues.length;
+  validationBox.innerHTML = issues.length
+    ? `<strong>Map review · ${issues.length} ${issues.length === 1 ? "item" : "items"}</strong><ul>${issues.slice(0, 4).map((issue) => `<li>${escapeHTML(issue.message || issue)}</li>`).join("")}</ul>`
+    : `<strong>${validation.status === "ready" ? "Route graph check passed" : "No map checks to report"}</strong>`;
+}
+
+function renderLocationFacilities() {
+  const facilities = state.hospitality?.facilities || [];
+  const mapped = state.zones?.facilities || [];
+  $("location-facility-count").textContent = `${facilities.length} structured ${facilities.length === 1 ? "facility" : "facilities"} · ${mapped.length} mapped ${mapped.length === 1 ? "marker" : "markers"}`;
+  $("location-directory-stats").textContent = `${(state.property?.app_settings?.locations || []).length} guest locations · ${facilities.length} structured facilities · ${mapped.length} floor-map markers`;
+  const list = $("location-facility-list");
+  list.replaceChildren();
+  if (!facilities.length) {
+    const empty = document.createElement("p");
+    empty.className = "location-report-empty";
+    empty.textContent = "No structured amenities are configured yet.";
+    list.appendChild(empty);
+    return;
+  }
+  const visible = facilities.filter((item) => !item.archived).slice(0, 4);
+  for (const facility of visible) {
+    const row = document.createElement("div");
+    row.className = "location-facility-row";
+    const title = document.createElement("strong"); title.textContent = facility.name || "Facility";
+    const detail = document.createElement("span"); detail.textContent = [facility.facility_type || "Amenity", facility.location || facility.status_note, String(facility.live_status || "").replaceAll("_", " ")].filter(Boolean).join(" · ");
+    row.append(title, detail); list.appendChild(row);
+  }
+  if (facilities.length > visible.length) {
+    const more = document.createElement("p"); more.className = "location-report-empty"; more.textContent = `${facilities.length - visible.length} more in the full facility directory.`; list.appendChild(more);
+  }
+}
+
+function renderLocationLive(data) {
+  const zoneNames = new Map((state.zones?.zones || []).map((zone) => [zone.zone_id, zone.name]));
+  const busiest = data.busiest_zone_id;
+  const metrics = [
+    ["Devices observed · last 15 min", data.currently_detected ?? 0],
+    ["Linked guest stays represented", data.active_sessions ?? 0],
+    ["Zones with recent observations", Object.keys(data.occupancy_by_zone || {}).length],
+    ["Most observed zone", busiest ? (zoneNames.get(busiest) || "Unlabeled zone") : "—"],
+  ];
+  $("location-live-metrics").innerHTML = metrics.map(([label, value]) => `<article><span>${escapeHTML(label)}</span><strong>${escapeHTML(String(value))}</strong></article>`).join("");
+  const last = Number(data.last_observation_at || 0);
+  const dot = $("location-data-freshness-dot");
+  if (!last) {
+    $("location-data-freshness").textContent = "No WLAN observation received";
+    dot.className = "is-unavailable";
+  } else {
+    const ageMinutes = Math.max(0, Math.floor(Date.now() / 1000 - last) / 60);
+    $("location-data-freshness").textContent = ageMinutes < 1 ? "Observed just now" : `Latest signal ${Math.floor(ageMinutes)} min ago`;
+    dot.className = ageMinutes <= Number(data.window_minutes || 15) ? "is-fresh" : "is-stale";
+  }
+}
+
+function updateLocationAnalyticsReadiness() {
+  const collectionEnabled = state.zones?.location_collection_enabled === true;
+  const mappedAccessPoints = (state.zones?.access_points || []).length;
+  const unavailable = !collectionEnabled || !mappedAccessPoints;
+  $("location-analytics-unavailable").hidden = !unavailable;
+  if (!collectionEnabled) {
+    $("location-analytics-unavailable-copy").textContent = "Property location collection is off. Enable it only when the property has an approved WLAN source and the required guest consent controls.";
+  } else if (!mappedAccessPoints) {
+    $("location-analytics-unavailable-copy").textContent = "No access points are mapped to guest zones. Configure approved AP identifiers in the map studio; this does not change or configure WLAN hardware.";
+  } else {
+    $("location-analytics-unavailable-copy").textContent = "No fresh observations are available. Records appear only after an authorized source verifies the linked session, active stay, device, mapped access point, and guest location consent.";
+  }
+}
+
+function locationReportBounds(period) {
+  const timezone = state.property?.timezone || "UTC";
+  const now = new Date();
+  const partsAt = (date) => Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).formatToParts(date).filter((part) => part.type !== "literal").map((part) => [part.type, Number(part.value)]));
+  const localDate = (deltaDays = 0) => {
+    const p = partsAt(now);
+    const date = new Date(Date.UTC(p.year, p.month - 1, p.day + deltaDays));
+    return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() };
+  };
+  const localMidnight = ({ year, month, day }) => {
+    const targetUtc = Date.UTC(year, month - 1, day);
+    let guess = targetUtc;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const observed = partsAt(new Date(guess));
+      const observedUtc = Date.UTC(observed.year, observed.month - 1, observed.day, observed.hour, observed.minute, observed.second);
+      guess += targetUtc - observedUtc;
+    }
+    return Math.floor(guess / 1000);
+  };
+  const todayDate = localDate(0);
+  const todayStart = localMidnight(todayDate);
+  const tomorrowStart = localMidnight(localDate(1));
+  const yesterdayStart = localMidnight(localDate(-1));
+  if (period === "yesterday") return { start_at: yesterdayStart, end_at: todayStart };
+  if (period === "7" || period === "30") {
+    const days = Number(period);
+    return { start_at: localMidnight(localDate(-(days - 1))), end_at: tomorrowStart - 1 };
+  }
+  return { start_at: todayStart, end_at: tomorrowStart - 1 };
 }
 
 async function loadLocationReport() {
-  const now = Math.floor(Date.now() / 1000);
-  const period = $("analytics-period").value;
-  const days = period === "30" ? 30 : period === "7" ? 7 : 1;
-  const start = period === "yesterday" ? now - 2 * 86400 : now - days * 86400;
-  const end = period === "yesterday" ? now - 86400 : now;
+  const range = locationReportBounds($("analytics-period").value);
   const report = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/location/report`, {
     method: "POST",
-    body: JSON.stringify({ start_at: start, end_at: end, filters: {} }),
+    body: JSON.stringify({ ...range, filters: {} }),
   });
-  $("location-report").innerHTML = `
-    <div class="compact-row"><strong>${report.total_visits} visits · ${report.unique_visits} unique devices</strong><span>Zone metrics use consented access-point observations.</span></div>
-    ${Object.entries(report.area_metrics).map(([zone, metric]) => `<div class="compact-row"><strong>${escapeHTML(zone)}</strong><span>${metric.total_visits} visits · ${metric.average_dwell_seconds}s avg dwell · ${metric.repeat_visits} repeat visits</span></div>`).join("")}
-    ${report.movement_patterns.map((item) => `<div class="compact-row"><strong>${escapeHTML(item.source_zone_id)} -> ${escapeHTML(item.destination_zone_id)}</strong><span>${item.count} transitions · ${item.percentage}%</span></div>`).join("")}
-  `;
+  const zoneNames = new Map((state.zones?.zones || []).map((zone) => [zone.zone_id, zone.name]));
+  $("location-report-timezone").textContent = `Property timezone · ${report.timezone || state.property?.timezone || "UTC"}`;
+  const areaEntries = Object.entries(report.area_metrics || {});
+  $("location-report").innerHTML = areaEntries.length
+    ? areaEntries.map(([zone, metric]) => `<article class="location-report-row"><div><strong>${escapeHTML(zoneNames.get(zone) || "Unlabeled zone")}</strong><span>${metric.total_visits} observed visits · ${metric.unique_visitors} unique devices</span></div><div><strong>${Math.round(metric.average_dwell_seconds / 60)} min</strong><span>Average observed dwell</span></div></article>`).join("")
+    : '<p class="location-report-empty">No zone activity was recorded in this period.</p>';
+  const movements = report.movement_patterns || [];
+  $("location-movement-report").innerHTML = movements.length
+    ? movements.slice(0, 8).map((item) => `<article class="location-report-row"><div><strong>${escapeHTML(zoneNames.get(item.source_zone_id) || "Unlabeled zone")} <span aria-hidden="true">→</span> ${escapeHTML(zoneNames.get(item.destination_zone_id) || "Unlabeled zone")}</strong><span>${item.count} observed transitions · ${Number(item.percentage).toFixed(1)}%</span></div></article>`).join("")
+    : '<p class="location-report-empty">No zone-to-zone transitions were recorded in this period.</p>';
   const peakHours = report.peak_hours || [];
   $("location-peak-hours").innerHTML = peakHours.length
     ? peakHours.map((item) => {
       const hour = String(Number(item.hour)).padStart(2, "0");
-      return `<div class="compact-row"><strong>${hour}:00 · ${Number(item.average_observed_devices).toFixed(1)} devices on average</strong><span>${item.sample_days} observed days · ${escapeHTML(report.timezone || "UTC")}</span></div>`;
+      const width = Math.min(100, Math.max(4, Number(item.average_observed_devices) / Math.max(1, ...peakHours.map((entry) => Number(entry.average_observed_devices))) * 100));
+      return `<div class="location-peak-row"><span>${hour}:00</span><div class="location-peak-bar"><i style="width:${width}%"></i></div><strong>${Number(item.average_observed_devices).toFixed(1)} devices</strong><small>${item.sample_days} days</small></div>`;
     }).join("")
     : '<div class="compact-row"><span>No access-point observations were recorded for this period.</span></div>';
 }
@@ -7820,6 +9043,9 @@ async function playIntroPreview() {
 
 // Protect unsaved retention drafts from stale inbox GET responses.
 let conversationLoadVersion = 0;
+let conversationDetailVersion = 0;
+let conversationDetailData = null;
+let conversationDepartmentOptions = [];
 let conversationPageOffset = 0;
 const conversationPageLimit = 50;
 let conversationTotal = 0;
@@ -7847,6 +9073,7 @@ async function loadConversations() {
     conversationPagePropertyId = propertyId;
     conversationPageOffset = 0;
     state.selectedConversation = null;
+    conversationDetailData = null;
   }
   const version = ++conversationLoadVersion;
   resetRetentionDraftForProperty(propertyId);
@@ -7854,17 +9081,23 @@ async function loadConversations() {
   const originalLabel = button.textContent;
   button.disabled = true;
   button.textContent = "Refreshing…";
+  $("conversation-list").replaceChildren();
+  renderConversationEmptyState($("conversation-list"), "Loading inbox", "Fetching property-scoped conversation summaries…");
   try {
     const params = new URLSearchParams({
       limit: String(conversationPageLimit),
       offset: String(conversationPageOffset),
       status: $("conversation-status-filter").value,
+      department: $("conversation-department-filter").value,
+      unread: String($("conversation-unread-filter").checked),
     });
     const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}/conversations?${params.toString()}`);
     if (version !== conversationLoadVersion || propertyId !== currentPropertyId()) return;
     state.conversations = Array.isArray(data.conversations) ? data.conversations : [];
     conversationTotal = Number.isInteger(data.total) ? data.total : state.conversations.length;
     conversationStatusCounts = data.status_counts && typeof data.status_counts === "object" ? data.status_counts : {};
+    conversationDepartmentOptions = Array.isArray(data.department_options) ? data.department_options : [];
+    renderConversationDepartmentFilters();
     conversationPageOffset = Number.isInteger(data.offset) ? data.offset : conversationPageOffset;
     if (!retentionDraftDirty) {
       const serverRetentionDays = data.retention?.retention_days ?? 30;
@@ -7879,15 +9112,85 @@ async function loadConversations() {
     }
     const selectedId = state.selectedConversation?.session_id;
     const refreshedSelection = selectedId ? state.conversations.find((item) => item.session_id === selectedId) : null;
-    if (refreshedSelection) state.selectedConversation = refreshedSelection;
+    state.selectedConversation = refreshedSelection || null;
     $("conversation-last-refreshed").textContent = `Updated ${new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(new Date())}`;
     renderConversations();
-    renderConversationMessages();
+    if (refreshedSelection) {
+      await loadConversationDetail(selectedId, { markRead: false, quiet: true });
+    } else if (!selectedId && window.matchMedia("(min-width: 1200px)").matches) {
+      const first = state.conversations.find((item) => Number(item.message_count || 0) > 0 || item.escalation_reason);
+      if (first) await selectConversation(first.session_id, { markRead: true });
+      else renderConversationMessages();
+    } else {
+      conversationDetailData = null;
+      renderConversationMessages();
+      renderConversationContext();
+    }
+  } catch (error) {
+    if (version === conversationLoadVersion && propertyId === currentPropertyId()) {
+      const list = $("conversation-list");
+      list.replaceChildren();
+      renderConversationEmptyState(list, "Inbox could not load", error.message || "Check the connection and try again.", "Retry", () => loadConversations().catch((retryError) => showToast(retryError.message, "error")));
+    }
+    throw error;
   } finally {
     if (version === conversationLoadVersion) {
       button.disabled = false;
       button.textContent = originalLabel === "Refreshing…" ? "Refresh inbox" : originalLabel;
     }
+  }
+}
+
+function renderConversationDepartmentFilters() {
+  const listFilter = $("conversation-department-filter");
+  const routeFilter = $("conversation-department-select");
+  const selectedListValue = listFilter.value;
+  listFilter.replaceChildren(new Option("All departments", ""));
+  for (const item of conversationDepartmentOptions) {
+    if (!item?.id || !item?.name) continue;
+    listFilter.appendChild(new Option(item.name, item.id));
+  }
+  if ([...listFilter.options].some((option) => option.value === selectedListValue)) listFilter.value = selectedListValue;
+  const selectedRouteValue = routeFilter.value;
+  routeFilter.replaceChildren(new Option("Choose a department", ""));
+  for (const item of conversationDepartmentOptions.filter((option) => String(option.id).startsWith("department:"))) {
+    routeFilter.appendChild(new Option(item.name, String(item.id).slice("department:".length)));
+  }
+  if ([...routeFilter.options].some((option) => option.value === selectedRouteValue)) routeFilter.value = selectedRouteValue;
+}
+
+async function selectConversation(sessionId, { markRead = true } = {}) {
+  const summary = state.conversations.find((item) => item.session_id === sessionId);
+  if (!summary) return;
+  state.selectedConversation = summary;
+  conversationDetailData = null;
+  renderConversations();
+  renderConversationMessages();
+  renderConversationContext();
+  await loadConversationDetail(sessionId, { markRead });
+}
+
+async function loadConversationDetail(sessionId, { markRead = false, quiet = false } = {}) {
+  const propertyId = currentPropertyId();
+  const version = ++conversationDetailVersion;
+  const base = `/api/admin/properties/${encodeURIComponent(propertyId)}/conversations/${encodeURIComponent(sessionId)}`;
+  try {
+    if (markRead) await jsonFetch(`${base}/read`, { method: "POST" });
+    const data = await jsonFetch(`${base}/detail`);
+    if (version !== conversationDetailVersion || propertyId !== currentPropertyId() || state.selectedConversation?.session_id !== sessionId) return;
+    conversationDetailData = data;
+    state.selectedConversation = { ...state.selectedConversation, ...(data.conversation || {}), messages: data.messages || [] };
+    const row = state.conversations.find((item) => item.session_id === sessionId);
+    if (row && markRead) row.unread_count = 0;
+    renderConversations();
+    renderConversationMessages();
+    renderConversationContext();
+  } catch (error) {
+    if (version !== conversationDetailVersion || propertyId !== currentPropertyId()) return;
+    conversationDetailData = { error: error.message || "The conversation could not be opened." };
+    renderConversationMessages();
+    renderConversationContext();
+    if (!quiet) showToast(error.message, "error");
   }
 }
 
@@ -7993,7 +9296,7 @@ function renderConversations() {
   list.replaceChildren();
   renderConversationSummary();
   const matching = state.conversations.filter((item) => {
-    const text = [item.session_id, item.client_id, item.restaurant_name, item.assigned_user_name, item.escalation_reason, ...(item.messages || []).map((message) => message.content)]
+    const text = [item.restaurant_name, item.department_name, item.assigned_user_name, item.escalation_reason, item.last_message_preview]
       .filter(Boolean).join(" ").toLowerCase();
     return !query || text.includes(query);
   });
@@ -8017,37 +9320,42 @@ function renderConversations() {
     const top = document.createElement("span");
     top.className = "conversation-row-top";
     const title = document.createElement("strong");
-    title.textContent = conversation.restaurant_name || "Hotel guest";
+    title.textContent = conversation.restaurant_name || "Concierge";
+    const badges = document.createElement("span");
+    badges.className = "conversation-row-badges";
+    const status = conversationStateKey(conversation);
     const badge = document.createElement("span");
-    const currentStatus = conversationStateKey(conversation);
-    badge.className = `conversation-status-badge ${currentStatus}`;
-    badge.textContent = conversationStateLabel(currentStatus);
-    top.append(title, badge);
+    badge.className = `conversation-status-badge ${status}`;
+    badge.textContent = conversationStateLabel(status);
+    badges.appendChild(badge);
+    const unread = Number(conversation.unread_count || 0);
+    if (unread) {
+      const unreadBadge = document.createElement("span");
+      unreadBadge.className = "conversation-unread-badge";
+      unreadBadge.textContent = `${unread} unread`;
+      badges.appendChild(unreadBadge);
+    }
+    top.append(title, badges);
     const meta = document.createElement("span");
     meta.className = "conversation-row-meta";
     const latestAt = conversation.last_message_at || conversation.created_at;
-    meta.textContent = `${conversation.session_id.slice(0, 12)} · ${conversation.message_count || 0} shared updates · ${formatDate(latestAt)}${conversation.assigned_user_name ? ` · ${conversation.assigned_user_name}` : " · Unassigned"}`;
+    meta.textContent = `${conversation.department_name || "Concierge"} · ${conversation.message_count || 0} messages · ${formatDate(latestAt)}${conversation.assigned_user_name ? ` · ${conversation.assigned_user_name}` : status === "waiting_for_staff" ? " · Unassigned" : ""}`;
     const preview = document.createElement("span");
     preview.className = "conversation-row-preview";
-    const lastMessage = conversation.messages?.at(-1);
-    preview.textContent = conversation.escalation_reason || lastMessage?.content || "No staff request details yet";
+    preview.textContent = conversation.last_message_preview || conversation.escalation_reason || "Conversation started with the concierge.";
     row.append(top, meta, preview);
-    row.addEventListener("click", () => {
-      state.selectedConversation = conversation;
-      renderConversations();
-      renderConversationMessages();
-    });
+    row.addEventListener("click", () => selectConversation(conversation.session_id).catch((error) => showToast(error.message, "error")));
     list.appendChild(row);
   }
   list.scrollTop = scrollTop;
   if (!matching.length) {
-    const hasFilter = Boolean(query || $("conversation-status-filter").value);
+    const hasFilter = Boolean(query || $("conversation-status-filter").value || $("conversation-department-filter").value || $("conversation-unread-filter").checked);
     renderConversationEmptyState(
       list,
       hasFilter ? "No conversations match these filters" : "No conversations yet",
-      hasFilter ? "Try another status or search this page. Clear filters to browse the full inbox." : "Guest staff requests will appear here when someone asks a restaurant team for help.",
+      hasFilter ? "Try another status, department, or search term. Search currently covers this loaded page." : "Guest messages and staff requests will appear here once a conversation starts.",
       hasFilter ? "Clear filters" : can("concierge.view") ? "Open guest preview" : "",
-      hasFilter ? () => { $("conversation-search").value = ""; $("conversation-status-filter").value = ""; conversationPageOffset = 0; loadConversations().catch((error) => showToast(error.message, "error")); }
+      hasFilter ? () => { $("conversation-search").value = ""; $("conversation-status-filter").value = ""; $("conversation-department-filter").value = ""; $("conversation-unread-filter").checked = false; conversationPageOffset = 0; loadConversations().catch((error) => showToast(error.message, "error")); }
         : can("concierge.view") ? () => activatePanel("guest") : null,
     );
   }
@@ -8055,103 +9363,275 @@ function renderConversations() {
 
 function renderConversationMessages() {
   const conversation = state.selectedConversation;
+  const data = conversationDetailData;
   const list = $("conversation-messages");
   list.replaceChildren();
-  if (conversation?.escalation_reason) {
-    const row = document.createElement("article");
-    row.className = "conversation-message guest";
-    const meta = document.createElement("div");
-    meta.className = "conversation-message-meta";
-    const sender = document.createElement("strong");
-    sender.textContent = "Guest request";
-    meta.appendChild(sender);
-    const bubble = document.createElement("div");
-    bubble.className = "conversation-message-bubble";
-    bubble.textContent = conversation.escalation_reason;
-    row.append(meta, bubble);
-    list.appendChild(row);
-  }
-  for (const message of conversation?.messages || []) {
-    const role = String(message.role || "assistant").toLowerCase();
-    const roleClass = role === "staff" ? "staff" : ["user", "guest"].includes(role) ? "guest" : role === "system" ? "system" : "assistant";
-    const roleLabel = roleClass === "guest" ? "Guest" : roleClass === "staff" ? "Staff" : roleClass === "system" ? "System" : "AI assistant";
-    const row = document.createElement("article");
-    row.className = `conversation-message ${roleClass}`;
-    const meta = document.createElement("div");
-    meta.className = "conversation-message-meta";
-    const sender = document.createElement("strong");
-    sender.textContent = roleLabel;
-    const timestamp = document.createElement("time");
-    timestamp.textContent = formatDate(message.created_at);
-    meta.append(sender, timestamp);
-    const bubble = document.createElement("div");
-    bubble.className = "conversation-message-bubble";
-    bubble.textContent = message.content || "";
-    row.append(meta, bubble);
-    if (message.error) {
-      const error = document.createElement("small");
-      error.className = "conversation-message-error-note";
-      error.textContent = `Delivery issue: ${message.error}`;
-      row.appendChild(error);
-    }
-    list.appendChild(row);
-  }
   const title = $("conversation-detail-name");
   const detail = $("conversation-detail-meta");
   const badge = $("conversation-detail-status");
   if (!conversation) {
     title.textContent = "Select a conversation";
-    detail.textContent = "Choose a staff request from the inbox to review the guest's shared reason and staff replies.";
+    detail.textContent = "Choose a guest conversation to review its authorized transcript and context.";
     badge.hidden = true;
-    renderConversationEmptyState(list, "Your request details will appear here", "Select a staff request from the inbox to review the guest's shared reason and staff replies.");
+    renderConversationEmptyState(list, "Your conversation will appear here", "Select a conversation from the inbox.");
+  } else if (!data) {
+    title.textContent = conversation.restaurant_name || "Concierge";
+    detail.textContent = "Loading authorized conversation history…";
+    badge.hidden = false;
+    const status = conversationStateKey(conversation);
+    badge.className = `conversation-status-badge ${status}`;
+    badge.textContent = conversationStateLabel(status);
+    renderConversationEmptyState(list, "Loading conversation", "Fetching messages and permitted guest context…");
+  } else if (data.error) {
+    title.textContent = conversation.restaurant_name || "Concierge";
+    detail.textContent = "Conversation could not be opened.";
+    badge.hidden = true;
+    renderConversationEmptyState(list, "Conversation unavailable", data.error, "Try again", () => loadConversationDetail(conversation.session_id, { markRead: false }));
   } else {
-    const currentStatus = conversationStateKey(conversation);
-    title.textContent = conversation.restaurant_name || "Hotel guest";
-    detail.textContent = `Session ${conversation.session_id.slice(0, 12)} · ${conversation.message_count || 0} shared updates · Last activity ${formatDate(conversation.last_message_at || conversation.created_at)}`;
+    const detailConversation = data.conversation || conversation;
+    const currentStatus = conversationStateKey(detailConversation);
+    const stay = data.stay;
+    title.textContent = detailConversation.restaurant_name || "Concierge";
+    detail.textContent = `${detailConversation.department_name || "Concierge"}${stay?.room ? ` · Room ${stay.room}` : ""} · ${conversation.message_count || data.messages?.length || 0} messages · Last activity ${formatDate(conversation.last_message_at || conversation.created_at)}`;
     badge.hidden = false;
     badge.className = `conversation-status-badge ${currentStatus}`;
     badge.textContent = conversationStateLabel(currentStatus);
-    if (!conversation.messages?.length && !conversation.escalation_reason) renderConversationEmptyState(list, "No staff request was submitted", "Guest concierge messages stay private. Staff replies appear here after a guest requests restaurant support.");
+    if (!data.permissions?.transcript && detailConversation.escalation_reason) {
+      const row = document.createElement("article");
+      row.className = "conversation-message guest-request";
+      const meta = document.createElement("div");
+      meta.className = "conversation-message-meta";
+      const sender = document.createElement("strong");
+      sender.textContent = "Shared guest request";
+      meta.appendChild(sender);
+      const bubble = document.createElement("div");
+      bubble.className = "conversation-message-bubble";
+      bubble.textContent = detailConversation.escalation_reason;
+      row.append(meta, bubble);
+      list.appendChild(row);
+    }
+    for (const message of data.messages || []) {
+      const role = String(message.role || "assistant").toLowerCase();
+      const roleClass = role === "staff" ? "staff" : ["user", "guest"].includes(role) ? "guest" : role === "system" ? "system" : "assistant";
+      const roleLabel = roleClass === "guest" ? "Guest" : roleClass === "staff" ? (message.sender_name || "Hotel staff") : roleClass === "system" ? "System" : "Concierge AI";
+      const row = document.createElement("article");
+      row.className = `conversation-message ${roleClass}`;
+      const meta = document.createElement("div");
+      meta.className = "conversation-message-meta";
+      const sender = document.createElement("strong");
+      sender.textContent = roleLabel;
+      const timestamp = document.createElement("time");
+      timestamp.textContent = formatDate(message.created_at);
+      meta.append(sender, timestamp);
+      const bubble = document.createElement("div");
+      bubble.className = "conversation-message-bubble";
+      bubble.textContent = message.content || "";
+      row.append(meta, bubble);
+      list.appendChild(row);
+    }
+    if (!data.messages?.length && !detailConversation.escalation_reason) renderConversationEmptyState(list, "No retained messages", "This conversation has no message content available in the retention window.");
     list.scrollTop = list.scrollHeight;
   }
-  const restaurantConversation = Boolean(conversation?.restaurant_id);
-  const propertyAdmin = can("properties.all") || can("properties.edit");
-  const currentStatus = conversationStateKey(conversation);
-  const canAccept = can("conversations.takeover") && restaurantConversation && (currentStatus === "waiting_for_staff" || (currentStatus === "assigned" && conversation?.assigned_user_id === state.auth?.id));
-  const canReturn = can("conversations.return_to_ai") && currentStatus === "human_active" && (conversation?.assigned_user_id === state.auth?.id || can("conversations.assign"));
+  renderConversationActions(conversation, data);
+}
+
+function renderConversationActions(conversation, data) {
+  const actions = $("conversation-detail-actions");
+  actions.hidden = !conversation || Boolean(data?.error);
+  const detailConversation = data?.conversation || conversation || {};
+  const restaurantConversation = Boolean(detailConversation.restaurant_id);
+  const departmentConversation = Boolean(detailConversation.department_id);
+  const currentStatus = conversationStateKey(detailConversation);
+  const isAssignedToActor = detailConversation.assigned_user_id === state.auth?.id;
+  const canManageOther = can("properties.all") || can("properties.edit") || can("conversations.assign");
+  const canTakeover = can("conversations.takeover") && (restaurantConversation || can("guest_sessions.view") || can("conversations.transcript.view"));
+  const canAcceptRestaurant = restaurantConversation && canTakeover && (currentStatus === "waiting_for_staff" || (currentStatus === "assigned" && isAssignedToActor));
+  const canTakeoverGeneral = !restaurantConversation && canTakeover && (currentStatus === "ai_active" || (currentStatus === "waiting_for_staff" && (!detailConversation.assigned_user_id || isAssignedToActor)));
+  const canReturn = can("conversations.return_to_ai") && currentStatus === "human_active" && (isAssignedToActor || canManageOther);
   const takeover = $("toggle-takeover");
-  $("conversation-detail-actions").hidden = !conversation;
-  takeover.hidden = !conversation || (restaurantConversation
-    ? !can("conversations.takeover") && !can("conversations.return_to_ai")
-    : !propertyAdmin || !can("conversations.takeover"));
-  takeover.disabled = !conversation || (restaurantConversation ? !(canAccept || canReturn) : !propertyAdmin || !can("conversations.takeover") || currentStatus === "resolved");
-  takeover.textContent = currentStatus === "human_active" ? "Return to AI" : restaurantConversation ? "Accept Conversation" : "Take Over";
-  takeover.title = takeover.disabled && currentStatus === "assigned" ? "Only the assigned staff member can accept this conversation." : "";
+  takeover.hidden = !conversation || !(canAcceptRestaurant || canTakeoverGeneral || canReturn);
+  takeover.disabled = !(canAcceptRestaurant || canTakeoverGeneral || canReturn);
+  takeover.textContent = currentStatus === "human_active" ? "Return to AI" : restaurantConversation ? "Accept conversation" : "Take over";
+  const canResolve = can("conversations.resolve") && currentStatus === "human_active" && (isAssignedToActor || canManageOther);
   const resolve = $("close-conversation");
-  resolve.hidden = !conversation || !can("conversations.resolve");
-  resolve.disabled = !conversation || !can("conversations.resolve") || (restaurantConversation ? currentStatus === "resolved" || (conversation?.assigned_user_id !== state.auth?.id && !can("conversations.assign")) : !propertyAdmin || currentStatus === "resolved");
-  resolve.textContent = currentStatus === "resolved" ? "Resolved" : restaurantConversation ? "Resolve" : "Close";
+  resolve.hidden = !conversation || !canResolve;
+  resolve.disabled = !canResolve;
+  resolve.textContent = "Resolve";
+  const reopen = $("reopen-conversation");
+  reopen.hidden = !conversation || currentStatus !== "resolved" || !can("conversations.resolve");
+  reopen.disabled = reopen.hidden;
+
   const assignment = $("conversation-assignment");
   assignment.hidden = !restaurantConversation || !can("conversations.assign");
   const staffSelect = $("conversation-staff-select");
   staffSelect.disabled = !restaurantConversation || !can("conversations.assign") || !staffSelect.options.length || staffSelect.options.length < 2;
   const assign = $("assign-conversation");
   assign.hidden = !restaurantConversation || !can("conversations.assign");
-  assign.textContent = conversation?.assigned_user_id ? "Reassign" : "Assign";
-  assign.disabled = !restaurantConversation || !can("conversations.assign") || !staffSelect.value || staffSelect.value === conversation?.assigned_user_id;
-  const canReply = conversation && can("conversations.reply") && currentStatus === "human_active" && (restaurantConversation
-    ? conversation.assigned_user_id === state.auth?.id || can("conversations.assign")
-    : propertyAdmin);
+  assign.textContent = detailConversation.assigned_user_id ? "Reassign" : "Assign";
+  assign.disabled = !restaurantConversation || !can("conversations.assign") || !staffSelect.value || staffSelect.value === detailConversation.assigned_user_id;
+
+  const canRoute = can("conversations.assign") && !restaurantConversation && !departmentConversation && ["ai_active", "waiting_for_staff"].includes(currentStatus) && conversationDepartmentOptions.some((item) => String(item.id).startsWith("department:"));
+  $("conversation-routing").hidden = !canRoute;
+  $("conversation-department-select").disabled = !canRoute;
+  $("route-conversation").hidden = !canRoute;
+  $("route-conversation").disabled = !canRoute || !$("conversation-department-select").value;
+
+  const canReply = Boolean(conversation && can("conversations.reply") && currentStatus === "human_active" && (isAssignedToActor || canManageOther));
   $("staff-response").disabled = !canReply;
   $("send-staff-response").disabled = !canReply || !$("staff-response").value.trim();
   $("conversation-reply-hint").textContent = !conversation
     ? "Select a conversation to reply."
-    : currentStatus === "resolved" ? "This conversation is resolved."
+    : currentStatus === "resolved" ? "This conversation is resolved. Reopen it to continue."
       : !can("conversations.reply") ? "Your role cannot reply to guest conversations."
-        : currentStatus !== "human_active" ? "Accept the conversation before replying as staff."
-          : restaurantConversation && conversation.assigned_user_id !== state.auth?.id && !can("conversations.assign") ? "This conversation is assigned to another staff member."
-            : "Replies are sent to the guest conversation.";
-  loadAssignableRestaurantStaff().catch((error) => showToast(error.message, "error"));
+        : currentStatus !== "human_active" ? (departmentConversation || restaurantConversation ? "Accept the conversation before replying." : "Take over the conversation before replying.")
+          : !isAssignedToActor && !canManageOther ? "This conversation is assigned to another staff member."
+            : "Reply saved to the guest chat; it appears in the guest app on its next refresh.";
+  if (restaurantConversation) loadAssignableRestaurantStaff().catch((error) => showToast(error.message, "error"));
+  renderConversationContextToggle();
+}
+
+function renderConversationContextToggle() {
+  const button = $("conversation-show-context");
+  const context = $("conversation-context");
+  const mobile = window.matchMedia("(max-width: 1199px)").matches;
+  if (mobile) {
+    context.hidden = false;
+    button.hidden = false;
+    button.textContent = context.classList.contains("is-open") ? "Close context" : "Guest context";
+    button.setAttribute("aria-expanded", String(context.classList.contains("is-open")));
+    context.setAttribute("aria-hidden", String(!context.classList.contains("is-open")));
+  } else {
+    button.hidden = false;
+    button.textContent = context.hidden ? "Show context" : "Hide context";
+    button.setAttribute("aria-expanded", String(!context.hidden));
+    context.classList.remove("is-open");
+    context.setAttribute("aria-hidden", String(context.hidden));
+    $("conversation-context-backdrop").hidden = true;
+  }
+}
+
+function setConversationContextOpen(open) {
+  const context = $("conversation-context");
+  const mobile = window.matchMedia("(max-width: 1199px)").matches;
+  if (mobile) {
+    context.classList.toggle("is-open", Boolean(open));
+    context.hidden = false;
+    context.setAttribute("aria-hidden", String(!open));
+    $("conversation-context-backdrop").hidden = !open;
+    if (open) $("conversation-context-close").focus();
+    else $("conversation-show-context").focus();
+  } else {
+    context.hidden = !open;
+    context.setAttribute("aria-hidden", String(!open));
+    $("conversation-context-backdrop").hidden = true;
+    if (!open) $("conversation-show-context").focus();
+  }
+  renderConversationContextToggle();
+}
+
+function renderConversationContext() {
+  const body = $("conversation-context-body");
+  body.replaceChildren();
+  const conversation = conversationDetailData?.conversation;
+  if (conversationDetailData?.error) {
+    renderConversationEmptyState(body, "Context unavailable", conversationDetailData.error);
+    return;
+  }
+  if (!conversation) {
+    renderConversationEmptyState(body, "No conversation selected", "Stay details, related requests, assignment, and internal notes appear here when available.");
+    return;
+  }
+  const facts = document.createElement("section");
+  facts.className = "conversation-context-section";
+  const factsTitle = document.createElement("h3");
+  factsTitle.textContent = "Handling";
+  const grid = document.createElement("dl");
+  grid.className = "conversation-context-facts";
+  const fields = [
+    ["Department", conversation.department_name || "Concierge"],
+    ["Status", conversationStateLabel(conversationStateKey(conversation))],
+    ["Assigned to", conversation.assigned_user_name || (conversationStateKey(conversation) === "waiting_for_staff" ? "Unassigned" : "Not assigned")],
+    ...(conversationDetailData.stay ? [["Room", conversationDetailData.stay.room || "Not recorded"], ["Stay", conversationDetailData.stay.status || "Not recorded"]] : []),
+  ];
+  for (const [label, value] of fields) {
+    const wrapper = document.createElement("div");
+    const term = document.createElement("dt"); term.textContent = label;
+    const description = document.createElement("dd"); description.textContent = value;
+    wrapper.append(term, description); grid.appendChild(wrapper);
+  }
+  facts.append(factsTitle, grid); body.appendChild(facts);
+
+  const requestSection = document.createElement("section");
+  requestSection.className = "conversation-context-section";
+  const requestTitle = document.createElement("h3");
+  requestTitle.textContent = "Related guest requests";
+  requestSection.appendChild(requestTitle);
+  if (!conversationDetailData.permissions?.requests) {
+    const restricted = document.createElement("p"); restricted.className = "conversation-context-empty"; restricted.textContent = "Request details are restricted for your role."; requestSection.appendChild(restricted);
+  } else if (!conversationDetailData.requests?.length) {
+    const empty = document.createElement("p"); empty.className = "conversation-context-empty"; empty.textContent = "No guest requests are linked to this conversation."; requestSection.appendChild(empty);
+  } else {
+    for (const item of conversationDetailData.requests) {
+      const card = document.createElement("article"); card.className = "conversation-context-request";
+      const heading = document.createElement("strong"); heading.textContent = item.request_type || "Guest request";
+      const status = document.createElement("span"); status.className = `request-status ${String(item.status || "new").toLowerCase()}`; status.textContent = item.status || "New";
+      const description = document.createElement("p"); description.textContent = item.description || "No description provided.";
+      const meta = document.createElement("small"); meta.textContent = `${item.department || "Unassigned department"}${item.priority ? ` · ${item.priority} priority` : ""}${item.room ? ` · Room ${item.room}` : ""}`;
+      card.append(heading, status, description, meta); requestSection.appendChild(card);
+    }
+  }
+  body.appendChild(requestSection);
+
+  const notesSection = document.createElement("section");
+  notesSection.className = "conversation-context-section conversation-notes-section";
+  const notesTitle = document.createElement("h3"); notesTitle.textContent = "Internal notes"; notesSection.appendChild(notesTitle);
+  if (!conversationDetailData.permissions?.notes_view) {
+    const restricted = document.createElement("p"); restricted.className = "conversation-context-empty"; restricted.textContent = "Internal notes are restricted for your role."; notesSection.appendChild(restricted);
+  } else {
+    const notes = document.createElement("div"); notes.className = "conversation-internal-notes";
+    for (const note of conversationDetailData.notes || []) {
+      const item = document.createElement("article");
+      const author = document.createElement("strong"); author.textContent = note.author_name || "Hotel staff";
+      const time = document.createElement("time"); time.textContent = formatDate(note.created_at);
+      const content = document.createElement("p"); content.textContent = note.content || "";
+      item.append(author, time, content); notes.appendChild(item);
+    }
+    if (!notes.childElementCount) {
+      const empty = document.createElement("p"); empty.className = "conversation-context-empty"; empty.textContent = "No internal notes yet."; notes.appendChild(empty);
+    }
+    notesSection.appendChild(notes);
+    if (conversationDetailData.permissions.notes_manage) {
+      const label = document.createElement("label"); label.className = "conversation-note-composer"; label.textContent = "Add internal note";
+      const textarea = document.createElement("textarea"); textarea.id = "conversation-internal-note"; textarea.rows = 3; textarea.maxLength = 2000; textarea.placeholder = "Share operational context with authorized staff…";
+      const save = document.createElement("button"); save.type = "button"; save.className = "secondary"; save.textContent = "Add note"; save.disabled = true;
+      textarea.addEventListener("input", () => { save.disabled = !textarea.value.trim(); });
+      save.addEventListener("click", () => addConversationNote(textarea.value.trim()).catch((error) => showToast(error.message, "error")));
+      label.appendChild(textarea); notesSection.append(label, save);
+    }
+  }
+  body.appendChild(notesSection);
+}
+
+async function addConversationNote(note) {
+  const conversation = state.selectedConversation;
+  if (!conversation || !note) return;
+  const button = $("conversation-context-body").querySelector(".conversation-note-composer + button");
+  if (button) { button.disabled = true; button.textContent = "Saving…"; }
+  try {
+    await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations/${encodeURIComponent(conversation.session_id)}/notes`, { method: "POST", body: JSON.stringify({ note }) });
+    await loadConversationDetail(conversation.session_id, { markRead: false, quiet: true });
+    showToast("Internal note added.");
+  } finally {
+    if (button) { button.disabled = false; button.textContent = "Add note"; }
+  }
+}
+
+function preserveConversationAfterMutation(conversation, updated) {
+  state.selectedConversation = { ...conversation, ...updated };
+  $("conversation-status-filter").value = "";
+  $("conversation-department-filter").value = "";
+  $("conversation-unread-filter").checked = false;
+  conversationPageOffset = 0;
 }
 
 async function setConversationState(status, humanTakeover) {
@@ -8159,37 +9639,69 @@ async function setConversationState(status, humanTakeover) {
   const conversation = state.selectedConversation;
   const base = `/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations/${encodeURIComponent(conversation.session_id)}`;
   let updated;
-  if (conversation.restaurant_id) {
+  if (conversationStateKey(conversation) === "resolved" && status === "open" && !humanTakeover) {
+    updated = await jsonFetch(`${base}/reopen`, { method: "POST" });
+  } else if (conversation.restaurant_id) {
     const action = status === "closed" ? "resolve" : humanTakeover ? "accept" : "return-to-ai";
     updated = await jsonFetch(`${base}/${action}`, { method: "POST" });
   } else {
     updated = await jsonFetch(base, { method: "PUT", body: JSON.stringify({ status, human_takeover: humanTakeover }) });
   }
-  state.selectedConversation = { ...conversation, ...updated };
+  preserveConversationAfterMutation(conversation, updated);
   await loadConversations(); showToast("Conversation updated.");
+}
+
+async function routeSelectedConversation() {
+  const conversation = state.selectedConversation;
+  const departmentId = $("conversation-department-select").value;
+  if (!conversation || !departmentId) throw new Error("Choose a service department first.");
+  const updated = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations/${encodeURIComponent(conversation.session_id)}/route`, {
+    method: "POST", body: JSON.stringify({ department_id: departmentId }),
+  });
+  preserveConversationAfterMutation(conversation, updated);
+  await loadConversations();
+  showToast("Conversation routed to the selected department.");
 }
 
 async function loadAssignableRestaurantStaff() {
   const select = $("conversation-staff-select");
   const conversation = state.selectedConversation;
   if (!select) return;
-  select.replaceChildren();
-  if (!conversation?.restaurant_id || !can("conversations.assign")) return;
+  if (!conversation?.restaurant_id || !can("conversations.assign")) {
+    select.replaceChildren();
+    select.appendChild(new Option("Select a conversation first", ""));
+    select.disabled = true;
+    select.dataset.loadedConversationId = "";
+    return;
+  }
   const selectedId = conversation.session_id;
+  if (select.dataset.loadingConversationId === selectedId) return;
+  if (select.dataset.loadedConversationId === selectedId && select.options.length > 1) {
+    $("assign-conversation").disabled = !select.value || select.value === conversation.assigned_user_id;
+    return;
+  }
+  select.dataset.loadingConversationId = selectedId;
+  select.dataset.loadedConversationId = "";
+  select.replaceChildren();
   select.disabled = true;
   select.appendChild(new Option("Loading staff…", ""));
-  const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/restaurants/${encodeURIComponent(conversation.restaurant_id)}/staff`);
-  if (state.selectedConversation?.session_id !== selectedId) return;
-  select.replaceChildren(new Option("Choose a staff member", ""));
-  for (const person of data.staff || []) select.appendChild(new Option(person.display_name, person.user_id));
-  if (!data.staff?.length) select.options[0].textContent = "No eligible staff available";
-  if (conversation.assigned_user_id && [...select.options].some((option) => option.value === conversation.assigned_user_id)) {
-    select.value = conversation.assigned_user_id;
+  try {
+    const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/restaurants/${encodeURIComponent(conversation.restaurant_id)}/staff`);
+    if (state.selectedConversation?.session_id !== selectedId) return;
+    select.replaceChildren(new Option("Choose a staff member", ""));
+    for (const person of data.staff || []) select.appendChild(new Option(person.display_name, person.user_id));
+    if (!data.staff?.length) select.options[0].textContent = "No eligible staff available";
+    if (conversation.assigned_user_id && [...select.options].some((option) => option.value === conversation.assigned_user_id)) {
+      select.value = conversation.assigned_user_id;
+    }
+    select.dataset.loadedConversationId = selectedId;
+    select.disabled = !data.staff?.length;
+    const assign = $("assign-conversation");
+    assign.textContent = conversation.assigned_user_id ? "Reassign" : "Assign";
+    assign.disabled = !select.value || select.value === conversation.assigned_user_id;
+  } finally {
+    if (select.dataset.loadingConversationId === selectedId) delete select.dataset.loadingConversationId;
   }
-  select.disabled = !data.staff?.length;
-  const assign = $("assign-conversation");
-  assign.textContent = conversation.assigned_user_id ? "Reassign" : "Assign";
-  assign.disabled = !select.value || select.value === conversation.assigned_user_id;
 }
 
 async function assignSelectedConversation() {
@@ -8197,39 +9709,39 @@ async function assignSelectedConversation() {
   const userId = $("conversation-staff-select").value;
   if (!conversation?.restaurant_id || !userId) throw new Error("Choose an assigned restaurant staff member.");
   const updated = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations/${encodeURIComponent(conversation.session_id)}/assign`, { method: "POST", body: JSON.stringify({ user_id: userId }) });
-  state.selectedConversation = { ...conversation, ...updated };
+  preserveConversationAfterMutation(conversation, updated);
   await loadConversations(); showToast("Conversation assigned.");
 }
+
+let pendingConversationReply = null;
 
 async function sendStaffResponse() {
   const message = $("staff-response").value.trim();
   if (!state.selectedConversation || !message) throw new Error("Enter a staff response.");
+  const sessionId = state.selectedConversation.session_id;
+  if (!pendingConversationReply || pendingConversationReply.sessionId !== sessionId || pendingConversationReply.message !== message) {
+    pendingConversationReply = { sessionId, message, clientMessageId: crypto.randomUUID() };
+  }
   const button = $("send-staff-response");
   button.disabled = true;
   button.textContent = "Sending…";
   try {
-    const sent = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations/${encodeURIComponent(state.selectedConversation.session_id)}/messages`, { method: "POST", body: JSON.stringify({ message }) });
-    const conversation = state.selectedConversation;
-    const createdAt = Math.floor(Date.now() / 1000);
-    conversation.messages = [...(conversation.messages || []), {
-      message_id: sent.message_id,
-      role: "staff",
-      content: message,
-      created_at: createdAt,
-    }];
-    conversation.message_count = Number(conversation.message_count || 0) + 1;
-    conversation.last_message_at = createdAt;
+    await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/conversations/${encodeURIComponent(sessionId)}/messages`, {
+      method: "POST", body: JSON.stringify({ message, client_message_id: pendingConversationReply.clientMessageId }),
+    });
+    pendingConversationReply = null;
     $("staff-response").value = "";
     await loadConversations();
-    showToast("Staff response sent.");
+    showToast("Reply saved to the guest chat.");
   } finally {
-    button.textContent = "Send Response";
+    button.textContent = "Send reply";
     renderConversationMessages();
   }
 }
 
 async function loadServiceCatalog() {
   state.catalog = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/service-catalog`);
+  serviceRequestCatalogReady = true;
   const departmentSelect = $("catalog-service-department");
   const requestSelect = $("service-type");
   const requestDepartment = $("service-department");
@@ -8426,14 +9938,15 @@ async function deleteRecommendation(recommendationId) {
 
 function updateCreateServiceRequestButton() {
   const hasServices = state.catalog.services.some((item) => item.enabled && !item.archived);
+  const catalogReady = serviceRequestCatalogReady;
   const serviceSelect = $("service-type");
   const button = $("create-service-request");
   const sla = Number($("service-sla").value);
   const validSla = Number.isInteger(sla) && sla >= 1 && sla <= 1440;
-  $("service-catalog-empty").hidden = hasServices;
-  $("open-service-catalog").hidden = hasServices;
-  serviceSelect.disabled = !hasServices;
-  button.disabled = !serviceSelect.value || !$("service-description").value.trim() || !validSla || !hasServices;
+  $("service-catalog-empty").hidden = !catalogReady || hasServices;
+  $("open-service-catalog").hidden = !catalogReady || hasServices;
+  serviceSelect.disabled = !catalogReady || !hasServices;
+  button.disabled = !catalogReady || !serviceSelect.value || !$("service-description").value.trim() || !validSla || !hasServices;
 }
 
 function serviceStatusLabel(status) {
@@ -8447,10 +9960,69 @@ function serviceRequestIsOpen(request) {
 function serviceSlaLabel(request) {
   if (request.status === "completed" || request.sla_state === "completed") return "Completed";
   if (request.status === "cancelled" || request.sla_state === "cancelled") return "Cancelled";
-  if (request.sla_state === "overdue") return "Overdue";
-  if (request.sla_state === "warning") return "Due soon";
+  const dueAt = Number(request.due_at);
+  if (Number.isFinite(dueAt) && dueAt > 0) {
+    const remaining = dueAt - Date.now() / 1000;
+    if (remaining <= 0) return "Overdue";
+    if (remaining <= 300) return "Due soon";
+  } else if (request.sla_state === "overdue") return "Overdue";
+  else if (request.sla_state === "warning") return "Due soon";
   return "On track";
 }
+
+function serviceSlaState(request) {
+  const label = serviceSlaLabel(request);
+  if (label === "Completed") return "completed";
+  if (label === "Cancelled") return "cancelled";
+  if (label === "Overdue") return "overdue";
+  if (label === "Due soon") return "warning";
+  return "within_sla";
+}
+
+function serviceSlaCountdown(request) {
+  if (request.status === "completed" || request.status === "cancelled") return serviceSlaLabel(request);
+  const dueAt = Number(request.due_at);
+  if (!Number.isFinite(dueAt) || dueAt <= 0) return "No due time";
+  const remaining = Math.round(dueAt - Date.now() / 1000);
+  const totalMinutes = Math.max(1, Math.ceil(Math.abs(remaining) / 60));
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  const duration = days ? `${days}d ${hours}h` : hours ? `${hours}h ${minutes}m` : `${minutes}m`;
+  return remaining < 0 ? `Overdue by ${duration}` : `Due in ${duration}`;
+}
+
+function serviceSlaDeadline(request) {
+  return request.due_at ? `${formatDate(request.due_at)} · ${serviceSlaCountdown(request)}` : "No due time";
+}
+
+function serviceRequestTimedDetail(label, request, field) {
+  const cell = serviceRequestElement("div", "service-request-detail");
+  const value = serviceRequestElement("strong", "", field === "elapsed" ? serviceRequestElapsed(request.created_at) : serviceSlaDeadline(request));
+  value.dataset.serviceRequestTimer = field;
+  value.dataset.requestId = request.request_id;
+  cell.append(serviceRequestElement("span", "", label), value);
+  return cell;
+}
+
+function refreshServiceRequestTimers() {
+  const byId = new Map((state.serviceRequests || []).map((request) => [request.request_id, request]));
+  for (const element of document.querySelectorAll("[data-service-request-timer]")) {
+    const request = byId.get(element.dataset.requestId);
+    if (!request) continue;
+    const field = element.dataset.serviceRequestTimer;
+    if (field === "elapsed") element.textContent = serviceRequestElapsed(request.created_at);
+    else if (field === "deadline") element.textContent = serviceSlaDeadline(request);
+    else if (field === "sla-badge") {
+      const state = serviceSlaState(request);
+      element.classList.remove("sla-within_sla", "sla-warning", "sla-overdue", "sla-completed", "sla-cancelled");
+      element.classList.add(`sla-${state}`);
+      element.textContent = serviceSlaLabel(request);
+    }
+  }
+}
+
+setInterval(refreshServiceRequestTimers, 60_000);
 
 function serviceRequestDateKey(timestamp, timezone = state.property?.timezone || "UTC") {
   const seconds = Number(timestamp);
@@ -8480,6 +10052,12 @@ let serviceRequestSummary = {};
 let serviceRequestLoadVersion = 0;
 let serviceRequestPagePropertyId = "";
 let serviceRequestSearchTimer = null;
+let serviceRequestQueueView = "all";
+let serviceRequestLayout = "list";
+let serviceRequestLoading = false;
+let serviceRequestCatalogReady = false;
+let serviceRequestLoadError = "";
+let serviceRequestSelectedId = null;
 
 function renderServiceRequestSummary() {
   const counts = serviceRequestSummary;
@@ -8519,9 +10097,106 @@ function renderServiceRequestHistory(request, container) {
   }
 }
 
+function serviceRequestElapsed(timestamp) {
+  const createdAt = Number(timestamp);
+  if (!Number.isFinite(createdAt)) return "Time not recorded";
+  const elapsedMinutes = Math.max(0, Math.floor(Date.now() / 1000 - createdAt) / 60);
+  if (elapsedMinutes < 60) return `${Math.max(1, Math.floor(elapsedMinutes))}m elapsed`;
+  const hours = Math.floor(elapsedMinutes / 60);
+  const minutes = Math.floor(elapsedMinutes % 60);
+  if (hours < 24) return minutes ? `${hours}h ${minutes}m elapsed` : `${hours}h elapsed`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ${hours % 24}h elapsed`;
+}
+
+function serviceRequestElement(tag, className, text) {
+  const element = document.createElement(tag);
+  if (className) element.className = className;
+  if (text !== undefined) element.textContent = text;
+  return element;
+}
+
+function renderServiceRequestCard(request, { board = false } = {}) {
+  const make = serviceRequestElement;
+  const card = make(board ? "button" : "article", board ? "service-request-board-card" : "service-request-card");
+  const header = make("header", "service-request-card-header");
+  const title = make("div", "service-request-card-title");
+  title.append(make("p", "", `REQUEST ${request.request_id || "—"}`));
+  title.append(make("h3", "", `${request.request_type || "Guest request"} · ${request.room ? `Room ${request.room}` : "Room not recorded"}`));
+  const badges = make("div", "service-request-badges");
+  const safeStatus = /^[a-z_]+$/.test(String(request.status || "")) ? request.status : "unknown";
+  badges.append(make("span", `request-status-badge status-${safeStatus}`, serviceStatusLabel(request.status)));
+  const slaBadge = make("span", `request-sla-badge sla-${serviceSlaState(request)}`, serviceSlaLabel(request));
+  slaBadge.dataset.serviceRequestTimer = "sla-badge";
+  slaBadge.dataset.requestId = request.request_id;
+  badges.append(slaBadge);
+  if (request.priority === "urgent") badges.append(make("span", "request-priority-badge priority-urgent", "Urgent"));
+  if (request.escalation?.status === "queued") {
+    const escalation = make("span", "request-escalation-badge", "Escalation queued");
+    escalation.title = `Queued for ${request.escalation.target}`;
+    badges.append(escalation);
+  }
+  header.append(title, badges);
+  card.appendChild(header);
+  card.append(make("p", "service-request-description", request.description || "No request description."));
+  const facts = make("div", "service-request-facts");
+  const addDetail = (label, value) => {
+    const cell = make("div", "service-request-detail");
+    cell.append(make("span", "", label), make("strong", "", value || "Not set"));
+    facts.appendChild(cell);
+  };
+  addDetail("Department", request.department || "Unassigned");
+  addDetail("Assigned to", request.assigned_to || "Unassigned");
+  addDetail("Priority", String(request.priority || "normal").replace(/^./, (letter) => letter.toUpperCase()));
+  facts.append(serviceRequestTimedDetail("Elapsed", request, "elapsed"));
+  facts.append(serviceRequestTimedDetail("SLA deadline", request, "deadline"));
+  card.appendChild(facts);
+  if (board) {
+    card.type = "button";
+    card.dataset.requestId = request.request_id;
+    card.setAttribute("aria-label", `Open details for ${request.request_type || "guest request"}, ${request.room ? `room ${request.room}` : "room not recorded"}`);
+    card.addEventListener("click", () => openServiceRequestDetails(request.request_id));
+  } else {
+    const open = make("button", "secondary service-request-open-details", "Open details");
+    open.type = "button";
+    open.setAttribute("aria-label", `Open details for request ${request.request_id}`);
+    open.addEventListener("click", () => openServiceRequestDetails(request.request_id));
+    card.appendChild(open);
+  }
+  return card;
+}
+
+const SERVICE_REQUEST_BOARD_STATUSES = ["new", "assigned", "accepted", "in_progress", "delivered", "completed", "cancelled"];
+
+function renderServiceRequestBoard(requests, list) {
+  list.classList.add("is-board");
+  for (const status of SERVICE_REQUEST_BOARD_STATUSES) {
+    const matching = requests.filter((request) => request.status === status);
+    const column = serviceRequestElement("section", "service-request-board-column");
+    const heading = serviceRequestElement("header", "service-request-board-heading");
+    heading.append(serviceRequestElement("h3", "", serviceStatusLabel(status)), serviceRequestElement("span", "", String(matching.length)));
+    column.appendChild(heading);
+    const cards = serviceRequestElement("div", "service-request-board-cards");
+    if (!matching.length) cards.append(serviceRequestElement("p", "service-request-board-empty", "No requests"));
+    for (const request of matching) cards.appendChild(renderServiceRequestCard(request, { board: true }));
+    column.appendChild(cards);
+    list.appendChild(column);
+  }
+}
+
 function renderServiceRequests() {
   const list = $("service-request-list");
   const requests = state.serviceRequests || [];
+  const hasServices = state.catalog.services.some((item) => item.enabled && !item.archived);
+  $("request-catalog-setup").hidden = !serviceRequestCatalogReady || hasServices;
+  for (const button of document.querySelectorAll("[data-request-view]")) {
+    button.setAttribute("aria-pressed", String(button.dataset.requestView === serviceRequestQueueView));
+  }
+  for (const button of document.querySelectorAll("[data-request-layout]")) {
+    const selected = button.dataset.requestLayout === serviceRequestLayout;
+    button.setAttribute("aria-pressed", String(selected));
+    button.classList.toggle("active", selected);
+  }
   renderServiceRequestSummary();
   const first = serviceRequestFilteredTotal ? serviceRequestPageOffset + 1 : 0;
   const last = Math.min(serviceRequestPageOffset + requests.length, serviceRequestFilteredTotal);
@@ -8538,140 +10213,174 @@ function renderServiceRequests() {
   $("service-request-page-previous").disabled = serviceRequestPageOffset === 0 || !serviceRequestFilteredTotal;
   $("service-request-page-next").disabled = serviceRequestPageOffset + serviceRequestPageLimit >= serviceRequestFilteredTotal;
   list.replaceChildren();
+  list.classList.toggle("is-board", serviceRequestLayout === "board");
+  if (serviceRequestLoading && !requests.length) {
+    list.appendChild(serviceRequestElement("div", "request-queue-state", "Loading service requests…"));
+    return;
+  }
+  if (serviceRequestLoadError && !requests.length) {
+    const errorState = serviceRequestElement("div", "request-queue-state request-queue-error");
+    errorState.append(serviceRequestElement("strong", "", "Requests could not be loaded"), serviceRequestElement("span", "", "Check the connection and try again. Your request data has not been changed."));
+    const retry = serviceRequestElement("button", "secondary", "Try again");
+    retry.type = "button";
+    retry.addEventListener("click", () => loadServiceRequests().catch((error) => showToast(error.message, "error")));
+    errorState.appendChild(retry);
+    list.appendChild(errorState);
+    return;
+  }
   if (!requests.length) {
-    const empty = document.createElement("div");
-    empty.className = "request-queue-empty";
-    const title = document.createElement("strong");
-    title.textContent = serviceRequestAllTotal ? "No requests match these filters" : "No service requests yet";
-    const message = document.createElement("span");
-    message.textContent = serviceRequestAllTotal
-      ? "Change the status filter or search term to see other requests."
-      : "Guest-submitted and staff-created requests will appear here for assignment and follow-up.";
+    const empty = serviceRequestElement("div", "request-queue-empty");
+    const title = serviceRequestElement("strong", "", serviceRequestAllTotal ? "No requests match these filters" : hasServices ? "No service requests yet" : "No services are configured");
+    const message = serviceRequestElement("span", "", serviceRequestAllTotal
+      ? "Change the view, status filter, or search term to see other requests."
+      : hasServices
+        ? "Guest-submitted and staff-created requests will appear here for assignment and follow-up."
+        : "Configure an enabled service to begin accepting and routing guest service requests.");
     empty.append(title, message);
+    if (!hasServices) {
+      const configure = serviceRequestElement("button", "secondary", "Configure services");
+      configure.type = "button";
+      configure.addEventListener("click", () => activatePanel("service-catalog"));
+      empty.appendChild(configure);
+    }
     list.appendChild(empty);
     return;
   }
+  if (serviceRequestLayout === "board") renderServiceRequestBoard(requests, list);
+  else {
+    list.classList.remove("is-board");
+    for (const request of requests) list.appendChild(renderServiceRequestCard(request));
+  }
+}
 
-  const make = (tag, className, text) => {
-    const element = document.createElement(tag);
-    if (className) element.className = className;
-    if (text !== undefined) element.textContent = text;
-    return element;
-  };
-  const addDetail = (grid, label, value) => {
+async function openServiceRequestDetails(requestId) {
+  const request = (state.serviceRequests || []).find((item) => item.request_id === requestId);
+  if (!request) return;
+  serviceRequestSelectedId = requestId;
+  const dialog = $("service-request-details-drawer");
+  const content = $("service-request-details-content");
+  const make = serviceRequestElement;
+  $("service-request-details-title").textContent = request.request_type || "Guest request";
+  $("service-request-details-subtitle").textContent = `Request ${request.request_id} · ${request.room ? `Room ${request.room}` : "Room not recorded"}`;
+  content.replaceChildren();
+  const statusRow = make("div", "service-request-detail-status");
+  const safeStatus = /^[a-z_]+$/.test(String(request.status || "")) ? request.status : "unknown";
+  const slaBadge = make("span", `request-sla-badge sla-${serviceSlaState(request)}`, serviceSlaLabel(request));
+  slaBadge.dataset.serviceRequestTimer = "sla-badge";
+  slaBadge.dataset.requestId = request.request_id;
+  statusRow.append(make("span", `request-status-badge status-${safeStatus}`, serviceStatusLabel(request.status)), slaBadge);
+  if (request.escalation?.status === "queued") statusRow.append(make("span", "request-escalation-badge", `Escalation queued · ${request.escalation.target}`));
+  content.appendChild(statusRow);
+  content.append(make("p", "service-request-detail-description", request.description || "No request description."));
+
+  const facts = make("div", "service-request-facts service-request-detail-facts");
+  const addDetail = (label, value) => {
     const cell = make("div", "service-request-detail");
     cell.append(make("span", "", label), make("strong", "", value || "Not set"));
-    grid.appendChild(cell);
+    facts.appendChild(cell);
   };
-  for (const request of requests) {
-    const card = make("article", "service-request-card");
-    const header = make("header", "service-request-card-header");
-    const title = make("div", "service-request-card-title");
-    title.append(make("p", "", `REQUEST ${request.request_id || "—"}`));
-    title.append(make("h3", "", `${request.request_type || "Guest request"} · ${request.room ? `Room ${request.room}` : "Room not recorded"}`));
-    const badges = make("div", "service-request-badges");
-    badges.append(make("span", `request-status-badge status-${request.status}`, serviceStatusLabel(request.status)));
-    badges.append(make("span", `request-sla-badge sla-${request.sla_state}`, serviceSlaLabel(request)));
-    if (request.escalation?.status === "queued") {
-      const escalation = make("span", "request-escalation-badge", "Escalation queued");
-      escalation.title = `Queued for ${request.escalation.target}`;
-      badges.append(escalation);
-    }
-    header.append(title, badges);
-    card.appendChild(header);
+  addDetail("Service", request.request_type || "Guest request");
+  addDetail("Room", request.room || "Not recorded");
+  addDetail("Department", request.department || "Unassigned");
+  addDetail("Assigned to", request.assigned_to || "Unassigned");
+  addDetail("Priority", String(request.priority || "normal").replace(/^./, (letter) => letter.toUpperCase()));
+  facts.append(serviceRequestTimedDetail("Elapsed", request, "elapsed"));
+  facts.append(serviceRequestTimedDetail("SLA deadline", request, "deadline"));
+  if (request.completed_at) addDetail("Completed", formatDate(request.completed_at));
+  content.appendChild(facts);
 
-    const description = make("p", "service-request-description", request.description || "No request description.");
-    card.appendChild(description);
-    const facts = make("div", "service-request-facts");
-    const targetMinutes = request.sla_target_seconds ? Math.ceil(Number(request.sla_target_seconds) / 60) : null;
-    addDetail(facts, "Department", request.department || "Unassigned");
-    addDetail(facts, "Assigned to", request.assigned_to || "Unassigned");
-    addDetail(facts, "Priority", String(request.priority || "normal").replace(/^./, (letter) => letter.toUpperCase()));
-    addDetail(facts, "Created", formatDate(request.created_at));
-    addDetail(facts, "SLA target", targetMinutes ? `${targetMinutes} minutes` : "No target set");
-    addDetail(facts, "SLA due", request.due_at ? formatDate(request.due_at) : "No due time");
-    addDetail(facts, "Last updated", formatDate(request.updated_at));
-    if (request.completed_at) addDetail(facts, "Completed", formatDate(request.completed_at));
-    if (request.stay_id) addDetail(facts, "Guest stay", request.stay_id);
-    card.appendChild(facts);
+  const controls = make("section", "service-request-detail-section");
+  controls.append(make("h3", "", "Routing and assignment"));
+  const edit = make("div", "service-request-edit");
+  const departmentLabel = make("label", "", "Department");
+  const department = document.createElement("select");
+  department.setAttribute("aria-label", `Department for request ${request.request_id}`);
+  department.appendChild(new Option("Unassigned", ""));
+  for (const item of state.catalog.departments) department.appendChild(new Option(item.name, item.name));
+  if (request.department && ![...department.options].some((option) => option.value === request.department)) department.appendChild(new Option(request.department, request.department));
+  department.value = request.department || "";
+  departmentLabel.appendChild(department);
+  const assignedLabel = make("label", "", "Assigned staff member");
+  const assigned = document.createElement("input");
+  assigned.placeholder = "Name or staff ID";
+  assigned.setAttribute("aria-label", `Assignee for request ${request.request_id}`);
+  assigned.value = request.assigned_to || "";
+  assignedLabel.appendChild(assigned);
+  const priorityLabel = make("label", "", "Priority");
+  const priority = document.createElement("select");
+  priority.setAttribute("aria-label", `Priority for request ${request.request_id}`);
+  for (const value of ["low", "normal", "high", "urgent"]) priority.appendChild(new Option(value[0].toUpperCase() + value.slice(1), value));
+  priority.value = request.priority || "normal";
+  priorityLabel.appendChild(priority);
+  edit.append(departmentLabel, assignedLabel, priorityLabel);
+  controls.appendChild(edit);
+  const noteBox = make("section", "service-request-notes");
+  noteBox.append(make("strong", "", "Internal notes · staff only"));
+  for (const note of (Array.isArray(request.notes) ? request.notes : []).filter((item) => item?.text)) {
+    noteBox.append(make("p", "", `${note.text} · ${formatDate(note.created_at)}`));
+  }
+  if (!noteBox.querySelector("p")) noteBox.append(make("p", "", "No internal notes."));
+  const noteLabel = make("label", "service-request-note-field", "Add an internal note");
+  const noteInput = document.createElement("textarea");
+  noteInput.maxLength = 1000;
+  noteInput.rows = 3;
+  noteInput.placeholder = "Staff-only operational context";
+  noteInput.setAttribute("aria-label", `Internal note for request ${request.request_id}`);
+  noteLabel.appendChild(noteInput);
+  const save = make("button", "secondary", "Save assignment and note");
+  save.type = "button";
+  save.addEventListener("click", async () => {
+    try {
+      save.disabled = true;
+      await updateServiceRequest(request.request_id, { department: department.value, assigned_to: assigned.value, priority: priority.value, note: noteInput.value });
+      dialog.close();
+    } catch (error) { showToast(error.message, "error"); }
+    finally { save.disabled = false; }
+  });
+  controls.append(noteBox, noteLabel, save);
+  content.appendChild(controls);
 
-    const notes = Array.isArray(request.notes) ? request.notes.filter((item) => item?.text) : [];
-    if (notes.length) {
-      const notesSection = make("div", "service-request-notes");
-      notesSection.appendChild(make("strong", "", "Operational notes"));
-      for (const item of notes) notesSection.appendChild(make("p", "", `${item.text} · ${formatDate(item.created_at)}`));
-      card.appendChild(notesSection);
-    }
-
-    const controls = make("div", "service-request-edit");
-    const departmentLabel = make("label", "", "Route to department");
-    const department = document.createElement("select");
-    department.setAttribute("aria-label", `Department for request ${request.request_id}`);
-    department.appendChild(new Option("Unassigned", ""));
-    for (const item of state.catalog.departments) department.appendChild(new Option(item.name, item.name));
-    if (request.department && ![...department.options].some((option) => option.value === request.department)) department.appendChild(new Option(request.department, request.department));
-    department.value = request.department || "";
-    departmentLabel.appendChild(department);
-    const assignedLabel = make("label", "", "Assigned staff member");
-    const assigned = document.createElement("input");
-    assigned.placeholder = "Name or staff ID";
-    assigned.setAttribute("aria-label", `Assignee for request ${request.request_id}`);
-    assigned.value = request.assigned_to || "";
-    assignedLabel.appendChild(assigned);
-    const priorityLabel = make("label", "", "Priority");
-    const priority = document.createElement("select");
-    priority.setAttribute("aria-label", `Priority for request ${request.request_id}`);
-    for (const value of ["low", "normal", "high", "urgent"]) priority.appendChild(new Option(value[0].toUpperCase() + value.slice(1), value));
-    priority.value = request.priority || "normal";
-    priorityLabel.appendChild(priority);
-    const noteLabel = make("label", "", "Add a note");
-    const note = document.createElement("input");
-    note.placeholder = "Visible in this request’s activity history";
-    note.setAttribute("aria-label", `Operational note for request ${request.request_id}`);
-    noteLabel.appendChild(note);
-    const save = make("button", "secondary", "Save updates");
-    save.type = "button";
-    save.addEventListener("click", () => updateServiceRequest(request.request_id, { department: department.value, assigned_to: assigned.value, priority: priority.value, note: note.value }).catch((error) => showToast(error.message, "error")));
-    controls.append(departmentLabel, assignedLabel, priorityLabel, noteLabel, save);
-    card.appendChild(controls);
-
-    const actions = make("div", "service-request-actions");
-    const next = nextServiceStatus(request.status);
-    if (next) {
-      const advance = make("button", "secondary", `Mark ${serviceStatusLabel(next)}`);
-      advance.type = "button";
-      advance.addEventListener("click", () => updateServiceStatus(request.request_id, next).catch((error) => showToast(error.message, "error")));
-      actions.appendChild(advance);
-    }
-    if (serviceRequestIsOpen(request)) {
-      const complete = make("button", "secondary", "Mark completed");
-      complete.type = "button";
-      complete.addEventListener("click", () => updateServiceStatus(request.request_id, "completed").catch((error) => showToast(error.message, "error")));
-      actions.appendChild(complete);
-    }
-    card.appendChild(actions);
-
-    const history = document.createElement("details");
-    history.className = "service-request-history";
-    const summary = make("summary", "", "View activity history");
-    const historyContent = make("div", "service-request-history-content", "Open to load the request’s status and assignment changes.");
-    history.append(summary, historyContent);
-    history.addEventListener("toggle", async () => {
-      if (!history.open || historyContent.dataset.loaded === "true" || historyContent.dataset.loading === "true") return;
-      historyContent.dataset.loading = "true";
-      historyContent.textContent = "Loading request history…";
-      try {
-        const response = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/service-requests/${encodeURIComponent(request.request_id)}/history`);
-        historyContent._history = response.history || [];
-        renderServiceRequestHistory(request, historyContent);
-      } catch (error) {
-        delete historyContent.dataset.loading;
-        historyContent.textContent = "History could not be loaded. Close and reopen this section to try again.";
-        showToast(error.message, "error");
-      }
+  const actions = make("section", "service-request-detail-section");
+  actions.append(make("h3", "", "Status and guest updates"));
+  const notificationNote = make("p", "request-guest-update-note", "Status changes use the existing guest notification flow for requests linked to an active guest stay. Internal notes stay in staff operations.");
+  actions.appendChild(notificationNote);
+  const actionButtons = make("div", "service-request-actions");
+  const next = nextServiceStatus(request.status);
+  if (next) {
+    const advance = make("button", "secondary", `Mark ${serviceStatusLabel(next)}`);
+    advance.type = "button";
+    advance.addEventListener("click", async () => {
+      try { advance.disabled = true; await updateServiceStatus(request.request_id, next); dialog.close(); }
+      catch (error) { showToast(error.message, "error"); advance.disabled = false; }
     });
-    card.appendChild(history);
-    list.appendChild(card);
+    actionButtons.appendChild(advance);
+  }
+  if (serviceRequestIsOpen(request)) {
+    const complete = make("button", "", "Mark completed");
+    complete.type = "button";
+    complete.addEventListener("click", async () => {
+      try { complete.disabled = true; await updateServiceStatus(request.request_id, "completed"); dialog.close(); }
+      catch (error) { showToast(error.message, "error"); complete.disabled = false; }
+    });
+    actionButtons.appendChild(complete);
+  }
+  if (actionButtons.childElementCount) actions.appendChild(actionButtons);
+  content.appendChild(actions);
+
+  const timeline = make("section", "service-request-detail-section");
+  timeline.append(make("h3", "", "Activity timeline"));
+  const historyContent = make("div", "service-request-history-content", "Loading activity…");
+  timeline.appendChild(historyContent);
+  content.appendChild(timeline);
+  if (!dialog.open) dialog.showModal();
+  try {
+    const response = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/service-requests/${encodeURIComponent(request.request_id)}/history`);
+    if (serviceRequestSelectedId !== requestId || !dialog.open) return;
+    historyContent._history = response.history || [];
+    renderServiceRequestHistory(request, historyContent);
+  } catch (error) {
+    if (serviceRequestSelectedId === requestId && dialog.open) historyContent.textContent = "Activity could not be loaded. Close and reopen this request to try again.";
+    showToast(error.message, "error");
   }
 }
 
@@ -8680,12 +10389,21 @@ async function loadServiceRequests({ resetPage = false } = {}) {
   if (serviceRequestPagePropertyId !== propertyId) {
     serviceRequestPagePropertyId = propertyId;
     serviceRequestPageOffset = 0;
+    state.serviceRequests = [];
+    serviceRequestFilteredTotal = 0;
+    serviceRequestAllTotal = 0;
+    serviceRequestSummary = {};
+    serviceRequestSelectedId = null;
+    if ($("service-request-details-drawer")?.open) $("service-request-details-drawer").close();
   }
   if (resetPage) serviceRequestPageOffset = 0;
   const version = ++serviceRequestLoadVersion;
   const button = $("refresh-service-requests");
   const originalLabel = button?.textContent || "Refresh";
   if (button) { button.disabled = true; button.textContent = "Refreshing…"; }
+  serviceRequestLoading = true;
+  serviceRequestLoadError = "";
+  if (!state.serviceRequests.length) renderServiceRequests();
   try {
     await loadServiceCatalog();
     if (version !== serviceRequestLoadVersion || propertyId !== currentPropertyId()) return;
@@ -8693,6 +10411,7 @@ async function loadServiceRequests({ resetPage = false } = {}) {
       limit: String(serviceRequestPageLimit),
       offset: String(serviceRequestPageOffset),
       status: $("service-request-status-filter").value || "all",
+      queue_view: serviceRequestQueueView,
       q: $("service-request-search").value.trim(),
     });
     const data = await jsonFetch(`/api/admin/properties/${encodeURIComponent(propertyId)}/service-requests?${params.toString()}`);
@@ -8704,8 +10423,17 @@ async function loadServiceRequests({ resetPage = false } = {}) {
     serviceRequestSummary = data.summary && typeof data.summary === "object" ? data.summary : {};
     renderServiceRequests();
     $("request-last-updated").textContent = `Updated ${new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(new Date())}`;
+  } catch (error) {
+    if (version === serviceRequestLoadVersion && propertyId === currentPropertyId()) {
+      serviceRequestLoadError = error.message || "Request queue unavailable";
+    }
+    throw error;
   } finally {
-    if (version === serviceRequestLoadVersion && button) { button.disabled = false; button.textContent = originalLabel; }
+    if (version === serviceRequestLoadVersion) {
+      serviceRequestLoading = false;
+      if (button) { button.disabled = false; button.textContent = originalLabel; }
+      renderServiceRequests();
+    }
   }
 }
 
@@ -8738,6 +10466,7 @@ async function createServiceRequest() {
   $("service-description").value = "";
   updateCreateServiceRequestButton();
   await loadServiceRequests({ resetPage: true });
+  $("service-request-create-drawer").close();
   showToast("Service request created.");
 }
 
@@ -9874,7 +11603,13 @@ function setup() {
   bindChatDesignerEvents();
   for (const icon of document.querySelectorAll(".nav-icon")) icon.setAttribute("aria-hidden", "true");
   for (const item of document.querySelectorAll(".nav-item")) {
-    item.addEventListener("click", () => activatePanel(item.dataset.panel));
+    item.addEventListener("click", () => {
+      activatePanel(item.dataset.panel);
+      if (window.matchMedia("(max-width: 620px)").matches) {
+        $("platform-shell").classList.remove("mobile-nav-open");
+        syncSidebarToggleState();
+      }
+    });
   }
   const sidebarViewport = window.matchMedia("(max-width: 620px)");
   syncSidebarToggleState({ breakpointChanged: true });
@@ -10059,8 +11794,39 @@ function setup() {
   $("default-password-change-form").addEventListener("submit", (event) => changeDefaultPassword(event));
   $("refresh-audit").addEventListener("click", () => loadAudit().catch((error) => showToast(error.message, "error")));
   $("notification-campaign-form").addEventListener("submit", (event) => saveNotificationCampaign(event).catch((error) => showToast(error.message, "error")));
-  $("notification-campaign-new").addEventListener("click", () => setNotificationCampaignForm());
+  $("notification-campaign-new").addEventListener("click", () => openNotificationCampaignDrawer());
+  $("notification-campaign-close").addEventListener("click", () => {
+    if (state.notificationCampaignDirty && !window.confirm("Discard unsaved campaign edits?")) return;
+    state.notificationCampaignDirty = false;
+    $("notification-campaign-dialog").close();
+  });
+  $("notification-campaign-dialog").addEventListener("cancel", (event) => {
+    if (state.notificationCampaignDirty && !window.confirm("Discard unsaved campaign edits?")) event.preventDefault();
+    else state.notificationCampaignDirty = false;
+  });
+  $("notification-campaign-form").addEventListener("input", (event) => {
+    if (!event.target.matches("#notification-campaign-name, #notification-campaign-title, #notification-campaign-body, #notification-campaign-source")) return;
+    state.notificationCampaignDirty = true;
+    state.notificationCampaignPreview = null;
+    $("notification-campaign-live-status").textContent = "Unsaved changes · save this draft before previewing or publishing.";
+    updateNotificationCampaignDrawer();
+  });
+  $("notification-campaign-save").addEventListener("click", () => saveNotificationCampaign().catch((error) => showToast(error.message, "error")));
+  $("notification-campaign-next").addEventListener("click", () => {
+    const index = NOTIFICATION_CAMPAIGN_STEPS.indexOf(notificationCampaignStep());
+    if (index < NOTIFICATION_CAMPAIGN_STEPS.length - 1) goToNotificationCampaignStep(NOTIFICATION_CAMPAIGN_STEPS[index + 1]);
+  });
+  $("notification-campaign-back").addEventListener("click", () => {
+    const index = NOTIFICATION_CAMPAIGN_STEPS.indexOf(notificationCampaignStep());
+    if (index > 0) goToNotificationCampaignStep(NOTIFICATION_CAMPAIGN_STEPS[index - 1]);
+  });
   $("notification-campaign-refresh").addEventListener("click", () => loadNotificationCampaigns().catch((error) => showToast(error.message, "error")));
+  for (const button of document.querySelectorAll("[data-campaign-status]")) {
+    button.addEventListener("click", () => {
+      state.notificationCampaignStatusFilter = button.dataset.campaignStatus || "all";
+      loadNotificationCampaigns({ resetPage: true }).catch((error) => showToast(error.message, "error"));
+    });
+  }
   $("notification-campaign-search").addEventListener("input", () => {
     clearTimeout(state.notificationCampaignSearchTimer);
     state.notificationCampaignSearchTimer = setTimeout(() => loadNotificationCampaigns({ resetPage: true }).catch((error) => showToast(error.message, "error")), 250);
@@ -10079,7 +11845,7 @@ function setup() {
   $("notification-campaign-list").addEventListener("click", (event) => {
     const button = event.target.closest("[data-campaign-id]");
     if (!button) return;
-    setNotificationCampaignForm(state.notificationCampaigns.find((item) => item.campaign_id === button.dataset.campaignId) || null);
+    openNotificationCampaignDrawer(state.notificationCampaigns.find((item) => item.campaign_id === button.dataset.campaignId) || null);
   });
   $("apply-audit-filters").addEventListener("click", () => loadAudit({ resetPage: true }).catch((error) => showToast(error.message, "error")));
   $("audit-page-previous").addEventListener("click", () => changeAuditPage(-1));
@@ -10157,12 +11923,76 @@ function setup() {
     });
   });
   $("background-image-input").addEventListener("change", (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!(file.type === "image/png" || file.type === "image/jpeg" || file.type === "image/webp")) {
+      showToast("Choose a PNG, JPEG, or WebP image.", "error");
+      event.target.value = "";
+      return;
+    }
     state.builderGlobalEditBefore ||= builderSnapshot();
     handleImageUpload(event.target, "background-image-url-input", {
       maxBytes: 1536 * 1024,
       recommended: "Recommended background: 1600 x 2400 px portrait or 2400 x 1600 px landscape, under 1.5 MB.",
+      onStatus: (message) => { $("background-image-status").textContent = message; },
+      onLoaded: (uploadedFile) => {
+        setBackgroundImagePositions(null);
+        refreshBackgroundImageControl(uploadedFile.name);
+      },
+      onCommitted: () => {
+        event.target.value = "";
+        openBackgroundCropDialog();
+      },
     });
   });
+
+  $("background-image-choose").addEventListener("click", () => $("background-image-input").click());
+  $("background-image-adjust").addEventListener("click", openBackgroundCropDialog);
+  $("background-image-remove").addEventListener("click", () => {
+    if (!can("concierge.edit") || !$("background-image-url-input").value) return;
+    state.builderGlobalEditBefore ||= builderSnapshot();
+    $("background-image-url-input").value = "";
+    $("background-image-input").value = "";
+    setBackgroundImagePositions(null);
+    refreshBackgroundImageControl();
+    commitBuilderGlobalEdit();
+    showToast("Background image removed from this draft.");
+  });
+
+  $("background-crop-close").addEventListener("click", closeBackgroundCropDialog);
+  $("background-crop-dialog").addEventListener("close", () => { state.backgroundImageCropDraft = null; });
+  $("background-crop-auto").addEventListener("click", () => commitBackgroundImagePositions(null));
+  $("background-crop-customize").addEventListener("click", () => {
+    $("background-crop-options").hidden = true;
+    $("background-crop-editor").hidden = false;
+    $("background-crop-choice-actions").hidden = true;
+    $("background-crop-edit-actions").hidden = false;
+    renderBackgroundCropControls();
+    $("background-crop-x").focus();
+  });
+  $("background-crop-back").addEventListener("click", () => {
+    $("background-crop-options").hidden = false;
+    $("background-crop-editor").hidden = true;
+    $("background-crop-choice-actions").hidden = false;
+    $("background-crop-edit-actions").hidden = true;
+  });
+  $("background-crop-reset").addEventListener("click", () => {
+    state.backgroundImageCropDraft = normalizeBackgroundImagePositions(null);
+    renderBackgroundCropControls();
+  });
+  $("background-crop-apply").addEventListener("click", () => commitBackgroundImagePositions(state.backgroundImageCropDraft));
+  document.querySelectorAll("[data-crop-device]").forEach((button) => button.addEventListener("click", () => {
+    state.backgroundImageCropDevice = button.dataset.cropDevice;
+    renderBackgroundCropControls();
+  }));
+  for (const [axis, inputId] of [["x", "background-crop-x"], ["y", "background-crop-y"]]) {
+    $(inputId).addEventListener("input", (event) => {
+      const positions = state.backgroundImageCropDraft || normalizeBackgroundImagePositions(null);
+      positions[state.backgroundImageCropDevice][axis] = Number(event.target.value);
+      state.backgroundImageCropDraft = positions;
+      renderBackgroundCropControls();
+    });
+  }
 
   $("hotel-name-input").addEventListener("input", (event) => {
     $("design-hotel-name").value = event.target.value;
@@ -10202,6 +12032,19 @@ function setup() {
   $("ai-local-only").addEventListener("change", handleLocalOnlyChange);
   $("save-ai-settings").addEventListener("click", () => saveAISettings().catch((error) => showToast(error.message, "error")));
   $("save-personalization-policy").addEventListener("click", () => savePersonalizationPolicy().catch((error) => showToast(error.message, "error")));
+  $("discard-personalization-changes").addEventListener("click", discardPersonalizationChanges);
+  for (const id of [
+    "personalization-enabled", "personalization-default-level", "personalization-learning",
+    "personalization-profile", "personalization-delete-checkout", "personalization-retention",
+    "personalization-retention-days", "personalization-pms", "personalization-location", "personalization-internet",
+  ]) {
+    $(id).addEventListener("input", setPersonalizationDirtyStatus);
+    $(id).addEventListener("change", () => {
+      if (id === "personalization-profile" || id === "personalization-retention") updatePersonalizationDependencies();
+      setPersonalizationDirtyStatus();
+      $("personalization-form-error").hidden = true;
+    });
+  }
   $("personalization-retention").addEventListener("change", () => {
     const daysInput = $("personalization-retention-days");
     const configurable = $("personalization-retention").value === "configurable";
@@ -10221,6 +12064,34 @@ function setup() {
     const option = $("personalization-default-level").querySelector('option[value="personal"]');
     option.disabled = !$("personalization-profile").checked;
     if (option.disabled && $("personalization-default-level").value === "personal") $("personalization-default-level").value = "stay";
+  });
+  for (const tab of document.querySelectorAll("[data-personalization-tab]")) {
+    tab.addEventListener("click", () => setPersonalizationTab(tab.dataset.personalizationTab));
+    tab.addEventListener("keydown", (event) => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      const tabs = [...document.querySelectorAll("[data-personalization-tab]")];
+      const index = tabs.indexOf(tab);
+      const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1
+        : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+      setPersonalizationTab(tabs[next].dataset.personalizationTab, true);
+    });
+  }
+  $("preview-guest-privacy").addEventListener("click", () => {
+    renderGuestPrivacyPreview();
+    $("personalization-preview-dialog").showModal();
+  });
+  $("close-personalization-preview").addEventListener("click", () => $("personalization-preview-dialog").close());
+  $("personalization-preview-dialog").addEventListener("close", () => $("preview-guest-privacy").focus());
+  $("refresh-personalization-history").addEventListener("click", async () => {
+    const target = $("personalization-policy-history");
+    target.textContent = "Refreshing policy history…";
+    try {
+      const result = await jsonFetch(`/api/admin/properties/${encodeURIComponent(currentPropertyId())}/personalization/history`);
+      renderPersonalizationHistory(result);
+    } catch (error) {
+      renderPersonalizationHistoryError(error);
+    }
   });
   $("close-provider-drawer").addEventListener("click", closeProviderDrawer);
   $("provider-drawer-backdrop").addEventListener("click", closeProviderDrawer);
@@ -10334,13 +12205,28 @@ function setup() {
     renderMapContext(); renderZoneTree(); renderMapCanvas(); renderMapInspector();
   });
   $("floor-map-upload").addEventListener("change", (event) => uploadFloorMap(event.target.files?.[0]).catch((error) => showToast(error.message, "error")).finally(() => { event.target.value = ""; }));
+  $("open-session-link").addEventListener("click", () => {
+    if (!can("guest_sessions.manage")) return;
+    $("session-link-drawer").showModal();
+    setTimeout(() => $("session-raw-mac").focus(), 0);
+  });
+  for (const id of ["session-link-close", "session-link-cancel"]) $(id).addEventListener("click", () => $("session-link-drawer").close());
+  for (const id of ["session-guest360-close", "session-guest360-dismiss"]) $(id).addEventListener("click", () => $("session-guest360-drawer").close());
+  for (const dialog of document.querySelectorAll(".guest-session-drawer")) dialog.addEventListener("click", (event) => { if (event.target === dialog) dialog.close(); });
   $("create-stay-session").addEventListener("click", () => createStaySession().catch((error) => showToast(error.message, "error")));
   $("save-stay-memory").addEventListener("click", () => saveStayMemory().catch((error) => showToast(error.message, "error")));
+  $("session-checkout-stay").addEventListener("click", () => {
+    const stayId = state.guest360?.stay?.stay_id;
+    if (stayId) checkoutGuestStay(stayId).catch((error) => showToast(error.message, "error"));
+  });
   $("memory-stay-id").addEventListener("change", () => {
     const stayId = $("memory-stay-id").value;
-    state.guestSelectedStay = state.guestStays.find((stay) => stay.stay_id === stayId)
-      || (state.guestSelectedStay?.stay_id === stayId ? state.guestSelectedStay : null);
-    updateStayMemoryEditor(state.guestSelectedStay);
+    if (stayId) openGuest360(stayId).catch((error) => showToast(error.message, "error"));
+    else {
+      state.guestSelectedStay = null;
+      state.guest360 = null;
+      updateStayMemoryEditor(null);
+    }
   });
   $("refresh-sessions").addEventListener("click", () => loadSessions().catch((error) => showToast(error.message, "error")));
   $("session-record-search").addEventListener("input", () => {
@@ -10359,9 +12245,36 @@ function setup() {
     state.guestSessionOffsets = { sessions: 0, guest_sessions: 0, stays: 0, devices: 0 };
     loadSessions().catch((error) => showToast(error.message, "error"));
   });
-  $("record-observation").addEventListener("click", () => recordObservation().catch((error) => showToast(error.message, "error")));
   $("load-location-report").addEventListener("click", () => loadLocationReport().catch((error) => showToast(error.message, "error")));
+  $("refresh-location-workspace").addEventListener("click", () => loadLocationLive().catch((error) => showToast(error.message, "error")));
+  $("add-property-location").addEventListener("click", () => openLocationEditor());
+  $("location-search").addEventListener("input", renderManagedLocations);
+  $("close-location-editor").addEventListener("click", () => $("location-editor-drawer").close());
+  $("cancel-location-editor").addEventListener("click", () => $("location-editor-drawer").close());
+  $("location-editor-form").addEventListener("submit", (event) => event.preventDefault());
+  $("save-location").addEventListener("click", () => saveManagedLocation().catch((error) => {
+    $("location-editor-message").textContent = error.message;
+  }));
+  $("location-editor-drawer").addEventListener("click", (event) => {
+    if (event.target === $("location-editor-drawer")) $("location-editor-drawer").close();
+  });
+  for (const button of document.querySelectorAll("[data-location-panel]")) {
+    button.addEventListener("click", () => activatePanel(button.dataset.locationPanel));
+  }
   $("create-service-request").addEventListener("click", () => createServiceRequest().catch((error) => showToast(error.message, "error")));
+  $("open-service-request").addEventListener("click", () => {
+    const dialog = $("service-request-create-drawer");
+    if (!dialog.open) dialog.showModal();
+  });
+  for (const button of document.querySelectorAll("[data-close-service-request]")) {
+    button.addEventListener("click", () => {
+      const dialogId = button.dataset.closeServiceRequest === "create" ? "service-request-create-drawer" : "service-request-details-drawer";
+      $(dialogId).close();
+    });
+  }
+  for (const dialog of document.querySelectorAll(".service-request-drawer")) {
+    dialog.addEventListener("click", (event) => { if (event.target === dialog) dialog.close(); });
+  }
   $("service-type").addEventListener("change", syncRequestService);
   $("service-description").addEventListener("input", updateCreateServiceRequestButton);
   $("service-sla").addEventListener("input", updateCreateServiceRequestButton);
@@ -10371,6 +12284,15 @@ function setup() {
     serviceRequestSearchTimer = setTimeout(() => loadServiceRequests({ resetPage: true }).catch((error) => showToast(error.message, "error")), 250);
   });
   $("service-request-status-filter").addEventListener("change", () => loadServiceRequests({ resetPage: true }).catch((error) => showToast(error.message, "error")));
+  for (const button of document.querySelectorAll("[data-request-view]")) button.addEventListener("click", () => {
+    serviceRequestQueueView = button.dataset.requestView;
+    $("service-request-status-filter").value = "";
+    loadServiceRequests({ resetPage: true }).catch((error) => showToast(error.message, "error"));
+  });
+  for (const button of document.querySelectorAll("[data-request-layout]")) button.addEventListener("click", () => {
+    serviceRequestLayout = button.dataset.requestLayout === "board" ? "board" : "list";
+    renderServiceRequests();
+  });
   $("service-request-page-previous").addEventListener("click", () => {
     serviceRequestPageOffset = Math.max(0, serviceRequestPageOffset - serviceRequestPageLimit);
     loadServiceRequests().catch((error) => showToast(error.message, "error"));
@@ -10381,10 +12303,15 @@ function setup() {
     loadServiceRequests().catch((error) => showToast(error.message, "error"));
   });
   for (const card of document.querySelectorAll("[data-request-filter]")) card.addEventListener("click", () => {
+    serviceRequestQueueView = "all";
     $("service-request-status-filter").value = card.dataset.requestFilter === "all" ? "" : card.dataset.requestFilter;
     loadServiceRequests({ resetPage: true }).catch((error) => showToast(error.message, "error"));
   });
-  $("open-service-catalog").addEventListener("click", () => activatePanel("service-catalog"));
+  $("open-service-catalog").addEventListener("click", () => {
+    $("service-request-create-drawer").close();
+    activatePanel("service-catalog");
+  });
+  $("request-catalog-setup-link").addEventListener("click", () => activatePanel("service-catalog"));
   $("save-department").addEventListener("click", () => saveDepartment().catch((error) => showToast(error.message, "error")));
   $("save-catalog-service").addEventListener("click", () => saveCatalogService().catch((error) => showToast(error.message, "error")));
   $("save-recommendation").addEventListener("click", () => saveRecommendation().catch((error) => showToast(error.message, "error")));
@@ -10396,6 +12323,14 @@ function setup() {
     retentionDraftDirty = true;
   });
   $("conversation-search").addEventListener("input", renderConversations);
+  $("conversation-department-filter").addEventListener("change", () => {
+    conversationPageOffset = 0;
+    loadConversations().catch((error) => showToast(error.message, "error"));
+  });
+  $("conversation-unread-filter").addEventListener("change", () => {
+    conversationPageOffset = 0;
+    loadConversations().catch((error) => showToast(error.message, "error"));
+  });
   $("conversation-status-filter").addEventListener("change", () => {
     conversationPageOffset = 0;
     loadConversations().catch((error) => showToast(error.message, "error"));
@@ -10418,6 +12353,9 @@ function setup() {
     const selected = state.selectedConversation;
     $("assign-conversation").disabled = !can("conversations.assign") || !selected?.restaurant_id || !$("conversation-staff-select").value || $("conversation-staff-select").value === selected.assigned_user_id;
   });
+  $("conversation-department-select").addEventListener("change", () => {
+    $("route-conversation").disabled = !$("conversation-department-select").value;
+  });
   $("staff-response").addEventListener("input", () => {
     $("send-staff-response").disabled = $("staff-response").disabled || !$("staff-response").value.trim();
   });
@@ -10428,8 +12366,24 @@ function setup() {
     }
   });
   $("assign-conversation").addEventListener("click", () => assignSelectedConversation().catch((error) => showToast(error.message, "error")));
+  $("route-conversation").addEventListener("click", () => routeSelectedConversation().catch((error) => showToast(error.message, "error")));
   $("toggle-takeover").addEventListener("click", () => setConversationState("open", !state.selectedConversation?.human_takeover).catch((error) => showToast(error.message, "error")));
   $("close-conversation").addEventListener("click", () => setConversationState("closed", false).catch((error) => showToast(error.message, "error")));
+  $("reopen-conversation").addEventListener("click", () => setConversationState("open", false).catch((error) => showToast(error.message, "error")));
+  $("conversation-show-context").addEventListener("click", () => {
+    const context = $("conversation-context");
+    const mobile = window.matchMedia("(max-width: 1199px)").matches;
+    const currentlyOpen = mobile ? context.classList.contains("is-open") : !context.hidden;
+    setConversationContextOpen(!currentlyOpen);
+  });
+  $("conversation-context-close").addEventListener("click", () => setConversationContextOpen(false));
+  $("conversation-context-backdrop").addEventListener("click", () => setConversationContextOpen(false));
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && $("conversation-context").classList.contains("is-open")) {
+      setConversationContextOpen(false);
+    }
+  });
+  window.addEventListener("resize", renderConversationContextToggle);
   $("send-staff-response").addEventListener("click", () => sendStaffResponse().catch((error) => showToast(error.message, "error")));
   for (const id of ["intro-mode", "intro-preset", "intro-message", "intro-background", "intro-brand-color", "intro-first-visit", "intro-skip"]) {
     $(id).addEventListener("input", markIntroDirty);
@@ -10495,8 +12449,38 @@ function setup() {
   $("cancel-room-edit").addEventListener("click", () => clearRoomForm({ focus: true, scroll: true }));
   $("room-search").addEventListener("input", renderRooms);
   $("room-status-filter").addEventListener("change", renderRooms);
-  $("save-guest-module").addEventListener("click", () => saveGuestModule().catch((error) => showToast(error.message, "error")));
-  $("clear-guest-module-form").addEventListener("click", clearGuestModuleForm);
+  $("module-create").addEventListener("click", () => openGuestModuleEditor());
+  $("module-new-starter").addEventListener("click", () => {
+    openGuestModuleEditor();
+    $("guest-module-template").focus();
+    showToast("Choose a starter template in the editor.");
+  });
+  for (const button of document.querySelectorAll("[data-module-status-filter]")) button.addEventListener("click", () => { state.guestModuleStatusFilter = button.dataset.moduleStatusFilter; renderGuestModules(); });
+  $("guest-module-search").addEventListener("input", () => renderGuestModules());
+  $("guest-module-category-filter").addEventListener("change", renderGuestModules);
+  $("guest-module-group-filter").addEventListener("change", renderGuestModules);
+  for (const button of document.querySelectorAll("[data-module-preview-device]")) button.addEventListener("click", () => setGuestModulePreviewDevice(button.dataset.modulePreviewDevice));
+  for (const button of document.querySelectorAll("[data-module-editor-device]")) button.addEventListener("click", () => setGuestModulePreviewDevice(button.dataset.moduleEditorDevice, true));
+  $("guest-module-action-type").addEventListener("change", () => { renderGuestModuleActionFields({}); markGuestModuleDirty(); });
+  $("guest-module-template").addEventListener("change", () => applyGuestModuleStarter($("guest-module-template").value));
+  $("guest-module-form").addEventListener("input", (event) => { if (event.target.id !== "guest-module-template") markGuestModuleDirty(); });
+  $("guest-module-form").addEventListener("change", (event) => { if (event.target.id !== "guest-module-action-type" && event.target.id !== "guest-module-template") markGuestModuleDirty(); });
+  $("guest-module-save").addEventListener("click", () => saveGuestModule().catch((error) => showToast(error.message, "error")));
+  $("guest-module-publish").addEventListener("click", () => publishGuestModule().catch((error) => showToast(error.message, "error")));
+  $("guest-module-archive").addEventListener("click", () => archiveGuestModule().catch((error) => showToast(error.message, "error")));
+  $("guest-module-delete").addEventListener("click", () => deleteGuestModule().catch((error) => showToast(error.message, "error")));
+  $("guest-module-duplicate").addEventListener("click", () => duplicateGuestModule().catch((error) => showToast(error.message, "error")));
+  $("guest-module-restore-version").addEventListener("click", () => restoreGuestModuleVersion().catch((error) => showToast(error.message, "error")));
+  $("guest-module-test-preview").addEventListener("click", testGuestModulePreview);
+  $("guest-module-close").addEventListener("click", () => {
+    if (state.guestModuleDirty && !window.confirm("Discard unsaved module changes?")) return;
+    state.guestModuleDirty = false; $("guest-module-dialog").close();
+  });
+  $("guest-module-dialog").addEventListener("cancel", (event) => {
+    if (!state.guestModuleDirty) return;
+    event.preventDefault();
+    if (window.confirm("Discard unsaved module changes?")) { state.guestModuleDirty = false; $("guest-module-dialog").close(); }
+  });
   $("add-facility").addEventListener("click", openNewFacility);
   $("empty-add-facility").addEventListener("click", openNewFacility);
   $("facility-form").addEventListener("submit", (event) => saveFacility(event));
@@ -10561,7 +12545,6 @@ function setup() {
   }
   $("save-webhook").addEventListener("click", () => saveWebhook().catch((error) => showToast(error.message, "error")));
   $("reset-webhook-form").addEventListener("click", resetWebhookForm);
-  $("save-location").addEventListener("click", () => saveManagedLocation().catch((error) => showToast(error.message, "error")));
   $("save-management-access").addEventListener("click", () => saveManagementAccess().catch((error) => showToast(error.message, "error")));
   $("add-management-network").addEventListener("click", addManagementNetwork);
   $("management-network-input").addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); addManagementNetwork(); } });
@@ -10589,6 +12572,11 @@ document.body.dataset.adminReady = "false";
 const platformShell = document.querySelector(".platform-shell");
 if (platformShell) platformShell.inert = true;
 setup();
+window.addEventListener("beforeunload", (event) => {
+  if (!personalizationIsDirty()) return;
+  event.preventDefault();
+  event.returnValue = "";
+});
 async function initializeAdmin() {
   populatePropertyTimezones();
   await loadCurrentAdmin();
