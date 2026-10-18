@@ -820,7 +820,7 @@ test("guest: wi-fi flow validates empty fields", async ({ page, request }) => {
   await page.getByRole("button", { name: "Send message" }).click();
 
   await page.getByRole("button", { name: "Continue" }).click();
-  await expect(page.getByRole("status")).toContainText("Enter room number and last name.");
+  await expect(page.locator("#toast")).toContainText("Enter room number and last name.");
 });
 
 test("guest: wi-fi flow authenticates successfully in mock mode", async ({ page, request }) => {

@@ -2519,12 +2519,12 @@ test("admin: long workflow guidance is collapsed until requested", async ({ page
   await page.goto("/admin");
   for (const label of ["Guest Requests", "Guest Sessions", "Personalization", "Conversation Modules", "Rooms", "Facilities"]) {
     await openPanel(page, label);
-    const help = page.locator(".panel.active > .contextual-help-disclosure");
+    const help = page.locator(".panel.active > .contextual-help-disclosure, .panel.active > .page-comment").first();
     await expect(help).toBeVisible();
     await expect(help).not.toHaveAttribute("open", "");
     await help.locator("summary").click();
     await expect(help).toHaveAttribute("open", "");
-    await expect(help.locator(":scope > section, :scope > .card").first()).toBeVisible();
+    await expect(help.locator(":scope > :not(summary)").first()).toBeVisible();
   }
 });
 

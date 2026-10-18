@@ -462,8 +462,9 @@ test("manual QA inventories visible controls on every admin destination and gues
     controls: records,
     compositeWidgets,
   };
-  const outputPath = resolve(process.cwd(), "audit", "evidence", "CONTROL_INVENTORY_2026-10-12.json");
-  mkdirSync(resolve(process.cwd(), "audit", "evidence"), { recursive: true });
+  const auditDirectory = process.env.PLAYWRIGHT_AUDIT_DIR || "test-results/manual-qa";
+  const outputPath = resolve(process.cwd(), auditDirectory, "reports", "interaction-inventory.json");
+  mkdirSync(resolve(outputPath, ".."), { recursive: true });
   writeFileSync(outputPath, JSON.stringify(summary) + "\n", "utf8");
   await testInfo.attach("visible-control-inventory.json", {
     body: Buffer.from(JSON.stringify(summary, null, 2)),

@@ -1,4 +1,5 @@
 import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 
 const outputDirectory = "test-results/location-intelligence";
@@ -63,6 +64,13 @@ test("location intelligence drawer, permissions-aware dashboard, and responsive 
     await page.locator("#location-longitude").fill("121.0244");
     expect(await page.locator("#location-name").inputValue()).toBe("QA Main Entrance");
     expect(await page.locator("#location-description").inputValue()).toBe("North entrance near the covered drop-off.");
+    const auditDirectory = process.env.PLAYWRIGHT_AUDIT_DIR;
+    if (auditDirectory) {
+      const afterDirectory = join(auditDirectory, "screenshots", "after");
+      mkdirSync(afterDirectory, { recursive: true });
+      const device = testInfo.project.name === "mobile-chrome" ? "mobile" : "desktop";
+      await page.screenshot({ path: join(afterDirectory, `location-editor-form-${device}.png`) });
+    }
     const propertyWrites = [];
     page.on("request", (request) => {
       if (request.method() === "PUT" && request.url().endsWith(`/api/admin/properties/${propertyId}`)) {
