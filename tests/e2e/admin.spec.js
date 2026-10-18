@@ -2085,6 +2085,20 @@ test("admin: empty guest page offers a clear, draft-safe starting point", async 
     await emptyState.getByRole("button", { name: "Add a hero section" }).click();
     await expect(canvas.locator('.builder-canvas-section[data-builder-section^="hero-"]')).toHaveCount(1);
     await expect(page.locator("#builder-layer-count")).toHaveText("1");
+    const housekeepingTile = page.locator('[data-builder-add="housekeeping"]');
+    await expect(housekeepingTile).toHaveAttribute("aria-label", "Add Housekeeping section");
+    await expect(housekeepingTile.locator("span")).toHaveText("Housekeeping");
+    const housekeepingTileLayout = await housekeepingTile.evaluate((button) => {
+      const label = button.querySelector("span").getBoundingClientRect();
+      const bounds = button.getBoundingClientRect();
+      return { wide: button.classList.contains("builder-component-tile--wide-label"), width: bounds.width, labelRight: label.right, buttonRight: bounds.right };
+    });
+    expect(housekeepingTileLayout.wide).toBeTruthy();
+    expect(housekeepingTileLayout.width).toBeGreaterThan(150);
+    expect(housekeepingTileLayout.labelRight).toBeLessThan(housekeepingTileLayout.buttonRight);
+    await housekeepingTile.click();
+    await expect(canvas.locator('.builder-canvas-section[data-builder-section^="housekeeping-"]')).toHaveCount(1);
+    await expect(page.locator("#builder-layer-count")).toHaveText("2");
     const afterEditing = await request.get(`/api/admin/properties/${propertyId}/design`).then((response) => response.json());
     expect(afterEditing.draft.pages.find((item) => item.id === "home").sections).toEqual([]);
     expect(afterEditing.published).toEqual(initial.published);

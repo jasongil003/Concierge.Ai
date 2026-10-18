@@ -3548,6 +3548,7 @@ function renderBuilderLibrary() {
       button.type = "button"; button.className = "builder-component-tile"; button.dataset.builderAdd = type; button.draggable = false; button.setAttribute("aria-label", `Add ${definition.label} section`); button.title = "Drag to the canvas or click to add";
       const icon = document.createElement("b"); icon.textContent = definition.icon || "＋";
       const label = document.createElement("span"); label.textContent = definition.label;
+      if (!/\s/.test(definition.label) && definition.label.length > 10) button.classList.add("builder-component-tile--wide-label");
       const grip = document.createElement("i"); grip.className = "builder-component-grip"; grip.setAttribute("aria-hidden", "true"); grip.textContent = "⠿";
       button.append(icon, label, grip); grid.appendChild(button);
     }

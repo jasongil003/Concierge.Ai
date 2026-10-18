@@ -1593,6 +1593,8 @@ select[multiple] { min-height: 112px; padding: 6px; }
 
 /* Final visual-builder interaction polish */
 #appearance .builder-component-grid .builder-component-tile { display: grid; grid-template-columns: 23px minmax(0,1fr) 12px; align-items: center; cursor: grab; touch-action: none; }
+#appearance .builder-component-grid .builder-component-tile--wide-label { grid-column: 1 / -1; }
+#appearance .builder-component-grid .builder-component-tile > span { min-width: 0; line-height: 1.2; }
 #appearance .builder-component-grid .builder-component-tile:active { cursor: grabbing; }
 #appearance .builder-component-grip { color: #9aa0aa; font-size: 12px; font-style: normal; line-height: 1; }
 #appearance .builder-component-grid .builder-component-tile.is-dragging { opacity: .55; border-color: #6478df; background: #f1f3ff; }
