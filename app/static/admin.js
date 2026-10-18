@@ -4596,6 +4596,83 @@ function setBuilderDevice(device) {
   renderBuilder();
 }
 
+function renderBuilderDesignPreview() {
+  const source = $("builder-canvas");
+  const currentPreview = $("builder-preview-canvas");
+  const dialog = $("builder-preview-dialog");
+  if (!source || !currentPreview || !dialog) return;
+
+  const clone = source.cloneNode(true);
+  clone.id = "builder-preview-canvas";
+  clone.classList.add("builder-preview-canvas");
+  clone.setAttribute("aria-label", "Visual preview of the guest page draft");
+  clone.removeAttribute("tabindex");
+
+  // Remove builder-only controls and anything that is intentionally hidden from guests.
+  clone.querySelectorAll(".builder-section-toolbar, .builder-responsive-note").forEach((element) => element.remove());
+  clone.querySelectorAll(".builder-empty-canvas, .builder-add-inline").forEach((element) => element.remove());
+  clone.querySelectorAll(".builder-canvas-section.is-hidden, .builder-canvas-section.is-responsive-hidden").forEach((element) => element.remove());
+  clone.querySelectorAll(".builder-canvas-section").forEach((section) => {
+    if (section.querySelector(".builder-empty-state, .builder-empty-component, .builder-empty-note")) section.remove();
+  });
+  clone.querySelectorAll(".is-selected, .drop-before, .drop-after, .is-item-selected").forEach((element) => {
+    element.classList.remove("is-selected", "drop-before", "drop-after", "is-item-selected");
+  });
+  clone.querySelectorAll("[data-animation]").forEach((element) => {
+    element.classList.add("experience-visible");
+    element.dataset.animation = "none";
+    element.dataset.interaction = "none";
+  });
+
+  // Keep labels and local ARIA/fragment references valid while avoiding duplicate page IDs.
+  const idMap = new Map();
+  clone.querySelectorAll("[id]").forEach((element) => {
+    const previousId = element.id;
+    const previewId = `builder-preview-${previousId}`;
+    idMap.set(previousId, previewId);
+    element.id = previewId;
+  });
+  const referenceAttributes = ["for", "aria-labelledby", "aria-describedby", "aria-controls", "aria-owns", "aria-activedescendant", "list", "form"];
+  clone.querySelectorAll("*").forEach((element) => {
+    referenceAttributes.forEach((attribute) => {
+      const value = element.getAttribute(attribute);
+      if (!value) return;
+      element.setAttribute(attribute, value.split(/\s+/).map((id) => idMap.get(id) || id).join(" "));
+    });
+    ["href", "xlink:href"].forEach((attribute) => {
+      const value = element.getAttribute(attribute);
+      if (value?.startsWith("#")) element.setAttribute(attribute, `#${idMap.get(value.slice(1)) || value.slice(1)}`);
+    });
+    ["style", "fill", "stroke", "clip-path", "mask", "filter"].forEach((attribute) => {
+      let value = element.getAttribute(attribute);
+      if (!value || !value.includes("url(#")) return;
+      idMap.forEach((previewId, originalId) => { value = value.replaceAll(`url(#${originalId})`, `url(#${previewId})`); });
+      element.setAttribute(attribute, value);
+    });
+  });
+  clone.querySelectorAll("a, button, input, select, textarea, [tabindex]").forEach((element) => { element.tabIndex = -1; });
+  currentPreview.replaceWith(clone);
+
+  const design = designPayload();
+  const propertyName = design.branding?.hotelName || state.property?.hotel_name || "Guest experience";
+  const pageName = builderPage()?.name || "Guest page";
+  $("builder-preview-title").textContent = `${propertyName} · ${pageName}`;
+  $("builder-preview-dialog-stage").dataset.device = state.builderDevice;
+  document.querySelectorAll("[data-builder-preview-device]").forEach((button) => {
+    const selected = button.dataset.builderPreviewDevice === state.builderDevice;
+    button.setAttribute("aria-pressed", String(selected));
+    button.classList.toggle("active", selected);
+  });
+}
+
+function openBuilderDesignPreview() {
+  const dialog = $("builder-preview-dialog");
+  if (!dialog) return;
+  renderBuilderDesignPreview();
+  if (!dialog.open) dialog.showModal();
+  $("builder-preview-close")?.focus({ preventScroll: true });
+}
+
 function bindBuilderEvents() {
   $("builder-component-library")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-builder-add]");
@@ -4623,6 +4700,14 @@ function bindBuilderEvents() {
     const action = event.target.closest("[data-builder-action]"); if (action) builderSectionAction(action.dataset.sectionId, action.dataset.builderAction);
   });
   document.querySelectorAll("[data-builder-device]").forEach((button) => button.addEventListener("click", () => setBuilderDevice(button.dataset.builderDevice)));
+  document.querySelectorAll("[data-builder-preview-device]").forEach((button) => button.addEventListener("click", () => {
+    setBuilderDevice(button.dataset.builderPreviewDevice);
+    renderBuilderDesignPreview();
+  }));
+  $("builder-preview-close")?.addEventListener("click", () => $("builder-preview-dialog")?.close());
+  $("builder-preview-dialog")?.addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) event.currentTarget.close();
+  });
   $("builder-page-select")?.addEventListener("change", () => { state.builderPageId = $("builder-page-select").value; state.builderSelectedSectionId = null; state.builderSelection = null; renderBuilder(); });
   document.querySelectorAll("[data-builder-library-tab]").forEach((button) => {
     button.addEventListener("click", () => { state.builderLibraryTab = button.dataset.builderLibraryTab; renderBuilderLibraryMode(); });

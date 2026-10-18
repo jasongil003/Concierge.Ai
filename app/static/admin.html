@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Concierge.Ai Platform</title>
-  <link rel="stylesheet" href="/static/admin.css?v=102">
+  <link rel="stylesheet" href="/static/admin.css?v=103">
 </head>
 <body>
   <div class="platform-shell" id="platform-shell">
@@ -1348,6 +1348,28 @@
       <div class="dialog-actions"><button class="secondary" id="default-password-back" type="button">Back</button><button id="default-password-change-submit" type="submit">Change Password</button></div>
     </form>
   </dialog>
+  <dialog class="builder-preview-dialog" id="builder-preview-dialog" aria-labelledby="builder-preview-title" aria-describedby="builder-preview-description">
+    <div class="builder-preview-dialog-shell">
+      <header class="builder-preview-dialog-header">
+        <div class="builder-preview-dialog-title">
+          <span>GUEST EXPERIENCE PREVIEW</span>
+          <h2 id="builder-preview-title">Guest page</h2>
+          <p id="builder-preview-description">Previewing this property’s current draft. Guests see these changes after you publish.</p>
+        </div>
+        <div class="builder-preview-dialog-controls">
+          <div class="builder-device-switch builder-preview-device-switch" role="group" aria-label="Preview screen size">
+            <button type="button" data-builder-preview-device="desktop" aria-pressed="false">Desktop</button>
+            <button type="button" data-builder-preview-device="tablet" aria-pressed="false">Tablet</button>
+            <button type="button" data-builder-preview-device="mobile" aria-pressed="false">Mobile</button>
+          </div>
+          <button class="icon-button" id="builder-preview-close" type="button" aria-label="Close guest experience preview">×</button>
+        </div>
+      </header>
+      <div class="builder-preview-dialog-stage" id="builder-preview-dialog-stage" aria-label="Visual preview of the draft guest experience">
+        <div id="builder-preview-canvas" class="builder-canvas builder-preview-canvas" aria-label="Guest page preview"></div>
+      </div>
+    </div>
+  </dialog>
   <div class="context-menu" id="user-action-menu" hidden></div>
 
   <div class="drawer-backdrop" id="provider-drawer-backdrop" hidden></div>
@@ -1391,6 +1413,6 @@
   </aside>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script src="/static/guest-theme.js?v=3"></script>
-  <script src="/static/admin.js?v=90"></script>
+  <script src="/static/admin.js?v=91"></script>
 </body>
 </html>

@@ -1508,7 +1508,21 @@ test("admin: visual builder renders guest sections and supports direct editing, 
     await expect(canvas.locator(".builder-canvas-section")).toHaveCount(5);
     await expect(page.locator("#builder-save-status")).toHaveText("Unsaved changes");
     await page.locator("#builder-preview-button").click();
-    await expect(page.getByText("The center canvas is the live preview of this draft.")).toBeVisible();
+    const designPreview = page.locator("#builder-preview-dialog");
+    const previewCanvas = designPreview.locator("#builder-preview-canvas");
+    await expect(designPreview).toBeVisible();
+    await expect(designPreview).toContainText("Guests see these changes after you publish.");
+    await expect(previewCanvas.locator(".builder-canvas-section")).toHaveCount(2);
+    await expect(previewCanvas.locator(".builder-canvas-section .experience-hero")).toBeVisible();
+    await expect(previewCanvas.locator(".builder-empty-state, .builder-empty-component, .builder-empty-note")).toHaveCount(0);
+    await expect(previewCanvas.locator(".builder-add-inline")).toHaveCount(0);
+    await page.locator('[data-builder-preview-device="tablet"]').click();
+    await expect(previewCanvas).toHaveAttribute("data-device", "tablet");
+    await expect(page.locator('[data-builder-preview-device="tablet"]')).toHaveAttribute("aria-pressed", "true");
+    await page.locator('[data-builder-preview-device="mobile"]').click();
+    await expect(previewCanvas).toHaveAttribute("data-device", "mobile");
+    await page.locator("#builder-preview-close").click();
+    await expect(designPreview).toBeHidden();
 
     await page.locator("#builder-save-button").click();
     await expect(page.getByText("Draft saved.")).toBeVisible();
