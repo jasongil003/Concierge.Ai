@@ -3545,7 +3545,7 @@ function renderBuilderLibrary() {
     groups.get(groupName).sort((a, b) => a[1].label.localeCompare(b[1].label));
     for (const [type, definition] of groups.get(groupName)) {
       const button = document.createElement("button");
-      button.type = "button"; button.className = "builder-component-tile"; button.dataset.builderAdd = type; button.draggable = false; button.setAttribute("aria-label", `Add ${definition.label}; drag to the page or activate to add`); button.title = "Drag to the canvas or click to add";
+      button.type = "button"; button.className = "builder-component-tile"; button.dataset.builderAdd = type; button.draggable = false; button.setAttribute("aria-label", `Add ${definition.label} section`); button.title = "Drag to the canvas or click to add";
       const icon = document.createElement("b"); icon.textContent = definition.icon || "＋";
       const label = document.createElement("span"); label.textContent = definition.label;
       const grip = document.createElement("i"); grip.className = "builder-component-grip"; grip.setAttribute("aria-hidden", "true"); grip.textContent = "⠿";
