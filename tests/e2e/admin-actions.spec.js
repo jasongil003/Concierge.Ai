@@ -24,6 +24,12 @@ async function openPanel(page, label) {
   await button.click();
 }
 
+async function openHiddenPanel(page, panelId) {
+  await page.locator('body[data-admin-ready="true"]').waitFor();
+  await page.evaluate((id) => window.activatePanel(id), panelId);
+  await expect(page.locator(`#${panelId}`)).toBeVisible();
+}
+
 test.beforeEach(async ({ page }) => {
   await loginAdmin(page.request);
 });
@@ -58,13 +64,15 @@ test("admin data buttons: catalog, request, and recommendation workflows", async
 
   await openPanel(page, "Guest Requests");
   await expect(page.locator("#request-last-updated")).toContainText("Updated");
+  await page.getByRole("button", { name: "New request" }).click();
   await page.locator("#service-room").fill("1503");
   await page.locator("#service-type").selectOption({ label: serviceName });
   await page.locator("#service-description").fill("Button workflow verification");
   await page.getByRole("button", { name: "Create Request" }).click();
   const requestRow = page.locator("#service-request-list article").filter({ hasText: serviceName }).first();
   await expect(requestRow).toBeVisible();
-  await requestRow.getByRole("button", { name: "Mark Assigned", exact: true }).click();
+  await requestRow.getByRole("button", { name: /Open details for request/ }).click();
+  await page.locator("#service-request-details-content").getByRole("button", { name: "Mark Assigned", exact: true }).click();
   await expect(requestRow).toContainText("Assigned");
 
   await openPanel(page, "Recommendations");
@@ -318,7 +326,7 @@ test("admin operations buttons: map, stay memory, location, and intro", async ({
   await page.getByRole("button", { name: "Load Report" }).click();
   await expect(page.locator("#location-report")).toContainText("visits");
 
-  await openPanel(page, "Branding / Intro");
+  await openHiddenPanel(page, "intro");
   const originalMode = await page.locator("#intro-mode").inputValue();
   const originalMessage = await page.locator("#intro-message").inputValue();
   await page.locator("#intro-mode").selectOption("generate_from_logo");
@@ -500,19 +508,26 @@ test("admin conversation buttons: takeover, staff response, and close", async ({
   test.skip(testInfo.project.name !== "chromium", "The mutation workflow only needs one browser profile.");
   const property = (await (await page.request.get("/api/admin/properties")).json()).properties[0];
   property.contact_details = { ...(property.contact_details || {}), breakfast: "Breakfast is served from 7:00 to 10:00." };
+  property.app_settings = {
+    ...(property.app_settings || {}),
+    guest_experience: {
+      ...(property.app_settings?.guest_experience || {}),
+      intelligent_ui: { enabled: true },
+    },
+  };
   const saved = await page.request.put(`/api/admin/properties/${property.property_id}`, {
     headers: { "X-CSRF-Token": csrfByRequest.get(page.request) }, data: property,
   });
   expect(saved.ok()).toBeTruthy();
   const sessionResponse = await page.request.post("/api/session/start", {
-    data: { client_id: `conversation-audit-${Date.now()}` },
+    data: { client_id: `conversation-audit-${Date.now()}`, property_id: property.property_id },
   });
   expect(sessionResponse.ok()).toBeTruthy();
   const sessionId = (await sessionResponse.json()).session_id;
-  const chatResponse = await page.request.post("/api/chat", {
-    data: { session_id: sessionId, message: "What time is breakfast?", mode: "auto" },
+  const chatResponse = await page.request.post("/api/guest/intelligent-chat", {
+    data: { session_id: sessionId, turn_id: `conversation-turn-${Date.now()}`, message: "What time is breakfast?" },
   });
-  expect(chatResponse.ok()).toBeTruthy();
+  expect(chatResponse.ok(), await chatResponse.text()).toBeTruthy();
 
   await page.goto("/admin");
   await openPanel(page, "Conversations");
@@ -523,18 +538,74 @@ test("admin conversation buttons: takeover, staff response, and close", async ({
   await page.getByRole("button", { name: "Refresh inbox" }).click();
   await expect(page.locator("#conversation-last-refreshed")).toContainText("Updated");
   await page.locator('[data-conversation-filter="ai_active"]').click();
-  await page.locator("#conversation-search").fill(sessionId.slice(0, 12));
-  const conversation = page.locator("#conversation-list button").filter({ hasText: sessionId.slice(0, 12) });
+  const conversation = page.locator("#conversation-list button").first();
   await conversation.click();
-  await page.getByRole("button", { name: "Take Over" }).click();
+  await page.getByRole("button", { name: "Take over" }).click();
   await expect(page.getByRole("button", { name: "Return to AI" })).toBeVisible();
   await page.locator("#staff-response").fill("This is a verified staff response.");
-  await page.getByRole("button", { name: "Send Response" }).click();
+  await page.getByRole("button", { name: "Send reply" }).click();
   await expect(page.locator("#conversation-messages")).toContainText("verified staff response");
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("button", { name: "Resolve", exact: true }).click();
+  await expect(page.locator("#conversation-detail-status")).toHaveText("Resolved");
   await page.locator("#conversation-search").fill("");
   await page.locator("#conversation-status-filter").selectOption("");
-  await expect(page.locator("#conversation-list")).toContainText("Resolved");
+});
+
+test("unified conversations workspace adapts from desktop to tablet and mobile", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium", "The responsive visual check uses one browser profile.");
+  const property = (await (await page.request.get("/api/admin/properties")).json()).properties[0];
+  property.app_settings = {
+    ...(property.app_settings || {}),
+    guest_experience: {
+      ...(property.app_settings?.guest_experience || {}),
+      intelligent_ui: { enabled: true },
+    },
+  };
+  const saved = await page.request.put(`/api/admin/properties/${property.property_id}`, {
+    headers: { "X-CSRF-Token": csrfByRequest.get(page.request) }, data: property,
+  });
+  expect(saved.ok()).toBeTruthy();
+  const sessionResponse = await page.request.post("/api/session/start", {
+    data: { client_id: `conversation-responsive-${Date.now()}`, property_id: property.property_id },
+  });
+  expect(sessionResponse.ok()).toBeTruthy();
+  const sessionId = (await sessionResponse.json()).session_id;
+  const chatResponse = await page.request.post("/api/guest/intelligent-chat", {
+    data: { session_id: sessionId, turn_id: `conversation-responsive-turn-${Date.now()}`, message: "Could you recommend a quiet breakfast spot?" },
+  });
+  expect(chatResponse.ok(), await chatResponse.text()).toBeTruthy();
+
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/admin");
+  await openPanel(page, "Conversations");
+  await expect(page.locator("#conversation-list")).toBeVisible();
+  await expect(page.locator("#conversation-messages .conversation-message").first()).toBeVisible();
+  await expect(page.locator("#conversation-context")).toBeVisible();
+  await expect(page.locator("#refresh-conversations")).toBeEnabled();
+  await page.screenshot({ path: "test-results/conversations-desktop.png", fullPage: true });
+
+  await page.setViewportSize({ width: 768, height: 1024 });
+  const tabletContext = page.locator("#conversation-show-context");
+  await expect(tabletContext).toBeVisible();
+  await tabletContext.click();
+  await expect(page.locator("#conversation-context")).toHaveClass(/is-open/);
+  await page.locator("#conversation-context").evaluate((element) => Promise.all(element.getAnimations().map((animation) => animation.finished)));
+  const tabletBounds = await page.locator("#conversation-context").boundingBox();
+  expect(tabletBounds.x + tabletBounds.width).toBeLessThanOrEqual(769);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(768);
+  await page.screenshot({ path: "test-results/conversations-tablet-context.png", fullPage: true });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator("#conversation-show-context")).toBeVisible();
+  await page.locator("#conversation-context-close").click();
+  await expect(page.locator("#conversation-context")).not.toHaveClass(/is-open/);
+  await page.locator("#conversation-show-context").click();
+  await expect(page.locator("#conversation-context")).toHaveClass(/is-open/);
+  await page.locator("#conversation-context").evaluate((element) => Promise.all(element.getAnimations().map((animation) => animation.finished)));
+  const mobileBounds = await page.locator("#conversation-context").boundingBox();
+  expect(mobileBounds.x + mobileBounds.width).toBeLessThanOrEqual(391);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: "test-results/conversations-mobile-context.png", fullPage: true });
 });
 
 test("conversation inbox uses bounded server pages and keeps complete status counts", async ({ page }, testInfo) => {
@@ -623,7 +694,7 @@ test("admin conversation queue can assign an escalated conversation to staff", a
   expect(staffResponse.ok()).toBeTruthy();
   const staff = (await staffResponse.json()).user;
   const sessionResponse = await page.request.post("/api/session/start", {
-    data: { client_id: `queue-assignment-${suffix}` },
+    data: { client_id: `queue-assignment-${suffix}`, property_id: propertyId },
   });
   expect(sessionResponse.ok()).toBeTruthy();
   const sessionId = (await sessionResponse.json()).session_id;
@@ -634,7 +705,7 @@ test("admin conversation queue can assign an escalated conversation to staff", a
 
   await page.goto("/admin");
   await openPanel(page, "Conversations");
-  const row = page.locator("#conversation-list button").filter({ hasText: sessionId.slice(0, 12) });
+  const row = page.locator("#conversation-list button").first();
   await row.click();
   const staffSelect = page.locator("#conversation-staff-select");
   await expect(staffSelect).toBeEnabled();

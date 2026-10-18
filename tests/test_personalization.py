@@ -5,6 +5,8 @@ from app.personalization import PersonalizationStore, extract_preferences, prefe
 from app.guest_identity import GuestIdentityStore
 from app.hospitality import HospitalityStore
 from app.session_store import SessionStore
+from app.privacy_consent import PrivacyConsentStore
+from app.properties import PropertyRecord
 import app.main as main_module
 
 
@@ -193,3 +195,70 @@ def test_admin_personalization_policy_is_property_scoped(admin_client, tmp_path,
     assert saved.status_code == 200, saved.text
     assert saved.json()["default_level"] == "stay"
     assert saved.json()["allow_preference_learning"] is False
+
+
+def test_personalization_policy_rejects_unknown_fields_and_non_boolean_flags(tmp_path):
+    store = PersonalizationStore(tmp_path / "strict-policy.db")
+    try:
+        store.save_policy("hotel-a", {"enabled": "false"})
+    except ValueError as exc:
+        assert "true or false" in str(exc)
+    else:
+        raise AssertionError("String booleans must be rejected instead of becoming truthy")
+    try:
+        store.save_policy("hotel-a", {"unreviewed_setting": True})
+    except ValueError as exc:
+        assert "unsupported fields" in str(exc)
+    else:
+        raise AssertionError("Unknown policy fields must be rejected")
+    assert store.policy("hotel-a")["enabled"] is True
+
+
+def test_personalization_diagnostics_are_aggregate_and_property_scoped(admin_client, tmp_path, monkeypatch, request):
+    database = tmp_path / "personalization-diagnostics.db"
+    memory = PersonalizationStore(database)
+    consents = PrivacyConsentStore(database)
+    hospitality = HospitalityStore(database)
+    monkeypatch.setattr(main_module, "personalization", memory)
+    monkeypatch.setattr(main_module, "privacy_consents", consents)
+    monkeypatch.setattr(main_module, "hospitality", hospitality)
+    property_id = admin_client.get("/api/admin/properties").json()["properties"][0]["property_id"]
+    other_property_id = "other-personalization-property"
+    main_module.properties.upsert(PropertyRecord(property_id=other_property_id, hotel_name="Other Property"))
+    request.addfinalizer(lambda: main_module.properties.delete(other_property_id))
+
+    memory.set_guest_state(property_id, "scope-session-a", True, "stay")
+    memory.save_preference(property_id, "scope-session-a", "food", "Quiet vegetarian dining", preference_key="food.dining", persistence="stay")
+    memory.set_guest_state(other_property_id, "scope-session-b", True, "personal")
+    memory.save_preference(other_property_id, "scope-session-b", "food", "Private value outside this property", preference_key="food.dining", persistence="profile")
+    consents.set(property_id, "scope-session-a", {"external_data_processing": True})
+    consents.set(other_property_id, "scope-session-b", {"external_data_processing": True})
+
+    response = admin_client.get(f"/api/admin/properties/{property_id}/personalization/diagnostics")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["memory"]["unexpired_opt_ins"] == 1
+    assert body["consent_records"]["categories"]["external_data_processing"]["granted"] == 1
+    assert "scope-session-a" not in response.text
+    assert "scope-session-b" not in response.text
+    assert "Quiet vegetarian dining" not in response.text
+    assert "Private value outside this property" not in response.text
+    assert body["pms"]["sync_provider"] == "not_configured"
+    assert body["cleanup"]["status"] == "not_tracked"
+
+
+def test_personalization_policy_history_records_safe_changes(admin_client, tmp_path, monkeypatch):
+    monkeypatch.setattr(main_module, "personalization", PersonalizationStore(tmp_path / "personalization-history.db"))
+    property_id = admin_client.get("/api/admin/properties").json()["properties"][0]["property_id"]
+    saved = admin_client.put(
+        f"/api/admin/properties/{property_id}/personalization",
+        json={"data": {"allow_internet_recommendations": False}},
+    )
+    assert saved.status_code == 200, saved.text
+    history = admin_client.get(f"/api/admin/properties/{property_id}/personalization/history")
+    assert history.status_code == 200, history.text
+    body = history.json()
+    assert body["items"]
+    change = next(item for item in body["items"] if "allow_internet_recommendations" in item["changes"])
+    assert change["changes"]["allow_internet_recommendations"] == {"from": True, "to": False}
+    assert "127.0.0.1" not in history.text

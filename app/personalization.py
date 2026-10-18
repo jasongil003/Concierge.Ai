@@ -135,24 +135,29 @@ class PersonalizationStore:
 
     def policy(self, property_id: str) -> dict[str, Any]:
         with self._connect() as db:
-            row = db.execute("SELECT policy_json FROM personalization_policy WHERE property_id=?", (property_id,)).fetchone()
+            row = db.execute("SELECT policy_json,updated_at FROM personalization_policy WHERE property_id=?", (property_id,)).fetchone()
         if not row:
-            return dict(DEFAULT_POLICY)
+            return {**DEFAULT_POLICY, "property_id": property_id, "updated_at": None}
         try:
             saved = json.loads(row["policy_json"])
         except (TypeError, json.JSONDecodeError):
             saved = {}
-        return {**DEFAULT_POLICY, **saved}
+        return {**DEFAULT_POLICY, **saved, "property_id": property_id, "updated_at": row["updated_at"]}
 
     def save_policy(self, property_id: str, config: dict[str, Any]) -> dict[str, Any]:
+        policy_fields = set(DEFAULT_POLICY)
+        unknown_fields = set(config) - policy_fields
+        if unknown_fields:
+            raise ValueError("Personalization settings include unsupported fields.")
         current = self.policy(property_id)
         merged = {**current, **config}
-        merged["enabled"] = bool(merged["enabled"])
-        for field in (
-            "allow_preference_learning", "allow_guest_profile", "delete_profile_at_checkout",
+        boolean_fields = (
+            "enabled", "allow_preference_learning", "allow_guest_profile", "delete_profile_at_checkout",
             "allow_pms_personalization", "allow_location_aware_recommendations", "allow_internet_recommendations",
-        ):
-            merged[field] = bool(merged[field])
+        )
+        for field in boolean_fields:
+            if field in config and type(config[field]) is not bool:
+                raise ValueError(f"{field.replace('_', ' ').capitalize()} must be true or false.")
         if merged["default_level"] not in LEVELS:
             raise ValueError("Default level must be private, stay, or personal.")
         if merged["default_level"] == "personal" and not merged["allow_guest_profile"]:
@@ -160,8 +165,10 @@ class PersonalizationStore:
         if merged["memory_retention"] not in {"stay_only", "configurable"}:
             raise ValueError("Memory retention must be stay_only or configurable.")
         try:
+            if isinstance(merged["memory_retention_days"], bool):
+                raise ValueError
             merged["memory_retention_days"] = int(merged["memory_retention_days"])
-        except (ValueError, TypeError) as exc:
+        except (ValueError, TypeError, OverflowError) as exc:
             raise ValueError("Memory retention must be between 1 and 365 days.") from exc
         if not 1 <= merged["memory_retention_days"] <= 365:
             raise ValueError("Memory retention must be between 1 and 365 days.")
@@ -173,6 +180,77 @@ class PersonalizationStore:
                 (property_id, json.dumps(merged, ensure_ascii=False), now),
             )
         return {**merged, "property_id": property_id, "updated_at": now}
+
+    def operational_summary(self, property_id: str, now: int | None = None) -> dict[str, int]:
+        """Return property-scoped counts only; guest keys and values never leave storage."""
+        current = _now() if now is None else int(now)
+        soon = current + 24 * 60 * 60
+        with self._connect() as db:
+            has_stay_tables = table_exists(db, "guest_sessions") and table_exists(db, "concierge_stays")
+            if has_stay_tables:
+                profile_row = db.execute(
+                    """SELECT
+                        SUM(CASE WHEN enabled=1 AND level IN ('stay','personal') AND expires_at>=? THEN 1 ELSE 0 END) AS active_opt_ins,
+                        SUM(CASE WHEN enabled=1 AND level IN ('stay','personal') AND expires_at>=? AND expires_at<=?
+                            AND NOT EXISTS (
+                                SELECT 1 FROM guest_sessions gs
+                                JOIN concierge_stays s ON s.stay_id=gs.stay_id AND s.property_id=gs.property_id
+                                WHERE gs.property_id=guest_personalization.property_id
+                                  AND gs.concierge_session_id=guest_personalization.session_id AND s.status='active'
+                            ) THEN 1 ELSE 0 END) AS profiles_expiring,
+                        SUM(CASE WHEN expires_at<? AND NOT EXISTS (
+                                SELECT 1 FROM guest_sessions gs
+                                JOIN concierge_stays s ON s.stay_id=gs.stay_id AND s.property_id=gs.property_id
+                                WHERE gs.property_id=guest_personalization.property_id
+                                  AND gs.concierge_session_id=guest_personalization.session_id AND s.status='active'
+                            ) THEN 1 ELSE 0 END) AS expired_profiles
+                        FROM guest_personalization WHERE property_id=?""",
+                    (current, current, soon, current, property_id),
+                ).fetchone()
+                preference_row = db.execute(
+                    """SELECT
+                        SUM(CASE WHEN expires_at IS NOT NULL AND expires_at>=? AND expires_at<=?
+                            AND NOT (persistence IN ('stay','profile') AND EXISTS (
+                                SELECT 1 FROM guest_sessions gs
+                                JOIN concierge_stays s ON s.stay_id=gs.stay_id AND s.property_id=gs.property_id
+                                WHERE gs.property_id=guest_preferences.property_id
+                                  AND gs.concierge_session_id=guest_preferences.session_id AND s.status='active'
+                            )) THEN 1 ELSE 0 END) AS preferences_expiring,
+                        SUM(CASE WHEN expires_at IS NOT NULL AND expires_at<?
+                            AND NOT (persistence IN ('stay','profile') AND EXISTS (
+                                SELECT 1 FROM guest_sessions gs
+                                JOIN concierge_stays s ON s.stay_id=gs.stay_id AND s.property_id=gs.property_id
+                                WHERE gs.property_id=guest_preferences.property_id
+                                  AND gs.concierge_session_id=guest_preferences.session_id AND s.status='active'
+                            )) THEN 1 ELSE 0 END) AS expired_preferences
+                        FROM guest_preferences WHERE property_id=?""",
+                    (current, soon, current, property_id),
+                ).fetchone()
+            else:
+                profile_row = db.execute(
+                    """SELECT
+                        SUM(CASE WHEN enabled=1 AND level IN ('stay','personal') AND expires_at>=? THEN 1 ELSE 0 END) AS active_opt_ins,
+                        SUM(CASE WHEN enabled=1 AND level IN ('stay','personal') AND expires_at>=? AND expires_at<=? THEN 1 ELSE 0 END) AS profiles_expiring,
+                        SUM(CASE WHEN expires_at<? THEN 1 ELSE 0 END) AS expired_profiles
+                        FROM guest_personalization WHERE property_id=?""",
+                    (current, current, soon, current, property_id),
+                ).fetchone()
+                preference_row = db.execute(
+                    """SELECT
+                        SUM(CASE WHEN expires_at IS NOT NULL AND expires_at>=? AND expires_at<=? THEN 1 ELSE 0 END) AS preferences_expiring,
+                        SUM(CASE WHEN expires_at IS NOT NULL AND expires_at<? THEN 1 ELSE 0 END) AS expired_preferences
+                        FROM guest_preferences WHERE property_id=?""",
+                    (current, soon, current, property_id),
+                ).fetchone()
+        def as_count(row: Any, key: str) -> int:
+            return max(0, int(row[key] or 0))
+
+        return {
+            "unexpired_opt_ins": as_count(profile_row, "active_opt_ins"),
+            "profiles_expiring_within_24h": as_count(profile_row, "profiles_expiring"),
+            "preferences_expiring_within_24h": as_count(preference_row, "preferences_expiring"),
+            "expired_records_awaiting_cleanup": as_count(profile_row, "expired_profiles") + as_count(preference_row, "expired_preferences"),
+        }
 
     def _get_session(self, property_id: str, session_id: str, policy: dict[str, Any]) -> dict[str, Any]:
         now = _now()

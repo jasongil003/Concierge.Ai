@@ -47,6 +47,12 @@ async function openPanel(page, label) {
   await button.click();
 }
 
+async function openHiddenPanel(page, panelId) {
+  await page.locator('body[data-admin-ready="true"]').waitFor();
+  await page.evaluate((id) => window.activatePanel(id), panelId);
+  await expect(page.locator(`#${panelId}`)).toBeVisible();
+}
+
 async function openLegacyDesignControls(page) {
   await openPanel(page, "Design");
   await expect(page.locator("#builder-page-settings")).toBeVisible();
@@ -497,7 +503,6 @@ test("sidebar: all navigation items are visible and clickable", async ({ page })
     ["Analytics", "analytics"],
     ["Reports", "reports"],
     ["Design", "appearance"],
-    ["Branding / Intro", "intro"],
     ["Location", "location"],
     ["Users", "users"],
     ["Roles", "roles"],
@@ -510,6 +515,7 @@ test("sidebar: all navigation items are visible and clickable", async ({ page })
     await openPanel(page, label);
     await expect(page.locator(`#${panel}`)).toBeVisible();
   }
+  await expect(page.locator('.nav-item[data-nav-id="branding-intro"]')).toHaveCount(0);
 });
 
 test("integration directory links open the separate working setup pages", async ({ page }) => {
@@ -682,6 +688,18 @@ test("Network Access saves exact guest hosts", async ({ page }, testInfo) => {
   });
   await page.goto("/admin");
   await openPanel(page, "Network Access");
+  await expect(page.locator("#save-management-access")).toHaveClass(/btn-primary/);
+  await expect(page.locator("#save-guest-access")).toHaveClass(/btn-primary/);
+  await expect(page.locator("#verify-deployment")).toHaveClass(/btn-primary/);
+  await expect(page.locator("#add-management-network")).toHaveClass(/btn-secondary/);
+  const addNetworkHeight = await page.locator("#add-management-network").evaluate((button) => button.getBoundingClientRect().height);
+  expect(addNetworkHeight).toBeLessThanOrEqual(44);
+  const addNetworkAlignment = await Promise.all([
+    page.locator("#management-network-input").evaluate((input) => input.getBoundingClientRect().toJSON()),
+    page.locator("#add-management-network").evaluate((button) => button.getBoundingClientRect().toJSON()),
+  ]);
+  expect(Math.abs(addNetworkAlignment[0].y - addNetworkAlignment[1].y)).toBeLessThanOrEqual(2);
+  expect(Math.abs(addNetworkAlignment[0].height - addNetworkAlignment[1].height)).toBeLessThanOrEqual(2);
   const hosts = page.locator("#guest-access-hosts");
   await expect(hosts).toBeVisible();
   await expect(hosts).toBeDisabled();
@@ -1030,9 +1048,58 @@ test("appearance panel: add and remove prompt buttons work", async ({ page }) =>
 test("guest experience panel: modules can be managed", async ({ page }) => {
   await page.goto("/admin");
   await openPanel(page, "Conversation Modules");
+  await expect(page.getByRole("heading", { name: "Conversation Module Studio" })).toBeVisible();
+  await page.locator("#module-create").click();
+  await expect(page.locator("#guest-module-dialog")).toBeVisible();
   await expect(page.locator("#guest-module-name")).toBeEnabled();
-  await expect(page.locator("#guest-module-prompt")).toBeEnabled();
-  await expect(page.getByRole("button", { name: "Save Module" })).toBeEnabled();
+  await expect(page.locator("#guest-module-action-type")).toBeEnabled();
+  await expect(page.locator("#guest-module-test-preview")).toBeEnabled();
+});
+
+test("conversation module studio saves private drafts and publishes a version", async ({ page }) => {
+  const propertyId = (await (await page.request.get("/api/admin/properties")).json()).properties[0].property_id;
+  await page.goto("/admin");
+  await openPanel(page, "Conversation Modules");
+  await page.locator("#module-create").click();
+  await page.locator("#guest-module-name").fill("Synthetic concierge help");
+  await page.locator("#guest-module-description").fill("Ask the concierge a sample question.");
+  await page.locator("[data-module-editor-device='mobile']").click();
+  await page.locator("#guest-module-test-preview").click();
+  await expect(page.locator("#guest-module-test-result")).toContainText("No AI provider or service request was called");
+  const draftResponse = page.waitForResponse((response) => response.url().includes("/conversation-modules") && response.request().method() === "POST");
+  await page.locator("#guest-module-save").click();
+  const draft = await draftResponse;
+  expect(draft.ok()).toBeTruthy();
+  const draftModule = (await draft.json()).module;
+  const hiddenBeforePublish = await page.request.get("/api/admin/properties/" + encodeURIComponent(propertyId) + "/conversation-modules");
+  expect((await hiddenBeforePublish.json()).modules.find((item) => item.id === draftModule.id).status).toBe("draft");
+  const publicBeforePublish = await page.request.get("/api/hotel");
+  expect((await publicBeforePublish.json()).guest_modules.some((item) => item.id === draftModule.id)).toBeFalsy();
+  await page.locator("[data-module-action-field='prompt']").fill("Help me plan my stay.");
+  await page.locator("#guest-module-publish").click();
+  await expect(page.locator("#guest-module-save-status")).toContainText("Published as version 1");
+  const publicAfterPublish = await page.request.get("/api/hotel");
+  expect((await publicAfterPublish.json()).guest_modules.some((item) => item.id === draftModule.id)).toBeTruthy();
+  await page.setViewportSize({ width: 1366, height: 900 });
+  await page.screenshot({ path: test.info().outputPath("module-studio-desktop.png") });
+  await page.setViewportSize({ width: 768, height: 900 });
+  await expect(page.locator("#guest-module-dialog")).toBeVisible();
+  const tabletDialogRight = await page.locator("#guest-module-dialog").evaluate((element) => element.getBoundingClientRect().right);
+  expect(tabletDialogRight).toBeLessThanOrEqual(768);
+  await page.screenshot({ path: test.info().outputPath("module-studio-tablet.png") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator("#guest-module-dialog")).toBeVisible();
+  await page.locator(".module-editor-layout").evaluate((element) => { element.scrollTop = 0; });
+  const dialogRight = await page.locator("#guest-module-dialog").evaluate((element) => element.getBoundingClientRect().right);
+  expect(dialogRight).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: test.info().outputPath("module-studio-mobile.png") });
+  if (test.info().project.name === "mobile-chrome") {
+    const documentWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+    expect(documentWidth).toBeLessThanOrEqual(390);
+  }
+  await page.locator(".module-editor-layout").evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  await expect(page.locator(".module-editor-preview-panel")).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath("module-studio-mobile-preview.png") });
 });
 
 test("preview controls are interactive and intro settings save", async ({ page }) => {
@@ -1050,7 +1117,7 @@ test("preview controls are interactive and intro settings save", async ({ page }
     await expect(button).toBeDisabled();
   }
 
-  await openPanel(page, "Branding / Intro");
+  await openHiddenPanel(page, "intro");
   await expect(page.locator(".intro-editor")).toHaveCSS("background-color", "rgb(255, 255, 255)");
   await expect(page.locator(".intro-editor-heading")).toHaveCSS("background-color", "rgb(255, 255, 255)");
   await expect(page.locator(".intro-preview-toolbar")).toHaveCSS("background-color", "rgb(255, 255, 255)");
@@ -1102,7 +1169,7 @@ test("preview controls are interactive and intro settings save", async ({ page }
   await page.locator("#save-intro").click();
   await expect(page.locator("#intro-save-status")).toContainText("Saved");
   await page.reload();
-  await openPanel(page, "Branding / Intro");
+  await openHiddenPanel(page, "intro");
   await expect(page.locator("#intro-mode")).toHaveValue("generate_from_logo");
   await expect(page.locator("#intro-preset")).toHaveValue("fade_scale");
   await expect(page.locator("#intro-duration")).toHaveValue("2.2");
@@ -1508,7 +1575,21 @@ test("admin: visual builder renders guest sections and supports direct editing, 
     await expect(canvas.locator(".builder-canvas-section")).toHaveCount(5);
     await expect(page.locator("#builder-save-status")).toHaveText("Unsaved changes");
     await page.locator("#builder-preview-button").click();
-    await expect(page.getByText("The center canvas is the live preview of this draft.")).toBeVisible();
+    const designPreview = page.locator("#builder-preview-dialog");
+    const previewCanvas = designPreview.locator("#builder-preview-canvas");
+    await expect(designPreview).toBeVisible();
+    await expect(designPreview).toContainText("Guests see these changes after you publish.");
+    await expect(previewCanvas.locator(".builder-canvas-section")).toHaveCount(2);
+    await expect(previewCanvas.locator(".builder-canvas-section .experience-hero")).toBeVisible();
+    await expect(previewCanvas.locator(".builder-empty-state, .builder-empty-component, .builder-empty-note")).toHaveCount(0);
+    await expect(previewCanvas.locator(".builder-add-inline")).toHaveCount(0);
+    await page.locator('[data-builder-preview-device="tablet"]').click();
+    await expect(previewCanvas).toHaveAttribute("data-device", "tablet");
+    await expect(page.locator('[data-builder-preview-device="tablet"]')).toHaveAttribute("aria-pressed", "true");
+    await page.locator('[data-builder-preview-device="mobile"]').click();
+    await expect(previewCanvas).toHaveAttribute("data-device", "mobile");
+    await page.locator("#builder-preview-close").click();
+    await expect(designPreview).toBeHidden();
 
     await page.locator("#builder-save-button").click();
     await expect(page.getByText("Draft saved.")).toBeVisible();
@@ -1523,6 +1604,579 @@ test("admin: visual builder renders guest sections and supports direct editing, 
       headers: csrfHeaders(request),
       data: { config: initial.draft, expected_revision: current.revision },
     });
+  }
+});
+
+test("admin: layout templates apply complete themes, preserve custom draft colors, and publish to the guest UI", async ({ page, request }, testInfo) => {
+  test.skip(test.info().project.name !== "chromium", "Theme switching and responsive viewport evidence runs once in desktop Chromium.");
+  test.setTimeout(120_000);
+  const propertyId = await getFirstPropertyId(request);
+  const initialResponse = await request.get(`/api/admin/properties/${propertyId}/design`);
+  expect(initialResponse.ok()).toBeTruthy();
+  const initial = await initialResponse.json();
+  const otherPropertyId = `e2e-theme-scope-${Date.now().toString(36)}`;
+  const otherCreated = await request.put(`/api/admin/properties/${otherPropertyId}`, {
+    headers: csrfHeaders(request),
+    data: { property_id: otherPropertyId, hotel_name: "Theme Isolation Property", timezone: "UTC" },
+  });
+  expect(otherCreated.ok(), await otherCreated.text()).toBeTruthy();
+  const otherInitial = await request.get(`/api/admin/properties/${otherPropertyId}/design`).then((response) => response.json());
+
+  try {
+    page.on("dialog", (dialog) => dialog.accept());
+    await page.goto("/admin");
+    await openPanel(page, "Design");
+    const canvas = page.locator("#builder-canvas");
+    const canvasTokens = () => canvas.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return Object.fromEntries(["--builder-page-bg", "--builder-page-surface", "--builder-page-heading", "--builder-page-primary", "--builder-page-secondary", "--builder-page-button-text", "--builder-page-border", "--builder-page-hover", "--builder-page-focus", "--builder-page-font", "--builder-page-radius"].map((name) => [name, style.getPropertyValue(name).trim()]));
+    });
+
+    await page.locator("#builder-templates-button").click();
+    await page.locator('[data-builder-template="luxury"]').click();
+    const luxuryTokens = await canvasTokens();
+    expect(luxuryTokens["--builder-page-bg"]).toBe("#f7f3e9");
+    expect(luxuryTokens["--builder-page-primary"]).toBe("#102f29");
+    expect(luxuryTokens["--builder-page-border"]).toBe("#d8d1c2");
+
+    await page.locator("#builder-templates-button").click();
+    await page.locator('[data-builder-template="business"]').click();
+    const businessTokens = await canvasTokens();
+    expect(businessTokens["--builder-page-bg"]).toBe("#edf2f8");
+    expect(businessTokens["--builder-page-bg"]).not.toBe(luxuryTokens["--builder-page-bg"]);
+    expect(businessTokens["--builder-page-primary"]).toBe("#101c32");
+    expect(businessTokens["--builder-page-secondary"]).toBe("#20375a");
+    expect(businessTokens["--builder-page-border"]).toBe("#cdd6e2");
+    expect(businessTokens["--builder-page-radius"]).toBe("12px");
+
+    await page.locator("#builder-templates-button").click();
+    await page.locator("#builder-preserve-theme-input").check();
+    await page.locator('[data-builder-template="resort"]').click();
+    expect(await canvasTokens()).toMatchObject({ "--builder-page-bg": "#edf2f8", "--builder-page-primary": "#101c32" });
+    await page.locator("#builder-templates-button").click();
+    await page.locator("#builder-preserve-theme-input").uncheck();
+    await page.locator('[data-builder-template="business"]').click();
+
+    for (const device of ["desktop", "tablet", "mobile"]) {
+      await page.locator(`[data-builder-device="${device}"]`).click();
+      await expect(page.locator(`[data-builder-device="${device}"]`)).toHaveAttribute("aria-pressed", "true");
+      expect(await canvasTokens()).toMatchObject({
+        "--builder-page-bg": "#edf2f8",
+        "--builder-page-primary": "#101c32",
+        "--builder-page-border": "#cdd6e2",
+      });
+    }
+
+    await canvas.evaluate((element) => element.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    await expect(page.locator("#builder-page-settings")).toBeVisible();
+    await openDesignGroup(page, "theme");
+    await page.locator("#button-color-input").fill("#123456");
+    await expect.poll(async () => (await canvasTokens())["--builder-page-primary"]).toBe("#123456");
+    await page.locator("#builder-save-button").click();
+    await expect(page.getByText("Draft saved.")).toBeVisible();
+    const saved = await request.get(`/api/admin/properties/${propertyId}/design`).then((response) => response.json());
+    expect(saved.draft.theme).toMatchObject({ paletteId: "midnight-sapphire", layoutTemplateId: "business", primaryColor: "#123456", buttonColor: "#123456" });
+    expect(saved.published).toEqual(initial.published);
+
+    await page.goto("/admin");
+    await openPanel(page, "Design");
+    await openDesignGroup(page, "theme");
+    await expect(page.locator("#button-color-input")).toHaveValue("#123456");
+    await expect.poll(async () => (await canvasTokens())["--builder-page-primary"]).toBe("#123456");
+
+    await page.locator("#builder-publish-button").click();
+    await expect(page.getByText(/Published guest chat v\d+\./)).toBeVisible();
+    const published = await request.get(`/api/admin/properties/${propertyId}/design`).then((response) => response.json());
+    expect(published.published.theme.primaryColor).toBe("#123456");
+    const otherAfterPublish = await request.get(`/api/admin/properties/${otherPropertyId}/design`).then((response) => response.json());
+    expect(otherAfterPublish.published).toEqual(otherInitial.published);
+
+    const deletedOther = await request.delete(`/api/admin/properties/${otherPropertyId}`, { headers: csrfHeaders(request) });
+    expect(deletedOther.ok(), await deletedOther.text()).toBeTruthy();
+
+    const indexHtml = await request.get("/static/index.html").then((response) => response.text());
+    const guestRoot = new URL("/", page.url()).toString();
+    const guestProfile = {
+      property_id: propertyId,
+      name: "Published Theme Property",
+      concierge_name: "Concierge",
+      theme: { primary_color: "#123456", secondary_color: "#20375A", background: "#EDF2F8" },
+      design: published.published,
+      authentication: { enabled: false, enabled_types: [] },
+      languages: ["en"],
+      guest_modules: [],
+      quick_actions: [],
+      application: { default_language: "en" },
+    };
+    await page.route(guestRoot, (route) => route.fulfill({ status: 200, contentType: "text/html", body: indexHtml }));
+    await page.route("**/api/hotel", (route) => route.fulfill({ json: guestProfile }));
+    await page.route("**/api/guest/intro**", (route) => route.fulfill({ json: { mode: "none", first_visit_only: true, allow_skip: true } }));
+    await page.route("**/api/session/start", (route) => route.fulfill({ json: { session_id: "theme-preview-session", property_id: propertyId } }));
+    await page.route("**/api/guest/home**", (route) => route.fulfill({ json: { greeting: "Welcome", stay: { status: "unverified" }, cards: [], quick_actions: [], suggested_prompts: [], inventory: {} } }));
+    await page.setViewportSize({ width: 1366, height: 900 });
+    await page.goto("/");
+    await expect(page.locator(".concierge-shell")).toBeVisible();
+    await expect.poll(() => page.locator("html").evaluate((element) => getComputedStyle(element).getPropertyValue("--primary-color").trim())).toBe("#123456");
+    for (const width of [1920, 1366, 1024, 768, 390, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      const guestTokens = await page.locator("html").evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          background: style.getPropertyValue("--background").trim(),
+          primary: style.getPropertyValue("--primary-color").trim(),
+          border: style.getPropertyValue("--border").trim(),
+          heading: style.getPropertyValue("--heading-color").trim(),
+        };
+      });
+      expect(guestTokens).toEqual({ background: "#edf2f8", primary: "#123456", border: "#cdd6e2", heading: "#101c32" });
+      expect(await page.locator("body").evaluate((element) => element.scrollWidth)).toBeLessThanOrEqual(width + 1);
+      if (width === 375 || width === 1366) await page.screenshot({ path: testInfo.outputPath(`published-theme-${width}.png`), fullPage: true });
+    }
+    expect(await page.locator("h1").first().evaluate((element) => getComputedStyle(element).fontFamily)).toContain("Inter");
+    const buttonColor = await page.locator(".send-button").evaluate((element) => getComputedStyle(element).backgroundColor);
+    expect(buttonColor).toBe("rgb(18, 52, 86)");
+
+    await page.goto("/admin");
+    await openPanel(page, "Design");
+    await page.locator("#builder-templates-button").click();
+    await page.locator("#reset-theme-template").click();
+    await expect.poll(async () => (await canvasTokens())["--builder-page-primary"]).toBe("#101c32");
+  } finally {
+    const deletedOther = await request.delete(`/api/admin/properties/${otherPropertyId}`, { headers: csrfHeaders(request) });
+    if (!deletedOther.ok() && deletedOther.status() !== 404) expect(deletedOther.ok(), await deletedOther.text()).toBeTruthy();
+    const saveAtLatestRevision = async (config) => {
+      let result;
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        const latest = await request.get(`/api/admin/properties/${propertyId}/design`).then((response) => response.json());
+        result = await request.put(`/api/admin/properties/${propertyId}/design/draft`, {
+          headers: csrfHeaders(request),
+          data: { config, expected_revision: latest.revision },
+        });
+        if (result.ok() || result.status() !== 409) return result;
+      }
+      return result;
+    };
+    const resetPublished = await saveAtLatestRevision(initial.published);
+    expect(resetPublished.ok(), await resetPublished.text()).toBeTruthy();
+    let republished;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const beforeRepublish = await request.get(`/api/admin/properties/${propertyId}/design`).then((response) => response.json());
+      republished = await request.post(`/api/admin/properties/${propertyId}/design/publish`, {
+        headers: csrfHeaders(request),
+        data: { expected_revision: beforeRepublish.revision },
+      });
+      if (republished.ok() || republished.status() !== 409) break;
+    }
+    expect(republished.ok(), await republished.text()).toBeTruthy();
+    const resetDraft = await saveAtLatestRevision(initial.draft);
+    expect(resetDraft.ok(), await resetDraft.text()).toBeTruthy();
+  }
+});
+
+test("admin: five premium palettes persist and render accessibly on published desktop and mobile guest pages", async ({ page, request }, testInfo) => {
+  test.skip(test.info().project.name !== "chromium", "Premium palette screenshots are captured once in desktop Chromium.");
+  test.setTimeout(240_000);
+  const propertyId = await getFirstPropertyId(request);
+  const initialResponse = await request.get(`/api/admin/properties/${propertyId}/design`);
+  expect(initialResponse.ok()).toBeTruthy();
+  const initial = await initialResponse.json();
+  const palettes = {
+    "royal-emerald-gold": { name: "Royal Emerald & Gold", background: "#F7F3E9", primary: "#102F29", secondary: "#1D5145", accent: "#C5A46D", text: "#263D37", font: "Playfair Display" },
+    "midnight-sapphire": { name: "Midnight Sapphire", background: "#EDF2F8", primary: "#101C32", secondary: "#20375A", accent: "#D7B98B", text: "#101C32", font: "Manrope" },
+    "champagne-onyx": { name: "Champagne & Onyx", background: "#F5F0E7", primary: "#1D1C1A", secondary: "#39342F", accent: "#B99A70", text: "#1D1C1A", font: "Playfair Display" },
+    "pearl-sage": { name: "Pearl & Sage", background: "#FAF8F3", primary: "#29483C", secondary: "#779487", accent: "#D4B99B", text: "#29483C", font: "Playfair Display" },
+    "obsidian-copper": { name: "Obsidian & Copper", background: "#F3F0EA", primary: "#16191D", secondary: "#2A3037", accent: "#BA805D", text: "#16191D", font: "Manrope" },
+  };
+  const getContrast = (first, second) => {
+    const luminance = (color) => {
+      const values = [1, 3, 5].map((offset) => parseInt(color.slice(offset, offset + 2), 16) / 255).map((value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+      return 0.2126 * values[0] + 0.7152 * values[1] + 0.0722 * values[2];
+    };
+    const [lighter, darker] = [luminance(first), luminance(second)].sort((a, b) => b - a);
+    return (lighter + 0.05) / (darker + 0.05);
+  };
+  let previousPublished = initial.published;
+  let guestProfile;
+  let guestProfileServed = false;
+  page.on("dialog", (dialog) => dialog.accept());
+
+  const saveAtLatestRevision = async (config) => {
+    let result;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const latest = await request.get(`/api/admin/properties/${propertyId}/design`).then((response) => response.json());
+      result = await request.put(`/api/admin/properties/${propertyId}/design/draft`, {
+        headers: csrfHeaders(request),
+        data: { config, expected_revision: latest.revision },
+      });
+      if (result.ok() || result.status() !== 409) return result;
+    }
+    return result;
+  };
+
+  try {
+    await page.goto("/admin");
+    await openPanel(page, "Design");
+    const canvas = page.locator("#builder-canvas");
+    const paletteCards = page.locator("[data-design-preset]");
+    await page.locator("#builder-templates-button").click();
+    await expect(paletteCards).toHaveCount(5);
+    const indexHtml = await request.get("/static/index.html").then((response) => response.text());
+    const guestRoot = new URL("/", page.url()).toString();
+    await page.route(guestRoot, (route) => route.fulfill({ status: 200, contentType: "text/html", body: indexHtml }));
+    await page.route("**/api/hotel**", (route) => {
+      guestProfileServed = true;
+      return route.fulfill({ json: guestProfile });
+    });
+    await page.route("**/api/guest/intro**", (route) => route.fulfill({ json: { mode: "none", first_visit_only: true, allow_skip: true } }));
+    await page.route("**/api/session/start", (route) => route.fulfill({ json: { session_id: "premium-palette-session", property_id: propertyId } }));
+    await page.route("**/api/guest/home**", (route) => route.fulfill({ json: { greeting: "Welcome", stay: { status: "unverified" }, cards: [], quick_actions: [], suggested_prompts: [], inventory: {} } }));
+
+    for (const [paletteId, palette] of Object.entries(palettes)) {
+      const card = page.locator(`[data-design-preset="${paletteId}"]`);
+      await expect(card).toContainText(palette.name);
+      await expect(card.locator(".builder-palette-description")).not.toBeEmpty();
+      const swatches = await card.locator(".builder-palette-swatch").evaluateAll((elements) => elements.map((element) => element.style.getPropertyValue("--palette-swatch-color").toUpperCase()));
+      expect(swatches).toEqual([palette.background, palette.primary, palette.secondary, palette.accent, palette.text]);
+      await card.click();
+      const previewTokens = await canvas.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return Object.fromEntries(["--builder-page-bg", "--builder-page-primary", "--builder-page-secondary", "--builder-page-accent", "--builder-page-ink", "--builder-page-button-text", "--builder-page-secondary-button-text"].map((name) => [name, style.getPropertyValue(name).trim().toUpperCase()]));
+      });
+      expect(previewTokens).toMatchObject({
+        "--builder-page-bg": palette.background,
+        "--builder-page-primary": palette.primary,
+        "--builder-page-secondary": palette.secondary,
+        "--builder-page-accent": palette.accent,
+        "--builder-page-ink": palette.text,
+      });
+      expect(card).toHaveAttribute("aria-pressed", "true");
+
+      await page.locator("#builder-save-button").click();
+      await expect(page.getByText("Draft saved.")).toBeVisible();
+      const saved = await request.get(`/api/admin/properties/${propertyId}/design`).then((response) => response.json());
+      expect(saved.draft.theme).toMatchObject({ paletteId, background: palette.background.toLowerCase(), primaryColor: palette.primary.toLowerCase(), secondaryColor: palette.secondary.toLowerCase(), accent: palette.accent.toLowerCase(), bodyColor: palette.text.toLowerCase() });
+      expect(saved.draft.typography.headingFontFamily).toBe(palette.font);
+      expect(saved.published).toEqual(previousPublished);
+
+      await page.locator("#builder-publish-button").click();
+      await expect(page.getByText(/Published guest chat v\d+\./)).toBeVisible();
+      const publishedState = await request.get(`/api/admin/properties/${propertyId}/design`).then((response) => response.json());
+      previousPublished = publishedState.published;
+      expect(previousPublished.theme.paletteId).toBe(paletteId);
+      expect(previousPublished.typography.headingFontFamily).toBe(palette.font);
+
+      guestProfile = {
+        property_id: propertyId,
+        name: "Published Palette Property",
+        concierge_name: "Concierge",
+        theme: { primary_color: palette.primary, secondary_color: palette.secondary, background: palette.background },
+        design: previousPublished,
+        authentication: { enabled: false, enabled_types: [] },
+        languages: ["en"],
+        guest_modules: [],
+        quick_actions: [],
+        application: { default_language: "en" },
+      };
+      guestProfileServed = false;
+      await page.goto("/");
+      await expect(page.locator(".concierge-shell")).toBeVisible();
+      expect(guestProfileServed).toBeTruthy();
+      await expect.poll(() => page.locator("html").evaluate((element) => getComputedStyle(element).getPropertyValue("--primary-color").trim().toUpperCase())).toBe(palette.primary);
+      await expect.poll(() => page.locator("html").evaluate((element) => getComputedStyle(element).getPropertyValue("--heading-font-family"))).toContain(palette.font);
+      for (const [width, label] of [[1366, "desktop"], [375, "mobile"]]) {
+        await page.setViewportSize({ width, height: 950 });
+        const guestTokens = await page.locator("html").evaluate((element) => {
+          const style = getComputedStyle(element);
+          return Object.fromEntries(["--background", "--primary-color", "--secondary-color", "--accent", "--body-color", "--button-text", "--secondary-button-text", "--focus-color"].map((name) => [name, style.getPropertyValue(name).trim().toUpperCase()]));
+        });
+        expect(guestTokens).toMatchObject({
+          "--background": palette.background,
+          "--primary-color": palette.primary,
+          "--secondary-color": palette.secondary,
+          "--accent": palette.accent,
+          "--body-color": palette.text,
+        });
+        expect(getContrast(guestTokens["--body-color"], guestTokens["--background"])).toBeGreaterThanOrEqual(4.5);
+        expect(getContrast(guestTokens["--button-text"], guestTokens["--primary-color"])).toBeGreaterThanOrEqual(4.5);
+        expect(getContrast(guestTokens["--secondary-button-text"], guestTokens["--secondary-color"])).toBeGreaterThanOrEqual(4.5);
+        expect(getContrast(guestTokens["--focus-color"], guestTokens["--background"])).toBeGreaterThanOrEqual(3);
+        expect(await page.locator("body").evaluate((element) => element.scrollWidth)).toBeLessThanOrEqual(width + 1);
+        expect(await page.locator(".send-button").evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(`rgb(${parseInt(palette.primary.slice(1, 3), 16)}, ${parseInt(palette.primary.slice(3, 5), 16)}, ${parseInt(palette.primary.slice(5, 7), 16)})`);
+        expect(await page.locator(".home-hero h1").evaluate((element) => getComputedStyle(element).fontFamily)).toContain(palette.font);
+        await page.screenshot({ path: testInfo.outputPath(`palette-${paletteId}-${label}.png`), fullPage: true });
+      }
+      await page.goto("/admin");
+      await openPanel(page, "Design");
+      await page.locator("#builder-templates-button").click();
+      await expect(page.locator(`[data-design-preset="${paletteId}"]`)).toHaveAttribute("aria-pressed", "true");
+    }
+  } finally {
+    const restorePublishedDraft = await saveAtLatestRevision(initial.published);
+    expect(restorePublishedDraft.ok(), await restorePublishedDraft.text()).toBeTruthy();
+    const latest = await request.get(`/api/admin/properties/${propertyId}/design`).then((response) => response.json());
+    const republished = await request.post(`/api/admin/properties/${propertyId}/design/publish`, {
+      headers: csrfHeaders(request),
+      data: { expected_revision: latest.revision },
+    });
+    expect(republished.ok(), await republished.text()).toBeTruthy();
+    const restoreDraft = await saveAtLatestRevision(initial.draft);
+    expect(restoreDraft.ok(), await restoreDraft.text()).toBeTruthy();
+  }
+});
+
+test("admin: AI Chat Designer switches presets, persists per-property drafts, publishes, and renders responsively", async ({ page, request }, testInfo) => {
+  test.skip(test.info().project.name !== "chromium", "Chat Designer screenshots are captured once in desktop Chromium.");
+  test.setTimeout(240_000);
+  const propertyId = await getFirstPropertyId(request);
+  const initialResponse = await request.get(`/api/admin/properties/${propertyId}/design`);
+  expect(initialResponse.ok()).toBeTruthy();
+  const initial = await initialResponse.json();
+  const properties = (await request.get("/api/admin/properties").then((response) => response.json())).properties;
+  const otherProperty = properties.find((property) => property.property_id !== propertyId);
+  const otherBefore = otherProperty
+    ? await request.get(`/api/admin/properties/${otherProperty.property_id}/design`).then((response) => response.json())
+    : null;
+  const styles = {
+    luxury: { name: "Luxury Chat", header: "#102F29" },
+    chatgpt: { name: "ChatGPT Inspired", header: "#FFFFFF" },
+    boutique: { name: "Boutique Chat", header: "#FFFEFB" },
+    midnight: { name: "Midnight Chat", header: "#101316" },
+  };
+  let published = initial.published;
+  let guestProfile;
+  const saveAtLatestRevision = async (config) => {
+    let result;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const latest = await request.get(`/api/admin/properties/${propertyId}/design`).then((response) => response.json());
+      result = await request.put(`/api/admin/properties/${propertyId}/design/draft`, {
+        headers: csrfHeaders(request),
+        data: { config, expected_revision: latest.revision },
+      });
+      if (result.ok() || result.status() !== 409) return result;
+    }
+    return result;
+  };
+  page.on("dialog", (dialog) => dialog.accept());
+  try {
+    await page.goto("/admin");
+    await openPanel(page, "Design");
+    await openDesignGroup(page, "chat");
+    const cards = page.locator("#chat-preset-options [data-chat-style]");
+    await expect(cards).toHaveCount(4);
+    await expect(page.locator("#chat-preset-options .chat-preset-swatches i")).toHaveCount(20);
+    await page.locator("#chat-inherit-theme-input").uncheck();
+    await page.setViewportSize({ width: 1404, height: 1200 });
+    for (const [styleId, style] of Object.entries(styles)) {
+      const card = page.locator(`#chat-preset-options [data-chat-style="${styleId}"]`);
+      await expect(card).toContainText(style.name);
+      await expect(card.locator("small")).not.toBeEmpty();
+      await card.click();
+      await expect(card).toHaveAttribute("aria-pressed", "true");
+      const tokens = await page.locator("#builder-canvas").evaluate((element) => {
+        const computed = getComputedStyle(element);
+        return Object.fromEntries(["--chat-header-bg", "--chat-guest-bg", "--chat-assistant-bg", "--chat-input-bg", "--chat-send-bg"].map((name) => [name, computed.getPropertyValue(name).trim().toUpperCase()]));
+      });
+      expect(tokens["--chat-header-bg"]).toBe(style.header);
+      expect(tokens["--chat-guest-bg"]).not.toBe("");
+      expect(tokens["--chat-assistant-bg"]).not.toBe("");
+      const swatches = await card.locator(".chat-preset-swatches i").count();
+      expect(swatches).toBe(5);
+      await page.locator("[data-builder-device=desktop]").click();
+      await page.locator(".builder-chat-preview-window").screenshot({ path: testInfo.outputPath(`chat-${styleId}-desktop.png`) });
+      await page.locator("[data-builder-device=mobile]").click();
+      await expect(page.locator("#builder-canvas")).toHaveAttribute("data-device", "mobile");
+      await page.locator(".builder-chat-preview-window").screenshot({ path: testInfo.outputPath(`chat-${styleId}-mobile.png`) });
+    }
+
+    await page.locator("#chat-display-mode-input").selectOption("fullscreen");
+    await expect(page.locator("#builder-canvas")).toHaveAttribute("data-chat-mode", "fullscreen");
+    await expect(page.locator(".builder-chat-preview")).toHaveClass(/is-fullscreen/);
+    await page.locator("#chat-display-mode-input").selectOption("floating");
+    await page.locator("#chat-assistant-name-input").fill("Maya");
+    await page.locator("#chat-welcome-input").fill("Welcome to your stay. How can I help?");
+    await page.locator("#chat-prompts-input").fill("Explore dining\nFind the spa");
+    await page.locator("#chat-timestamps-input").check();
+    await page.locator("#chat-token-sendBackground").evaluate((element) => {
+      element.value = "#123456";
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+      element.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await page.locator("[data-builder-device=desktop]").click();
+    const desktopPreview = page.locator(".builder-chat-preview");
+    await expect(desktopPreview).toHaveAttribute("data-chat-style", "midnight");
+    await page.locator("#builder-save-button").click();
+    await expect(page.getByText("Draft saved.")).toBeVisible();
+    const saved = await request.get(`/api/admin/properties/${propertyId}/design`).then((response) => response.json());
+    expect(saved.draft.chat).toMatchObject({
+      presetId: "midnight", paletteId: "midnight", inheritLandingTheme: false, displayMode: "floating",
+      assistantName: "Maya", welcomeMessage: "Welcome to your stay. How can I help?", suggestedPrompts: ["Explore dining", "Find the spa"], showTimestamps: true,
+    });
+    expect(saved.draft.chat.tokens.sendBackground.toLowerCase()).toBe("#123456");
+    expect(saved.published).toEqual(initial.published);
+    if (otherBefore) {
+      const otherAfterDraft = await request.get(`/api/admin/properties/${otherProperty.property_id}/design`).then((response) => response.json());
+      expect(otherAfterDraft.draft).toEqual(otherBefore.draft);
+      expect(otherAfterDraft.published).toEqual(otherBefore.published);
+    }
+
+    await page.locator("#builder-publish-button").click();
+    await expect(page.getByText(/Published guest chat v\d+\./)).toBeVisible();
+    const publishedState = await request.get(`/api/admin/properties/${propertyId}/design`).then((response) => response.json());
+    published = publishedState.published;
+    expect(published.chat).toMatchObject({ displayMode: "floating", assistantName: "Maya", tokens: { sendBackground: "#123456" } });
+
+    const indexHtml = await request.get("/static/index.html").then((response) => response.text());
+    const guestRoot = new URL("/", page.url()).toString();
+    await page.route(guestRoot, (route) => route.fulfill({ status: 200, contentType: "text/html", body: indexHtml }));
+    guestProfile = {
+      property_id: propertyId,
+      name: "Chat Designer QA Property",
+      concierge_name: "Concierge",
+      design: published,
+      authentication: { enabled: false, enabled_types: [] },
+      languages: ["en"],
+      guest_modules: [],
+      quick_actions: [],
+      application: { default_language: "en" },
+    };
+    await page.route("**/api/hotel**", (route) => route.fulfill({ json: guestProfile }));
+    await page.route("**/api/guest/intro**", (route) => route.fulfill({ json: { mode: "none", first_visit_only: true, allow_skip: true } }));
+    await page.route("**/api/session/start", (route) => route.fulfill({ json: { session_id: "chat-designer-session", property_id: propertyId } }));
+    await page.route("**/api/session/resume", (route) => route.fulfill({ json: { session_id: "chat-designer-session", property_id: propertyId } }));
+    await page.route("**/api/guest/home**", (route) => route.fulfill({ json: { greeting: "Welcome", stay: { status: "unverified" }, cards: [], quick_actions: [], suggested_prompts: [], inventory: {} } }));
+    await page.route("**/api/guest/personalization**", (route) => route.fulfill({ json: { enabled: false, preferences: [] } }));
+    await page.goto("/");
+    await expect(page.locator("#chat-launcher")).toBeVisible();
+    await expect.poll(() => page.locator("html").getAttribute("data-chat-mode")).toBe("floating");
+    await expect.poll(() => page.locator("#chat-assistant-name").textContent()).toBe("Maya");
+    const publishedTokens = await page.locator("html").evaluate((element) => {
+      const style = getComputedStyle(element);
+      return Object.fromEntries(["--chat-send-bg", "--chat-guest-bg", "--chat-assistant-bg", "--chat-input-bg"].map((name) => [name, style.getPropertyValue(name).trim().toUpperCase()]));
+    });
+    expect(publishedTokens["--chat-send-bg"]).toBe("#123456");
+    await page.locator("#chat-launcher").click();
+    await expect(page.locator("body")).toHaveClass(/chat-floating-open/);
+    await expect(page.locator("#concierge-view")).toBeVisible();
+    const welcomeContrast = await page.locator("#concierge-view").evaluate((element) => {
+      const background = getComputedStyle(document.documentElement).getPropertyValue("--chat-window-bg").trim();
+      const heading = getComputedStyle(element.querySelector(".welcome-state h1")).color;
+      const subtitle = getComputedStyle(element.querySelector(".welcome-subtitle")).color;
+      const input = element.querySelector(".composer textarea");
+      const inputStyle = getComputedStyle(input);
+      const composerBackground = getComputedStyle(element.querySelector(".composer")).backgroundColor;
+      const rgbToHex = (value) => `#${value.match(/\d+/g).slice(0, 3).map((channel) => Number(channel).toString(16).padStart(2, "0")).join("")}`;
+      return {
+        heading: window.ConciergeTheme.contrastRatio(rgbToHex(heading), background),
+        subtitle: window.ConciergeTheme.contrastRatio(rgbToHex(subtitle), background),
+        inputBackground: inputStyle.backgroundColor,
+        composerBackground: rgbToHex(composerBackground),
+        inputToken: getComputedStyle(document.documentElement).getPropertyValue("--chat-input-bg").trim().toLowerCase(),
+      };
+    });
+    expect(welcomeContrast.heading).toBeGreaterThanOrEqual(4.5);
+    expect(welcomeContrast.subtitle).toBeGreaterThanOrEqual(4.5);
+    expect(welcomeContrast.inputBackground).toBe("rgba(0, 0, 0, 0)");
+    expect(welcomeContrast.composerBackground).toBe(welcomeContrast.inputToken);
+    await page.locator("#concierge-view").screenshot({ path: testInfo.outputPath("chat-published-floating-desktop.png") });
+    await page.setViewportSize({ width: 375, height: 812 });
+    await expect(page.locator("#concierge-view")).toBeVisible();
+    expect(await page.locator("body").evaluate((element) => element.scrollWidth)).toBeLessThanOrEqual(376);
+    await page.locator("#concierge-view").screenshot({ path: testInfo.outputPath("chat-published-floating-mobile.png") });
+    await page.locator("#chat-expand-button").click();
+    await expect(page.locator("body")).toHaveClass(/chat-fullscreen-open/);
+    const fullscreenBounds = await page.locator("#concierge-view").boundingBox();
+    expect(fullscreenBounds.x).toBe(0);
+    expect(fullscreenBounds.y).toBe(0);
+    expect(fullscreenBounds.width).toBe(375);
+    expect(fullscreenBounds.height).toBe(812);
+    await page.locator("#chat-minimize-button").click();
+    await expect(page.locator("#chat-launcher")).toBeVisible();
+    await page.evaluate((design) => {
+      const chat = window.ConciergeTheme.applyChat(document.documentElement, { ...design, chat: { ...design.chat, displayMode: "embedded" } });
+      document.querySelector("#chat-launcher").hidden = chat.displayMode !== "floating";
+    }, published);
+    await expect(page.locator("#chat-launcher")).toBeHidden();
+    expect(await page.locator("#chat-launcher").evaluate((element) => getComputedStyle(element).display)).toBe("none");
+  } finally {
+    const restorePublishedDraft = await saveAtLatestRevision(initial.published);
+    expect(restorePublishedDraft.ok(), await restorePublishedDraft.text()).toBeTruthy();
+    const latest = await request.get(`/api/admin/properties/${propertyId}/design`).then((response) => response.json());
+    const republished = await request.post(`/api/admin/properties/${propertyId}/design/publish`, {
+      headers: csrfHeaders(request),
+      data: { expected_revision: latest.revision },
+    });
+    expect(republished.ok(), await republished.text()).toBeTruthy();
+    const restoreDraft = await saveAtLatestRevision(initial.draft);
+    expect(restoreDraft.ok(), await restoreDraft.text()).toBeTruthy();
+  }
+});
+
+test("admin: empty guest page offers a clear, draft-safe starting point", async ({ page, request }, testInfo) => {
+  test.skip(test.info().project.name !== "chromium", "Builder empty-state interaction is verified once in Chromium.");
+  const propertyId = await getFirstPropertyId(request);
+  const initialResponse = await request.get(`/api/admin/properties/${propertyId}/design`);
+  expect(initialResponse.ok()).toBeTruthy();
+  const initial = await initialResponse.json();
+  const emptyDraft = structuredClone(initial.draft);
+  const home = emptyDraft.pages.find((item) => item.id === "home");
+  expect(home).toBeTruthy();
+  home.sections = [];
+  const seeded = await request.put(`/api/admin/properties/${propertyId}/design/draft`, {
+    headers: csrfHeaders(request),
+    data: { config: emptyDraft, expected_revision: initial.revision },
+  });
+  expect(seeded.ok(), await seeded.text()).toBeTruthy();
+
+  try {
+    await page.setViewportSize({ width: 1404, height: 954 });
+    await page.goto("/admin");
+    await openPanel(page, "Design");
+    const canvas = page.locator("#builder-canvas");
+    const emptyState = canvas.locator(".builder-empty-canvas");
+    await expect(emptyState).toBeVisible();
+    await expect(emptyState.getByRole("heading", { name: "Start building your Home page" })).toBeVisible();
+    await expect(emptyState).toContainText("guests see changes only after you publish");
+    await expect(canvas.locator(".builder-chat-preview-toolbar small")).toContainText(/separate from page sections/i);
+    await expect(canvas.locator(".builder-chat-preview-window")).toBeVisible();
+    await expect(canvas.locator(".builder-chat-message")).toHaveCount(3);
+
+    await page.locator('[data-builder-device="mobile"]').click();
+    await expect(emptyState.getByRole("button", { name: "Choose a page layout" })).toBeVisible();
+    await expect(emptyState.getByRole("button", { name: "Add a hero section" })).toBeVisible();
+    await canvas.screenshot({ path: testInfo.outputPath("builder-empty-mobile.png") });
+
+    await emptyState.getByRole("button", { name: "Choose a page layout" }).click();
+    await expect(page.locator("#builder-template-menu")).toBeVisible();
+    await expect(page.locator("#builder-templates-button")).toHaveAttribute("aria-expanded", "true");
+    await page.locator("#builder-templates-button").click();
+    await emptyState.getByRole("button", { name: "Add a hero section" }).click();
+    await expect(canvas.locator('.builder-canvas-section[data-builder-section^="hero-"]')).toHaveCount(1);
+    await expect(page.locator("#builder-layer-count")).toHaveText("1");
+    const housekeepingTile = page.locator('[data-builder-add="housekeeping"]');
+    await expect(housekeepingTile).toHaveAttribute("aria-label", "Add Housekeeping section");
+    await expect(housekeepingTile.locator("span")).toHaveText("Housekeeping");
+    const housekeepingTileLayout = await housekeepingTile.evaluate((button) => {
+      const label = button.querySelector("span").getBoundingClientRect();
+      const bounds = button.getBoundingClientRect();
+      return { wide: button.classList.contains("builder-component-tile--wide-label"), width: bounds.width, labelRight: label.right, buttonRight: bounds.right };
+    });
+    expect(housekeepingTileLayout.wide).toBeTruthy();
+    expect(housekeepingTileLayout.width).toBeGreaterThan(150);
+    expect(housekeepingTileLayout.labelRight).toBeLessThan(housekeepingTileLayout.buttonRight);
+    await housekeepingTile.click();
+    await expect(canvas.locator('.builder-canvas-section[data-builder-section^="housekeeping-"]')).toHaveCount(1);
+    await expect(page.locator("#builder-layer-count")).toHaveText("2");
+    const afterEditing = await request.get(`/api/admin/properties/${propertyId}/design`).then((response) => response.json());
+    expect(afterEditing.draft.pages.find((item) => item.id === "home").sections).toEqual([]);
+    expect(afterEditing.published).toEqual(initial.published);
+  } finally {
+    const latestResponse = await request.get(`/api/admin/properties/${propertyId}/design`);
+    const latest = await latestResponse.json();
+    const restore = await request.put(`/api/admin/properties/${propertyId}/design/draft`, {
+      headers: csrfHeaders(request),
+      data: { config: initial.draft, expected_revision: latest.revision },
+    });
+    expect(restore.ok(), await restore.text()).toBeTruthy();
   }
 });
 
@@ -1863,7 +2517,7 @@ test("admin: local property recommendations can be given home-card images", asyn
 
 test("admin: long workflow guidance is collapsed until requested", async ({ page }) => {
   await page.goto("/admin");
-  for (const label of ["Guest Requests", "Guest Sessions", "Personalization", "Conversation Modules", "Rooms", "Facilities", "Branding / Intro"]) {
+  for (const label of ["Guest Requests", "Guest Sessions", "Personalization", "Conversation Modules", "Rooms", "Facilities"]) {
     await openPanel(page, label);
     const help = page.locator(".panel.active > .contextual-help-disclosure");
     await expect(help).toBeVisible();
@@ -2084,22 +2738,44 @@ test("authentication master switch saves and reloads independently of method cho
 });
 
 test("requests panel: service request controls are available", async ({ page }) => {
+  await page.route("**/api/admin/properties/*/service-catalog", (route) => route.fulfill({
+    status: 200,
+    json: { departments: [], services: [] },
+  }));
   await page.goto("/admin");
   await openPanel(page, "Guest Requests");
+  await expect(page.locator("#service-request-create-drawer")).toBeHidden();
+  await expect(page.locator("#request-catalog-setup")).toBeVisible();
+  await expect(page.locator("#request-catalog-setup-link")).toBeVisible();
+  await expect(page.locator('[data-request-view="all"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator('[data-request-layout="list"]')).toBeVisible();
+  await expect(page.locator("#service-request-list")).toBeVisible();
+  await expect(page.locator("#request-last-updated")).toContainText("Updated");
+  await page.getByRole("button", { name: "New request" }).click();
+  await expect(page.locator("#service-request-create-drawer")).toBeVisible();
   await expect(page.locator("#service-room")).toBeVisible();
   await expect(page.locator("#service-type")).toBeVisible();
   await expect(page.getByRole("button", { name: "Create Request" })).toBeVisible();
-  await expect(page.locator("#service-request-list")).toBeVisible();
-  await expect(page.locator("#request-last-updated")).toContainText("Updated");
+  await expect(page.locator("#service-catalog-empty")).toBeVisible();
+  await expect(page.locator("#open-service-catalog")).toBeVisible();
+  await page.locator('[data-close-service-request="create"]').first().click();
+  await expect(page.locator("#service-request-create-drawer")).toBeHidden();
+  await page.locator("#request-catalog-setup-link").click();
+  await expect(page.locator("#service-catalog")).toBeVisible();
+  await openPanel(page, "Guest Requests");
+  await page.getByRole("button", { name: "New request" }).click();
+  await page.locator("#open-service-catalog").click();
+  await expect(page.locator("#service-request-create-drawer")).toBeHidden();
+  await expect(page.locator("#service-catalog")).toBeVisible();
 });
 
 test("requests panel: operational summary counts and filters use property-local dates", async ({ page }) => {
   const now = Math.floor(Date.now() / 1000);
   const requests = [
     { request_id: "open-1", status: "new", sla_state: "within_sla", request_type: "Water", room: "101", description: "Water", created_at: now, updated_at: now, notes: [] },
-    { request_id: "progress-1", status: "in_progress", sla_state: "within_sla", request_type: "Towels", room: "102", description: "Towels", created_at: now, updated_at: now, notes: [] },
+    { request_id: "progress-1", status: "in_progress", sla_state: "within_sla", request_type: "Towels", room: "102", description: "Towels", assigned_to: "admin", created_at: now, updated_at: now, notes: [] },
     { request_id: "soon-1", status: "assigned", sla_state: "warning", request_type: "Pillows", room: "103", description: "Pillows", created_at: now, updated_at: now, notes: [] },
-    { request_id: "late-1", status: "new", sla_state: "overdue", request_type: "Taxi", room: "104", description: "Taxi", created_at: now, updated_at: now, notes: [] },
+    { request_id: "late-1", status: "new", priority: "urgent", sla_state: "overdue", request_type: "Taxi", room: "104", description: "Taxi", created_at: now, updated_at: now, notes: [] },
     { request_id: "done-today", status: "completed", sla_state: "completed", request_type: "Ice", room: "105", description: "Ice", completed_at: now, created_at: now, updated_at: now, notes: [] },
     { request_id: "done-before", status: "completed", sla_state: "completed", request_type: "Laundry", room: "106", description: "Laundry", completed_at: now - 172800, created_at: now - 172800, updated_at: now - 172800, notes: [] },
   ];
@@ -2107,7 +2783,15 @@ test("requests panel: operational summary counts and filters use property-local 
   await page.route("**/api/admin/properties/*/service-requests?*", (route) => {
     const url = new URL(route.request().url());
     const status = url.searchParams.get("status") || "all";
-    const filtered = requests.filter((item) => {
+    const queueView = url.searchParams.get("queue_view") || "all";
+    const byView = requests.filter((item) => {
+      if (queueView === "unassigned") return !item.assigned_to;
+      if (queueView === "mine") return item.assigned_to === "admin";
+      if (queueView === "urgent") return item.priority === "urgent";
+      if (queueView === "completed") return item.status === "completed";
+      return true;
+    });
+    const filtered = byView.filter((item) => {
       if (!status || status === "all") return true;
       if (status === "open") return !["completed", "cancelled"].includes(item.status);
       if (status === "due_soon") return item.sla_state === "warning";
@@ -2137,9 +2821,20 @@ test("requests panel: operational summary counts and filters use property-local 
     await expect(page.locator("#service-request-result-count")).toContainText("1–1 of 1 matching");
     await expect(page.locator("#service-request-list")).toContainText(requestId);
   }
+  for (const [view, requestId] of [["unassigned", "open-1"], ["mine", "progress-1"], ["urgent", "late-1"], ["completed", "done-today"]]) {
+    await page.locator(`[data-request-view="${view}"]`).click();
+    await expect(page.locator("#service-request-list")).toContainText(requestId);
+  }
+  await page.locator('[data-request-view="all"]').click();
+  await page.locator('[data-request-layout="board"]').click();
+  await expect(page.locator("#service-request-list")).toHaveClass(/is-board/);
+  await page.locator(".service-request-board-card").filter({ hasText: "late-1" }).click();
+  await expect(page.locator("#service-request-details-drawer")).toBeVisible();
+  await expect(page.locator("#service-request-details-content")).toContainText("Internal notes · staff only");
+  await page.locator('[data-close-service-request="details"]').first().click();
 });
 
-test("requests panel identifies queued overdue escalations and records their in-app history", async ({ page }) => {
+test("requests panel identifies queued overdue escalations and records their in-app history", async ({ page }, testInfo) => {
   const now = Math.floor(Date.now() / 1000);
   const overdueRequest = {
     request_id: "overdue-escalated",
@@ -2186,10 +2881,44 @@ test("requests panel identifies queued overdue escalations and records their in-
   await openPanel(page, "Guest Requests");
   const card = page.locator(".service-request-card").filter({ hasText: overdueRequest.request_id });
   await expect(card.locator(".request-escalation-badge")).toHaveText("Escalation queued");
-  await card.getByText("View activity history").click();
-  await expect(card.locator(".service-request-history-content")).toContainText(
+  await expect(card).toContainText("Priority");
+  await expect(card).toContainText("Overdue by");
+  await card.getByRole("button", { name: `Open details for request ${overdueRequest.request_id}` }).click();
+  await expect(page.locator("#service-request-details-content")).toContainText("Overdue by");
+  await expect(page.locator("#service-request-details-content .service-request-history-content")).toContainText(
     "Overdue escalation queued for Duty Manager",
   );
+  const detailsScreenshot = await page.screenshot({ path: testInfo.outputPath("guest-request-details-desktop.png") });
+  await testInfo.attach("guest-request-details-desktop.png", { body: detailsScreenshot, contentType: "image/png" });
+});
+
+test("requests panel: drawers stay usable from mobile through desktop widths", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/admin");
+  await openPanel(page, "Guest Requests");
+  const drawer = page.locator("#service-request-create-drawer");
+  const shell = page.locator(".platform-shell");
+  if (await shell.evaluate((element) => element.classList.contains("mobile-nav-open"))) {
+    await page.locator("#sidebar-toggle").click();
+  }
+  for (const width of [375, 390, 768, 1024, 1366]) {
+    await page.setViewportSize({ width, height: 844 });
+    if (width === 390) {
+      const queueScreenshot = await page.screenshot({ path: testInfo.outputPath("guest-requests-mobile-queue.png") });
+      await testInfo.attach("guest-requests-mobile-queue.png", { body: queueScreenshot, contentType: "image/png" });
+    }
+    await page.getByRole("button", { name: "New request" }).click();
+    await expect(drawer).toBeVisible();
+    const box = await drawer.boundingBox();
+    expect(box?.width).toBe(width < 620 ? width : 560);
+    expect(box?.height).toBe(844);
+    await expect(page.locator("#service-room")).toBeVisible();
+    if (width === 390) {
+      const drawerScreenshot = await page.screenshot({ path: testInfo.outputPath("guest-requests-mobile-create-drawer.png") });
+      await testInfo.attach("guest-requests-mobile-create-drawer.png", { body: drawerScreenshot, contentType: "image/png" });
+    }
+    await page.locator('[data-close-service-request="create"]').first().click();
+  }
 });
 
 test("requests panel: pagination fetches bounded pages from the full queue", async ({ page }) => {

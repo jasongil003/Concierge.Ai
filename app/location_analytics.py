@@ -199,9 +199,14 @@ class LocationAnalyticsStore:
         return record
 
     def live(self, property_id: str) -> dict[str, Any]:
-        cutoff = _now() - 15 * 60
+        window_minutes = 15
+        cutoff = _now() - window_minutes * 60
         with self._connect() as db:
             rows = [dict(row) for row in db.execute("SELECT * FROM location_observations WHERE property_id=? AND observed_at>=?", (property_id, cutoff))]
+            latest_row = db.execute(
+                "SELECT MAX(observed_at) AS latest_observation_at FROM location_observations WHERE property_id=?",
+                (property_id,),
+            ).fetchone()
         latest_by_device: dict[str, dict[str, Any]] = {}
         for row in rows:
             current = latest_by_device.get(row["device_id"])
@@ -214,6 +219,8 @@ class LocationAnalyticsStore:
             "active_sessions": len({row.get("stay_id") for row in latest_by_device.values() if row.get("stay_id")}),
             "busiest_zone_id": busiest,
             "occupancy_by_zone": dict(occupancy),
+            "window_minutes": window_minutes,
+            "last_observation_at": latest_row["latest_observation_at"] if latest_row else None,
         }
 
     def aggregate(

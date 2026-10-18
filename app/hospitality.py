@@ -1730,7 +1730,9 @@ class HospitalityStore:
             db.execute("INSERT INTO guest_feedback VALUES (:feedback_id,:property_id,:request_id,:stay_id,:resolution,:rating,:comment,:created_at)", record)
         return record
 
-    def create_notification_campaign(self, property_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def create_notification_campaign(
+        self, property_id: str, payload: dict[str, Any], *, created_by: str = ""
+    ) -> dict[str, Any]:
         property_id = self._guest_scope_value(property_id, "Property id")
         name = _clean(payload.get("name"), 160)
         title = _clean(payload.get("title"), 160)
@@ -1748,6 +1750,7 @@ class HospitalityStore:
             "body": body,
             "source_reference": source_reference,
             "revision": 1,
+            "created_by": _clean(created_by, 120),
         }
         record = {
             "rule_id": rule_id,
@@ -1790,30 +1793,69 @@ class HospitalityStore:
         limit: int = 25,
         offset: int = 0,
         search: str = "",
+        status: str = "all",
     ) -> dict[str, Any]:
-        """Return a bounded, searchable page of campaigns and page-only engagement totals."""
+        """Return a property-scoped campaign page and privacy-safe aggregate health."""
         property_id = self._guest_scope_value(property_id, "Property id")
         if not 1 <= limit <= 100 or not 0 <= offset <= 1_000_000:
             raise ValueError("Invalid notification campaign page bounds.")
+        if status not in {"all", "draft", "publishing", "published", "failed", "expired"}:
+            raise ValueError("Invalid notification campaign status filter.")
         clean_search = _clean(search, 120).casefold()
         escaped_search = clean_search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         search_pattern = f"%{escaped_search}%" if clean_search else ""
         with self._connect() as db:
-            total = int(db.execute(
-                """SELECT COUNT(*) FROM notification_rules
-                   WHERE property_id=? AND category='promotional' AND trigger_type='campaign'
-                     AND (?='' OR LOWER(COALESCE(name,'')) LIKE ? ESCAPE '\\'
-                          OR LOWER(COALESCE(policy,'')) LIKE ? ESCAPE '\\')""",
-                (property_id, search_pattern, search_pattern, search_pattern),
-            ).fetchone()[0] or 0)
-            rows = db.execute(
+            matching_rows = db.execute(
                 """SELECT * FROM notification_rules
                    WHERE property_id=? AND category='promotional' AND trigger_type='campaign'
                      AND (?='' OR LOWER(COALESCE(name,'')) LIKE ? ESCAPE '\\'
                           OR LOWER(COALESCE(policy,'')) LIKE ? ESCAPE '\\')
-                   ORDER BY updated_at DESC,rule_id ASC LIMIT ? OFFSET ?""",
-                (property_id, search_pattern, search_pattern, search_pattern, limit, offset),
+                   ORDER BY updated_at DESC,rule_id ASC""",
+                (property_id, search_pattern, search_pattern, search_pattern),
             ).fetchall()
+            if status == "expired":
+                expired_campaign_rows = db.execute(
+                    """SELECT r.rule_id FROM notification_rules r
+                       JOIN guest_inbox_notifications n
+                         ON n.property_id=r.property_id AND n.event_id=('campaign:' || r.rule_id)
+                       WHERE r.property_id=? AND r.category='promotional' AND r.trigger_type='campaign'
+                         AND n.status='expired' GROUP BY r.rule_id""",
+                    (property_id,),
+                ).fetchall()
+                expired_campaign_ids = {str(row["rule_id"]) for row in expired_campaign_rows}
+                matching_rows = [row for row in matching_rows if str(row["rule_id"]) in expired_campaign_ids]
+            elif status != "all":
+                matching_rows = [
+                    row for row in matching_rows
+                    if self._notification_campaign_dict(row)["status"] == status
+                ]
+            total = len(matching_rows)
+            rows = matching_rows[offset:offset + limit]
+
+            status_counts = {name: 0 for name in ("draft", "publishing", "published", "failed")}
+            for row in db.execute(
+                """SELECT policy FROM notification_rules
+                   WHERE property_id=? AND category='promotional' AND trigger_type='campaign'""",
+                (property_id,),
+            ).fetchall():
+                campaign_status = str((_load(row["policy"]) or {}).get("campaign_status") or "draft")
+                if campaign_status in status_counts:
+                    status_counts[campaign_status] += 1
+
+            delivery_counts = {name: 0 for name in ("queued", "sent", "delivered", "read", "failed", "expired")}
+            for row in db.execute(
+                """SELECT n.status,COUNT(*) AS count
+                   FROM guest_inbox_notifications n
+                   JOIN notification_rules r
+                     ON r.property_id=n.property_id AND n.event_id=('campaign:' || r.rule_id)
+                   WHERE n.property_id=? AND r.category='promotional' AND r.trigger_type='campaign'
+                   GROUP BY n.status""",
+                (property_id,),
+            ).fetchall():
+                delivery_status = str(row["status"])
+                if delivery_status in delivery_counts:
+                    delivery_counts[delivery_status] = int(row["count"] or 0)
+
             campaign_rows = []
             for row in rows:
                 campaign = self._notification_campaign_dict(row)
@@ -1821,25 +1863,27 @@ class HospitalityStore:
                 campaign_rows.append((row["rule_id"], campaign))
             if campaign_rows:
                 engagement_rows = db.execute(
-                    """SELECT event_id,status,COUNT(*) AS count FROM guest_inbox_notifications
-                       WHERE property_id=? AND event_id IN (
-                           SELECT 'campaign:' || rule_id FROM notification_rules
-                           WHERE property_id=? AND category='promotional' AND trigger_type='campaign'
-                             AND (?='' OR LOWER(COALESCE(name,'')) LIKE ? ESCAPE '\\'
-                                  OR LOWER(COALESCE(policy,'')) LIKE ? ESCAPE '\\')
-                           ORDER BY updated_at DESC,rule_id ASC LIMIT ? OFFSET ?
-                       ) GROUP BY event_id,status""",
-                    (
-                        property_id, property_id, search_pattern, search_pattern,
-                        search_pattern, limit, offset,
-                    ),
+                    """SELECT n.event_id,n.status,COUNT(*) AS count
+                       FROM guest_inbox_notifications n
+                       JOIN notification_rules r
+                         ON r.property_id=n.property_id AND n.event_id=('campaign:' || r.rule_id)
+                       WHERE n.property_id=? AND r.category='promotional' AND r.trigger_type='campaign'
+                       GROUP BY n.event_id,n.status""",
+                    (property_id,),
                 ).fetchall()
                 campaigns_by_event = {f"campaign:{rule_id}": campaign for rule_id, campaign in campaign_rows}
                 for count in engagement_rows:
                     campaign = campaigns_by_event.get(str(count["event_id"]))
                     if campaign is not None and str(count["status"]) in campaign["engagement"]:
                         campaign["engagement"][str(count["status"])] = int(count["count"] or 0)
-        return {"campaigns": [campaign for _rule_id, campaign in campaign_rows], "total": total, "limit": limit, "offset": offset}
+        return {
+            "campaigns": [campaign for _rule_id, campaign in campaign_rows],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "status_counts": status_counts,
+            "delivery_counts": delivery_counts,
+        }
 
     def restaurants_for_property(
         self,
@@ -1892,6 +1936,7 @@ class HospitalityStore:
                 "body": body,
                 "source_reference": source_reference,
                 "revision": expected_revision + 1,
+                "created_by": str((existing.get("policy") or {}).get("created_by") or ""),
             }
             cursor = db.execute(
                 """UPDATE notification_rules SET name=?,policy=?,updated_at=?
@@ -1984,6 +2029,7 @@ class HospitalityStore:
             "title": str(policy.get("title") or ""),
             "body": str(policy.get("body") or ""),
             "source_reference": str(policy.get("source_reference") or ""),
+            "created_by": str(policy.get("created_by") or ""),
             "audience": "active_stays_with_promotional_consent",
             "status": str(policy.get("campaign_status") or "draft"),
             "revision": int(policy.get("revision") or 1),
@@ -3216,6 +3262,8 @@ class HospitalityStore:
         limit: int = 50,
         offset: int = 0,
         status: str = "open",
+        queue_view: str = "all",
+        assignee_values: tuple[str, ...] = (),
         search: str = "",
         department: str | None = None,
         timezone_name: str = "UTC",
@@ -3224,8 +3272,28 @@ class HospitalityStore:
         allowed_statuses = {"", "all", "open", "due_soon", "overdue", "completed_today", *SERVICE_STATUSES}
         if status not in allowed_statuses:
             raise ValueError("Unsupported service request status filter.")
+        allowed_queue_views = {"all", "unassigned", "mine", "urgent", "completed"}
+        if queue_view not in allowed_queue_views:
+            raise ValueError("Unsupported service request queue view.")
         if not 1 <= limit <= 100 or offset < 0:
             raise ValueError("Invalid service request page bounds.")
+
+        assignees = tuple(dict.fromkeys(value.strip().casefold() for value in assignee_values if value and value.strip()))
+        view_filter_sql = "1=1"
+        view_filter_values: tuple[str, ...] = ()
+        if queue_view == "unassigned":
+            view_filter_sql = "TRIM(COALESCE(assigned_to,''))=''"
+        elif queue_view == "urgent":
+            view_filter_sql = "priority='urgent'"
+        elif queue_view == "completed":
+            view_filter_sql = "status='completed'"
+        elif queue_view == "mine":
+            if assignees:
+                marks = ",".join("?" for _ in assignees)
+                view_filter_sql = f"LOWER(TRIM(COALESCE(assigned_to,''))) IN ({marks})"
+                view_filter_values = assignees
+            else:
+                view_filter_sql = "0=1"
 
         now = _now()
         try:
@@ -3247,8 +3315,8 @@ class HospitalityStore:
 
         clean_search = _clean(search, 120).casefold()
         search_pattern = f"%{clean_search}%" if clean_search else ""
-        filtered_count_sql = """SELECT COUNT(*) FROM service_requests
-            WHERE property_id=? AND (? IS NULL OR department=?)
+        filtered_count_sql = f"""SELECT COUNT(*) FROM service_requests
+            WHERE property_id=? AND (? IS NULL OR department=?) AND {view_filter_sql}
             AND (
                 ? IN ('','all')
                 OR (?='open' AND status NOT IN ('completed','cancelled'))
@@ -3272,8 +3340,8 @@ class HospitalityStore:
                 OR LOWER(COALESCE(assigned_to,'')) LIKE LOWER(?)
                 OR LOWER(COALESCE(notes,'')) LIKE LOWER(?)
             ))"""
-        filtered_page_sql = """SELECT * FROM service_requests
-            WHERE property_id=? AND (? IS NULL OR department=?)
+        filtered_page_sql = f"""SELECT * FROM service_requests
+            WHERE property_id=? AND (? IS NULL OR department=?) AND {view_filter_sql}
             AND (
                 ? IN ('','all')
                 OR (?='open' AND status NOT IN ('completed','cancelled'))
@@ -3299,7 +3367,7 @@ class HospitalityStore:
             ))
             ORDER BY created_at DESC, request_id DESC LIMIT ? OFFSET ?"""
         filter_values = (
-            property_id, department, department,
+            property_id, department, department, *view_filter_values,
             status, status, status, now, now + 300, status, now,
             status, local_day_start, local_day_end,
             status, status, status, status, status, status, status,
@@ -3411,7 +3479,11 @@ class HospitalityStore:
                 f"SELECT * FROM service_requests WHERE property_id=? AND stay_id IN ({marks}) ORDER BY created_at DESC LIMIT 20",  # nosec B608
                 (property_id, *ids),
             ).fetchall()
-        return [self._service_dict(row) for row in rows]
+        requests = [self._service_dict(row) for row in rows]
+        for request in requests:
+            # Operational notes are staff-only; never include them in the guest stay response.
+            request.pop("notes", None)
+        return requests
 
     def _notification_allowed(self, rule: dict[str, Any], payload: dict[str, Any], prefs: dict[str, Any], current_zone_id: str | None, moment: int, *, property_timezone: str = "UTC") -> tuple[bool, str]:
         policy = rule.get("policy") or {}

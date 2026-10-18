@@ -1,0 +1,732 @@
+{
+  "manifest_version": "1.0",
+  "research_status": "researched_not_configured_in_admin",
+  "property": {
+    "target_display_name": "Okada Manila — Concierge.AI Trial",
+    "demonstration_disclaimer": "Unofficial independent research demonstration; not operated, endorsed, or maintained by Okada Manila.",
+    "timezone": "Asia/Manila",
+    "website": "https://okadamanila.com",
+    "location": "New Seaside Drive, Entertainment City, Parañaque City, 1701 Metro Manila, Philippines",
+    "phone": "+63 2 8888 0777",
+    "reservation_contacts": {
+      "rooms": "+63 2 8888 0777",
+      "spa": "+63 2 8555 5775",
+      "food_and_beverage": "+63 2 8555 5799"
+    },
+    "coordinates": {
+      "latitude": 14.5151576,
+      "longitude": 120.9814988,
+      "category": "mapping_place_pin",
+      "confidence": "high",
+      "changes_frequently": false,
+      "last_verified": "2026-10-17",
+      "sources": ["google_maps_okada"]
+    },
+    "record": {
+      "information_category": "property_identity_and_contacts",
+      "verified_value": {
+        "name": "Okada Manila",
+        "type": "integrated resort",
+        "rooms_suites_villas": 1001,
+        "address": "New Seaside Drive, Entertainment City, Parañaque City, 1701 Metro Manila, Philippines",
+        "phone": "+63 2 8888 0777",
+        "timezone": "Asia/Manila"
+      },
+      "confidence": "high",
+      "changes_frequently": false,
+      "last_verified": "2026-10-17",
+      "sources": ["contact", "stay"]
+    },
+    "configuration_state": "not_created_or_saved; live Admin Portal unavailable over secure transport"
+  },
+  "sources": [
+    {
+      "id": "contact",
+      "url": "https://okadamanila.com/contact-us/",
+      "publisher": "Okada Manila",
+      "checked": "2026-10-17",
+      "notes": "Official address and contact numbers."
+    },
+    {
+      "id": "stay",
+      "url": "https://okadamanila.com/stay/",
+      "publisher": "Okada Manila",
+      "checked": "2026-10-17",
+      "notes": "Official accommodation directory and 1,001-room/suite/villa description."
+    },
+    {
+      "id": "dining_index",
+      "url": "https://okadamanila.com/dine/",
+      "publisher": "Okada Manila",
+      "checked": "2026-10-17",
+      "notes": "Current official dining index; older /dining/ path is not the current usable directory."
+    },
+    {
+      "id": "enbu",
+      "url": "https://okadamanila.com/dine/enbu/",
+      "publisher": "Okada Manila",
+      "checked": "2026-10-17",
+      "notes": "Official venue profile, cuisine, location, hours, and menu link."
+    },
+    {
+      "id": "kiapo",
+      "url": "https://okadamanila.com/dine/kiapo/",
+      "publisher": "Okada Manila",
+      "checked": "2026-10-17",
+      "notes": "Official venue profile, cuisine, location, hours, and menu link."
+    },
+    {
+      "id": "goryeo",
+      "url": "https://okadamanila.com/dine/goryeo/",
+      "publisher": "Okada Manila",
+      "checked": "2026-10-17",
+      "notes": "Official venue profile, cuisine, location, hours, and menu link."
+    },
+    {
+      "id": "la_piazza",
+      "url": "https://okadamanila.com/dine/la-piazza/",
+      "publisher": "Okada Manila",
+      "checked": "2026-10-17",
+      "notes": "Official venue profile, cuisine, location, hours, and menu link."
+    },
+    {
+      "id": "red_spice",
+      "url": "https://okadamanila.com/dine/red-spice/",
+      "publisher": "Okada Manila",
+      "checked": "2026-10-17",
+      "notes": "Official venue profile, cuisine, location, hours, and menu link."
+    },
+    {
+      "id": "ginza_nagaoka",
+      "url": "https://okadamanila.com/dine/ginza-nagaoka/",
+      "publisher": "Okada Manila",
+      "checked": "2026-10-17",
+      "notes": "Official venue profile; hours compared with the official January 2026 map."
+    },
+    {
+      "id": "kappou_yoshi",
+      "url": "https://okadamanila.com/dine/kappou-yoshi/",
+      "publisher": "Okada Manila",
+      "checked": "2026-10-17",
+      "notes": "Official venue profile, cuisine, location, hours, age guidance, and menu link."
+    },
+    {
+      "id": "lobby_lounge",
+      "url": "https://okadamanila.com/dine/lobby-lounge/",
+      "publisher": "Okada Manila",
+      "checked": "2026-10-17",
+      "notes": "Official venue profile, location, hours, and menu link."
+    },
+    {
+      "id": "coral_lounge",
+      "url": "https://okadamanila.com/dine/the-coral-lounge/",
+      "publisher": "Okada Manila",
+      "checked": "2026-10-17",
+      "notes": "Official venue profile and published hours; expired closure notice treated as stale."
+    },
+    {
+      "id": "map_may_2026",
+      "url": "https://cdn-storage.okadamanila.com/wp-content/uploads/2026/05/12160909/Your-Journey-At-Okada-Manila-050526.pdf",
+      "publisher": "Okada Manila",
+      "checked": "2026-10-17",
+      "notes": "Official 5 May 2026 resort directory/map. Research reference only; artwork is not redistributed."
+    },
+    {
+      "id": "map_jan_2026",
+      "url": "https://cdn-storage.okadamanila.com/wp-content/uploads/2026/01/29183737/Your-Journey-At-Okada-Manila-012926-01.pdf",
+      "publisher": "Okada Manila",
+      "checked": "2026-10-17",
+      "notes": "Older official map consulted to compare published Ginza Nagaoka hours and usual venue locations."
+    },
+    {
+      "id": "fountain",
+      "url": "https://okadamanila.com/experience/the-fountain",
+      "publisher": "Okada Manila",
+      "checked": "2026-10-17",
+      "notes": "Published schedule plus an undated adverse-weather suspension notice; current validity of the notice is unknown."
+    },
+    {
+      "id": "medley",
+      "url": "https://okadamanila.com/dine/medley-buffet/",
+      "publisher": "Okada Manila",
+      "checked": "2026-10-17",
+      "notes": "Live page showed the temporary relocation to Sinag, 3rd Floor, Coral Wing, 5–19 October 2026."
+    },
+    {
+      "id": "spa",
+      "url": "https://okadamanila.com/experience/the-retreat-spa/",
+      "publisher": "Okada Manila",
+      "checked": "2026-10-17",
+      "notes": "Official spa location and published hours."
+    },
+    {
+      "id": "sole_retreat",
+      "url": "https://okadamanila.com/experience/the-sole-retreat/",
+      "publisher": "Okada Manila",
+      "checked": "2026-10-17",
+      "notes": "Official location and published hours."
+    },
+    {
+      "id": "kids_club",
+      "url": "https://okadamanila.com/experience/okada-kids-club",
+      "publisher": "Okada Manila",
+      "checked": "2026-10-17",
+      "notes": "Sessions, age rules, supervision requirements, and entry conditions."
+    },
+    {
+      "id": "thrillscape",
+      "url": "https://okadamanila.com/experience/thrillscape/",
+      "publisher": "Okada Manila",
+      "checked": "2026-10-17",
+      "notes": "Official venue location and published hours."
+    },
+    {
+      "id": "pool",
+      "url": "https://okadamanila.com/stay/coral-wing-pool/",
+      "publisher": "Okada Manila",
+      "checked": "2026-10-17",
+      "notes": "Published pool hours and dated children’s pool maintenance closure."
+    },
+    {
+      "id": "fitness",
+      "url": "https://okadamanila.com/stay/fitness-and-gym/",
+      "publisher": "Okada Manila",
+      "checked": "2026-10-17",
+      "notes": "Official fitness listings; hours conflict with another current Okada page for Coral Wing gym."
+    },
+    {
+      "id": "fitness_deal",
+      "url": "https://okadamanila.com/deals/live-in-balance/",
+      "publisher": "Okada Manila",
+      "checked": "2026-10-17",
+      "notes": "Official offer page lists Coral Wing gym hours that conflict with the general Fitness and Gym page."
+    },
+    {
+      "id": "cove",
+      "url": "https://okadamanila.com/events/venues/cove-manila/",
+      "publisher": "Okada Manila",
+      "checked": "2026-10-17",
+      "notes": "Official venue description; no general visitor hours found."
+    },
+    {
+      "id": "promenade",
+      "url": "https://okadamanila.com/the-promenade/",
+      "publisher": "Okada Manila",
+      "checked": "2026-10-17",
+      "notes": "Official retail and dining destination page."
+    },
+    {
+      "id": "events",
+      "url": "https://okadamanila.com/events/",
+      "publisher": "Okada Manila",
+      "checked": "2026-10-17",
+      "notes": "Official meetings and events pages."
+    },
+    {
+      "id": "getting_here",
+      "url": "https://okadamanila.com/getting-here/",
+      "publisher": "Okada Manila",
+      "checked": "2026-10-17",
+      "notes": "Official transportation options and traffic-dependent airport information."
+    },
+    {
+      "id": "checkin_offer",
+      "url": "https://okadamanila.com/deals/exclusive-mobile-rate/",
+      "publisher": "Okada Manila",
+      "checked": "2026-10-17",
+      "notes": "Offer-specific page publishes check-in 3:00 PM and check-out 12:00 noon; confirm reservation terms."
+    },
+    {
+      "id": "ayala",
+      "url": "https://www.ayalamalls.com/explore/ayala-manila-bay/",
+      "publisher": "Ayala Malls",
+      "checked": "2026-10-17",
+      "notes": "Official mall listing gives Macapagal Boulevard corner Aseana Avenue, Parañaque."
+    },
+    {
+      "id": "parqal",
+      "url": "https://parqal.com/faqs/",
+      "publisher": "PARQAL",
+      "checked": "2026-10-17",
+      "notes": "Official property address, center hours, and visitor information."
+    },
+    {
+      "id": "dreamplay",
+      "url": "https://www.cityofdreamsmanila.com/entertainment/dreamplay",
+      "publisher": "City of Dreams Manila",
+      "checked": "2026-10-17",
+      "notes": "Official venue reference. Current hours were not independently established; older policy documents are stale."
+    },
+    {
+      "id": "google_maps_okada",
+      "url": "https://www.google.com/maps/place/Okada+Manila/",
+      "publisher": "Google Maps",
+      "checked": "2026-10-17",
+      "notes": "Origin place pin used for route snapshots."
+    },
+    {
+      "id": "google_maps_ayala",
+      "url": "https://www.google.com/maps/dir/?api=1&origin=14.5151576%2C120.9814988&destination=14.524713%2C120.9893469&travelmode=driving",
+      "publisher": "Google Maps",
+      "checked": "2026-10-17",
+      "notes": "Driving route snapshot, Leave now; estimate is dynamic."
+    },
+    {
+      "id": "google_maps_moa",
+      "url": "https://www.google.com/maps/dir/?api=1&origin=14.5151576%2C120.9814988&destination=14.5358397%2C120.980416&travelmode=driving",
+      "publisher": "Google Maps",
+      "checked": "2026-10-17",
+      "notes": "Driving route snapshot, Leave now; estimate is dynamic."
+    },
+    {
+      "id": "google_maps_parqal",
+      "url": "https://www.google.com/maps/dir/?api=1&origin=14.5151576%2C120.9814988&destination=14.5266712%2C120.989381&travelmode=driving",
+      "publisher": "Google Maps",
+      "checked": "2026-10-17",
+      "notes": "Driving route snapshot, Leave now; estimate is dynamic."
+    },
+    {
+      "id": "google_maps_dreamplay",
+      "url": "https://www.google.com/maps/dir/?api=1&origin=14.5151576%2C120.9814988&destination=14.5246791%2C120.991393&travelmode=driving",
+      "publisher": "Google Maps",
+      "checked": "2026-10-17",
+      "notes": "Driving route snapshot, Leave now; estimate is dynamic."
+    }
+  ],
+  "accommodations": {
+    "record": {
+      "information_category": "accommodation_categories_and_amenities",
+      "verified_value": {
+        "rooms": ["Deluxe", "Grand Deluxe", "Grand Deluxe Twin"],
+        "suites": ["Junior", "Premium", "Executive", "Garden", "Manila Bay", "Presidential", "Senator", "Celebrity", "Governor", "Royal Maisonette"],
+        "villas": ["Sky", "Tower", "El Nido", "Bohol", "Boracay"],
+        "published_room_features": ["complimentary Wi-Fi", "24-hour in-room dining", "walk-in closet", "coffee and tea facilities", "private bar", "safe", "writing desk", "sitting area", "TV and movie channels", "iPad-based room controller", "intelligent toilet", "jet tub"],
+        "villa_service": "Butler service listed for villas",
+        "check_in": "3:00 PM, published on an offer page; verify reservation",
+        "check_out": "12:00 noon, published on an offer page; verify reservation"
+      },
+      "confidence": "high for categories and map-listed amenities; medium for general check-in/out policy",
+      "changes_frequently": true,
+      "last_verified": "2026-10-17",
+      "sources": ["stay", "map_may_2026", "checkin_offer"]
+    }
+  },
+  "main_navigation": {
+    "record": {
+      "information_category": "official_guest_navigation_links",
+      "verified_value": [
+        {"label": "Stay", "url": "https://okadamanila.com/stay/"},
+        {"label": "Dine", "url": "https://okadamanila.com/dine/"},
+        {"label": "Experience", "url": "https://okadamanila.com/experience/"},
+        {"label": "The Fountain", "url": "https://okadamanila.com/experience/the-fountain"},
+        {"label": "Wellness", "url": "https://okadamanila.com/relax/wellness/"},
+        {"label": "Getting Here", "url": "https://okadamanila.com/getting-here/"},
+        {"label": "Events", "url": "https://okadamanila.com/events/"},
+        {"label": "Contact Us", "url": "https://okadamanila.com/contact-us/"}
+      ],
+      "configuration_state": "draft_only; not saved in Admin Portal",
+      "confidence": "high",
+      "changes_frequently": false,
+      "last_verified": "2026-10-17",
+      "sources": ["stay", "dining_index", "contact", "getting_here", "events", "fountain"]
+    }
+  },
+  "dining": [
+    {
+      "name": "Enbu",
+      "record": {
+        "information_category": "restaurant",
+        "verified_value": {"cuisine": "Japanese", "style": "casual", "location": "Upper Ground Floor, Crystal Corridor, Coral Wing", "hours": "Daily 11:00 AM–11:00 PM", "menu_url": "https://okadamanila.com/dine/enbu/"},
+        "confidence": "high",
+        "changes_frequently": true,
+        "last_verified": "2026-10-17",
+        "sources": ["enbu"]
+      }
+    },
+    {
+      "name": "Kiapo",
+      "record": {
+        "information_category": "restaurant",
+        "verified_value": {"cuisine": "Filipino", "location": "Upper Ground Floor, Coral Wing", "hours": "Daily 10:00 AM–3:00 AM", "menu_url": "https://okadamanila.com/dine/kiapo/"},
+        "confidence": "high",
+        "changes_frequently": true,
+        "last_verified": "2026-10-17",
+        "sources": ["kiapo"]
+      }
+    },
+    {
+      "name": "Goryeo",
+      "record": {
+        "information_category": "restaurant",
+        "verified_value": {"cuisine": "Korean, including Korean barbecue", "location": "Upper Ground Floor, Restaurant Promenade, Pearl Wing", "hours": "Daily 11:00 AM–11:00 PM", "guest_information": "Private dining rooms listed; reservations recommended", "menu_url": "https://okadamanila.com/dine/goryeo/"},
+        "confidence": "high",
+        "changes_frequently": true,
+        "last_verified": "2026-10-17",
+        "sources": ["goryeo"]
+      }
+    },
+    {
+      "name": "La Piazza",
+      "record": {
+        "information_category": "restaurant",
+        "verified_value": {"cuisine": "Italian", "location": "Upper Ground Floor, Crystal Corridor", "hours": "Daily 5:00 PM–11:00 PM", "menu_url": "https://okadamanila.com/dine/la-piazza/"},
+        "confidence": "high",
+        "changes_frequently": true,
+        "last_verified": "2026-10-17",
+        "sources": ["la_piazza"]
+      }
+    },
+    {
+      "name": "Medley Buffet",
+      "record": {
+        "information_category": "restaurant_location_and_temporary_override",
+        "verified_value": {
+          "usual_location": "Upper Ground Floor, The Promenade, Pearl Wing",
+          "temporary_location": "Sinag, 3rd Floor, Coral Wing",
+          "temporary_period": {"start": "2026-10-05", "end": "2026-10-19", "timezone": "Asia/Manila"},
+          "hours": {"breakfast": "6:00 AM–10:30 AM", "lunch": "11:30 AM–3:00 PM", "dinner": "6:00 PM–11:00 PM"},
+          "expiration_action": "Remove the temporary override after 2026-10-19 only after rechecking the official notice. Do not automatically announce a return to the usual location."
+        },
+        "confidence": "high for current notice and published hours",
+        "changes_frequently": true,
+        "last_verified": "2026-10-17",
+        "sources": ["medley", "map_may_2026"]
+      }
+    },
+    {
+      "name": "Red Spice",
+      "record": {
+        "information_category": "restaurant",
+        "verified_value": {"cuisine": "Chinese, Cantonese and Sichuan", "location": "Upper Ground Floor, Casino Pearl Wing", "hours": "Published as open 24 hours daily", "menu_url": "https://okadamanila.com/dine/red-spice/"},
+        "confidence": "high",
+        "changes_frequently": true,
+        "last_verified": "2026-10-17",
+        "sources": ["red_spice"]
+      }
+    },
+    {
+      "name": "Ginza Nagaoka",
+      "record": {
+        "information_category": "restaurant",
+        "verified_value": {"cuisine": "Japanese sushi and omakase", "location": "Upper Ground Floor, Restaurant Promenade, Pearl Wing", "description": "10-seat counter", "hours": null, "hours_conflict": "January 2026 official map says Monday–Saturday 5:00–11:00 PM; current Japanese-language venue page says Tuesday–Saturday 5:00–11:00 PM. Confirm before publishing hours.", "menu_url": "https://okadamanila.com/dine/ginza-nagaoka/"},
+        "confidence": "medium for venue/location; low for hours",
+        "changes_frequently": true,
+        "last_verified": "2026-10-17",
+        "sources": ["map_jan_2026", "ginza_nagaoka"]
+      }
+    },
+    {
+      "name": "Kappou Yoshi",
+      "record": {
+        "information_category": "restaurant",
+        "verified_value": {"cuisine": "Japanese", "location": "Upper Ground Floor, Restaurant Promenade, Pearl Wing", "hours": "Friday–Wednesday 11:00 AM–11:00 PM; closed Thursday", "guest_information": "Main dining age guidance starts at 12; younger children may be placed in a private dining room subject to minimum spend", "menu_url": "https://okadamanila.com/dine/kappou-yoshi/"},
+        "confidence": "high",
+        "changes_frequently": true,
+        "last_verified": "2026-10-17",
+        "sources": ["kappou_yoshi"]
+      }
+    },
+    {
+      "name": "Lobby Lounge",
+      "record": {
+        "information_category": "restaurant_and_lounge",
+        "verified_value": {"cuisine": "Lounge dining, pastries, and beverages", "location": "Upper Ground Floor, Pearl Wing", "hours": "Daily 8:00 AM–12:00 midnight", "guest_information": "Venue page says reservations are not required", "menu_url": "https://okadamanila.com/dine/lobby-lounge/"},
+        "confidence": "high",
+        "changes_frequently": true,
+        "last_verified": "2026-10-17",
+        "sources": ["lobby_lounge"]
+      }
+    },
+    {
+      "name": "The Coral Lounge",
+      "record": {
+        "information_category": "lounge",
+        "verified_value": {"style": "Lounge and entertainment", "location": "Upper Ground Floor, Coral Wing", "hours": "Published nightly 5:00 PM–3:00 AM", "stale_page_notice": "An expired 2025 closure notice appears on the page; not treated as a current closure.", "menu_url": "https://okadamanila.com/dine/the-coral-lounge/"},
+        "confidence": "medium",
+        "changes_frequently": true,
+        "last_verified": "2026-10-17",
+        "sources": ["coral_lounge"]
+      }
+    }
+  ],
+  "facilities": [
+    {
+      "name": "The Fountain",
+      "record": {
+        "information_category": "entertainment_schedule_and_wayfinding",
+        "verified_value": {"published_schedule": {"monday_thursday": "7:00 PM–10:00 PM", "friday_sunday": "7:00 PM–12:00 midnight", "performance_interval": "Every 30 minutes"}, "map_reference": "Crystal Corridor / Crystal Pavilion, with multiple Fountain access points", "live_operating_status": "Unknown. The current page contains an undated adverse-weather notice stating the show is suspended tonight until further notice; the notice's date and current validity are not shown."},
+        "confidence": "high that the page displays a schedule and an undated suspension notice; unknown whether the notice remains current",
+        "changes_frequently": true,
+        "last_verified": "2026-10-17",
+        "sources": ["fountain", "map_may_2026"]
+      }
+    },
+    {
+      "name": "The Retreat Spa",
+      "record": {
+        "information_category": "wellness_facility",
+        "verified_value": {"location": "3rd Floor, Pearl Wing", "hours": "Monday–Thursday 9:00 AM–10:00 PM; Friday–Sunday 9:00 AM–12:00 midnight", "services": ["spa", "beauty salon", "barbershop", "nail art studio", "fitness amenities"]},
+        "confidence": "high",
+        "changes_frequently": true,
+        "last_verified": "2026-10-17",
+        "sources": ["spa", "map_may_2026"]
+      }
+    },
+    {
+      "name": "The Sole Retreat",
+      "record": {
+        "information_category": "wellness_facility",
+        "verified_value": {"location": "3rd Floor, Coral Wing", "hours": "Monday–Thursday 2:00 PM–10:00 PM; Friday–Sunday 10:00 AM–10:00 PM", "services": ["foot spa", "reflexology", "body treatments", "grooming"]},
+        "confidence": "high",
+        "changes_frequently": true,
+        "last_verified": "2026-10-17",
+        "sources": ["sole_retreat", "map_may_2026"]
+      }
+    },
+    {
+      "name": "Okada Kids Club",
+      "record": {
+        "information_category": "children_activity",
+        "verified_value": {"location": "Upper Ground Floor, Coral Wing", "sessions_friday_sunday_and_holidays": ["10:00 AM", "12:30 PM", "3:00 PM", "5:30 PM", "8:00 PM"], "sessions_monday_thursday": ["12:30 PM", "3:00 PM", "5:30 PM"], "age_range": "1–17 years", "session_length": "2 hours", "supervision": "1:1 adult supervision required for age 3 and under; ages 4–5 limited to 3 children per adult; ages 6–17 may enter without an adult but adult must attend check-in and check-out", "entry_conditions": ["socks required", "pass required"]},
+        "confidence": "high for published rules; availability unknown",
+        "changes_frequently": true,
+        "last_verified": "2026-10-17",
+        "sources": ["kids_club", "map_may_2026"]
+      }
+    },
+    {
+      "name": "Thrillscape",
+      "record": {
+        "information_category": "family_entertainment",
+        "verified_value": {"location": "Upper Ground Floor, Coral Wing", "hours": "Daily 12:00 noon–9:00 PM", "operating_status": "Published schedule only; live availability unknown"},
+        "confidence": "high for published schedule and location",
+        "changes_frequently": true,
+        "last_verified": "2026-10-17",
+        "sources": ["thrillscape", "map_may_2026"]
+      }
+    },
+    {
+      "name": "Coral Wing Pool",
+      "record": {
+        "information_category": "pool_and_temporary_closure",
+        "verified_value": {"location": "3rd Floor, Coral Wing", "hours": "Published daily 7:00 AM–9:00 PM", "main_pool_live_status": "Not independently confirmed", "kids_pool_closure": {"status": "closed for maintenance", "through": "2026-10-20", "timezone": "Asia/Manila"}},
+        "confidence": "high for published notice; live pool status unknown",
+        "changes_frequently": true,
+        "last_verified": "2026-10-17",
+        "sources": ["pool", "map_may_2026"]
+      }
+    },
+    {
+      "name": "Fitness Centers",
+      "record": {
+        "information_category": "fitness_facility",
+        "verified_value": {"locations": ["The Retreat Spa Fitness Center, 3rd Floor Pearl Wing", "Coral Wing Fitness Center, 3rd Floor"], "hours": null, "hours_conflict": "One official page says both centers are open 24 hours; another current offer page lists Coral Wing gym 7:00 AM–8:00 PM. Do not publish hours pending confirmation."},
+        "confidence": "high for listed facilities; low for Coral Wing hours",
+        "changes_frequently": true,
+        "last_verified": "2026-10-17",
+        "sources": ["fitness", "fitness_deal", "map_may_2026"]
+      }
+    },
+    {
+      "name": "Cove Manila",
+      "record": {
+        "information_category": "event_venue",
+        "verified_value": {"location": "Pearl Wing; central drop-off is shown on the official map", "description": "Indoor events venue", "general_public_hours": null},
+        "confidence": "high for venue/location; hours not established",
+        "changes_frequently": true,
+        "last_verified": "2026-10-17",
+        "sources": ["cove", "map_may_2026"]
+      }
+    },
+    {
+      "name": "The Promenade",
+      "record": {
+        "information_category": "shopping_and_dining",
+        "verified_value": {"description": "Retail and dining destination within the resort", "location": "Upper Ground Floor", "center_wide_hours": null},
+        "confidence": "high for destination; hours not established",
+        "changes_frequently": true,
+        "last_verified": "2026-10-17",
+        "sources": ["promenade", "map_may_2026"]
+      }
+    },
+    {
+      "name": "Meeting and Ballroom Facilities",
+      "record": {
+        "information_category": "events_wayfinding",
+        "verified_value": {"coral_wing": ["Grand Ballroom", "Grand Meeting Room", "Glass Meeting Room", "Glass Ballroom"], "pearl_wing_third_floor": ["Board Room", "Meeting Rooms", "Golden Ballroom"], "event_specific_access": "Confirm destination and access with the event organizer"},
+        "confidence": "high for map-listed names and wings",
+        "changes_frequently": true,
+        "last_verified": "2026-10-17",
+        "sources": ["events", "map_may_2026"]
+      }
+    }
+  ],
+  "map": {
+    "record": {
+      "information_category": "resort_wayfinding_reference",
+      "verified_value": {
+        "official_reference": "https://cdn-storage.okadamanila.com/wp-content/uploads/2026/05/12160909/Your-Journey-At-Okada-Manila-050526.pdf",
+        "map_date": "2026-05-05",
+        "depicted_levels": ["Lower Ground", "Upper Ground", "3rd Floor"],
+        "public_access_features": ["entrances", "elevators", "escalators", "shuttle", "car park"],
+        "named_entrances_and_dropoffs": ["Fountain Foyer Entrance", "Pearl Wing Entrance", "VIP Lobby Entrance", "Coral Wing Entrance", "Ballroom Entrance", "Fountain Entrance A", "Fountain Entrance B", "Fountain Entrance C", "Fountain Entrance D", "Fountain Entrance E", "Fountain Entrance F", "Cove Manila Central Drop-off"],
+        "public_corridors": ["Crystal Corridor", "Restaurant Promenade"],
+        "public_area_names": ["Pearl Wing", "Coral Wing", "Crystal Corridor", "Crystal Pavilion", "The Promenade"],
+        "elevator_escalator_detail": "Elevator and escalator symbols appear on the official map; no named route graph or connection sequence was extracted.",
+        "indoor_coordinates": null,
+        "verified_route_graph": null,
+        "editor_configuration_state": "not configured; Admin Portal inaccessible over secure transport",
+        "navigation_rule": "Return floor and wing or named corridor only. Do not invent indoor coordinates or turn-by-turn routes."
+      },
+      "confidence": "high for printed map labels and symbols; no route confidence assigned",
+      "changes_frequently": false,
+      "last_verified": "2026-10-17",
+      "sources": ["map_may_2026"]
+    }
+  },
+  "nearby": [
+    {
+      "name": "Ayala Malls Manila Bay",
+      "record": {
+        "information_category": "nearby_shopping_mall_and_route_snapshot",
+        "verified_value": {"category": "shopping mall", "address": "Macapagal Boulevard corner Aseana Avenue, Parañaque City", "latitude": 14.524713, "longitude": 120.9893469, "official_website": "https://www.ayalamalls.com/explore/ayala-manila-bay/", "route": {"mode": "driving", "distance": "2.3 km", "eta": "8 min", "route_text": "New Seaside Drive and Jose W. Diokno Boulevard northbound", "captured": "2026-10-17, Google Maps Leave now", "url": "https://www.google.com/maps/dir/?api=1&origin=14.5151576%2C120.9814988&destination=14.524713%2C120.9893469&travelmode=driving"}},
+        "confidence": "high for place pin and route snapshot",
+        "changes_frequently": true,
+        "last_verified": "2026-10-17",
+        "sources": ["ayala", "google_maps_ayala"]
+      }
+    },
+    {
+      "name": "SM Mall of Asia",
+      "record": {
+        "information_category": "nearby_shopping_mall_and_route_snapshot",
+        "verified_value": {"category": "shopping and entertainment mall", "address": "Seaside Boulevard, Pasay City, 1300 Metro Manila", "latitude": 14.5358397, "longitude": 120.980416, "official_website": "https://www.smsupermalls.com/", "route": {"mode": "driving", "distance": "3.7 km", "eta": "18 min", "captured": "2026-10-17, Google Maps Leave now", "url": "https://www.google.com/maps/dir/?api=1&origin=14.5151576%2C120.9814988&destination=14.5358397%2C120.980416&travelmode=driving"}},
+        "confidence": "high for place pin and route snapshot",
+        "changes_frequently": true,
+        "last_verified": "2026-10-17",
+        "sources": ["google_maps_moa"]
+      }
+    },
+    {
+      "name": "PARQAL",
+      "record": {
+        "information_category": "nearby_mixed_use_destination_and_route_snapshot",
+        "verified_value": {"category": "mixed-use shopping, food, offices, and public space", "address": "Pres. D. Macapagal Boulevard, Brgy. Tambo, Aseana City, Parañaque City, Philippines", "latitude": 14.5266712, "longitude": 120.989381, "official_website": "https://parqal.com/", "published_hours": "Monday–Thursday 10:00 AM–9:00 PM; Friday–Sunday 10:00 AM–10:00 PM", "route": {"mode": "driving", "distance": "2.7 km", "eta": "10 min", "route_text": "Jose W. Diokno Boulevard northbound", "captured": "2026-10-17, Google Maps Leave now", "url": "https://www.google.com/maps/dir/?api=1&origin=14.5151576%2C120.9814988&destination=14.5266712%2C120.989381&travelmode=driving"}},
+        "confidence": "high",
+        "changes_frequently": true,
+        "last_verified": "2026-10-17",
+        "sources": ["parqal", "google_maps_parqal"]
+      }
+    },
+    {
+      "name": "DreamPlay at City of Dreams Manila",
+      "record": {
+        "information_category": "nearby_family_attraction_and_route_snapshot",
+        "verified_value": {"category": "family entertainment venue", "address": "Asean Avenue corner Roxas Boulevard, Entertainment City, Parañaque, Metro Manila", "latitude": 14.5246791, "longitude": 120.991393, "official_website": "https://www.cityofdreamsmanila.com/entertainment/dreamplay", "current_hours": null, "hours_note": "Older official policy PDFs contain hours that may be stale; current hours not established.", "route": {"mode": "driving", "distance": "2.7 km", "eta": "10 min", "route_text": "via Jose W. Diokno Boulevard / Asean Avenue", "captured": "2026-10-17, Google Maps Leave now", "url": "https://www.google.com/maps/dir/?api=1&origin=14.5151576%2C120.9814988&destination=14.5246791%2C120.991393&travelmode=driving"}},
+        "confidence": "high for place pin and route snapshot; low for operating information",
+        "changes_frequently": true,
+        "last_verified": "2026-10-17",
+        "sources": ["dreamplay", "google_maps_dreamplay"]
+      }
+    }
+  ],
+  "transportation": {
+    "record": {
+      "information_category": "transportation_options",
+      "verified_value": {"airport": "Official page describes Okada Manila as about 5 km from NAIA and lists taxi/Grab and private transfer options; published airport times are traffic-dependent", "hotel_shuttle": "SM North EDSA shuttle service ended 2026-04-26", "parking": "Complimentary self-parking published", "ev_charging": "EV charging listed at Lower Ground parking"},
+      "confidence": "high for published transportation information",
+      "changes_frequently": true,
+      "last_verified": "2026-10-17",
+      "sources": ["getting_here"]
+    }
+  },
+  "guest_knowledge": [
+    {
+      "question": "Where can I eat Filipino food?",
+      "researched_answer": "Kiapo serves Filipino cuisine on the Upper Ground Floor, Coral Wing. Check its official page for current hours.",
+      "confidence": "high",
+      "changes_frequently": true,
+      "last_verified": "2026-10-17",
+      "sources": ["kiapo", "map_may_2026"],
+      "guest_ai_test_state": "not_executed; live concierge initialization failed"
+    },
+    {
+      "question": "Which restaurant serves Japanese cuisine?",
+      "researched_answer": "Enbu, Kappou Yoshi, and Ginza Nagaoka are Japanese dining options. Confirm Ginza Nagaoka hours because official pages conflict.",
+      "confidence": "high for cuisine; hours need confirmation for Ginza Nagaoka",
+      "changes_frequently": true,
+      "last_verified": "2026-10-17",
+      "sources": ["enbu", "kappou_yoshi", "ginza_nagaoka", "map_jan_2026"],
+      "guest_ai_test_state": "not_executed; live concierge initialization failed"
+    },
+    {
+      "question": "Where is Medley Buffet today?",
+      "researched_answer": "Through 2026-10-19, its temporary location is Sinag, 3rd Floor, Coral Wing. Its usual location is Upper Ground Floor, The Promenade, Pearl Wing. Recheck the official notice after the temporary period.",
+      "confidence": "high",
+      "changes_frequently": true,
+      "last_verified": "2026-10-17",
+      "sources": ["medley", "map_may_2026"],
+      "guest_ai_test_state": "not_executed; live concierge initialization failed"
+    },
+    {
+      "question": "Where can my children play?",
+      "researched_answer": "Okada Kids Club is on the Upper Ground Floor, Coral Wing. Sessions, age rules, and supervision requirements apply; availability must be checked.",
+      "confidence": "high for published information",
+      "changes_frequently": true,
+      "last_verified": "2026-10-17",
+      "sources": ["kids_club", "map_may_2026"],
+      "guest_ai_test_state": "not_executed; live concierge initialization failed"
+    },
+    {
+      "question": "Where is the nearest shopping mall?",
+      "researched_answer": "Ayala Malls Manila Bay is a nearby option; the Google Maps research snapshot was 2.3 km and 8 minutes by driving. Refresh for a live route.",
+      "confidence": "high for snapshot only",
+      "changes_frequently": true,
+      "last_verified": "2026-10-17",
+      "sources": ["ayala", "google_maps_ayala"],
+      "guest_ai_test_state": "not_executed; live concierge initialization failed"
+    },
+    {
+      "question": "How do I reach The Fountain?",
+      "researched_answer": "Use the official map to orient toward Crystal Corridor / Crystal Pavilion; exact turn-by-turn routing is not established in this research.",
+      "confidence": "high for map labels",
+      "changes_frequently": false,
+      "last_verified": "2026-10-17",
+      "sources": ["fountain", "map_may_2026"],
+      "guest_ai_test_state": "not_executed; map module unavailable"
+    },
+    {
+      "question": "What time is check-out?",
+      "researched_answer": "An official offer page lists 12:00 noon; the guest should confirm their reservation terms.",
+      "confidence": "medium",
+      "changes_frequently": false,
+      "last_verified": "2026-10-17",
+      "sources": ["checkin_offer"],
+      "guest_ai_test_state": "not_executed; live concierge initialization failed"
+    },
+    {
+      "question": "Is The Fountain operating tonight?",
+      "researched_answer": "The official page currently displays an undated adverse-weather notice saying the show is suspended tonight until further notice. Because the notice has no date, confirm with hotel staff before telling the guest whether it remains in effect.",
+      "confidence": "high that the page displays a schedule and an undated suspension notice; unknown whether the notice remains current",
+      "changes_frequently": true,
+      "last_verified": "2026-10-17",
+      "sources": ["fountain"],
+      "guest_ai_test_state": "not_executed; live concierge initialization failed"
+    },
+    {
+      "question": "Can you show me the spa location?",
+      "researched_answer": "The Retreat Spa is on the 3rd Floor, Pearl Wing. This research does not establish indoor turn-by-turn directions.",
+      "confidence": "high for floor and wing",
+      "changes_frequently": false,
+      "last_verified": "2026-10-17",
+      "sources": ["spa", "map_may_2026"],
+      "guest_ai_test_state": "not_executed; map module unavailable"
+    }
+  ],
+  "asset_and_branding_policy": {
+    "images_added": false,
+    "licensed_okada_assets_included": false,
+    "map_artwork_reproduced": false,
+    "requirement": "Use approved or original demonstration assets only; identify the trial as unofficial and do not imply Okada Manila operates the service."
+  }
+}

@@ -43,7 +43,15 @@ ACTION_TYPES = {
     "none", "prompt", "internal_page", "external_url", "phone", "email", "map",
     "service_request", "resource", "restaurant", "restaurant_menu", "room_service",
     "housekeeping", "transportation", "promotion", "event", "concierge",
+    "property_info", "nearby_recommendations",
 }
+MODULE_ACTION_TYPES = frozenset({
+    "prompt", "property_info", "nearby_recommendations", "map", "service_request",
+    "internal_page", "external_url", "concierge",
+})
+MODULE_CATEGORIES = frozenset({"Stay", "Dining", "Explore", "Requests", "Support", "Other"})
+MODULE_DISPLAY_STYLES = frozenset({"suggestion_chip", "icon_card", "action_tile", "carousel"})
+MODULE_ICONS = frozenset({"sparkles", "room", "dining", "map", "compass", "info", "service", "car", "help"})
 STANDARD_PAGE_IDS = {"home", "explore", "requests", "stay", "concierge"}
 RESERVED_SLUGS = {
     "admin", "api", "assets", "static", "login", "logout", "health", "docs",
@@ -54,7 +62,7 @@ SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+){0,5}$")
 ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
 EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 PHONE_RE = re.compile(r"^\+?[0-9(). -]{5,32}$")
-IMAGE_DATA_RE = re.compile(r"^data:image/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]{1,700000}$", re.I)
+IMAGE_DATA_RE = re.compile(r"^data:image/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]{1,2100000}$", re.I)
 
 
 def default_guest_pages() -> list[dict[str, Any]]:
@@ -573,7 +581,160 @@ def validate_action(raw: Any) -> dict[str, Any]:
             if parts.scheme not in {"http", "https"} or not parts.hostname or parts.username or parts.password or (port is not None and not 1 <= port <= 65535):
                 raise ValueError("Map link must use a valid HTTP or HTTPS URL.")
             result["url"] = value
+    elif action_type in {"property_info", "nearby_recommendations"}:
+        pass
     return result
+
+
+def validate_conversation_module_config(raw: Any, *, legacy: bool = False, allow_incomplete: bool = False) -> dict[str, Any]:
+    """Validate the public configuration of a guest conversation module."""
+    allowed = {"id", "name", "description", "icon", "category", "group", "display_style", "order", "enabled", "action"}
+    if legacy:
+        allowed.add("prompt")
+    if not isinstance(raw, dict) or set(raw) - allowed:
+        raise ValueError("Unsupported conversation module setting.")
+    raw_action = raw.get("action")
+    if raw_action is None and legacy and isinstance(raw.get("prompt"), str) and raw["prompt"].strip():
+        raw_action = {"type": "prompt", "prompt": raw["prompt"]}
+    if raw_action is None and allow_incomplete:
+        raw_action = {"type": "prompt", "prompt": ""}
+    if not isinstance(raw_action, dict) or raw_action.get("type") not in MODULE_ACTION_TYPES:
+        raise ValueError("Choose a supported guest module action.")
+    action_type = raw_action["type"]
+    action_fields = {
+        "prompt": {"type", "prompt"},
+        "property_info": {"type"},
+        "nearby_recommendations": {"type"},
+        "map": {"type", "url", "destination"},
+        "service_request": {"type", "service_id"},
+        "internal_page": {"type", "page_id"},
+        "external_url": {"type", "url", "open_in"},
+        "concierge": {"type", "page_id"},
+    }[action_type]
+    if set(raw_action) - action_fields:
+        raise ValueError("This module action contains unsupported configuration fields.")
+    if allow_incomplete:
+        # Drafts can be saved before every field is filled. Their action remains
+        # constrained to the same explicit schema and receives strict validation
+        # again before publication.
+        action = {"type": action_type}
+        for key in action_fields - {"type"}:
+            value = raw_action.get(key)
+            if value in (None, ""):
+                continue
+            if key == "prompt":
+                action[key] = _string(value, 500, "Concierge prompt")
+            elif key == "service_id":
+                action[key] = _safe_id(value, "Service ID")
+            elif key == "page_id":
+                page_id = _safe_id(value, "Page ID")
+                if page_id not in STANDARD_PAGE_IDS:
+                    raise ValueError("Choose a supported guest page.")
+                action[key] = page_id
+            elif key == "open_in":
+                if value not in {"same_tab", "new_tab"}:
+                    raise ValueError("External links must open in the same tab or a new tab.")
+                action[key] = value
+            elif key in {"url", "destination"}:
+                # Validate non-empty URLs through the full action validator.
+                action[key] = _string(value, 2048, "Action URL")
+        if action_type in {"external_url", "map"} and action.get("url"):
+            action = validate_action(action)
+        if action_type == "service_request" and action.get("service_id"):
+            action = validate_action(action)
+    else:
+        action = validate_action(raw_action)
+    if action_type == "prompt" and not action.get("prompt", "").strip() and not allow_incomplete:
+        raise ValueError("AI conversation modules need a guest-facing prompt.")
+    if action_type == "internal_page" and action.get("page_id") not in STANDARD_PAGE_IDS:
+        raise ValueError("Choose a supported guest page.")
+    config = {
+        "id": _safe_id(raw.get("id", "module"), "Module ID"),
+        "name": _string(raw.get("name", ""), 80, "Module name"),
+        "description": _string(raw.get("description", ""), 180, "Module description"),
+        "icon": raw.get("icon", "sparkles"),
+        "category": raw.get("category", "Stay"),
+        "group": _string(raw.get("group", raw.get("category", "Stay")), 48, "Module group"),
+        "display_style": raw.get("display_style", "suggestion_chip"),
+        "order": _integer(raw.get("order", 0), 0, 99, "Module order"),
+        "enabled": _boolean(raw.get("enabled", True), "Module enabled"),
+        "action": action,
+    }
+    if not config["name"]:
+        raise ValueError("Module name is required.")
+    if config["icon"] not in MODULE_ICONS:
+        raise ValueError("Choose a supported module icon.")
+    if config["category"] not in MODULE_CATEGORIES:
+        raise ValueError("Choose a supported module category.")
+    if config["display_style"] not in MODULE_DISPLAY_STYLES:
+        raise ValueError("Choose a supported guest menu display style.")
+    if not config["group"]:
+        raise ValueError("Module group is required.")
+    if legacy and "prompt" in raw and action_type == "prompt":
+        config["prompt"] = action["prompt"]
+    return config
+
+
+def public_conversation_modules(modules: Any) -> list[dict[str, Any]]:
+    """Return only enabled, published, guest-safe module fields."""
+    if not isinstance(modules, list):
+        return []
+    result: list[dict[str, Any]] = []
+    for raw in modules:
+        if not isinstance(raw, dict):
+            continue
+        if "draft_config" in raw or "published_config" in raw or raw.get("status") in {"draft", "published", "archived"}:
+            if raw.get("status") == "archived":
+                continue
+            config = raw.get("published_config")
+            if not isinstance(config, dict):
+                continue
+            try:
+                safe = validate_conversation_module_config(config)
+            except (TypeError, ValueError):
+                continue
+        else:
+            # Legacy modules were published on save. Keep their established prompt
+            # contract while limiting public fields and applying safe defaults.
+            try:
+                enabled = _boolean(raw.get("enabled", True), "Module enabled")
+                order = _integer(raw.get("order", 0), 0, 99, "Module order")
+                module_id = _safe_id(raw.get("id", "module"), "Module ID")
+                name = _string(raw.get("name", ""), 80, "Module name")
+            except (TypeError, ValueError):
+                continue
+            if not enabled:
+                continue
+            action = raw.get("action")
+            prompt = raw.get("prompt")
+            if action is None and isinstance(prompt, str) and prompt.strip():
+                action = {"type": "prompt", "prompt": prompt[:500]}
+            safe = {"id": module_id, "name": name, "enabled": enabled, "order": order}
+            if isinstance(action, dict):
+                try:
+                    normalized = validate_conversation_module_config({
+                        **safe,
+                        "description": str(raw.get("description", ""))[:180],
+                        "icon": raw.get("icon", "sparkles") if raw.get("icon", "sparkles") in MODULE_ICONS else "sparkles",
+                        "category": raw.get("category", "Stay") if raw.get("category", "Stay") in MODULE_CATEGORIES else "Stay",
+                        "group": str(raw.get("group", raw.get("category", "Stay")))[:48] or "Stay",
+                        "display_style": raw.get("display_style", "suggestion_chip") if raw.get("display_style", "suggestion_chip") in MODULE_DISPLAY_STYLES else "suggestion_chip",
+                        "action": action,
+                    }, legacy=True)
+                    safe = normalized
+                except (TypeError, ValueError):
+                    if isinstance(prompt, str) and prompt.strip() and len(prompt) <= 10000:
+                        safe["prompt"] = prompt
+                        safe["action"] = {"type": "prompt", "prompt": prompt}
+            elif isinstance(prompt, str) and prompt.strip() and len(prompt) <= 10000:
+                safe["prompt"] = prompt
+                safe["action"] = {"type": "prompt", "prompt": prompt}
+        if not safe.get("enabled", True):
+            continue
+        if safe.get("action", {}).get("type") == "prompt":
+            safe["prompt"] = safe["action"].get("prompt", "")
+        result.append(safe)
+    return sorted(result, key=lambda item: (int(item.get("order", 0)), str(item.get("id", ""))))
 
 
 def is_safe_image_url(value: str) -> bool:

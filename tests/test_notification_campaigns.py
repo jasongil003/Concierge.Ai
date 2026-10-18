@@ -105,6 +105,25 @@ def test_campaign_preview_and_publish_only_queue_for_fully_consented_active_stay
     assert history.status_code == 200, history.text
     assert history.json()["total"] == 1
     assert history.json()["campaigns"][0]["engagement"]["queued"] == 1
+    assert history.json()["status_counts"] == {"draft": 0, "publishing": 0, "published": 1, "failed": 0}
+    assert history.json()["delivery_counts"]["queued"] == 1
+    published_only = admin_client.get(
+        f"/api/admin/properties/{property_id}/notification-campaigns",
+        params={"status": "published"},
+    )
+    assert published_only.status_code == 200
+    assert [item["campaign_id"] for item in published_only.json()["campaigns"]] == [campaign["campaign_id"]]
+    expiry_moment = eligible_items[0]["expires_at"]
+    assert main_module.hospitality.expire_guest_inbox_notifications(
+        property_id=property_id, stay_id=eligible_stay["stay_id"], now=expiry_moment,
+    ) == 1
+    expired_only = admin_client.get(
+        f"/api/admin/properties/{property_id}/notification-campaigns",
+        params={"status": "expired"},
+    )
+    assert expired_only.status_code == 200
+    assert expired_only.json()["total"] == 1
+    assert expired_only.json()["delivery_counts"]["expired"] == 1
 
 
 def test_campaign_history_is_searchable_paginated_and_property_scoped(admin_client):
@@ -124,8 +143,17 @@ def test_campaign_history_is_searchable_paginated_and_property_scoped(admin_clie
     second = admin_client.get(path, params={"limit": 2, "offset": 2})
     assert first.status_code == second.status_code == 200
     assert first.json()["total"] == second.json()["total"] == 3
+    assert first.json()["status_counts"] == {"draft": 3, "publishing": 0, "published": 0, "failed": 0}
+    assert first.json()["delivery_counts"] == {"queued": 0, "sent": 0, "delivered": 0, "read": 0, "failed": 0, "expired": 0}
+    assert first.json()["campaigns"][0]["created_by"]
     assert [item["campaign_id"] for item in first.json()["campaigns"]] == [item["campaign_id"] for item in expected[:2]]
     assert [item["campaign_id"] for item in second.json()["campaigns"]] == [expected[2]["campaign_id"]]
+
+    drafts = admin_client.get(path, params={"status": "draft", "limit": 1, "offset": 1})
+    assert drafts.status_code == 200
+    assert drafts.json()["total"] == 3
+    assert [item["campaign_id"] for item in drafts.json()["campaigns"]] == [expected[1]["campaign_id"]]
+    assert admin_client.get(path, params={"status": "scheduled"}).status_code == 422
 
     filtered = admin_client.get(path, params={"q": "100%_", "limit": 1, "offset": 0})
     assert filtered.status_code == 200, filtered.text
@@ -139,6 +167,7 @@ def test_campaign_history_is_searchable_paginated_and_property_scoped(admin_clie
     assert other.status_code == 200
     assert other.json()["total"] == 0
     assert other.json()["campaigns"] == []
+    assert other.json()["status_counts"] == {"draft": 0, "publishing": 0, "published": 0, "failed": 0}
     assert admin_client.get(path, params={"limit": 101}).status_code == 422
     assert admin_client.get(path, params={"offset": 1_000_001}).status_code == 422
     assert admin_client.get(path, params={"q": "x" * 121}).status_code == 422
@@ -150,6 +179,8 @@ def test_campaign_draft_revision_is_compare_and_swap_and_property_scoped(admin_c
     main_module.properties.upsert(PropertyRecord(property_id=property_id, hotel_name="Campaign Test Hotel"))
     main_module.properties.upsert(PropertyRecord(property_id=other_property_id, hotel_name="Other Campaign Hotel"))
     campaign = _create_campaign(admin_client, property_id)
+    creator = campaign["created_by"]
+    assert creator
     path = f"/api/admin/properties/{property_id}/notification-campaigns/{campaign['campaign_id']}"
 
     saved = admin_client.put(path, json=_campaign_payload(
@@ -158,6 +189,7 @@ def test_campaign_draft_revision_is_compare_and_swap_and_property_scoped(admin_c
     assert saved.status_code == 200, saved.text
     assert saved.json()["campaign"]["revision"] == 2
     assert saved.json()["campaign"]["status"] == "draft"
+    assert saved.json()["campaign"]["created_by"] == creator
     assert "policy" not in saved.json()["campaign"]
 
     stale = admin_client.put(path, json=_campaign_payload(

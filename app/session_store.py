@@ -152,6 +152,33 @@ class SessionStore:
                     assigned_at INTEGER,
                     escalation_reason TEXT NOT NULL DEFAULT ''
                 );
+                CREATE TABLE IF NOT EXISTS conversation_reads (
+                    property_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    last_read_at INTEGER NOT NULL,
+                    PRIMARY KEY(property_id,session_id,user_id)
+                );
+                CREATE TABLE IF NOT EXISTS conversation_notes (
+                    note_id TEXT PRIMARY KEY,
+                    property_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    author_user_id TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    created_at INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_conversation_notes_session
+                    ON conversation_notes(property_id,session_id,created_at,note_id);
+                CREATE TABLE IF NOT EXISTS conversation_reply_idempotency (
+                    property_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    client_message_id TEXT NOT NULL,
+                    content_hash TEXT NOT NULL,
+                    message_id TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    PRIMARY KEY(property_id,session_id,user_id,client_message_id)
+                );
                 CREATE TABLE IF NOT EXISTS conversation_retention (
                     property_id TEXT PRIMARY KEY,
                     retention_days INTEGER NOT NULL DEFAULT 30,
@@ -570,6 +597,9 @@ class SessionStore:
         with self._connect() as db:
             db.execute("DELETE FROM conversation_messages WHERE session_id=?", (session_id,))
             db.execute("DELETE FROM conversation_state WHERE session_id=?", (session_id,))
+            db.execute("DELETE FROM conversation_reads WHERE session_id=?", (session_id,))
+            db.execute("DELETE FROM conversation_notes WHERE session_id=?", (session_id,))
+            db.execute("DELETE FROM conversation_reply_idempotency WHERE session_id=?", (session_id,))
             db.execute("DELETE FROM guest_ui_turns WHERE session_id=?", (session_id,))
             db.execute("DELETE FROM sessions WHERE session_id=?", (session_id,))
 
@@ -921,6 +951,7 @@ class SessionStore:
                     ORDER BY s.last_seen_at DESC,s.session_id DESC LIMIT ? OFFSET ?
                 )
                 SELECT s.session_id,s.property_id,s.authenticated,s.created_at,s.last_seen_at,
+                s.guest_token_expires_at AS session_expires_at,
                 CASE WHEN s.guest_token_hash IS NOT NULL AND s.guest_token_expires_at>? AND s.guest_token_revoked_at IS NULL
                     THEN 'active' ELSE 'expired' END AS session_status,
                 COALESCE(cs.status,'open') AS interaction_status,
@@ -940,6 +971,51 @@ class SessionStore:
             for row in rows
         ]
         return {"items": items, "total": total, "limit": limit, "offset": actual_offset}
+
+    def linked_session_summaries(self, property_id: str, session_ids: list[str]) -> list[dict[str, Any]]:
+        """Return activity metadata for explicitly linked sessions, without message content."""
+        ids = list(dict.fromkeys(str(value) for value in session_ids if value))[:100]
+        if not ids:
+            return []
+        marks = ",".join("?" for _ in ids)
+        now = int(time.time())
+        with self._connect() as db:
+            rows = db.execute(
+                f"""SELECT s.session_id,s.created_at,s.last_seen_at,
+                s.guest_token_expires_at AS session_expires_at,
+                CASE WHEN s.guest_token_hash IS NOT NULL AND s.guest_token_expires_at>? AND s.guest_token_revoked_at IS NULL
+                    THEN 'active' ELSE 'expired' END AS session_status,
+                COALESCE(cs.status,'open') AS interaction_status,
+                COALESCE(cs.human_takeover,0) AS human_takeover,
+                COUNT(m.message_id) AS message_count,MAX(m.created_at) AS last_message_at
+                FROM sessions s
+                LEFT JOIN conversation_state cs ON cs.session_id=s.session_id AND cs.property_id=s.property_id
+                LEFT JOIN conversation_messages m ON m.session_id=s.session_id AND m.property_id=s.property_id
+                WHERE s.property_id=? AND s.session_id IN ({marks})
+                GROUP BY s.session_id ORDER BY s.last_seen_at DESC,s.session_id DESC""",  # nosec B608 - only generated placeholders are interpolated.
+                (now, property_id, *ids),
+            ).fetchall()
+        return [
+            {**dict(row), "human_takeover": bool(row["human_takeover"])}
+            for row in rows
+        ]
+
+    def linked_session_activity(self, property_id: str, session_ids: list[str]) -> list[dict[str, Any]]:
+        """Return lifecycle timestamps for explicitly linked sessions, without conversation metadata."""
+        ids = list(dict.fromkeys(str(value) for value in session_ids if value))[:100]
+        if not ids:
+            return []
+        marks = ",".join("?" for _ in ids)
+        now = int(time.time())
+        with self._connect() as db:
+            rows = db.execute(
+                f"""SELECT session_id,created_at,last_seen_at,guest_token_expires_at AS session_expires_at,
+                CASE WHEN guest_token_hash IS NOT NULL AND guest_token_expires_at>? AND guest_token_revoked_at IS NULL
+                    THEN 'active' ELSE 'expired' END AS session_status
+                FROM sessions WHERE property_id=? AND session_id IN ({marks})""",  # nosec B608 - only generated placeholders are interpolated.
+                (now, property_id, *ids),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def session_record_counts(self, property_id: str) -> dict[str, int]:
         now = int(time.time())
@@ -999,6 +1075,10 @@ class SessionStore:
             db.execute(f"DELETE FROM conversation_messages WHERE property_id=? AND session_id IN ({placeholders})", params)  # nosec B608
             # B608 rationale: only placeholder tokens are generated; property and session IDs are bound.
             db.execute(f"DELETE FROM conversation_state WHERE property_id=? AND session_id IN ({placeholders})", params)  # nosec B608
+            # B608 rationale: only placeholder tokens are generated; property and session IDs are bound.
+            db.execute(f"DELETE FROM conversation_notes WHERE property_id=? AND session_id IN ({placeholders})", params)  # nosec B608
+            db.execute(f"DELETE FROM conversation_reads WHERE property_id=? AND session_id IN ({placeholders})", params)  # nosec B608
+            db.execute(f"DELETE FROM conversation_reply_idempotency WHERE property_id=? AND session_id IN ({placeholders})", params)  # nosec B608
             db.execute(
                 "DELETE FROM guest_ui_turns WHERE property_id=? AND (created_at<? OR session_id IN ("
                 "SELECT session_id FROM sessions WHERE property_id=? AND last_seen_at<?))",
@@ -1006,7 +1086,13 @@ class SessionStore:
             )
         return len(session_ids)
 
-    def conversation_status_counts(self, property_id: str, restaurant_ids: set[str] | None = None) -> dict[str, int]:
+    def conversation_status_counts(
+        self,
+        property_id: str,
+        restaurant_ids: set[str] | None = None,
+        *,
+        department_scope_id: str | None = None,
+    ) -> dict[str, int]:
         self.purge_expired_conversations(property_id)
         counts = {key: 0 for key in ("waiting_for_staff", "assigned", "human_active", "ai_active", "resolved")}
         if restaurant_ids is not None and not restaurant_ids:
@@ -1017,6 +1103,9 @@ class SessionStore:
             ordered_ids = sorted(restaurant_ids)
             restaurant_clause = f" AND cs.restaurant_id IN ({','.join('?' for _ in ordered_ids)})"  # nosec B608 - generated placeholders only.
             params.extend(ordered_ids)
+        if department_scope_id:
+            restaurant_clause += " AND cs.department_id=?"
+            params.append(department_scope_id)
         state_key = """CASE
             WHEN COALESCE(cs.state,'ai_active') IN ('waiting_for_staff','assigned','human_active','resolved') THEN COALESCE(cs.state,'ai_active')
             WHEN cs.status='closed' THEN 'resolved'
@@ -1026,13 +1115,186 @@ class SessionStore:
             rows = db.execute(
                 f"""SELECT {state_key} AS state_key,COUNT(*) AS total
                 FROM sessions s LEFT JOIN conversation_state cs ON cs.session_id=s.session_id AND cs.property_id=s.property_id
-                WHERE s.property_id=?{restaurant_clause} GROUP BY state_key""",  # nosec B608 - fixed expression and generated placeholders only.
+                WHERE s.property_id=?{restaurant_clause}
+                  AND (COALESCE(cs.escalation_reason,'')<>'' OR EXISTS (
+                    SELECT 1 FROM conversation_messages eligible
+                    WHERE eligible.property_id=s.property_id AND eligible.session_id=s.session_id
+                      AND eligible.content<>'' AND eligible.role IN ('guest','assistant','staff')
+                  )) GROUP BY state_key""",  # nosec B608 - fixed expression and generated placeholders only.
                 params,
             ).fetchall()
         for row in rows:
             if row["state_key"] in counts:
                 counts[row["state_key"]] = int(row["total"])
         return counts
+
+    def conversation_summaries(
+        self,
+        property_id: str,
+        user_id: str,
+        restaurant_ids: set[str] | None = None,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        state_filter: str = "",
+        department_filter: str = "",
+        department_scope_id: str | None = None,
+        unread_only: bool = False,
+    ) -> dict[str, Any]:
+        """Return a bounded inbox page without decrypting message history."""
+        self.purge_expired_conversations(property_id)
+        if not 1 <= int(limit) <= 100 or not 0 <= int(offset) <= 1_000_000:
+            raise ValueError("Invalid conversation page bounds.")
+        allowed_states = {"", "waiting_for_staff", "assigned", "human_active", "ai_active", "resolved"}
+        if state_filter not in allowed_states:
+            raise ValueError("Invalid conversation state filter.")
+        if restaurant_ids is not None and not restaurant_ids:
+            return {"items": [], "total": 0, "limit": int(limit), "offset": 0}
+
+        state_key = """CASE
+            WHEN COALESCE(cs.state,'ai_active') IN ('waiting_for_staff','assigned','human_active','resolved') THEN COALESCE(cs.state,'ai_active')
+            WHEN cs.status='closed' THEN 'resolved'
+            WHEN cs.status='escalated' THEN 'waiting_for_staff'
+            ELSE 'ai_active' END"""
+        department_key = """CASE
+            WHEN cs.department_id IS NOT NULL THEN 'service'
+            WHEN cs.restaurant_id IS NOT NULL OR cs.department_type='restaurant' THEN 'restaurant'
+            ELSE 'concierge' END"""
+        where = [
+            "s.property_id=?",
+            "(COALESCE(cs.escalation_reason,'')<>'' OR EXISTS (SELECT 1 FROM conversation_messages eligible WHERE eligible.property_id=s.property_id AND eligible.session_id=s.session_id AND eligible.content<>'' AND eligible.role IN ('guest','assistant','staff')))"
+        ]
+        params: list[Any] = [property_id]
+        if restaurant_ids is not None:
+            values = sorted(restaurant_ids)
+            where.append(f"cs.restaurant_id IN ({','.join('?' for _ in values)})")  # nosec B608 - generated placeholders only.
+            params.extend(values)
+        if department_scope_id:
+            where.append("cs.department_id=?")
+            params.append(department_scope_id)
+        if state_filter:
+            where.append(f"{state_key}=?")
+            params.append(state_filter)
+        department_filter = str(department_filter or "").strip()
+        if department_filter == "concierge":
+            where.append(f"{department_key}='concierge'")
+        elif department_filter == "restaurant":
+            where.append(f"{department_key}='restaurant'")
+        elif department_filter.startswith("department:"):
+            where.append("cs.department_id=?")
+            params.append(department_filter.partition(":")[2])
+        if unread_only:
+            where.append("EXISTS (SELECT 1 FROM conversation_messages unread_m LEFT JOIN conversation_reads read_mark ON read_mark.property_id=unread_m.property_id AND read_mark.session_id=unread_m.session_id AND read_mark.user_id=? WHERE unread_m.property_id=s.property_id AND unread_m.session_id=s.session_id AND unread_m.role='guest' AND unread_m.content<>'' AND unread_m.created_at>COALESCE(read_mark.last_read_at,0))")
+            params.append(user_id)
+        where_sql = " AND ".join(where)
+        with self._connect() as db:
+            total = int(db.execute(
+                f"""SELECT COUNT(*) FROM sessions s
+                LEFT JOIN conversation_state cs ON cs.session_id=s.session_id AND cs.property_id=s.property_id
+                WHERE {where_sql}""",  # nosec B608 - fixed SQL expressions plus bound values.
+                params,
+            ).fetchone()[0])
+            actual_offset = min(int(offset), max(total - 1, 0) // int(limit) * int(limit)) if total else 0
+            rows = db.execute(
+                f"""SELECT s.session_id,s.created_at,s.last_seen_at,
+                    COALESCE(cs.status,'open') AS status,COALESCE(cs.human_takeover,0) AS human_takeover,
+                    {state_key} AS state,cs.department_type,cs.department_id,cs.restaurant_id,
+                    cs.assigned_user_id,cs.assigned_at,COALESCE(cs.escalation_reason,'') AS escalation_reason,
+                    COUNT(CASE WHEN m.content<>'' THEN 1 END) AS message_count,
+                    COUNT(CASE WHEN m.role='staff' AND m.content<>'' THEN 1 END) AS shared_message_count,
+                    MAX(CASE WHEN m.content<>'' THEN m.created_at END) AS last_message_at,
+                    MAX(CASE WHEN m.role='staff' AND m.content<>'' THEN m.created_at END) AS last_shared_message_at,
+                    (SELECT preview.role FROM conversation_messages preview
+                     WHERE preview.property_id=s.property_id AND preview.session_id=s.session_id AND preview.content<>''
+                     ORDER BY preview.created_at DESC,preview.message_id DESC LIMIT 1) AS last_message_role,
+                    (SELECT preview.content FROM conversation_messages preview
+                     WHERE preview.property_id=s.property_id AND preview.session_id=s.session_id AND preview.content<>''
+                     ORDER BY preview.created_at DESC,preview.message_id DESC LIMIT 1) AS encrypted_preview,
+                    (SELECT preview.created_at FROM conversation_messages preview
+                     WHERE preview.property_id=s.property_id AND preview.session_id=s.session_id AND preview.content<>''
+                     ORDER BY preview.created_at DESC,preview.message_id DESC LIMIT 1) AS preview_created_at,
+                    (SELECT preview.content FROM conversation_messages preview
+                     WHERE preview.property_id=s.property_id AND preview.session_id=s.session_id
+                       AND preview.content<>'' AND preview.role='staff'
+                     ORDER BY preview.created_at DESC,preview.message_id DESC LIMIT 1) AS encrypted_staff_preview,
+                    (SELECT COUNT(*) FROM conversation_messages unread_m
+                     LEFT JOIN conversation_reads read_mark ON read_mark.property_id=unread_m.property_id
+                       AND read_mark.session_id=unread_m.session_id AND read_mark.user_id=?
+                     WHERE unread_m.property_id=s.property_id AND unread_m.session_id=s.session_id
+                       AND unread_m.role='guest' AND unread_m.content<>''
+                       AND unread_m.created_at>COALESCE(read_mark.last_read_at,0)) AS unread_count
+                FROM sessions s
+                LEFT JOIN conversation_state cs ON cs.session_id=s.session_id AND cs.property_id=s.property_id
+                LEFT JOIN conversation_messages m ON m.property_id=s.property_id AND m.session_id=s.session_id
+                WHERE {where_sql} GROUP BY s.session_id
+                ORDER BY COALESCE(MAX(CASE WHEN m.content<>'' THEN m.created_at END),s.created_at) DESC,s.session_id DESC
+                LIMIT ? OFFSET ?""",  # nosec B608 - fixed SQL expressions plus bound values.
+                [user_id, *params, int(limit), actual_offset],
+            ).fetchall()
+        items = []
+        for row in rows:
+            item = dict(row)
+            encrypted = str(item.pop("encrypted_preview") or "")
+            item["last_message_preview"] = self._decrypt_conversation_content(encrypted) if encrypted else ""
+            encrypted_staff = str(item.pop("encrypted_staff_preview") or "")
+            item["last_staff_preview"] = self._decrypt_conversation_content(encrypted_staff) if encrypted_staff else ""
+            item["human_takeover"] = bool(item["human_takeover"])
+            items.append(item)
+        return {"items": items, "total": total, "limit": int(limit), "offset": actual_offset}
+
+    def conversation_message_history(self, property_id: str, session_id: str, *, shared_only: bool = False) -> list[dict[str, Any]]:
+        """Read one property-scoped transcript; shared-only mode excludes private guest/AI turns."""
+        self.purge_expired_conversations(property_id)
+        query = "SELECT message_id,role,content,created_at,sender_user_id FROM conversation_messages WHERE property_id=? AND session_id=? AND content<>''"
+        params: list[Any] = [property_id, session_id]
+        if shared_only:
+            query += " AND role='staff'"
+        query += " ORDER BY created_at,message_id"
+        with self._connect() as db:
+            if not db.execute("SELECT 1 FROM sessions WHERE property_id=? AND session_id=?", (property_id, session_id)).fetchone():
+                raise KeyError("Conversation not found.")
+            rows = db.execute(query, params).fetchall()
+        return [{**dict(row), "content": self._decrypt_conversation_content(row["content"])} for row in rows]
+
+    def mark_conversation_read(self, property_id: str, session_id: str, user_id: str) -> None:
+        now = int(time.time())
+        with self._connect() as db:
+            if not db.execute("SELECT 1 FROM sessions WHERE property_id=? AND session_id=?", (property_id, session_id)).fetchone():
+                raise KeyError("Conversation not found.")
+            db.execute(
+                """INSERT INTO conversation_reads(property_id,session_id,user_id,last_read_at) VALUES(?,?,?,?)
+                ON CONFLICT(property_id,session_id,user_id) DO UPDATE SET last_read_at=MAX(conversation_reads.last_read_at,excluded.last_read_at)""",
+                (property_id, session_id, user_id, now),
+            )
+
+    def conversation_notes(self, property_id: str, session_id: str) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT note_id,author_user_id,content,created_at FROM conversation_notes WHERE property_id=? AND session_id=? ORDER BY created_at,note_id",
+                (property_id, session_id),
+            ).fetchall()
+        return [{**dict(row), "content": self._decrypt_conversation_content(row["content"])} for row in rows]
+
+    def add_conversation_note(self, property_id: str, session_id: str, author_user_id: str, content: str) -> dict[str, Any]:
+        clean = " ".join(str(content or "").split())
+        if not clean or len(clean) > 2000:
+            raise ValueError("Internal notes must be between 1 and 2000 characters.")
+        note = {
+            "note_id": uuid.uuid4().hex,
+            "property_id": property_id,
+            "session_id": session_id,
+            "author_user_id": author_user_id,
+            "content": clean,
+            "created_at": int(time.time()),
+        }
+        with self._connect() as db:
+            if not db.execute("SELECT 1 FROM sessions WHERE property_id=? AND session_id=?", (property_id, session_id)).fetchone():
+                raise KeyError("Conversation not found.")
+            db.execute(
+                "INSERT INTO conversation_notes(note_id,property_id,session_id,author_user_id,content,created_at) VALUES(?,?,?,?,?,?)",
+                (note["note_id"], property_id, session_id, author_user_id, self._encrypt_conversation_content(clean), note["created_at"]),
+            )
+        return note
 
     def conversations(
         self,
@@ -1130,6 +1392,82 @@ class SessionStore:
             row = db.execute("SELECT restaurant_id FROM conversation_state WHERE session_id=? AND property_id=?", (session_id, property_id)).fetchone()
             self._record_conversation_audit(db, property_id, row["restaurant_id"], session_id, actor_user_id, "takeover" if human_takeover else next_state)
         return {"session_id": session_id, "property_id": property_id, "status": status, "state": next_state, "human_takeover": human_takeover}
+
+    def route_conversation_to_department(
+        self, session_id: str, property_id: str, department_id: str, actor_user_id: str
+    ) -> dict[str, Any]:
+        now = int(time.time())
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if not db.execute("SELECT 1 FROM sessions WHERE session_id=? AND property_id=?", (session_id, property_id)).fetchone():
+                raise KeyError("Conversation not found.")
+            current = db.execute(
+                "SELECT state,restaurant_id FROM conversation_state WHERE session_id=? AND property_id=?",
+                (session_id, property_id),
+            ).fetchone()
+            if current and (current["state"] == "human_active" or current["state"] == "resolved"):
+                raise ValueError("Only an active AI conversation can be routed to a department.")
+            if current and current["restaurant_id"]:
+                raise ValueError("Restaurant escalations must remain in their restaurant queue.")
+            db.execute(
+                """INSERT INTO conversation_state
+                (session_id,property_id,status,human_takeover,updated_at,state,department_type,department_id,restaurant_id,assigned_user_id,assigned_at)
+                VALUES(?,?,'escalated',0,?,'waiting_for_staff','service',?,NULL,NULL,NULL)
+                ON CONFLICT(session_id) DO UPDATE SET status='escalated',human_takeover=0,updated_at=excluded.updated_at,
+                  state='waiting_for_staff',department_type='service',department_id=excluded.department_id,
+                  restaurant_id=NULL,assigned_user_id=NULL,assigned_at=NULL""",
+                (session_id, property_id, now, department_id),
+            )
+            self._record_conversation_audit(db, property_id, None, session_id, actor_user_id, "routed_to_department")
+        return self.conversation_state(session_id, property_id)
+
+    def take_over_conversation(self, session_id: str, property_id: str, actor_user_id: str) -> dict[str, Any]:
+        now = int(time.time())
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if not db.execute("SELECT 1 FROM sessions WHERE session_id=? AND property_id=?", (session_id, property_id)).fetchone():
+                raise KeyError("Conversation not found.")
+            row = db.execute(
+                "SELECT state,restaurant_id,department_id,assigned_user_id FROM conversation_state WHERE session_id=? AND property_id=?",
+                (session_id, property_id),
+            ).fetchone()
+            current_state = str(row["state"]) if row else "ai_active"
+            if row and row["restaurant_id"]:
+                raise ValueError("Restaurant conversations must be accepted from their assigned queue.")
+            if current_state not in {"ai_active", "waiting_for_staff"}:
+                raise ValueError("This conversation can no longer be taken over.")
+            if row and row["assigned_user_id"] and row["assigned_user_id"] != actor_user_id:
+                raise ValueError("This conversation is assigned to another staff member.")
+            db.execute(
+                """INSERT INTO conversation_state
+                (session_id,property_id,status,human_takeover,updated_at,state,assigned_user_id,assigned_at)
+                VALUES(?,?,'open',1,?,'human_active',?,?)
+                ON CONFLICT(session_id) DO UPDATE SET status='open',human_takeover=1,updated_at=excluded.updated_at,
+                  state='human_active',assigned_user_id=excluded.assigned_user_id,assigned_at=excluded.assigned_at""",
+                (session_id, property_id, now, actor_user_id, now),
+            )
+            self._record_conversation_audit(db, property_id, None, session_id, actor_user_id, "takeover")
+        return self.conversation_state(session_id, property_id)
+
+    def reopen_conversation(self, session_id: str, property_id: str, actor_user_id: str) -> dict[str, Any]:
+        now = int(time.time())
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT restaurant_id,state FROM conversation_state WHERE session_id=? AND property_id=?",
+                (session_id, property_id),
+            ).fetchone()
+            if not row:
+                raise KeyError("Conversation not found.")
+            if row["state"] != "resolved":
+                raise ValueError("Only resolved conversations can be reopened.")
+            db.execute(
+                """UPDATE conversation_state SET state='ai_active',status='open',human_takeover=0,
+                  assigned_user_id=NULL,assigned_at=NULL,updated_at=? WHERE session_id=? AND property_id=?""",
+                (now, session_id, property_id),
+            )
+            self._record_conversation_audit(db, property_id, row["restaurant_id"], session_id, actor_user_id, "reopened")
+        return self.conversation_state(session_id, property_id)
 
     def escalate_conversation(self, session_id: str, property_id: str, restaurant_id: str, reason: str = "") -> dict[str, Any]:
         now = int(time.time())
@@ -1246,18 +1584,34 @@ class SessionStore:
         content: str,
         *,
         allow_unassigned: bool = False,
+        client_message_id: str | None = None,
     ) -> dict[str, Any]:
         now = int(time.time())
+        clean_content = str(content or "").strip()
+        if client_message_id is not None and (
+            len(client_message_id) < 8 or len(client_message_id) > 80
+            or any(not (char.isalnum() or char in "-_:") for char in client_message_id)
+        ):
+            raise ValueError("Invalid client message identifier.")
+        content_hash = hashlib.sha256(clean_content.encode("utf-8")).hexdigest()
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            if client_message_id:
+                previous = db.execute(
+                    """SELECT content_hash,message_id FROM conversation_reply_idempotency
+                    WHERE property_id=? AND session_id=? AND user_id=? AND client_message_id=?""",
+                    (property_id, session_id, actor_user_id, client_message_id),
+                ).fetchone()
+                if previous:
+                    if previous["content_hash"] != content_hash:
+                        raise ValueError("This reply identifier was already used for different message text.")
+                    return {"message_id": previous["message_id"], "status": "sent", "duplicate": True}
             state = db.execute(
                 "SELECT restaurant_id,state,assigned_user_id FROM conversation_state WHERE session_id=? AND property_id=?",
                 (session_id, property_id),
             ).fetchone()
             if not state:
                 raise KeyError("Conversation not found.")
-            if not state["restaurant_id"] and not allow_unassigned:
-                raise PermissionError("Conversation is not assigned to a restaurant.")
             if state["state"] != "human_active":
                 raise ValueError("A staff member must accept the conversation before replying.")
             if state["assigned_user_id"] != actor_user_id and not allow_unassigned:
@@ -1269,8 +1623,15 @@ class SessionStore:
                 """INSERT INTO conversation_messages
                 (message_id,property_id,session_id,role,content,provider,model,latency_ms,error,created_at,sender_user_id)
                 VALUES(?,?,?,'staff',?,'human','staff',NULL,NULL,?,?)""",
-                (message_id, property_id, session_id, self._encrypt_conversation_content(content), now, actor_user_id),
+                (message_id, property_id, session_id, self._encrypt_conversation_content(clean_content), now, actor_user_id),
             )
+            if client_message_id:
+                db.execute(
+                    """INSERT INTO conversation_reply_idempotency
+                    (property_id,session_id,user_id,client_message_id,content_hash,message_id,created_at)
+                    VALUES(?,?,?,?,?,?,?)""",
+                    (property_id, session_id, actor_user_id, client_message_id, content_hash, message_id, now),
+                )
             db.execute("UPDATE conversation_state SET updated_at=? WHERE session_id=? AND property_id=?", (now, session_id, property_id))
             self._record_conversation_audit(db, property_id, state["restaurant_id"], session_id, actor_user_id, "staff_reply_sent")
         return {"message_id": message_id, "status": "sent"}

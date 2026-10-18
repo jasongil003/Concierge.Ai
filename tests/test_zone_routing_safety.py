@@ -74,6 +74,25 @@ def test_route_preserves_valid_positive_distances(tmp_path):
     assert route["distance"] == 12.5
 
 
+def test_map_validation_reports_missing_and_disconnected_guest_routes(tmp_path):
+    zones, start, end = _route_fixture(tmp_path)
+    third = zones.create_node(
+        "hotel-a",
+        {"floor_id": start["floor_id"], "label": "Restaurant", "x": 40, "y": 40},
+    )
+    zones.create_edge("hotel-a", {"from_node_id": start["node_id"], "to_node_id": end["node_id"], "distance": 2})
+
+    validation = zones.validate_map("hotel-a")
+    codes = {issue["code"] for issue in validation["issues"]}
+    assert validation["status"] == "review"
+    assert "floor_map_missing" in codes
+    assert "routes_disconnected" in codes
+
+    zones.create_edge("hotel-a", {"from_node_id": end["node_id"], "to_node_id": third["node_id"], "distance": 4})
+    connected = zones.validate_map("hotel-a")
+    assert "routes_disconnected" not in {issue["code"] for issue in connected["issues"]}
+
+
 def test_existing_path_edges_are_not_assumed_accessible(tmp_path):
     zones, start, end = _route_fixture(tmp_path)
     zones.create_edge(

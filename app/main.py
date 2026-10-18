@@ -72,7 +72,7 @@ from .guest_context import build_guest_context
 from .stay_context import StayContextEngine
 from .assistant_decisions import AssistantDecisionEngine
 from .guest_actions import GuestActionRegistry
-from .personalization import PREFERENCE_CATEGORIES, PersonalizationStore, extract_preferences, preference_commands
+from .personalization import DEFAULT_POLICY as DEFAULT_PERSONALIZATION_POLICY, PREFERENCE_CATEGORIES, PersonalizationStore, extract_preferences, preference_commands
 from .admin_copilot import (
     ADMIN_ACTION_POLICY,
     ADMIN_KNOWLEDGE_POLICY,
@@ -128,7 +128,7 @@ from .hospitality import (
 )
 from .intro import IntroExperienceStore
 from .location_analytics import LocationAnalyticsStore
-from .privacy_consent import PrivacyConsentStore
+from .privacy_consent import CONSENT_CATEGORIES, PrivacyConsentStore
 from .operations import OperationsStore, RWG_REFERENCE_SOURCE_PREFIX
 from .knowledge_management import KnowledgeStore, CATEGORIES, parse_document, validate_file
 from .rwg_knowledge import decode_imported_reference_records
@@ -152,7 +152,7 @@ from .places import (
     required_category_permissions,
 )
 from .properties import AUTHENTICATION_RULES, DesignRevisionConflict, PropertyRecord, PropertyStore, default_design_config, validate_design_config
-from .guest_experience import COMPONENT_REGISTRY
+from .guest_experience import COMPONENT_REGISTRY, validate_conversation_module_config
 from .intelligent_ui import (
     GuestExperienceSettings,
     make_response as make_intelligent_ui_response,
@@ -939,6 +939,43 @@ def _require_config_permissions(principal: AdminPrincipal, permissions: tuple[st
         raise HTTPException(status_code=403, detail=f"Permission required: {', '.join(missing)}")
 
 
+def _validate_property_locations(value: Any) -> None:
+    """Validate legacy guest location records without restricting their old type labels."""
+    if not isinstance(value, list) or len(value) > 500:
+        raise HTTPException(status_code=422, detail="Property locations must be a list of at most 500 records.")
+    seen_ids: set[str] = set()
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            raise HTTPException(status_code=422, detail=f"Property location {index + 1} must be an object.")
+        location_id = item.get("id")
+        name = item.get("name")
+        location_type = item.get("type", "")
+        description = item.get("description", "")
+        if not isinstance(location_id, str) or not location_id.strip() or len(location_id) > 120 or location_id in seen_ids:
+            raise HTTPException(status_code=422, detail=f"Property location {index + 1} has an invalid or duplicate ID.")
+        seen_ids.add(location_id)
+        if not isinstance(name, str) or not name.strip() or len(name) > 160:
+            raise HTTPException(status_code=422, detail=f"Property location {index + 1} needs a name of 1–160 characters.")
+        if not isinstance(location_type, str) or len(location_type) > 80:
+            raise HTTPException(status_code=422, detail=f"Property location {index + 1} has an invalid category.")
+        if not isinstance(description, str) or len(description) > 1000:
+            raise HTTPException(status_code=422, detail=f"Property location {index + 1} has a description that is too long.")
+        latitude = item.get("latitude")
+        longitude = item.get("longitude")
+        if (latitude is None) != (longitude is None):
+            raise HTTPException(status_code=422, detail=f"Property location {index + 1} must include both coordinates or neither.")
+        if latitude is not None:
+            try:
+                latitude_value = float(latitude)
+                longitude_value = float(longitude)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=422, detail=f"Property location {index + 1} has invalid coordinates.") from None
+            if isinstance(latitude, bool) or isinstance(longitude, bool) or not math.isfinite(latitude_value) or not math.isfinite(longitude_value) or not -90 <= latitude_value <= 90 or not -180 <= longitude_value <= 180:
+                raise HTTPException(status_code=422, detail=f"Property location {index + 1} coordinates are outside valid latitude and longitude bounds.")
+        if "guest_visible" in item and not isinstance(item["guest_visible"], bool):
+            raise HTTPException(status_code=422, detail=f"Property location {index + 1} guest visibility must be true or false.")
+
+
 def _merge_property_mapping(existing: Any, incoming: Any, field_name: str = "") -> Any:
     if PROPERTY_SENSITIVE_FIELD_PATTERN.search(field_name) and incoming == "[redacted]":
         return copy.deepcopy(existing) if existing is not None else None
@@ -994,6 +1031,8 @@ def _require_property_payload_permissions(updates: dict[str, Any], principal: Ad
             unknown = set(setting_value) - PROPERTY_DEPLOYMENT_SETTING_KEYS
             if unknown:
                 _require_config_permissions(principal, ("system.configure",))
+        elif setting_name == "locations":
+            _validate_property_locations(setting_value)
         elif setting_name == "guest_experience":
             try:
                 validate_guest_experience_settings(setting_value)
@@ -1084,6 +1123,28 @@ class CredentialPayload(BaseModel):
 
 class GenericPayload(BaseModel):
     data: dict[str, Any] = Field(default_factory=dict)
+
+
+class ConversationModulePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    config: dict[str, Any]
+    expected_revision: int | None = Field(default=None, ge=1)
+
+
+class ConversationModuleOrderPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    module_ids: list[str] = Field(min_length=0, max_length=200)
+
+
+class ConversationModuleRollbackPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version: int = Field(ge=1)
+    expected_revision: int = Field(ge=1)
+
+
+class ConversationModuleRevisionPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: int = Field(ge=1)
 
 
 class MapRevisionActionPayload(BaseModel):
@@ -1237,6 +1298,15 @@ class ConversationRetentionPayload(BaseModel):
 
 class StaffReplyPayload(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
+    client_message_id: str | None = Field(default=None, min_length=8, max_length=80, pattern=r"^[A-Za-z0-9_:-]+$")
+
+
+class ConversationRoutePayload(BaseModel):
+    department_id: str = Field(min_length=1, max_length=80)
+
+
+class ConversationNotePayload(BaseModel):
+    note: str = Field(min_length=1, max_length=2000)
 
 
 class NotificationEvaluatePayload(BaseModel):
@@ -2128,6 +2198,7 @@ async def confirm_guest_service_action(payload: GuestServiceConfirmationPayload,
     if not replayed:
         metrics.SERVICE_REQUESTS.labels("created").inc()
         await _dispatch_webhooks(session.property_id, "guest.request.created", {"request": record})
+    record.pop("notes", None)
     return {
         "status": "existing" if replayed else "created",
         "request": record,
@@ -2166,6 +2237,7 @@ async def create_guest_service_request(payload: GuestServiceRequestPayload, requ
             metadata={"request_id": request_record.get("request_id"), "service_name": request_record.get("request_type", "")},
         )
         await _dispatch_webhooks(session.property_id, "guest.request.created", {"request": request_record})
+    request_record.pop("notes", None)
     return {"status": "existing" if replayed else "created", "request": request_record}
 
 
@@ -2192,6 +2264,7 @@ async def cancel_guest_request(request_id: str, payload: GuestRequestCancelPaylo
         getattr(request.state, "guardrail_decision").client_ip, resource="guest_action",
         metadata={"action_name": "service_request.cancel", "request_id": request_id},
     )
+    result.pop("notes", None)
     return {"status": "cancelled", "request": result}
 
 
@@ -2482,6 +2555,282 @@ async def list_properties(request: Request) -> dict[str, Any]:
     else:
         records.sort(key=lambda record: str(record.hotel_name or record.property_id or "").casefold())
     return {"properties": [_property_admin_payload(record, principal) for record in records]}
+
+
+def _conversation_module_config(raw: dict[str, Any]) -> dict[str, Any]:
+    if isinstance(raw.get("draft_config"), dict):
+        return copy.deepcopy(raw["draft_config"])
+    legacy = {
+        key: raw[key]
+        for key in ("id", "name", "description", "icon", "category", "group", "display_style", "order", "enabled", "action", "prompt")
+        if key in raw
+    }
+    legacy.setdefault("id", "module")
+    legacy.setdefault("name", "Untitled module")
+    if not isinstance(legacy.get("action"), dict) and not str(legacy.get("prompt") or "").strip():
+        # Older records may only contain a label and ordering metadata. Keep them
+        # editable without pretending an action was configured or publishing one.
+        return {
+            "id": str(legacy["id"]),
+            "name": str(legacy["name"])[:80],
+            "description": str(legacy.get("description") or "")[:180],
+            "icon": legacy.get("icon", "sparkles") if legacy.get("icon") in {"sparkles", "room", "dining", "map", "compass", "info", "service", "car", "help"} else "sparkles",
+            "category": legacy.get("category", "Stay") if legacy.get("category") in {"Stay", "Dining", "Explore", "Requests", "Support", "Other"} else "Stay",
+            "group": str(legacy.get("group") or legacy.get("category") or "Stay")[:48],
+            "display_style": legacy.get("display_style", "suggestion_chip"),
+            "order": int(legacy.get("order", 0)) if str(legacy.get("order", 0)).isdigit() else 0,
+            "enabled": legacy.get("enabled", True) is not False,
+            "action": {"type": "prompt", "prompt": ""},
+        }
+    config = validate_conversation_module_config(legacy, legacy=True)
+    config.pop("prompt", None)
+    return config
+
+
+def _conversation_module_admin_view(raw: dict[str, Any]) -> dict[str, Any]:
+    if isinstance(raw.get("draft_config"), dict):
+        return {
+            **copy.deepcopy(raw["draft_config"]),
+            "status": raw.get("status", "draft"),
+            "revision": int(raw.get("revision", 1)),
+            "published_version": int(raw.get("published_version", 0)),
+            "published_config": copy.deepcopy(raw.get("published_config")),
+            "history": copy.deepcopy(raw.get("history", []))[-20:],
+        }
+    config = _conversation_module_config(raw)
+    configured = bool(config.get("action", {}).get("prompt")) or config.get("action", {}).get("type") != "prompt"
+    return {
+        **config,
+        "status": "published" if configured else "draft",
+        "revision": 1,
+        "published_version": 1 if configured else 0,
+        "published_config": copy.deepcopy(config) if configured else None,
+        "history": [],
+        "legacy": True,
+        "needs_configuration": not configured,
+    }
+
+
+def _conversation_module_storage_record(raw: dict[str, Any]) -> dict[str, Any]:
+    if isinstance(raw.get("draft_config"), dict):
+        return copy.deepcopy(raw)
+    config = _conversation_module_config(raw)
+    return {
+        "id": config["id"],
+        "status": "published",
+        "revision": 1,
+        "published_version": 1,
+        "draft_config": copy.deepcopy(config),
+        "published_config": copy.deepcopy(config),
+        "history": [],
+    }
+
+
+def _conversation_module_list(property_id: str) -> tuple[PropertyRecord, list[dict[str, Any]]]:
+    record = properties.get(property_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Property not found.")
+    modules = [item for item in (record.guest_modules or []) if isinstance(item, dict)]
+    return record, modules
+
+
+def _save_conversation_module_list(record: PropertyRecord, modules: list[dict[str, Any]]) -> None:
+    record.guest_modules = modules
+    properties.upsert(record)
+
+
+def _validate_module_catalog_action(property_id: str, config: dict[str, Any]) -> None:
+    action = config.get("action", {})
+    if action.get("type") == "service_request" and action.get("service_id"):
+        catalog = hospitality.catalog(property_id)
+        service = next((item for item in catalog.get("services", []) if item.get("service_id") == action.get("service_id")), None)
+        if not service or service.get("enabled") is not True or service.get("archived") is True:
+            raise ValueError("Choose an enabled service from this property's Service Catalog.")
+
+
+@app.get("/api/admin/properties/{property_id}/conversation-modules")
+async def list_conversation_modules(property_id: str, request: Request) -> dict[str, Any]:
+    _require_property(property_id)
+    _admin_principal(request)
+    _record, modules = _conversation_module_list(property_id)
+    views = [_conversation_module_admin_view(item) for item in modules]
+    views.sort(key=lambda item: (int(item.get("order", 0)), str(item.get("id", ""))))
+    catalog = hospitality.catalog(property_id)
+    departments = {item.get("department_id"): item.get("name") for item in catalog.get("departments", [])}
+    services = [
+        {"service_id": item.get("service_id"), "name": item.get("name"), "department": departments.get(item.get("department_id"))}
+        for item in catalog.get("services", [])
+        if item.get("enabled") is True and item.get("archived") is not True
+    ]
+    return {"modules": views, "services": services}
+
+
+@app.post("/api/admin/properties/{property_id}/conversation-modules")
+async def create_conversation_module(property_id: str, payload: ConversationModulePayload, request: Request) -> dict[str, Any]:
+    _require_property(property_id)
+    _admin_principal(request)
+    record, modules = _conversation_module_list(property_id)
+    module_id = f"module_{uuid.uuid4().hex[:12]}"
+    try:
+        config = validate_conversation_module_config({**payload.config, "id": module_id}, allow_incomplete=True)
+        _validate_module_catalog_action(property_id, config)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if any(str(item.get("id")) == module_id for item in modules):
+        raise HTTPException(status_code=409, detail="Module ID already exists.")
+    stored = {
+        "id": module_id,
+        "status": "draft",
+        "revision": 1,
+        "published_version": 0,
+        "draft_config": config,
+        "published_config": None,
+        "history": [],
+    }
+    modules.append(stored)
+    _save_conversation_module_list(record, modules)
+    return {"module": _conversation_module_admin_view(stored)}
+
+
+@app.put("/api/admin/properties/{property_id}/conversation-modules/{module_id}")
+async def update_conversation_module(property_id: str, module_id: str, payload: ConversationModulePayload, request: Request) -> dict[str, Any]:
+    _require_property(property_id)
+    _admin_principal(request)
+    record, modules = _conversation_module_list(property_id)
+    stored_index = next((index for index, item in enumerate(modules) if str(item.get("id")) == module_id), None)
+    if stored_index is None:
+        raise HTTPException(status_code=404, detail="Conversation module not found.")
+    stored = _conversation_module_storage_record(modules[stored_index])
+    revision = int(stored.get("revision", 1))
+    if payload.expected_revision is None or payload.expected_revision != revision:
+        raise HTTPException(status_code=409, detail=f"Module changed since it was loaded. Current revision is {revision}.")
+    try:
+        config = validate_conversation_module_config({**payload.config, "id": module_id}, allow_incomplete=True)
+        _validate_module_catalog_action(property_id, config)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    stored["draft_config"] = config
+    stored["status"] = "draft"
+    stored["revision"] = revision + 1
+    modules[stored_index] = stored
+    _save_conversation_module_list(record, modules)
+    return {"module": _conversation_module_admin_view(stored)}
+
+
+@app.post("/api/admin/properties/{property_id}/conversation-modules/{module_id}/publish")
+async def publish_conversation_module(property_id: str, module_id: str, payload: ConversationModuleRevisionPayload, request: Request) -> dict[str, Any]:
+    _require_property(property_id)
+    _admin_principal(request)
+    record, modules = _conversation_module_list(property_id)
+    stored_index = next((index for index, item in enumerate(modules) if str(item.get("id")) == module_id), None)
+    if stored_index is None:
+        raise HTTPException(status_code=404, detail="Conversation module not found.")
+    stored = _conversation_module_storage_record(modules[stored_index])
+    if payload.expected_revision != int(stored.get("revision", 1)):
+        raise HTTPException(status_code=409, detail="Module changed. Reload the draft before publishing.")
+    if stored.get("status") == "archived":
+        raise HTTPException(status_code=409, detail="Restore this archived module as a draft before publishing.")
+    try:
+        config = validate_conversation_module_config(stored.get("draft_config"))
+        _validate_module_catalog_action(property_id, config)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    previous = stored.get("published_config")
+    history = list(stored.get("history", []))
+    version = int(stored.get("published_version", 0))
+    if isinstance(previous, dict) and version > 0:
+        history.append({"version": version, "published_at": int(time.time()), "config": copy.deepcopy(previous)})
+    stored.update({
+        "status": "published",
+        "published_config": config,
+        "published_version": version + 1,
+        "revision": int(stored.get("revision", 1)) + 1,
+        "history": history[-20:],
+    })
+    modules[stored_index] = stored
+    _save_conversation_module_list(record, modules)
+    return {"module": _conversation_module_admin_view(stored)}
+
+
+@app.post("/api/admin/properties/{property_id}/conversation-modules/{module_id}/archive")
+async def archive_conversation_module(property_id: str, module_id: str, payload: ConversationModuleRevisionPayload, request: Request) -> dict[str, Any]:
+    _require_property(property_id)
+    _admin_principal(request)
+    record, modules = _conversation_module_list(property_id)
+    stored_index = next((index for index, item in enumerate(modules) if str(item.get("id")) == module_id), None)
+    if stored_index is None:
+        raise HTTPException(status_code=404, detail="Conversation module not found.")
+    stored = _conversation_module_storage_record(modules[stored_index])
+    if payload.expected_revision != int(stored.get("revision", 1)):
+        raise HTTPException(status_code=409, detail="Module changed. Reload it before archiving.")
+    stored["status"] = "archived"
+    stored["revision"] = int(stored.get("revision", 1)) + 1
+    modules[stored_index] = stored
+    _save_conversation_module_list(record, modules)
+    return {"module": _conversation_module_admin_view(stored)}
+
+
+@app.post("/api/admin/properties/{property_id}/conversation-modules/{module_id}/rollback")
+async def rollback_conversation_module(property_id: str, module_id: str, payload: ConversationModuleRollbackPayload, request: Request) -> dict[str, Any]:
+    _require_property(property_id)
+    _admin_principal(request)
+    record, modules = _conversation_module_list(property_id)
+    stored_index = next((index for index, item in enumerate(modules) if str(item.get("id")) == module_id), None)
+    if stored_index is None:
+        raise HTTPException(status_code=404, detail="Conversation module not found.")
+    stored = _conversation_module_storage_record(modules[stored_index])
+    if payload.expected_revision != int(stored.get("revision", 1)):
+        raise HTTPException(status_code=409, detail="Module changed. Reload it before restoring a version.")
+    snapshot = next((item for item in stored.get("history", []) if int(item.get("version", 0)) == payload.version), None)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="Published module version not found.")
+    try:
+        config = validate_conversation_module_config(snapshot.get("config"))
+        _validate_module_catalog_action(property_id, config)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="This historical version is no longer valid for the current property configuration.") from exc
+    stored["draft_config"] = config
+    stored["status"] = "draft"
+    stored["revision"] = int(stored.get("revision", 1)) + 1
+    modules[stored_index] = stored
+    _save_conversation_module_list(record, modules)
+    return {"module": _conversation_module_admin_view(stored)}
+
+
+@app.delete("/api/admin/properties/{property_id}/conversation-modules/{module_id}")
+async def delete_conversation_module(property_id: str, module_id: str, request: Request) -> dict[str, str]:
+    _require_property(property_id)
+    _admin_principal(request)
+    record, modules = _conversation_module_list(property_id)
+    stored_index = next((index for index, item in enumerate(modules) if str(item.get("id")) == module_id), None)
+    if stored_index is None:
+        raise HTTPException(status_code=404, detail="Conversation module not found.")
+    stored = _conversation_module_storage_record(modules[stored_index])
+    if stored.get("published_config") and stored.get("status") != "archived":
+        raise HTTPException(status_code=409, detail="Archive a published module before deleting it.")
+    modules.pop(stored_index)
+    _save_conversation_module_list(record, modules)
+    return {"status": "deleted"}
+
+
+@app.post("/api/admin/properties/{property_id}/conversation-modules/reorder")
+async def reorder_conversation_modules(property_id: str, payload: ConversationModuleOrderPayload, request: Request) -> dict[str, Any]:
+    _require_property(property_id)
+    _admin_principal(request)
+    record, modules = _conversation_module_list(property_id)
+    module_ids = [str(item.get("id")) for item in modules]
+    if len(payload.module_ids) != len(set(payload.module_ids)) or set(payload.module_ids) != set(module_ids):
+        raise HTTPException(status_code=422, detail="Reordering must include every module exactly once.")
+    by_id = {str(item.get("id")): _conversation_module_storage_record(item) for item in modules}
+    for order, module_id in enumerate(payload.module_ids):
+        stored = by_id[module_id]
+        stored["draft_config"]["order"] = order
+        if isinstance(stored.get("published_config"), dict):
+            stored["published_config"]["order"] = order
+        stored["revision"] = int(stored.get("revision", 1)) + 1
+    modules = [by_id[module_id] for module_id in payload.module_ids]
+    _save_conversation_module_list(record, modules)
+    return {"modules": [_conversation_module_admin_view(item) for item in modules]}
 
 
 @app.get("/api/admin/properties/{property_id}")
@@ -4391,11 +4740,113 @@ async def get_personalization_policy(property_id: str) -> dict[str, Any]:
     return personalization.policy(property_id)
 
 
+@app.get("/api/admin/properties/{property_id}/personalization/diagnostics")
+async def get_personalization_diagnostics(property_id: str, request: Request) -> dict[str, Any]:
+    _admin_principal(request)
+    record = _require_property_record(property_id)
+    policy = personalization.policy(property_id)
+    guardrails = normalize_guardrails(record.guardrails)
+    has_location = record.latitude is not None and record.longitude is not None
+    provider_configured = bool(settings.google_places_api_key)
+    nearby_guardrail_enabled = bool(guardrails.get("nearby_places_enabled") and guardrails.get("internet_search_enabled"))
+    category_search_enabled = bool(guardrails.get("restaurant_search_enabled") or guardrails.get("attractions_enabled"))
+    recommendation_prerequisites = {
+        "property_location": has_location,
+        "places_provider_configured": provider_configured,
+        "location_aware_recommendations": bool(policy["allow_location_aware_recommendations"]),
+        "internet_recommendations": bool(policy["allow_internet_recommendations"]),
+        "nearby_search_guardrails": nearby_guardrail_enabled and category_search_enabled,
+    }
+    recommendation_ready = all(recommendation_prerequisites.values())
+    local_recommendations = hospitality.recommendations(property_id, guest=True)
+    consents = privacy_consents.property_counts(property_id)
+    property_choices = {
+        category: {"label": str(category).replace("_", " ").title(), **consents.get(category, {"granted": 0, "not_granted": 0})}
+        for category in CONSENT_CATEGORIES
+    }
+    consent_total = sum(item["granted"] + item["not_granted"] for item in property_choices.values())
+    return {
+        "generated_at": int(time.time()),
+        "policy_updated_at": policy.get("updated_at"),
+        "consent_records": {"categories": property_choices, "total_within_expiry": consent_total},
+        "memory": {
+            **personalization.operational_summary(property_id),
+            "supported_categories": [
+                {"id": key, "label": value}
+                for key, value in PREFERENCE_CATEGORIES.items()
+            ],
+        },
+        "recommendations": {
+            "hotel_managed_enabled_count": len(local_recommendations),
+            "external_provider": "Google Places",
+            "provider_key_configured": provider_configured,
+            "provider_key_value_exposed": False,
+            "location_configured": has_location,
+            "prerequisites": recommendation_prerequisites,
+            "ready_to_attempt": recommendation_ready,
+            "guest_consent_required": "external_data_processing",
+            "live_provider_health": "checked_only_when_an_authorized_guest_searches",
+        },
+        "pms": {
+            "sync_provider": "not_configured",
+            "linked_room_context_allowed": bool(policy["allow_pms_personalization"]),
+            "available_behavior": "A verified linked stay room may be attached to a confirmed guest service request; reservation synchronization is not implemented.",
+        },
+        "cleanup": {
+            "status": "not_tracked",
+            "last_success_at": None,
+            "failed_jobs": None,
+            "explanation": "Retention runs in the background, but the application does not retain property-level job success or failure history.",
+        },
+    }
+
+
+@app.get("/api/admin/properties/{property_id}/personalization/history")
+async def get_personalization_policy_history(property_id: str, request: Request) -> dict[str, Any]:
+    _admin_principal(request)
+    _require_property(property_id)
+    history: list[dict[str, Any]] = []
+    for event in security_audit.list(property_id, limit=500):
+        if event.get("action") != "personalization_policy_changed":
+            continue
+        metadata = event.get("metadata") if isinstance(event.get("metadata"), dict) else {}
+        try:
+            changes = json.loads(str(metadata.get("changes_json") or "{}"))
+        except (TypeError, json.JSONDecodeError):
+            changes = {}
+        history.append({
+            "timestamp": event.get("timestamp"),
+            "actor": event.get("actor") or "Administrator",
+            "changes": changes if isinstance(changes, dict) else {},
+        })
+        if len(history) == 20:
+            break
+    return {"items": history, "older_history_available": len(history) == 20}
+
+
 @app.put("/api/admin/properties/{property_id}/personalization")
-async def save_personalization_policy(property_id: str, payload: GenericPayload) -> dict[str, Any]:
+async def save_personalization_policy(property_id: str, payload: GenericPayload, request: Request) -> dict[str, Any]:
     _require_property(property_id)
     try:
-        return personalization.save_policy(property_id, payload.data)
+        principal = _admin_principal(request)
+        before = personalization.policy(property_id)
+        saved = personalization.save_policy(property_id, payload.data)
+        changed_fields = [key for key in DEFAULT_PERSONALIZATION_POLICY if before.get(key) != saved.get(key)]
+        if changed_fields:
+            changes = {
+                key: {"from": before.get(key), "to": saved.get(key)}
+                for key in changed_fields
+            }
+            security_audit.record(
+                _request_id(request), property_id, "personalization_policy_changed", "success",
+                request.client.host if request.client else "", resource="personalization_policy",
+                actor=principal.username,
+                metadata={
+                    "changed_fields": ",".join(changed_fields),
+                    "changes_json": json.dumps(changes, sort_keys=True, separators=(",", ":")),
+                },
+            )
+        return saved
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -5516,7 +5967,17 @@ async def delete_property(property_id: str) -> dict[str, Any]:
 @app.get("/api/admin/properties/{property_id}/zones")
 async def admin_zones(property_id: str) -> dict[str, Any]:
     _require_property(property_id)
-    return {**zones.overview(property_id), "map_revision_state": zones.map_revision_state(property_id)}
+    overview = zones.overview(property_id)
+    property_record = properties.get(property_id)
+    return {
+        **overview,
+        "map_revision_state": zones.map_revision_state(property_id),
+        "map_validation": zones.validate_map(property_id, overview),
+        "location_collection_enabled": bool(
+            isinstance(property_record.guardrails, dict)
+            and property_record.guardrails.get("location_access_enabled") is True
+        ) if property_record else False,
+    }
 
 
 @app.post("/api/admin/properties/{property_id}/map-revisions")
@@ -5760,6 +6221,7 @@ async def admin_route(property_id: str, from_node_id: str, to_node_id: str) -> d
 @app.get("/api/admin/properties/{property_id}/sessions")
 async def admin_sessions(
     property_id: str,
+    request: Request,
     limit: int = 25,
     q: str = "",
     filter: str = "all",
@@ -5769,6 +6231,9 @@ async def admin_sessions(
     device_offset: int = 0,
 ) -> dict[str, Any]:
     _require_property(property_id)
+    principal = _admin_principal(request)
+    if not principal.can_access_property(property_id):
+        raise HTTPException(status_code=403, detail="This account cannot access that property.")
     if not 1 <= limit <= 100:
         raise HTTPException(status_code=422, detail="Session record page size must be between 1 and 100.")
     if any(offset < 0 or offset > 1_000_000 for offset in (session_offset, link_offset, stay_offset, device_offset)):
@@ -5806,11 +6271,64 @@ async def admin_sessions(
         **guest_identities.session_record_counts(property_id),
     }
     counts["total_records"] = counts["sessions"] + counts["guest_links"] + counts["stays"] + counts["devices"]
+    integrations_allowed = principal.can("integrations.view")
+    notes_allowed = principal.can("guest_sessions.manage")
+    conversations_allowed = principal.can("conversations.view")
+
+    def masked_identifier(value: Any, kind: str) -> str | None:
+        if not value:
+            return None
+        text = str(value)
+        return f"{kind} · ••••{text[-4:]}"
+
+    sessions = [dict(item) for item in session_page["items"]]
+    stays = [dict(item) for item in stay_page["items"]]
+    links = [dict(item) for item in link_page["items"]]
+    devices = [dict(item) for item in device_page["items"]]
+    for session in sessions:
+        raw_session_id = str(session.get("session_id") or "")
+        session["session_label"] = masked_identifier(raw_session_id, "Concierge session")
+        session["session_id"] = session["session_label"]
+        if notes_allowed:
+            session["action_id"] = raw_session_id
+    for stay in stays:
+        related_links = guest_identities.guest_sessions_for_stay(property_id, str(stay["stay_id"]))
+        concierge_ids = [str(link["concierge_session_id"]) for link in related_links if link.get("concierge_session_id")]
+        activity = store.linked_session_activity(property_id, concierge_ids)
+        activity_timestamps = [int(item.get("last_seen_at") or 0) for item in activity]
+        activity_timestamps.extend(int(link.get("last_seen_at") or 0) for link in related_links)
+        stay["last_activity_at"] = max(activity_timestamps, default=int(stay.get("updated_at") or 0))
+        stay["concierge_session_count"] = len(activity)
+        stay["device_count"] = 1 if stay.get("device_id") else 0
+        stay["device_id"] = masked_identifier(stay.get("device_id"), "Device")
+        if not integrations_allowed:
+            stay["pms_guest_id"] = masked_identifier(stay.get("pms_guest_id"), "PMS")
+        if not notes_allowed:
+            stay.pop("memory_summary", None)
+    for link in links:
+        raw_link_id = str(link.get("guest_session_id") or "")
+        link["guest_session_label"] = masked_identifier(raw_link_id, "WLAN visit")
+        link["guest_session_id"] = link["guest_session_label"]
+        if notes_allowed:
+            link["action_id"] = raw_link_id
+        link["has_concierge_session"] = bool(link.get("concierge_session_id"))
+        if link.get("concierge_session_id"):
+            link["concierge_session_id"] = masked_identifier(link["concierge_session_id"], "Session") if conversations_allowed else None
+        link["device_id"] = masked_identifier(link.get("device_id"), "Device")
+        if not integrations_allowed:
+            for key in ("antlabs_session_id", "browser_session_id"):
+                link[key] = masked_identifier(link.get(key), "Integration")
+    for device in devices:
+        device["device_id"] = masked_identifier(device.get("device_id"), "Device")
+    if not conversations_allowed:
+        for session in sessions:
+            for key in ("interaction_status", "human_takeover", "message_count", "last_provider"):
+                session.pop(key, None)
     return {
-        "sessions": session_page["items"],
-        "stays": stay_page["items"],
-        "guest_sessions": link_page["items"],
-        "devices": device_page["items"],
+        "sessions": sessions,
+        "stays": stays,
+        "guest_sessions": links,
+        "devices": devices,
         "pages": {
             "sessions": {key: session_page[key] for key in ("total", "limit", "offset")},
             "stays": {key: stay_page[key] for key in ("total", "limit", "offset")},
@@ -5822,6 +6340,86 @@ async def admin_sessions(
     }
 
 
+@app.get("/api/admin/properties/{property_id}/stays/{stay_id}/guest-360")
+async def admin_guest_360(property_id: str, stay_id: str, request: Request) -> dict[str, Any]:
+    _require_property(property_id)
+    principal = _admin_principal(request)
+    if not principal.can_access_property(property_id):
+        raise HTTPException(status_code=403, detail="This account cannot access that property.")
+    stay = guest_identities.get_stay(property_id, stay_id)
+    if stay is None:
+        raise HTTPException(status_code=404, detail="Guest stay not found.")
+
+    manage_notes = principal.can("guest_sessions.manage")
+    integrations_allowed = principal.can("integrations.view")
+    can_view_requests = principal.can("requests.view")
+    can_view_conversations = principal.can("conversations.view")
+    if not manage_notes:
+        stay.pop("memory_summary", None)
+    stay["device_id"] = f"Device · ••••{str(stay.get('device_id') or '')[-4:]}" if stay.get("device_id") else None
+    if not integrations_allowed and stay.get("pms_guest_id"):
+        stay["pms_guest_id"] = f"PMS · ••••{str(stay['pms_guest_id'])[-4:]}"
+
+    links = guest_identities.guest_sessions_for_stay(property_id, stay_id)
+    concierge_ids = [str(link["concierge_session_id"]) for link in links if link.get("concierge_session_id")]
+    linked_activity = {
+        str(item["session_id"]): item for item in store.linked_session_activity(property_id, concierge_ids)
+    }
+    for link in links:
+        raw_link_id = str(link.get("guest_session_id") or "")
+        link["guest_session_label"] = f"WLAN visit · ••••{raw_link_id[-4:]}" if raw_link_id else "WLAN visit"
+        link["guest_session_id"] = link["guest_session_label"]
+        if manage_notes:
+            link["action_id"] = raw_link_id
+        session_id = str(link.get("concierge_session_id") or "")
+        link["has_concierge_session"] = bool(session_id and session_id in linked_activity)
+        if session_id and session_id in linked_activity:
+            link["concierge_session_status"] = linked_activity[session_id]["session_status"]
+            link["concierge_session_last_seen_at"] = linked_activity[session_id]["last_seen_at"]
+            link["concierge_session_expires_at"] = linked_activity[session_id]["session_expires_at"]
+        link["concierge_session_id"] = f"Session · ••••{session_id[-4:]}" if session_id and can_view_conversations else None
+        if not integrations_allowed:
+            for key in ("antlabs_session_id", "browser_session_id"):
+                value = link.get(key)
+                link[key] = f"Integration · ••••{str(value)[-4:]}" if value else None
+
+    requests: list[dict[str, Any]] = []
+    if can_view_requests:
+        request_fields = (
+            "request_id", "request_type", "service_id", "room", "description", "priority",
+            "department", "status", "due_at", "created_at", "updated_at", "completed_at",
+        )
+        for item in hospitality.guest_requests_for_stay(property_id, {stay_id}):
+            requests.append({key: item.get(key) for key in request_fields if key in item})
+
+    session_summaries: list[dict[str, Any]] = []
+    if can_view_conversations:
+        session_ids = guest_identities.sessions_for_stay(property_id, stay_id)
+        for item in store.linked_session_summaries(property_id, session_ids):
+            session_summaries.append({
+                "session_status": item["session_status"],
+                "interaction_status": item["interaction_status"],
+                "human_takeover": item["human_takeover"],
+                "message_count": item["message_count"],
+                "created_at": item["created_at"],
+                "last_seen_at": item["last_seen_at"],
+                "last_message_at": item["last_message_at"],
+                "session_expires_at": item["session_expires_at"],
+            })
+
+    return {
+        "stay": stay,
+        "guest_links": links,
+        "requests": requests,
+        "conversations": session_summaries,
+        "visibility": {
+            "staff_notes": manage_notes,
+            "requests": can_view_requests,
+            "conversations": can_view_conversations,
+        },
+    }
+
+
 @app.get("/api/admin/properties/{property_id}/conversations")
 async def property_conversations(
     property_id: str,
@@ -5829,6 +6427,8 @@ async def property_conversations(
     limit: int = 50,
     offset: int = 0,
     status: str = "",
+    department: str = "",
+    unread: bool = False,
 ) -> dict[str, Any]:
     _require_property(property_id)
     principal = _admin_principal(request)
@@ -5840,30 +6440,246 @@ async def property_conversations(
         raise HTTPException(status_code=422, detail="Conversation page offset must be between 0 and 1000000.")
     if status not in {"", "waiting_for_staff", "assigned", "human_active", "ai_active", "resolved"}:
         raise HTTPException(status_code=422, detail="Invalid conversation state filter.")
-    restaurant_ids = None if principal.can("properties.all") or principal.can("properties.edit") else _assigned_restaurant_ids(principal, property_id)
-    status_counts = store.conversation_status_counts(property_id, restaurant_ids)
+    department_scope_id = principal.department_id if principal.role_slug == "department-manager" else None
+    restaurant_scope = principal.role_slug in {"restaurant-manager", "restaurant-staff"}
+    restaurant_ids = _assigned_restaurant_ids(principal, property_id) if restaurant_scope else None
+    can_view_guest_transcripts = principal.can("guest_sessions.view") or principal.can("conversations.transcript.view")
+    if not can_view_guest_transcripts and not department_scope_id and not restaurant_scope:
+        restaurant_ids = set()
+    status_counts = store.conversation_status_counts(
+        property_id, restaurant_ids, department_scope_id=department_scope_id,
+    )
     total = status_counts.get(status, 0) if status else sum(status_counts.values())
-    last_page_offset = max(0, ((total - 1) // limit) * limit) if total else 0
-    offset = min(offset, last_page_offset)
-    conversations = store.conversations(property_id, restaurant_ids, limit=limit, offset=offset, state_filter=status)
+    page = store.conversation_summaries(
+        property_id, principal.user_id, restaurant_ids,
+        limit=limit, offset=offset, state_filter=status, department_filter=department,
+        department_scope_id=department_scope_id, unread_only=unread,
+    )
+    conversations = page["items"]
     for conversation in conversations:
         restaurant_id = conversation.get("restaurant_id")
         restaurant = hospitality.get_restaurant(property_id, restaurant_id) if restaurant_id else None
-        conversation["restaurant_name"] = restaurant["name"] if restaurant else "Hotel team"
+        department_record = hospitality.get_department(property_id, str(conversation.get("department_id") or "")) if conversation.get("department_id") else None
+        conversation["restaurant_name"] = restaurant["name"] if restaurant else (department_record["name"] if department_record else "Concierge")
+        conversation["department_name"] = "Restaurant" if restaurant_id else (department_record["name"] if department_record else "Concierge")
         assigned = admin_auth.get_user(conversation["assigned_user_id"]) if conversation.get("assigned_user_id") else None
-        conversation["assigned_user_name"] = assigned["display_name"] if assigned else ""
-        # Guest chat is private. A restaurant escalation exposes only the reason
-        # the guest explicitly submitted, along with staff replies.
-        conversation["messages"] = [message for message in conversation.get("messages", []) if message.get("role") == "staff"]
-        conversation["message_count"] = len(conversation["messages"]) + int(bool(conversation.get("escalation_reason")))
+        conversation["assigned_user_name"] = assigned["display_name"] if assigned and assigned.get("property_id") == property_id else ""
+        if can_view_guest_transcripts:
+            conversation["message_count"] = int(conversation.pop("message_count", 0))
+            conversation["last_message_at"] = conversation.get("last_message_at") or conversation.get("created_at")
+            conversation["last_message_preview"] = str(conversation.get("last_message_preview") or "")
+        else:
+            conversation["message_count"] = int(conversation.pop("shared_message_count", 0)) + int(bool(conversation.get("escalation_reason")))
+            conversation["last_message_at"] = conversation.get("last_shared_message_at") or conversation.get("created_at")
+            conversation["last_message_preview"] = str(conversation.get("last_staff_preview") or conversation.get("escalation_reason") or "A guest asked for restaurant assistance.")
+            conversation["last_message_role"] = "staff" if conversation.get("last_staff_preview") else "guest"
+        history = store.conversation_message_history(
+            property_id, str(conversation["session_id"]),
+            shared_only=not can_view_guest_transcripts,
+        )
+        conversation["messages"] = [
+            {
+                "message_id": item["message_id"],
+                "role": item["role"],
+                "content": item["content"],
+                "created_at": item["created_at"],
+            }
+            for item in history
+        ]
+        conversation.pop("shared_message_count", None)
+        conversation.pop("last_shared_message_at", None)
+        conversation.pop("last_staff_preview", None)
+    catalog = hospitality.catalog(property_id, department_id=department_scope_id) if principal.can("requests.view") or principal.can("conversations.assign") else {"departments": []}
+    department_options = [{"id": "concierge", "name": "Concierge"}, {"id": "restaurant", "name": "Restaurant"}]
+    department_options.extend(
+        {"id": f"department:{item['department_id']}", "name": item["name"]}
+        for item in catalog.get("departments", []) if item.get("enabled")
+    )
     return {
         "conversations": conversations,
-        "total": total,
+        "total": page["total"],
         "limit": limit,
-        "offset": offset,
+        "offset": page["offset"],
         "status_counts": status_counts,
-        "retention": store.retention(property_id),
+        "retention": store.retention(property_id) if principal.can("guest_sessions.manage") else None,
+        "department_options": department_options,
+        "unread_total": sum(int(item.get("unread_count") or 0) > 0 for item in conversations),
+        "can_view_guest_transcripts": can_view_guest_transcripts,
     }
+
+
+def _conversation_admin_record(
+    principal: AdminPrincipal, property_id: str, session_id: str, permission: str = "conversations.view"
+) -> tuple[Any, dict[str, Any]]:
+    if not principal.can_access_property(property_id):
+        raise HTTPException(status_code=403, detail="This account cannot access that property.")
+    session = store.peek(session_id)
+    if session is None or session.property_id != property_id:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    conversation = store.conversation_state(session_id, property_id)
+    restaurant_id = conversation.get("restaurant_id")
+    department_id = conversation.get("department_id")
+    if restaurant_id and principal.role_slug in {"restaurant-manager", "restaurant-staff"}:
+        _require_restaurant_access(principal, property_id, restaurant_id, permission, allow_archived=True)
+    elif principal.role_slug == "department-manager":
+        if not department_id or department_id != principal.department_id:
+            raise HTTPException(status_code=404, detail="Conversation not found.")
+    elif not (
+        principal.can("guest_sessions.view")
+        or principal.can("conversations.transcript.view")
+        or principal.can("properties.all")
+        or principal.can("properties.edit")
+    ):
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    return session, conversation
+
+
+def _can_read_conversation_transcript(principal: AdminPrincipal, property_id: str, conversation: dict[str, Any]) -> bool:
+    if principal.can("guest_sessions.view"):
+        return True
+    return bool(
+        principal.can("conversations.transcript.view")
+        and principal.role_slug == "department-manager"
+        and conversation.get("department_id")
+        and conversation.get("department_id") == principal.department_id
+    )
+
+
+@app.get("/api/admin/properties/{property_id}/conversations/{session_id}/detail")
+async def admin_conversation_detail(property_id: str, session_id: str, request: Request) -> dict[str, Any]:
+    _require_property(property_id)
+    principal = _admin_principal(request)
+    _, conversation = _conversation_admin_record(principal, property_id, session_id)
+    can_view_transcript = _can_read_conversation_transcript(principal, property_id, conversation)
+    messages = store.conversation_message_history(property_id, session_id, shared_only=not can_view_transcript)
+    public_messages = []
+    for message in messages:
+        item = {
+            "message_id": message["message_id"],
+            "role": message["role"],
+            "content": message["content"],
+            "created_at": message["created_at"],
+        }
+        if message["role"] == "staff" and message.get("sender_user_id"):
+            author = admin_auth.get_user(str(message["sender_user_id"]))
+            if author and author.get("property_id") == property_id:
+                item["sender_name"] = author.get("display_name") or "Hotel staff"
+        public_messages.append(item)
+
+    restaurant = hospitality.get_restaurant(property_id, conversation["restaurant_id"]) if conversation.get("restaurant_id") else None
+    department = hospitality.get_department(property_id, str(conversation["department_id"])) if conversation.get("department_id") else None
+    assigned = admin_auth.get_user(str(conversation["assigned_user_id"])) if conversation.get("assigned_user_id") else None
+    stay = guest_identities.stay_for_session(property_id, session_id) if principal.can("guest_sessions.view") else None
+    safe_stay = None
+    if stay:
+        safe_stay = {key: stay.get(key) for key in ("room", "status", "created_at", "checked_out_at", "retention_until", "retention_days")}
+    requests = []
+    if principal.can("requests.view"):
+        stay_ids = {session_id}
+        if stay and stay.get("stay_id"):
+            stay_ids.add(str(stay["stay_id"]))
+        request_fields = ("request_id", "request_type", "service_id", "room", "description", "priority", "department", "status", "due_at", "created_at", "updated_at", "completed_at")
+        department_scope_name = _department_scope_name(principal, property_id)
+        for record in hospitality.guest_requests_for_stay(property_id, stay_ids):
+            # Guest requests currently persist the routed department name rather
+            # than a department ID. Keep the department manager boundary aligned
+            # with the property-scoped name check used by request operations.
+            if department_scope_name and str(record.get("department") or "").casefold() != department_scope_name.casefold():
+                continue
+            requests.append({key: record.get(key) for key in request_fields if key in record})
+
+    can_view_notes = principal.can("conversations.notes.view") or principal.can("conversations.notes.manage")
+    notes = []
+    if can_view_notes:
+        for note in store.conversation_notes(property_id, session_id):
+            author = admin_auth.get_user(str(note["author_user_id"]))
+            notes.append({
+                "note_id": note["note_id"],
+                "content": note["content"],
+                "created_at": note["created_at"],
+                "author_name": author.get("display_name") if author and author.get("property_id") == property_id else "Hotel staff",
+            })
+
+    return {
+        "conversation": {
+            **conversation,
+            "restaurant_name": restaurant.get("name") if restaurant else (department.get("name") if department else "Concierge"),
+            "department_name": "Restaurant" if restaurant else (department.get("name") if department else "Concierge"),
+            "assigned_user_name": assigned.get("display_name") if assigned and assigned.get("property_id") == property_id else "",
+        },
+        "messages": public_messages,
+        "stay": safe_stay,
+        "requests": requests,
+        "notes": notes,
+        "permissions": {
+            "transcript": can_view_transcript,
+            "requests": principal.can("requests.view"),
+            "stay": bool(stay),
+            "notes_view": can_view_notes,
+            "notes_manage": principal.can("conversations.notes.manage"),
+        },
+    }
+
+
+@app.post("/api/admin/properties/{property_id}/conversations/{session_id}/read")
+async def mark_admin_conversation_read(property_id: str, session_id: str, request: Request) -> dict[str, Any]:
+    _require_property(property_id)
+    principal = _admin_principal(request)
+    _conversation_admin_record(principal, property_id, session_id)
+    store.mark_conversation_read(property_id, session_id, principal.user_id)
+    return {"read": True}
+
+
+@app.post("/api/admin/properties/{property_id}/conversations/{session_id}/notes")
+async def add_admin_conversation_note(
+    property_id: str, session_id: str, payload: ConversationNotePayload, request: Request
+) -> dict[str, Any]:
+    _require_property(property_id)
+    principal = _admin_principal(request)
+    _, conversation = _conversation_admin_record(principal, property_id, session_id, "conversations.notes.manage")
+    try:
+        note = store.add_conversation_note(property_id, session_id, principal.user_id, payload.note)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=404 if isinstance(exc, KeyError) else 422, detail=str(exc)) from exc
+    note["author_name"] = principal.display_name
+    note.pop("author_user_id", None)
+    return {"note": note, "department_id": conversation.get("department_id")}
+
+
+@app.post("/api/admin/properties/{property_id}/conversations/{session_id}/route")
+async def route_admin_conversation(
+    property_id: str, session_id: str, payload: ConversationRoutePayload, request: Request
+) -> dict[str, Any]:
+    _require_property(property_id)
+    principal = _admin_principal(request)
+    if not principal.can_access_property(property_id):
+        raise HTTPException(status_code=403, detail="This account cannot access that property.")
+    if not (principal.can("properties.all") or principal.can("properties.edit")):
+        raise HTTPException(status_code=403, detail="Only a property administrator can route an AI conversation to a department.")
+    department = hospitality.get_department(property_id, payload.department_id)
+    if not department or not department.get("enabled"):
+        raise HTTPException(status_code=422, detail="Choose an enabled department in this property.")
+    try:
+        return store.route_conversation_to_department(session_id, property_id, payload.department_id, principal.user_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Conversation not found.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/properties/{property_id}/conversations/{session_id}/reopen")
+async def reopen_admin_conversation(property_id: str, session_id: str, request: Request) -> dict[str, Any]:
+    _require_property(property_id)
+    principal = _admin_principal(request)
+    _, conversation = _conversation_admin_record(principal, property_id, session_id, "conversations.resolve")
+    if conversation.get("restaurant_id"):
+        _require_restaurant_access(principal, property_id, conversation["restaurant_id"], "conversations.resolve", allow_archived=True)
+    try:
+        return store.reopen_conversation(session_id, property_id, principal.user_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Conversation not found.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.get("/api/admin/properties/{property_id}/conversations/retention")
@@ -5888,15 +6704,14 @@ async def set_conversation_retention(property_id: str, payload: ConversationRete
 async def update_conversation_state(property_id: str, session_id: str, payload: ConversationStatePayload, request: Request) -> dict[str, Any]:
     _require_property(property_id)
     principal = _admin_principal(request)
-    if not principal.can_access_property(property_id):
-        raise HTTPException(status_code=403, detail="This account cannot access that property.")
-    state = store.conversation_state(session_id, property_id)
+    _, state = _conversation_admin_record(principal, property_id, session_id)
+    action_permission = "conversations.takeover" if payload.human_takeover else (
+        "conversations.resolve" if payload.status == "closed" or state.get("state") == "resolved" else "conversations.return_to_ai"
+    )
+    if not principal.can(action_permission):
+        raise HTTPException(status_code=403, detail=f"Permission required: {action_permission}")
     if state["restaurant_id"]:
-        permission = (
-            "conversations.takeover" if payload.human_takeover else
-            "conversations.resolve" if payload.status == "closed" else
-            "conversations.return_to_ai"
-        )
+        permission = action_permission
         _require_restaurant_access(principal, property_id, state["restaurant_id"], permission, allow_archived=True)
         try:
             if payload.human_takeover:
@@ -5912,32 +6727,48 @@ async def update_conversation_state(property_id: str, session_id: str, payload: 
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-    if not (principal.can("properties.all") or principal.can("properties.edit")):
-        raise HTTPException(status_code=404, detail="Conversation not found.")
     try:
-        return store.set_conversation_state(session_id, property_id, payload.status, payload.human_takeover, actor_user_id=principal.user_id)
+        if payload.human_takeover:
+            return store.take_over_conversation(session_id, property_id, principal.user_id)
+        current_state = str(state.get("state") or "ai_active")
+        if payload.status == "closed":
+            if current_state == "resolved":
+                return state
+            if current_state != "human_active":
+                raise HTTPException(status_code=409, detail="Take over the conversation before resolving it.")
+            return store.resolve_conversation(
+                session_id, property_id, principal.user_id,
+                allow_unassigned=principal.can("properties.all") or principal.can("properties.edit") or principal.can("conversations.assign"),
+            )
+        if current_state == "resolved":
+            return store.reopen_conversation(session_id, property_id, principal.user_id)
+        if current_state != "human_active":
+            raise HTTPException(status_code=409, detail="This conversation is not being handled by staff.")
+        return store.return_conversation_to_ai(
+            session_id, property_id, principal.user_id,
+            allow_unassigned=principal.can("properties.all") or principal.can("properties.edit") or principal.can("conversations.assign"),
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Conversation not found.") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.post("/api/admin/properties/{property_id}/conversations/{session_id}/messages")
 async def staff_conversation_reply(property_id: str, session_id: str, payload: StaffReplyPayload, request: Request) -> dict[str, Any]:
     principal = _admin_principal(request)
     _require_property(property_id)
-    if not principal.can_access_property(property_id):
-        raise HTTPException(status_code=403, detail="This account cannot access that property.")
-    session = store.get(session_id)
-    if session is None or session.property_id != property_id:
-        raise HTTPException(status_code=404, detail="Conversation not found.")
-    state = store.conversation_state(session_id, property_id)
+    session, state = _conversation_admin_record(principal, property_id, session_id, "conversations.reply")
     if state["restaurant_id"]:
         _require_restaurant_access(principal, property_id, state["restaurant_id"], "conversations.reply", allow_archived=True)
-    elif not (principal.can("properties.all") or principal.can("properties.edit")):
-        raise HTTPException(status_code=404, detail="Conversation not found.")
     try:
-        return store.reply_to_conversation(session_id, property_id, principal.user_id, payload.message, allow_unassigned=principal.can("properties.all") or principal.can("properties.edit") or principal.can("conversations.assign"))
+        return store.reply_to_conversation(
+            session.session_id, property_id, principal.user_id, payload.message,
+            allow_unassigned=principal.can("properties.all") or principal.can("properties.edit") or principal.can("conversations.assign"),
+            client_message_id=payload.client_message_id,
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Conversation not found.") from exc
     except PermissionError as exc:
@@ -6039,9 +6870,21 @@ async def test_antlabs_connection(property_id: str) -> dict[str, Any]:
 
 
 @app.post("/api/admin/properties/{property_id}/sessions/reconnect")
-async def reconnect_session(property_id: str, payload: DeviceSessionPayload) -> dict[str, Any]:
+async def reconnect_session(property_id: str, payload: DeviceSessionPayload, request: Request) -> dict[str, Any]:
     _require_property(property_id)
+    principal = _admin_principal(request)
+    if not principal.can_access_property(property_id):
+        raise HTTPException(status_code=403, detail="This account cannot access that property.")
     try:
+        if payload.concierge_session_id:
+            linked_session = store.peek(payload.concierge_session_id)
+            if linked_session is None or linked_session.property_id != property_id:
+                raise HTTPException(status_code=404, detail="Concierge session not found for this property.")
+        proposed_device_id = guest_identities.preview_device_id(property_id, payload.raw_mac)
+        if payload.concierge_session_id:
+            linked_stay = guest_identities.active_stay_for_session(property_id, payload.concierge_session_id)
+            if linked_stay and linked_stay.get("device_id") != proposed_device_id:
+                raise HTTPException(status_code=409, detail="That Concierge session is already linked to another active stay.")
         device_id = guest_identities.observe_device(property_id, payload.raw_mac)
         stay = guest_identities.reconnect_or_create_stay(
             property_id,
@@ -6055,7 +6898,36 @@ async def reconnect_session(property_id: str, payload: DeviceSessionPayload) -> 
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return {"device_id": device_id, "stay": stay}
+    stay["device_id"] = f"Device · ••••{device_id[-4:]}"
+    if not principal.can("integrations.view") and stay.get("pms_guest_id"):
+        stay["pms_guest_id"] = f"PMS · ••••{str(stay['pms_guest_id'])[-4:]}"
+    return {"device_id": f"Device · ••••{device_id[-4:]}", "stay": stay}
+
+
+@app.post("/api/admin/properties/{property_id}/guest-sessions/{guest_session_id}/unlink")
+async def unlink_guest_session(property_id: str, guest_session_id: str, request: Request) -> dict[str, Any]:
+    _require_property(property_id)
+    principal = _admin_principal(request)
+    if not principal.can("guest_sessions.manage") or not principal.can_access_property(property_id):
+        raise HTTPException(status_code=403, detail="Permission required: guest_sessions.manage")
+    try:
+        stay_id = guest_identities.unlink_guest_session(property_id, guest_session_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Guest link not found.") from exc
+    return {"unlinked": True, "stay_id": stay_id}
+
+
+@app.post("/api/admin/properties/{property_id}/sessions/{session_id}/expire")
+async def expire_guest_session(property_id: str, session_id: str, request: Request) -> dict[str, Any]:
+    _require_property(property_id)
+    principal = _admin_principal(request)
+    if not principal.can("guest_sessions.manage") or not principal.can_access_property(property_id):
+        raise HTTPException(status_code=403, detail="Permission required: guest_sessions.manage")
+    session = store.peek(session_id)
+    if session is None or session.property_id != property_id:
+        raise HTTPException(status_code=404, detail="Concierge session not found.")
+    store.revoke_guest_credentials(session_id)
+    return {"expired": True, "session_status": "expired"}
 
 
 @app.put("/api/admin/properties/{property_id}/stays/{stay_id}/memory")
@@ -6251,6 +7123,7 @@ async def list_admin_service_requests(
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0, le=1_000_000),
     status: str = Query(default="open", max_length=30),
+    queue_view: str = Query(default="all", max_length=20),
     q: str = Query(default="", max_length=120),
 ) -> dict[str, Any]:
     _require_property(property_id)
@@ -6265,6 +7138,8 @@ async def list_admin_service_requests(
             limit=limit,
             offset=offset,
             status=status,
+            queue_view=queue_view,
+            assignee_values=(principal.user_id, principal.username, principal.display_name),
             search=q,
             department=department,
             timezone_name=property_record.timezone if property_record else "UTC",
@@ -7094,10 +7969,11 @@ async def list_notification_campaigns(
     limit: int = Query(default=25, ge=1, le=100),
     offset: int = Query(default=0, ge=0, le=1_000_000),
     q: str = Query(default="", max_length=120),
+    status: str = Query(default="all", pattern="^(all|draft|publishing|published|failed|expired)$"),
 ) -> dict[str, Any]:
     _require_property(property_id)
     _admin_principal(request)
-    page = hospitality.notification_campaign_page(property_id, limit=limit, offset=offset, search=q)
+    page = hospitality.notification_campaign_page(property_id, limit=limit, offset=offset, search=q, status=status)
     return {**page, "campaigns": [_public_notification_campaign(item) for item in page["campaigns"]]}
 
 
@@ -7106,9 +7982,11 @@ async def create_notification_campaign(
     property_id: str, payload: NotificationCampaignPayload, request: Request
 ) -> dict[str, Any]:
     _require_property(property_id)
-    _admin_principal(request)
+    principal = _admin_principal(request)
     try:
-        campaign = hospitality.create_notification_campaign(property_id, payload.model_dump())
+        campaign = hospitality.create_notification_campaign(
+            property_id, payload.model_dump(), created_by=principal.display_name or principal.username
+        )
         return {"campaign": _public_notification_campaign(campaign)}
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -7685,7 +8563,11 @@ async def _chat_response(
     # guest's device location. The Places adapter sends a fixed category query.
     location = {"latitude": property_record.latitude, "longitude": property_record.longitude}
     place_results = []
-    allow_personalized_places = personalization_policy["enabled"] and personalization_policy["allow_internet_recommendations"]
+    allow_personalized_places = (
+        personalization_policy["enabled"]
+        and personalization_policy["allow_location_aware_recommendations"]
+        and personalization_policy["allow_internet_recommendations"]
+    )
     place_query = sanitized_message
     search_hints = personalization.search_hints(session.property_id, session.session_id, sanitized_message) if allow_personalized_places else ""
     dining_search = has_dining_intent(sanitized_message)
@@ -7709,6 +8591,8 @@ async def _chat_response(
     if nearby_request and not policy["nearby_places_enabled"]:
         nearby_status = "disabled"
     elif nearby_request and not policy["internet_search_enabled"]:
+        nearby_status = "disabled"
+    elif nearby_request and not personalization_policy["allow_location_aware_recommendations"]:
         nearby_status = "disabled"
     elif nearby_request and nearby_category_disabled:
         nearby_status = "disabled"

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Concierge.Ai</title>
   <link rel="icon" type="image/svg+xml" href="/static/assets/favicon.svg">
-  <link rel="stylesheet" href="/static/styles.css?v=35">
+  <link rel="stylesheet" href="/static/styles.css?v=38">
 </head>
 <body>
   <section class="intro-overlay" id="intro-overlay" hidden>
@@ -42,6 +42,7 @@
         <section class="home-conversation" id="home-conversation" aria-label="Concierge replies" hidden>
           <div class="home-section-heading"><span>Your concierge</span><button type="button" data-open-view="concierge">Open conversation</button></div>
           <div class="home-message-list" id="home-message-list" aria-live="polite" aria-label="Concierge replies"></div>
+          <div class="chat-typing-indicator" id="home-chat-typing-indicator" role="status" aria-label="Concierge is typing" hidden><span></span><span></span><span></span></div>
         </section>
         <div class="legacy-home-content" id="legacy-home-content">
         <header class="home-hero" id="home-hero" aria-labelledby="home-name">
@@ -121,8 +122,14 @@
     <section class="conversation-region guest-view" id="concierge-view" aria-label="Concierge conversation" hidden>
       <div class="concierge-card" id="concierge-card">
         <header class="conversation-card-header">
-          <h2>Your concierge</h2>
-          <span>Questions and guest services</span>
+          <div class="chat-assistant-identity">
+            <span class="chat-assistant-avatar" id="chat-assistant-avatar" aria-hidden="true"><span id="chat-assistant-avatar-mark">C</span><img id="chat-assistant-avatar-image" alt="" hidden></span>
+            <div><h2 id="chat-assistant-name">Your concierge</h2><span id="chat-assistant-subtitle">Questions and guest services</span></div>
+          </div>
+          <div class="chat-window-controls" aria-label="Chat window controls">
+            <button type="button" id="chat-minimize-button" aria-label="Minimize chat" title="Minimize" hidden>−</button>
+            <button type="button" id="chat-expand-button" aria-label="Expand chat to full screen" title="Expand" hidden>⤢</button>
+          </div>
         </header>
         <div class="conversation-column">
           <section class="welcome-state" id="welcome-state">
@@ -146,6 +153,7 @@
           </section>
 
           <section class="message-list" id="message-list" aria-live="polite" aria-label="Messages"></section>
+          <div class="chat-typing-indicator" id="chat-typing-indicator" role="status" aria-label="Concierge is typing" hidden><span></span><span></span><span></span></div>
         </div>
       </div>
     </section>
@@ -196,6 +204,7 @@
       </button>
     </nav>
     <div id="guest-configured-navigation-slot" hidden></div>
+    <button type="button" class="chat-launcher" id="chat-launcher" aria-label="Open AI concierge chat" hidden><span id="chat-launcher-icon" aria-hidden="true">✦</span><span class="sr-only">Open concierge chat</span></button>
 
   <aside class="hotel-menu" id="hotel-menu" aria-hidden="true" inert aria-label="Hotel menu">
       <div class="menu-panel">
@@ -320,6 +329,7 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </main>
-  <script src="/static/app.js?v=41"></script>
+  <script src="/static/guest-theme.js?v=3"></script>
+  <script src="/static/app.js?v=44"></script>
 </body>
 </html>

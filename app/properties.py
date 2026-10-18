@@ -15,7 +15,14 @@ from .guardrails import (
     public_guardrails,
     validate_guest_hostname_ownership,
 )
-from .guest_experience import default_guest_pages, default_navigation, is_safe_image_url, validate_guest_pages, validate_navigation
+from .guest_experience import (
+    default_guest_pages,
+    default_navigation,
+    is_safe_image_url,
+    public_conversation_modules,
+    validate_guest_pages,
+    validate_navigation,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -52,6 +59,14 @@ HEX_FIELDS = {
     "assistantText",
     "composerBackground",
     "buttonColor",
+    "primaryColor",
+    "secondaryColor",
+    "headingColor",
+    "bodyColor",
+    "buttonText",
+    "secondaryButtonText",
+    "hoverColor",
+    "focusColor",
 }
 
 AUTHENTICATION_RULES = {
@@ -136,6 +151,17 @@ def default_design_config(
             "accent": "#b38a4a",
             "accentText": "#1c1c1c",
             "border": "#e8e3da",
+            "primaryColor": "#b38a4a",
+            "secondaryColor": "#ffffff",
+            "headingColor": "#1c1c1c",
+            "bodyColor": "#1c1c1c",
+            "buttonText": "#1c1c1c",
+            "secondaryButtonText": "#1c1c1c",
+            "hoverColor": "#9a7136",
+            "focusColor": "#80602f",
+            "shadow": "subtle",
+            "paletteId": "custom",
+            "layoutTemplateId": "",
             "userMessageBackground": "#f0ede7",
             "userMessageText": "#1c1c1c",
             "assistantText": "#1c1c1c",
@@ -144,10 +170,15 @@ def default_design_config(
             "radius": 14,
             "density": "comfortable",
             "backgroundImageUrl": "",
+            "backgroundImagePosition": {
+                "desktop": {"x": 50, "y": 50},
+                "mobile": {"x": 50, "y": 50},
+            },
             "backgroundOverlay": 0,
         },
         "typography": {
             "fontFamily": "Geist",
+            "headingFontFamily": "Playfair Display",
             "baseFontSize": 15,
             "headingWeight": 600,
             "bodyWeight": 400,
@@ -193,6 +224,30 @@ def default_design_config(
             "avatarVisibility": False,
             "timestampVisibility": False,
         },
+        "chat": {
+            "presetId": "luxury",
+            "paletteId": "luxury",
+            "inheritLandingTheme": True,
+            "displayMode": "embedded",
+            "headerDesign": "solid",
+            "launcherIcon": "concierge",
+            "sendButtonIcon": "send",
+            "assistantName": "Concierge",
+            "avatarUrl": "",
+            "welcomeMessage": "",
+            "suggestedPrompts": [],
+            "showTimestamps": False,
+            "showTypingIndicator": True,
+            "showMinimizeControl": True,
+            "showExpandControl": True,
+            "allowFullscreenToggle": True,
+            "position": "bottom-right",
+            "width": 420,
+            "height": 620,
+            "radius": 18,
+            "shadow": "subtle",
+            "tokens": {},
+        },
         "suggestions": suggestions,
         "pages": default_guest_pages(),
         "navigation": default_navigation(),
@@ -208,13 +263,14 @@ def validate_design_config(config: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Unsupported guest experience configuration field.")
     nested_fields = {
         "branding": {"hotelName", "conciergeName", "logoUrl", "logoDisplay", "conciergeAvatarUrl", "faviconUrl"},
-        "theme": {"font", "background", "surface", "textPrimary", "textSecondary", "accent", "accentText", "border", "userMessageBackground", "userMessageText", "assistantText", "composerBackground", "buttonColor", "radius", "density", "backgroundImageUrl", "backgroundOverlay"},
-        "typography": {"fontFamily", "baseFontSize", "headingWeight", "bodyWeight", "letterSpacing"},
+        "theme": {"font", "background", "surface", "textPrimary", "textSecondary", "accent", "accentText", "border", "userMessageBackground", "userMessageText", "assistantText", "composerBackground", "buttonColor", "primaryColor", "secondaryColor", "headingColor", "bodyColor", "buttonText", "secondaryButtonText", "hoverColor", "focusColor", "shadow", "paletteId", "layoutTemplateId", "radius", "density", "backgroundImageUrl", "backgroundImagePosition", "backgroundOverlay"},
+        "typography": {"fontFamily", "headingFontFamily", "baseFontSize", "headingWeight", "bodyWeight", "letterSpacing"},
         "layout": {"contentWidth", "messageWidth", "messageSpacing", "composerWidth", "composerPosition", "suggestionLayout"},
         "header": {"enabled", "showLogo", "showHotelName", "showConciergeName", "subtitle", "sticky", "background", "border"},
         "welcome": {"greeting", "headline", "description"},
         "composer": {"enabled", "placeholder", "attachments", "voice", "border", "radius", "background", "sendButtonStyle", "position"},
         "messages": {"userStyle", "assistantStyle", "radius", "messageSpacing", "avatarVisibility", "timestampVisibility"},
+        "chat": {"presetId", "paletteId", "inheritLandingTheme", "displayMode", "headerDesign", "launcherIcon", "sendButtonIcon", "assistantName", "avatarUrl", "welcomeMessage", "suggestedPrompts", "showTimestamps", "showTypingIndicator", "showMinimizeControl", "showExpandControl", "allowFullscreenToggle", "position", "width", "height", "radius", "shadow", "tokens"},
     }
     for section, value in config.items():
         if section in nested_fields:
@@ -227,6 +283,23 @@ def validate_design_config(config: dict[str, Any]) -> dict[str, Any]:
         else:
             merged[section] = value
 
+    raw_theme = config.get("theme", {})
+    if isinstance(raw_theme, dict):
+        legacy_theme_aliases = {
+            "primaryColor": "buttonColor",
+            "headingColor": "textPrimary",
+            "bodyColor": "textPrimary",
+            "buttonText": "accentText",
+            "hoverColor": "accent",
+            "focusColor": "accent",
+        }
+        for current_field, legacy_field in legacy_theme_aliases.items():
+            if current_field not in raw_theme and legacy_field in raw_theme:
+                merged["theme"][current_field] = raw_theme[legacy_field]
+        raw_typography = config.get("typography", {})
+        if isinstance(raw_typography, dict) and "fontFamily" not in raw_typography and "font" in raw_theme:
+            merged["typography"]["fontFamily"] = raw_theme["font"]
+
     theme = merged["theme"]
     typography = merged["typography"]
     layout = merged["layout"]
@@ -234,6 +307,50 @@ def validate_design_config(config: dict[str, Any]) -> dict[str, Any]:
     composer = merged["composer"]
     messages = merged["messages"]
     branding = merged["branding"]
+    chat = merged["chat"]
+
+    if chat.get("presetId") not in {"luxury", "chatgpt", "boutique", "midnight"}:
+        raise ValueError("Invalid chat style preset.")
+    if chat.get("paletteId") not in {"luxury", "chatgpt", "boutique", "midnight"}:
+        raise ValueError("Invalid independent chat palette.")
+    if chat.get("displayMode") not in {"floating", "fullscreen", "embedded"}:
+        raise ValueError("Invalid chat display mode.")
+    if chat.get("headerDesign") not in {"solid", "soft", "minimal"}:
+        raise ValueError("Invalid chat header design.")
+    if chat.get("launcherIcon") not in {"concierge", "message", "sparkle"}:
+        raise ValueError("Invalid chat launcher icon.")
+    if chat.get("sendButtonIcon") not in {"send", "arrow"}:
+        raise ValueError("Invalid chat send button icon.")
+    if chat.get("position") not in {"bottom-right", "bottom-left"}:
+        raise ValueError("Invalid chat window position.")
+    if chat.get("shadow") not in {"none", "subtle", "strong"}:
+        raise ValueError("Invalid chat window shadow.")
+    for field in ("inheritLandingTheme", "showTimestamps", "showTypingIndicator", "showMinimizeControl", "showExpandControl", "allowFullscreenToggle"):
+        if not isinstance(chat.get(field), bool):
+            raise ValueError(f"Invalid chat setting for {field}.")
+    chat["assistantName"] = str(chat.get("assistantName") or "Concierge").strip()[:60] or "Concierge"
+    chat["welcomeMessage"] = str(chat.get("welcomeMessage") or "").strip()[:240]
+    avatar_url = chat.get("avatarUrl", "")
+    if not isinstance(avatar_url, str) or len(avatar_url) > 700000:
+        raise ValueError("Invalid chat avatar URL.")
+    if avatar_url and not is_safe_image_url(avatar_url):
+        raise ValueError("Chat avatar must use HTTPS, a same-origin path, or a supported image upload.")
+    chat["avatarUrl"] = avatar_url
+    prompts = chat.get("suggestedPrompts", [])
+    if not isinstance(prompts, list):
+        raise ValueError("Chat suggested prompts must be a list.")
+    chat["suggestedPrompts"] = [str(item).strip()[:80] for item in prompts if str(item).strip()][:4]
+    chat["width"] = _bounded_int(chat.get("width"), 320, 560, "chat window width")
+    chat["height"] = _bounded_int(chat.get("height"), 360, 900, "chat window height")
+    chat["radius"] = _bounded_int(chat.get("radius"), 8, 32, "chat window radius")
+    chat_tokens = chat.get("tokens", {})
+    chat_token_fields = {"background", "surface", "headerBackground", "headerText", "launcherBackground", "launcherText", "guestBubbleBackground", "guestBubbleText", "assistantBubbleBackground", "assistantBubbleText", "inputBackground", "inputText", "inputBorder", "sendBackground", "sendText", "focusColor"}
+    if not isinstance(chat_tokens, dict) or set(chat_tokens) - chat_token_fields:
+        raise ValueError("Unsupported chat theme token.")
+    for field, value in chat_tokens.items():
+        if not isinstance(value, str) or not _is_hex(value):
+            raise ValueError(f"Invalid chat theme color for {field}.")
+    chat["tokens"] = chat_tokens
 
     for field in ("logoUrl", "conciergeAvatarUrl", "faviconUrl"):
         image_url = branding.get(field, "")
@@ -242,21 +359,45 @@ def validate_design_config(config: dict[str, Any]) -> dict[str, Any]:
         if image_url and not is_safe_image_url(image_url):
             raise ValueError(f"Image URL for {field} must use HTTPS, a same-origin path, or a supported image upload.")
     background_image_url = theme.get("backgroundImageUrl", "")
-    if not isinstance(background_image_url, str) or len(background_image_url) > 700000:
+    if not isinstance(background_image_url, str) or len(background_image_url) > 2100000:
         raise ValueError("Invalid background image URL.")
     if background_image_url and not is_safe_image_url(background_image_url):
         raise ValueError("Background image must use HTTPS, a same-origin path, or a supported image upload.")
+    image_positions = theme.get("backgroundImagePosition", {})
+    if not isinstance(image_positions, dict) or set(image_positions) - {"desktop", "mobile"}:
+        raise ValueError("Invalid background image position settings.")
+    normalized_positions = {}
+    for device in ("desktop", "mobile"):
+        position = image_positions.get(device, {})
+        if not isinstance(position, dict) or set(position) - {"x", "y"}:
+            raise ValueError("Invalid background image position settings.")
+        normalized_positions[device] = {
+            "x": _bounded_int(position.get("x", 50), 0, 100, f"background image {device} horizontal position"),
+            "y": _bounded_int(position.get("y", 50), 0, 100, f"background image {device} vertical position"),
+        }
+    theme["backgroundImagePosition"] = normalized_positions
 
     font = typography.get("fontFamily") or theme.get("font") or "Geist"
     if font not in SAFE_FONTS:
         raise ValueError("Unsupported font family.")
     theme["font"] = font
     typography["fontFamily"] = font
+    heading_font = typography.get("headingFontFamily") or "Playfair Display"
+    if heading_font not in SAFE_FONTS:
+        raise ValueError("Unsupported heading font family.")
+    typography["headingFontFamily"] = heading_font
 
     for field in HEX_FIELDS:
         value = theme.get(field)
         if not isinstance(value, str) or not _is_hex(value):
             raise ValueError(f"Invalid color value for {field}.")
+
+    if theme.get("paletteId") not in {"custom", "elegant", "minimal", "soft-gray", "high-contrast", "graphite", "ocean", "botanical", "rose", "coral", "modern-elegance", "royal-emerald-gold", "midnight-sapphire", "champagne-onyx", "pearl-sage", "obsidian-copper"}:
+        raise ValueError("Invalid theme palette.")
+    if theme.get("layoutTemplateId") not in {"", "luxury", "elegant", "minimal", "business", "resort", "restaurant", "blank"}:
+        raise ValueError("Invalid layout template.")
+    if theme.get("shadow") not in {"none", "subtle", "strong"}:
+        raise ValueError("Invalid theme shadow.")
 
     for field, minimum, maximum in (
         ("radius", 0, 32),
@@ -511,7 +652,7 @@ class PropertyRecord:
             "support_contacts": self.support_contacts,
             "quick_actions": self.quick_actions,
             "rooms": self.rooms,
-            "guest_modules": [item for item in self.guest_modules if item.get("enabled", True)],
+            "guest_modules": public_conversation_modules(self.guest_modules),
             "locations": [item for item in (self.app_settings.get("locations") or []) if item.get("guest_visible", True)],
             "application": {
                 "default_language": (self.app_settings.get("application") or {}).get("default_language", self.languages[0] if self.languages else "en"),

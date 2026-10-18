@@ -75,6 +75,8 @@ function errorMessage(detail) {
   return detail.msg || detail.message || JSON.stringify(detail);
 }
 
+let guestChatReturnView = "home";
+
 function gatewayContext() {
   const params = new URLSearchParams(window.location.search);
   return Object.fromEntries(params.entries());
@@ -90,7 +92,8 @@ function createClientId() {
 function renderWelcomeState() {
   const list = $("suggestion-list");
   list.innerHTML = "";
-  const suggestions = activeSuggestions();
+  const chatPrompts = state.hotel?.design?.chat?.suggestedPrompts || [];
+  const suggestions = chatPrompts.length ? chatPrompts.map((prompt) => ({ label: prompt, prompt })) : activeSuggestions();
   document.querySelector(".suggestion-heading").hidden = suggestions.length === 0;
   for (const [index, item] of suggestions.entries()) {
     const button = document.createElement("button");
@@ -179,6 +182,7 @@ function setupViews() {
 }
 
 function setActiveView(view, focusComposer = true, updateHistory = true) {
+  if (view !== "concierge") document.body.classList.remove("chat-floating-open", "chat-fullscreen-open");
   const configuredPages = state.hotel?.design?.pages || [];
   const page = configuredPages.find((item) => item.id === view && item.enabled !== false);
   if (!guestViewIds[view] && !page) return;
@@ -371,6 +375,17 @@ function experienceAction(action) {
       return true;
     case "concierge":
       setActiveView("concierge");
+      return true;
+    case "property_info": {
+      setActiveView("concierge");
+      const hotel = state.hotel || {};
+      const location = hotel.location || {};
+      const details = [hotel.name, hotel.description, location.address].filter((value) => typeof value === "string" && value.trim());
+      addMessage({ role: "assistant", type: "text", text: details.join("\n") || "Property information has not been configured yet." });
+      return true;
+    }
+    case "nearby_recommendations":
+      setActiveView("explore");
       return true;
     case "external_url": {
       const url = safeGuestUrl(action.url, { allowExternalHttp: true });
@@ -570,6 +585,7 @@ function renderExperienceSection(section, design) {
       image.className = "experience-hero-image";
       image.src = imageUrl;
       image.alt = p.alt || "";
+      if (!p.image_url) image.dataset.themeBackground = "true";
       image.loading = "eager";
       image.decoding = "async";
       image.addEventListener("error", () => { image.remove(); outer.classList.remove("experience-hero-has-image"); }, { once: true });
@@ -1364,6 +1380,7 @@ function activeSuggestions() {
 function addMessage(message) {
   state.messages.push({
     id: "msg-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2),
+    timestamp: Date.now(),
     ...message,
   });
   renderMessages();
@@ -1410,6 +1427,11 @@ function renderMessages() {
   list.replaceChildren();
   homeList.replaceChildren();
   const destination = isHome ? homeList : isConversation ? list : null;
+  const showChatTyping = state.inputPending && state.hotel?.design?.chat?.showTypingIndicator !== false;
+  const chatTyping = $("chat-typing-indicator");
+  if (chatTyping) chatTyping.hidden = !(showChatTyping && isConversation);
+  const homeChatTyping = $("home-chat-typing-indicator");
+  if (homeChatTyping) homeChatTyping.hidden = !(showChatTyping && isHome);
   $("home-conversation").hidden = !isHome || state.messages.length === 0;
   placeComposerRegion();
   if (destination) {
@@ -1431,12 +1453,14 @@ function renderMessages() {
 function renderMessage(message) {
   const row = document.createElement("article");
   row.className = "message-row " + message.role + " " + (message.type || "text");
+  if (message.text === "Thinking...") row.classList.add("is-thinking");
   if (message.id) row.dataset.messageId = message.id;
 
   if (message.role === "assistant") {
     const label = document.createElement("div");
     label.className = "message-label";
     label.textContent = message.sender_label
+      || state.hotel?.design?.chat?.assistantName
       || state.hotel?.design?.branding?.conciergeName
       || state.hotel?.concierge_name
       || "Concierge";
@@ -1445,6 +1469,7 @@ function renderMessage(message) {
 
   if (message.type === "authentication") {
     row.appendChild(renderAuthenticationCard(message));
+    appendChatTimestamp(row, message);
     return row;
   }
 
@@ -1462,6 +1487,7 @@ function renderMessage(message) {
       }
     }
     row.appendChild(renderRecommendationResults(message.results || [], message));
+    appendChatTimestamp(row, message);
     return row;
   }
 
@@ -1476,16 +1502,19 @@ function renderMessage(message) {
       link.textContent = `Call concierge ${phone}`;
       row.appendChild(link);
     }
+    appendChatTimestamp(row, message);
     return row;
   }
 
   if (message.type === "confirmation") {
     row.appendChild(renderConfirmationCard(message));
+    appendChatTimestamp(row, message);
     return row;
   }
 
   if (message.type === "request-created") {
     row.appendChild(renderRequestCreated(message));
+    appendChatTimestamp(row, message);
     return row;
   }
 
@@ -1494,11 +1523,25 @@ function renderMessage(message) {
     status.className = "status-message";
     status.textContent = message.text;
     row.appendChild(status);
+    appendChatTimestamp(row, message);
     return row;
   }
 
   row.appendChild(renderText(message.text));
-  return row;
+  appendChatTimestamp(row, message);
+    return row;
+}
+
+function appendChatTimestamp(row, message) {
+  if (state.hotel?.design?.chat?.showTimestamps !== true || message.type === "status" || message.type === "error") return;
+  const raw = Number(message.timestamp || message.created_at || Date.now());
+  const milliseconds = raw > 1000000000000 ? raw : raw * 1000;
+  if (!Number.isFinite(milliseconds)) return;
+  const time = document.createElement("time");
+  time.className = "chat-message-timestamp";
+  time.dateTime = new Date(milliseconds).toISOString();
+  time.textContent = new Intl.DateTimeFormat(document.documentElement.lang || "en", { hour: "numeric", minute: "2-digit", timeZone: state.hotel?.timezone || "UTC" }).format(new Date(milliseconds));
+  row.appendChild(time);
 }
 
 function renderText(text) {
@@ -2090,6 +2133,35 @@ function updateComposerState() {
   $("send-button").disabled = state.inputPending || !input.value.trim();
 }
 
+function setupChatControls() {
+  $("chat-launcher")?.addEventListener("click", () => {
+    guestChatReturnView = state.activeView === "concierge" ? "home" : state.activeView || "home";
+    document.body.classList.add("chat-floating-open");
+    setActiveView("concierge", true);
+  });
+  $("chat-minimize-button")?.addEventListener("click", () => {
+    document.body.classList.remove("chat-floating-open", "chat-fullscreen-open");
+    const returnView = guestChatReturnView || "home";
+    setActiveView(returnView, false, false);
+    $("chat-launcher")?.focus({ preventScroll: true });
+  });
+  $("chat-expand-button")?.addEventListener("click", () => {
+    const expanded = !document.body.classList.contains("chat-fullscreen-open");
+    if (expanded) {
+      if (state.activeView !== "concierge") guestChatReturnView = state.activeView || "home";
+      document.body.classList.remove("chat-floating-open");
+      document.body.classList.add("chat-fullscreen-open");
+      setActiveView("concierge", true);
+    } else {
+      document.body.classList.remove("chat-fullscreen-open");
+      if (state.hotel?.design?.chat?.displayMode === "floating") document.body.classList.add("chat-floating-open");
+      else setActiveView(guestChatReturnView || "home", false, false);
+    }
+    $("chat-expand-button").setAttribute("aria-label", expanded ? "Restore chat window" : "Expand chat to full screen");
+    $("chat-expand-button").setAttribute("aria-expanded", String(expanded));
+  });
+}
+
 function setupComposer() {
   const input = $("composer-input");
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
@@ -2669,22 +2741,36 @@ function renderComposerForPage(page, target, design) {
 function renderConfiguredModules(modules) {
   const list = $("configured-module-list");
   list.innerHTML = "";
-  for (const module of [...modules].sort((a, b) => Number(a.order || 0) - Number(b.order || 0))) {
+  const sortedModules = [...modules].sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+  list.classList.toggle("has-module-carousel", sortedModules.some((module) => module.display_style === "carousel"));
+  const iconGlyphs = { sparkles: "✦", room: "▤", dining: "♨", map: "⌖", compass: "◇", info: "i", service: "＋", car: "↗", help: "?" };
+  const displayStyles = new Set(["suggestion_chip", "icon_card", "action_tile", "carousel"]);
+  for (const module of sortedModules) {
     const button = document.createElement("button");
     button.type = "button";
+    button.className = "configured-module-item";
+    const displayStyle = displayStyles.has(module.display_style) ? module.display_style : "icon_card";
+    button.dataset.displayStyle = displayStyle;
     const icon = document.createElement("span");
     icon.className = "menu-item-icon menu-item-icon-module";
     icon.setAttribute("aria-hidden", "true");
-    icon.innerHTML = '<svg viewBox="0 0 24 24"><path d="m12 3 1.6 5.4L19 10l-5.4 1.6L12 17l-1.6-5.4L5 10l5.4-1.6L12 3Z"/><path d="m19 15 .7 2.3L22 18l-2.3.7L19 21l-.7-2.3L16 18l2.3-.7L19 15Z"/></svg>';
+    icon.textContent = iconGlyphs[module.icon] || iconGlyphs.sparkles;
     const copy = document.createElement("span");
     copy.className = "menu-item-copy";
     const title = document.createElement("strong");
     title.textContent = module.name;
     const description = document.createElement("small");
-    description.textContent = module.description || "Explore this service";
+    description.textContent = module.description || "Explore this guest service";
     copy.append(title, description);
     button.append(icon, copy);
-    button.addEventListener("click", () => { closeMenu(); sendChat(module.prompt).catch((error) => showToast(error.message, "warning")); });
+    button.addEventListener("click", () => {
+      closeMenu();
+      if (module.action) {
+        if (!experienceAction(module.action)) showToast("This guest action is not available right now.", "warning");
+        return;
+      }
+      if (module.prompt) sendChat(module.prompt).catch((error) => showToast(error.message, "warning"));
+    });
     list.appendChild(button);
   }
 }
@@ -2763,49 +2849,92 @@ function applyDesignTokens(design) {
   const composer = design.composer || {};
 
   const root = document.documentElement;
-  root.style.setProperty("--background", theme.background || "#faf8f4");
+  const themeTokens = window.ConciergeTheme.apply(root, design);
+  const chat = window.ConciergeTheme.applyChat(root, design);
   const backgroundImageUrl = safeGuestUrl(theme.backgroundImageUrl, { allowDataImage: true });
+  const imagePositions = theme.backgroundImagePosition || {};
+  const desktopImagePosition = imagePositions.desktop || { x: 50, y: 50 };
+  const mobileImagePosition = imagePositions.mobile || { x: 50, y: 50 };
+  const coordinate = (value) => Number.isFinite(Number(value)) ? Math.max(0, Math.min(100, Number(value))) : 50;
+  const positionValue = (position) => `${coordinate(position.x)}% ${coordinate(position.y)}%`;
   const cssBackgroundImage = backgroundImageUrl
     ? `url("${backgroundImageUrl.replaceAll("\\", "%5C").replaceAll('"', "%22").replaceAll(")", "%29")}")`
     : "none";
   root.style.setProperty("--background-image", cssBackgroundImage);
+  root.style.setProperty("--background-image-position-desktop", positionValue(desktopImagePosition));
+  root.style.setProperty("--background-image-position-mobile", positionValue(mobileImagePosition));
+  root.style.setProperty("--guest-hero-image-position-desktop", positionValue(desktopImagePosition));
+  root.style.setProperty("--guest-hero-image-position-mobile", positionValue(mobileImagePosition));
   root.style.setProperty("--background-overlay", (theme.backgroundOverlay || 0) / 100);
-  root.style.setProperty("--surface", theme.surface || "#ffffff");
-  root.style.setProperty("--surface-elevated", composer.background || theme.composerBackground || "#ffffff");
-  root.style.setProperty("--text-primary", theme.textPrimary || "#1c1c1c");
-  root.style.setProperty("--text-secondary", theme.textSecondary || "#6e6a64");
-  root.style.setProperty("--accent", theme.accent || "#b38a4a");
-  root.style.setProperty("--button-color", theme.buttonColor || theme.accent || "#b38a4a");
-  root.style.setProperty("--accent-text", theme.accentText || "#1c1c1c");
-  root.style.setProperty("--border", theme.border || "#e8e3da");
-  root.style.setProperty("--user-message-bg", theme.userMessageBackground || "#f0ede7");
-  root.style.setProperty("--user-message-text", theme.userMessageText || "#1c1c1c");
-  root.style.setProperty("--assistant-text", theme.assistantText || theme.textPrimary || "#1c1c1c");
-  root.style.setProperty("--column-width", (layout.contentWidth || 840) + "px");
-  root.style.setProperty("--composer-max", (layout.composerWidth || 720) + "px");
-  root.style.setProperty("--message-width", (layout.messageWidth || 680) + "px");
-  root.style.setProperty("--message-spacing", (messages.messageSpacing || layout.messageSpacing || 24) + "px");
+  root.style.setProperty("--background-overlay-percent", `${theme.backgroundOverlay || 0}%`);
+  root.style.setProperty("--column-width", themeTokens.contentWidth + "px");
+  root.style.setProperty("--composer-max", themeTokens.composerWidth + "px");
+  root.style.setProperty("--message-width", themeTokens.messageWidth + "px");
+  root.style.setProperty("--message-spacing", (messages.messageSpacing || layout.messageSpacing || themeTokens.messageSpacing) + "px");
   root.style.setProperty("--message-radius", (messages.radius || theme.radius || 18) + "px");
   root.style.setProperty("--composer-radius", (composer.radius || 24) + "px");
-  root.style.setProperty("--base-font-size", (typography.baseFontSize || 15) + "px");
+  root.style.setProperty("--base-font-size", themeTokens.baseFontSize + "px");
   root.style.setProperty("--heading-weight", typography.headingWeight || 600);
   root.style.setProperty("--body-weight", typography.bodyWeight || 400);
   root.style.setProperty("--letter-spacing", (typography.letterSpacing || 0) + "em");
-  root.style.setProperty("--font-family", fontStack(typography.fontFamily || theme.font || "Geist"));
-  root.style.setProperty("--guest-radius", `${theme.radius ?? 14}px`);
-  root.style.setProperty("--guest-card-radius", `${design.card?.radius ?? theme.radius ?? 14}px`);
-  root.style.setProperty("--guest-shadow", design.card?.shadow === "none" ? "none" : design.card?.shadow === "strong" ? "0 14px 38px rgba(25, 25, 25, .14)" : "0 7px 24px rgba(25, 25, 25, .07)");
-  root.style.setProperty("--guest-density", theme.density === "compact" ? ".78" : "1");
+  root.style.setProperty("--font-family", fontStack(themeTokens.fontFamily));
+  root.style.setProperty("--body-font-family", fontStack(themeTokens.fontFamily));
+  root.style.setProperty("--heading-font-family", fontStack(themeTokens.headingFontFamily));
+  root.style.setProperty("--serif-display", fontStack(themeTokens.headingFontFamily));
+  root.style.setProperty("--guest-radius", `${themeTokens.radius}px`);
+  root.style.setProperty("--guest-card-radius", `${design.card?.radius ?? themeTokens.radius}px`);
+  const shadow = design.card?.shadow || themeTokens.shadow;
+  root.style.setProperty("--guest-shadow", shadow === "none" ? "none" : shadow === "strong" ? "0 14px 38px rgba(25, 25, 25, .16)" : "0 7px 24px rgba(25, 25, 25, .07)");
+  root.style.setProperty("--guest-density", themeTokens.density === "compact" ? ".78" : "1");
 
+  const chatAvatar = $("chat-assistant-avatar");
+  const chatAvatarImage = $("chat-assistant-avatar-image");
+  const chatAvatarMark = $("chat-assistant-avatar-mark");
+  const avatarUrl = safeGuestUrl(chat.avatarUrl, { allowDataImage: true });
+  if (chatAvatarImage && chatAvatarMark) {
+    chatAvatarImage.hidden = !avatarUrl;
+    chatAvatarMark.hidden = Boolean(avatarUrl);
+    if (avatarUrl) chatAvatarImage.src = avatarUrl;
+    else chatAvatarImage.removeAttribute("src");
+  }
+  if (chatAvatar) chatAvatar.classList.toggle("has-image", Boolean(avatarUrl));
+  setText("chat-assistant-name", chat.assistantName);
+  setText("chat-assistant-subtitle", chat.displayMode === "floating" ? "Here to help with your stay" : "Questions and guest services");
+  setText("chat-assistant-avatar-mark", chat.assistantName.trim().slice(0, 1).toUpperCase() || "C");
+  setText("chat-launcher-icon", ({ concierge: "✦", message: "▢", sparkle: "✧" })[chat.launcherIcon]);
+  const launcher = $("chat-launcher");
+  if (launcher) launcher.hidden = chat.displayMode !== "floating";
+  const minimize = $("chat-minimize-button");
+  if (minimize) minimize.hidden = !chat.showMinimizeControl || chat.displayMode === "embedded";
+  const expand = $("chat-expand-button");
+  if (expand) expand.hidden = !chat.showExpandControl || !chat.allowFullscreenToggle;
+  const welcomeHeadline = $("welcome-headline");
+  if (welcomeHeadline && !state.messages.length && chat.welcomeMessage) welcomeHeadline.textContent = chat.welcomeMessage;
+  const sendButton = $("send-button");
+  if (sendButton) {
+    sendButton.setAttribute("aria-label", "Send message");
+    sendButton.innerHTML = chat.sendButtonIcon === "arrow"
+      ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg>'
+      : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4.8 14-2.7-5.5L5 12Z"/><path d="m11.5 13.5 3.6-3.6"/></svg>';
+  }
+  document.body.classList.toggle("chat-has-timestamps", chat.showTimestamps);
+  document.body.classList.toggle("chat-typing-enabled", chat.showTypingIndicator);
   document.body.dataset.userMessageStyle = messages.userStyle || "bubble";
   document.body.dataset.assistantMessageStyle = messages.assistantStyle || "minimal";
-  document.body.dataset.density = theme.density || "comfortable";
+  document.body.dataset.density = themeTokens.density;
   document.body.dataset.suggestionLayout = layout.suggestionLayout || "stack";
   document.body.classList.toggle("header-hidden", header.enabled === false);
   const logoDisplay = design.branding?.logoDisplay || "mark_name";
   document.body.classList.toggle("hotel-logo-hidden", header.showLogo === false || logoDisplay === "name_only");
   document.body.classList.toggle("hotel-name-hidden", header.showHotelName === false || logoDisplay === "logo_only");
   document.body.classList.toggle("concierge-name-hidden", header.showConciergeName === false);
+  if (chat.displayMode === "fullscreen" && state.activeView !== "concierge") {
+    guestChatReturnView = state.activeView || "home";
+    document.body.classList.add("chat-fullscreen-open");
+    setActiveView("concierge", false, false);
+  } else if (chat.displayMode !== "fullscreen") {
+    document.body.classList.remove("chat-fullscreen-open");
+  }
 }
 
 function fontStack(font) {
@@ -2825,6 +2954,7 @@ function fontStack(font) {
 }
 
 async function start() {
+  setupChatControls();
   setupComposer();
   document.body.appendChild($("hotel-menu"));
   setupMenu();
