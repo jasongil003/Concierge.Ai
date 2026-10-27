@@ -53,10 +53,37 @@ async function openAdminPanel(page, panel) {
   await expect(page.locator(".panel.active > .page-title h1, .panel.active > .onboarding-card h1").first()).toBeVisible();
   if (isMobile) {
     await expect(shell).not.toHaveClass(/mobile-nav-open/);
-    const viewportWidth = page.viewportSize()?.width ?? 0;
-    await expect.poll(() => page.locator(".platform-sidebar").evaluate((element) => (
-      new DOMMatrixReadOnly(getComputedStyle(element).transform).m41
-    ))).toBeLessThan(-viewportWidth / 2);
+    await expect.poll(() => page.locator(".platform-sidebar").evaluate((element) => {
+      const offset = new DOMMatrixReadOnly(getComputedStyle(element).transform).m41;
+      return offset <= -element.getBoundingClientRect().width;
+    })).toBeTruthy();
+  }
+}
+
+async function waitForSettledPanel(page, panel) {
+  if (["overview", "alerts", "analytics", "reports", "system-health"].includes(panel)) {
+    const summary = page.locator("#system-health-summary strong");
+    await expect(summary).not.toHaveText(/^(Loading system checks|Checking system health)$/);
+  }
+  if (panel === "conversations") {
+    await expect(page.locator("#refresh-conversations")).toBeEnabled();
+    await expect(page.locator("#refresh-conversations")).toHaveText("Refresh inbox");
+    await expect(page.locator("#conversation-list")).not.toContainText("Loading inbox");
+  }
+  if (["knowledge", "documents", "faqs"].includes(panel)) {
+    await expect(page.locator("#knowledge-health")).not.toContainText("Loading measured coverage");
+  }
+  if (panel === "location") {
+    await expect(page.locator("#location-directory-stats")).not.toContainText("Loading directory");
+    await expect(page.locator("#location-facility-count")).not.toHaveText("Loading…");
+    await expect(page.locator("#location-map-publication")).not.toContainText("loading");
+  }
+  if (panel === "personalization-settings") {
+    await expect(page.locator("#personalization-consent-total")).not.toHaveText("Loading");
+    await expect(page.locator("#personalization-consent-summary")).not.toContainText("Consent totals are loading");
+  }
+  if (panel === "guest") {
+    await expect(page.locator("#guest-module-count")).not.toContainText("Loading modules");
   }
 }
 
@@ -105,6 +132,11 @@ test(`manual QA responsive matrix covers every admin destination at ${viewport.w
   const panels = await page.locator(".nav-item[data-panel]").evaluateAll((items) => [...new Set(items.map((item) => item.dataset.panel))]);
   for (const panel of panels) {
     await openAdminPanel(page, panel);
+    await waitForSettledPanel(page, panel);
+    if (panel === "requests") {
+      await expect(page.locator("#request-last-updated")).toContainText("Updated");
+      await expect(page.locator("#service-request-list .request-queue-state")).toHaveCount(0);
+    }
     await expectNoHorizontalOverflow(page, `Admin #${panel} at ${viewport.width}x${viewport.height}`);
     await page.screenshot({ path: screenshotPath("admin", `admin-${panel}`, viewport), fullPage: true });
   }
