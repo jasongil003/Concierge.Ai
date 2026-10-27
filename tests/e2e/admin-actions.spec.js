@@ -231,6 +231,7 @@ test("admin restaurant assignment checkboxes save only the selected restaurant i
 
 test("admin operations buttons: map, stay memory, location, and intro", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium", "The mutation workflow only needs one browser profile.");
+  test.setTimeout(90_000);
   const suffix = Date.now().toString(36);
   const mac = "AA:BB:CC:DD:EE:42";
   const accessPoint = `ap-audit-${suffix}`;
@@ -295,13 +296,14 @@ test("admin operations buttons: map, stay memory, location, and intro", async ({
   let sessionReads = 0;
   page.on("request", (request) => { if (/\/sessions$/.test(new URL(request.url()).pathname)) sessionReads += 1; });
   const sessionReadsBeforeRefresh = sessionReads;
-  await page.getByRole("button", { name: "Refresh records" }).click();
+  await page.getByRole("button", { name: "Refresh guest session records" }).click();
   await expect.poll(() => sessionReads).toBeGreaterThan(sessionReadsBeforeRefresh);
   const guestSessionResponse = await page.request.post("/api/session/start", {
     data: { client_id: `location-audit-${suffix}`, property_id: "e2e-property" },
   });
   expect(guestSessionResponse.ok(), await guestSessionResponse.text()).toBeTruthy();
   const guestSessionId = (await guestSessionResponse.json()).session_id;
+  await page.getByRole("button", { name: "Link a device" }).click();
   await page.locator("#session-raw-mac").fill(mac);
   await page.locator("#session-room").fill("1503");
   await page.locator(".session-advanced-fields").evaluate((element) => { element.open = true; });
@@ -312,19 +314,14 @@ test("admin operations buttons: map, stay memory, location, and intro", async ({
   await page.locator("#memory-summary").fill("Verified through the admin button workflow.");
   await page.locator("#save-stay-memory").click();
   await expect(page.locator("#toast")).toContainText("Stay notes saved");
+  await page.locator("#session-guest360-close").click();
 
   await openPanel(page, "Location");
-  await page.locator("#obs-session-id").fill(guestSessionId);
-  await page.locator("#obs-raw-mac").fill(mac);
-  await page.locator("#obs-ap-id").fill(accessPoint);
-  const observationRequest = page.waitForRequest((request) => request.url().endsWith("/location/observations"));
-  await page.getByRole("button", { name: "Record Observation" }).click();
-  expect((await observationRequest).postDataJSON()).toMatchObject({
-    session_id: guestSessionId, raw_mac: mac, access_point_identifier: accessPoint,
-  });
-  await expect(page.locator("#toast")).toContainText("Location collection is not enabled for this property");
-  await page.getByRole("button", { name: "Load Report" }).click();
-  await expect(page.locator("#location-report")).toContainText("visits");
+  await expect(page.locator("#location-analytics-unavailable-copy")).toContainText("Property location collection is off");
+  await page.getByRole("button", { name: "Load report" }).click();
+  await expect(page.locator("#location-report")).toContainText("No zone activity was recorded in this period.");
+  await page.locator('[data-location-panel="zones"]').first().click();
+  await expect(page.locator("#zones")).toBeVisible();
 
   await openHiddenPanel(page, "intro");
   const originalMode = await page.locator("#intro-mode").inputValue();

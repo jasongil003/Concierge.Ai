@@ -1031,6 +1031,75 @@ test("appearance panel: center canvas device buttons resize the live page", asyn
   await expect(desktopWidth).toBeGreaterThan(390);
 });
 
+test("appearance panel: tablet layout keeps the live preview and inspector reachable", async ({ page }) => {
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await page.goto("/admin");
+  await openLegacyDesignControls(page);
+
+  const canvas = page.locator("#appearance .builder-canvas-panel");
+  const inspector = page.locator("#appearance .builder-inspector-panel");
+  const canvasBounds = await canvas.boundingBox();
+  const inspectorBounds = await inspector.boundingBox();
+
+  expect(canvasBounds?.width).toBeGreaterThanOrEqual(350);
+  expect(canvasBounds && canvasBounds.x + canvasBounds.width).toBeLessThanOrEqual(769);
+  expect(inspectorBounds?.width).toBeGreaterThanOrEqual(500);
+  expect(inspectorBounds && inspectorBounds.x + inspectorBounds.width).toBeLessThanOrEqual(769);
+});
+
+test("overview: tablet layout keeps all dashboard actions inside the viewport", async ({ page }) => {
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await page.goto("/admin");
+  await openPanel(page, "Dashboard");
+
+  const heading = await page.locator("#overview > .operations-title > div").first().boundingBox();
+  const actions = await page.locator("#overview > .operations-title .operations-actions").boundingBox();
+  expect(actions?.x).toBeGreaterThanOrEqual(0);
+  expect(actions && actions.x + actions.width).toBeLessThanOrEqual(768);
+  expect(actions?.y).toBeGreaterThanOrEqual((heading?.y || 0) + (heading?.height || 0));
+  await expect(page.locator("#overview #refresh-dashboard")).toBeVisible();
+  await expect(page.locator("#overview .operations-actions .ask-ai-trigger")).toBeVisible();
+});
+
+test("mobile admin tables keep their final columns reachable by horizontal scrolling", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/admin");
+
+  for (const [label, panel] of [["Users", "users"], ["Audit", "audit"]]) {
+    await openPanel(page, label);
+    const scrollport = page.locator(`#${panel} .data-table-shell`);
+    const lastHeader = page.locator(`#${panel} .data-table thead th`).last();
+    const initial = await scrollport.evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    }));
+    expect(initial.scrollWidth).toBeGreaterThan(initial.clientWidth);
+
+    await scrollport.evaluate((element) => { element.scrollLeft = element.scrollWidth; });
+    await expect.poll(async () => {
+      const [container, column] = await Promise.all([scrollport.boundingBox(), lastHeader.boundingBox()]);
+      return Boolean(container && column && column.x >= container.x - 1 && column.x + column.width <= container.x + container.width + 1);
+    }).toBeTruthy();
+    await scrollport.evaluate((element) => { element.scrollLeft = 0; });
+  }
+});
+
+test("mobile personalization tabs scroll into view and change the active section", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/admin");
+  await openPanel(page, "Personalization");
+
+  const sources = page.getByRole("tab", { name: "Sources & integrations" });
+  await sources.click();
+  await expect(sources).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#personalization-panel-sources")).toBeVisible();
+
+  const overview = page.getByRole("tab", { name: "Overview", exact: true });
+  await overview.click();
+  await expect(overview).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#personalization-panel-overview")).toBeVisible();
+});
+
 test("appearance panel: add and remove prompt buttons work", async ({ page }) => {
   await page.goto("/admin");
   await openLegacyDesignControls(page);
@@ -2519,12 +2588,12 @@ test("admin: long workflow guidance is collapsed until requested", async ({ page
   await page.goto("/admin");
   for (const label of ["Guest Requests", "Guest Sessions", "Personalization", "Conversation Modules", "Rooms", "Facilities"]) {
     await openPanel(page, label);
-    const help = page.locator(".panel.active > .contextual-help-disclosure");
+    const help = page.locator(".panel.active > .contextual-help-disclosure, .panel.active > .page-comment").first();
     await expect(help).toBeVisible();
     await expect(help).not.toHaveAttribute("open", "");
     await help.locator("summary").click();
     await expect(help).toHaveAttribute("open", "");
-    await expect(help.locator(":scope > section, :scope > .card").first()).toBeVisible();
+    await expect(help.locator(":scope > :not(summary)").first()).toBeVisible();
   }
 });
 

@@ -11,8 +11,11 @@ def test_conversation_inbox_pages_are_bounded_scoped_and_report_full_counts(
     monkeypatch.setattr(main_module, "store", sessions)
 
     waiting_ids = set()
+    property_session_ids = set()
     for index in range(105):
         session = sessions.create("test-property", f"guest-{index:03d}")
+        property_session_ids.add(session.session_id)
+        sessions.record_message(session.session_id, "test-property", "guest", f"Conversation {index:03d} started.")
         if index < 7:
             sessions.escalate_conversation(session.session_id, "test-property", "restaurant-test", "Need assistance")
             waiting_ids.add(session.session_id)
@@ -31,7 +34,7 @@ def test_conversation_inbox_pages_are_bounded_scoped_and_report_full_counts(
     first_ids = {item["session_id"] for item in first_payload["conversations"]}
     second_ids = {item["session_id"] for item in second_payload["conversations"]}
     assert first_ids.isdisjoint(second_ids)
-    assert not any(item["client_id"] == "out-of-scope-guest" for item in first_payload["conversations"] + second_payload["conversations"])
+    assert first_ids | second_ids <= property_session_ids
     assert first_payload["status_counts"]["waiting_for_staff"] == len(waiting_ids)
 
     waiting = admin_client.get("/api/admin/properties/test-property/conversations?limit=3&status=waiting_for_staff")

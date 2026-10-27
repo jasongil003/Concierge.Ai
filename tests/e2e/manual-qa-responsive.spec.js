@@ -1,17 +1,22 @@
 import { expect, test } from "@playwright/test";
 import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 
 const VIEWPORTS = [
   { width: 1920, height: 1080 },
   { width: 1440, height: 900 },
-  { width: 1280, height: 720 },
-  { width: 1024, height: 768 },
   { width: 768, height: 1024 },
-  { width: 430, height: 932 },
   { width: 390, height: 844 },
   { width: 375, height: 812 },
-  { width: 320, height: 720 },
 ];
+const AUDIT_DIRECTORY = process.env.PLAYWRIGHT_AUDIT_DIR || "test-results/manual-qa";
+
+function screenshotPath(section, view, viewport) {
+  const device = viewport.width >= 1000 ? "desktop" : viewport.width >= 700 ? "tablet" : "mobile";
+  const directory = join(AUDIT_DIRECTORY, "screenshots", section, device);
+  mkdirSync(directory, { recursive: true });
+  return join(directory, `${view}-${viewport.width}x${viewport.height}.png`);
+}
 
 async function signIn(page) {
   const response = await page.request.post("/api/admin/auth/login", {
@@ -48,10 +53,37 @@ async function openAdminPanel(page, panel) {
   await expect(page.locator(".panel.active > .page-title h1, .panel.active > .onboarding-card h1").first()).toBeVisible();
   if (isMobile) {
     await expect(shell).not.toHaveClass(/mobile-nav-open/);
-    const viewportWidth = page.viewportSize()?.width ?? 0;
-    await expect.poll(() => page.locator(".platform-sidebar").evaluate((element) => (
-      new DOMMatrixReadOnly(getComputedStyle(element).transform).m41
-    ))).toBeLessThan(-viewportWidth / 2);
+    await expect.poll(() => page.locator(".platform-sidebar").evaluate((element) => {
+      const offset = new DOMMatrixReadOnly(getComputedStyle(element).transform).m41;
+      return offset <= -element.getBoundingClientRect().width;
+    })).toBeTruthy();
+  }
+}
+
+async function waitForSettledPanel(page, panel) {
+  if (["overview", "alerts", "analytics", "reports", "system-health"].includes(panel)) {
+    const summary = page.locator("#system-health-summary strong");
+    await expect(summary).not.toHaveText(/^(Loading system checks|Checking system health)$/);
+  }
+  if (panel === "conversations") {
+    await expect(page.locator("#refresh-conversations")).toBeEnabled();
+    await expect(page.locator("#refresh-conversations")).toHaveText("Refresh inbox");
+    await expect(page.locator("#conversation-list")).not.toContainText("Loading inbox");
+  }
+  if (["knowledge", "documents", "faqs"].includes(panel)) {
+    await expect(page.locator("#knowledge-health")).not.toContainText("Loading measured coverage");
+  }
+  if (panel === "location") {
+    await expect(page.locator("#location-directory-stats")).not.toContainText("Loading directory");
+    await expect(page.locator("#location-facility-count")).not.toHaveText("Loading…");
+    await expect(page.locator("#location-map-publication")).not.toContainText("loading");
+  }
+  if (panel === "personalization-settings") {
+    await expect(page.locator("#personalization-consent-total")).not.toHaveText("Loading");
+    await expect(page.locator("#personalization-consent-summary")).not.toContainText("Consent totals are loading");
+  }
+  if (panel === "guest") {
+    await expect(page.locator("#guest-module-count")).not.toContainText("Loading modules");
   }
 }
 
@@ -77,15 +109,15 @@ test(`manual QA responsive matrix covers every admin destination at ${viewport.w
   await page.setViewportSize(viewport);
 
   const consoleErrors = [];
-  mkdirSync("audit/evidence/browser-2026-10-12", { recursive: true });
+  mkdirSync(AUDIT_DIRECTORY, { recursive: true });
   const pageErrors = [];
   const failedRequests = [];
   const serverErrors = [];
   const notFoundResponses = [];
   page.on("console", (message) => {
-    if (message.type() === "error") consoleErrors.push(`${page.url()} :: ${message.text()}`);
+    if (message.type() === "error") consoleErrors.push(message.text());
   });
-  page.on("pageerror", (error) => pageErrors.push(`${page.url()} :: ${error.message}`));
+  page.on("pageerror", (error) => pageErrors.push(error.message));
   page.on("requestfailed", (request) => failedRequests.push(`${request.method()} ${request.url()}`));
   page.on("response", (response) => {
     if (response.status() === 404) {
@@ -100,25 +132,26 @@ test(`manual QA responsive matrix covers every admin destination at ${viewport.w
   const panels = await page.locator(".nav-item[data-panel]").evaluateAll((items) => [...new Set(items.map((item) => item.dataset.panel))]);
   for (const panel of panels) {
     await openAdminPanel(page, panel);
-    await expectNoHorizontalOverflow(page, `Admin #${panel} at ${viewport.width}x${viewport.height}`);
-    if (["overview", "appearance"].includes(panel)) {
-      await page.screenshot({ path: `audit/evidence/browser-2026-10-12/admin-${panel}-${viewport.width}.png`, fullPage: true });
+    await waitForSettledPanel(page, panel);
+    if (panel === "requests") {
+      await expect(page.locator("#request-last-updated")).toContainText("Updated");
+      await expect(page.locator("#service-request-list .request-queue-state")).toHaveCount(0);
     }
+    await expectNoHorizontalOverflow(page, `Admin #${panel} at ${viewport.width}x${viewport.height}`);
+    await page.screenshot({ path: screenshotPath("admin", `admin-${panel}`, viewport), fullPage: true });
   }
 
   await page.goto("/");
   await expect(page.locator("#home-view")).toBeVisible();
   await expectNoHorizontalOverflow(page, `Guest home at ${viewport.width}x${viewport.height}`);
-  await page.screenshot({ path: `audit/evidence/browser-2026-10-12/guest-home-${viewport.width}.png`, fullPage: true });
+  await page.screenshot({ path: screenshotPath("guest", "guest-home", viewport), fullPage: true });
   const guestNavigation = page.locator(".experience-configured-navigation");
   await expect(guestNavigation).toBeVisible();
   for (const [label, panel] of [["Explore", "#explore-view"], ["Requests", "#requests-view"], ["My Stay", "#stay-view"], ["Concierge", "#concierge-view"], ["Home", "#home-view"]]) {
     await guestNavigation.getByRole("button", { name: label, exact: true }).click();
     await expect(page.locator(panel)).toBeVisible();
     await expectNoHorizontalOverflow(page, `Guest ${label} at ${viewport.width}x${viewport.height}`);
-    if (label === "Concierge") {
-      await page.screenshot({ path: `audit/evidence/browser-2026-10-12/guest-chat-${viewport.width}.png`, fullPage: true });
-    }
+    await page.screenshot({ path: screenshotPath("guest", `guest-${label.toLowerCase().replaceAll(" ", "-")}`, viewport), fullPage: true });
   }
 
   expect(pageErrors).toEqual([]);

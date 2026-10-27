@@ -3208,7 +3208,7 @@ function openLocationEditor(item = null) {
   $("location-visible").checked = item?.guest_visible !== false;
   $("location-editor-title").textContent = item ? "Edit guest location" : "Add guest location";
   if (!$("location-editor-drawer").open) $("location-editor-drawer").showModal();
-  requestAnimationFrame(() => $("location-name").focus());
+  $("location-name").focus();
 }
 
 async function saveManagedLocation() {
